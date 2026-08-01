@@ -15,7 +15,12 @@ Enums & routes are treated as functional objects. Enums come with support for PH
 
 Every Laravel application is different, and this package aims to provide the tools to tailor TypeScript types to your specific needs while providing powerful backend & frontend tooling to keep your frontend types in sync with your backend PHP code.
 
-For examples of the generated TypeScript output, see [these output examples](workbench/resources/js/types/).
+For examples of the generated TypeScript output, see [these output examples](workbench/resources/js/types/data/default-example).
+
+## Also By Me
+
+- [Laravel Iconify API & Icon Rendering](https://github.com/abetwothree/laravel-iconify-api)
+- [Tolki JS NPM packages](https://github.com/abetwothree/tolki)
 
 ## Table of Contents
 
