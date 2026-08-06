@@ -6754,7 +6754,7 @@
             },
             {
                 "name": "status",
-                "type": "unknown",
+                "type": "ShipmentStatusType",
                 "optional": false
             },
             {

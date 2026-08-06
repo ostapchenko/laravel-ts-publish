@@ -1,3 +1,4 @@
+import type { ShipmentStatusType } from '../../enums';
 import type { Shipment } from '../../models';
 
 /**
@@ -9,7 +10,7 @@ import type { Shipment } from '../../models';
 export interface TrackingEventResource
 {
     id: number;
-    status: unknown;
+    status: ShipmentStatusType;
     location: string | null;
     description: string | null;
     occurred_at: string;

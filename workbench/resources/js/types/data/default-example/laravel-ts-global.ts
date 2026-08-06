@@ -1097,7 +1097,7 @@ declare global {
             // Columns
             id: number;
             shipment_id: number;
-            status: unknown;
+            status: shipping.enums.ShipmentStatusType;
             location: string | null;
             description: string | null;
             occurred_at: string;
@@ -2569,7 +2569,7 @@ declare global {
          */
         export interface TrackingEventResource {
             id: number;
-            status: unknown;
+            status: shipping.enums.ShipmentStatusType;
             location: string | null;
             description: string | null;
             occurred_at: string;
