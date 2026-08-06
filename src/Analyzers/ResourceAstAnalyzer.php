@@ -1329,24 +1329,42 @@ class ResourceAstAnalyzer
 
     /**
      * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult when it cannot
-     * break generated imports: primitives/unions pass through verbatim, enum results
-     * carry their FQCN via directEnumFqcn so an import is generated, and anything
-     * referencing a non-enum class degrades to null — analyzeStaticCall()'s general
-     * reflection branch has no FQCN dispatch path for an arbitrary returned class (unlike
-     * resourceFqcn/modelFqcn/enumFqcn elsewhere), so emitting its token would produce a
-     * TS type with no corresponding import.
+     * break generated imports or emit a nonsense type: primitives/unions pass through
+     * verbatim, a single enum result carries its FQCN via directEnumFqcn so an import is
+     * generated, and everything else that could produce an unimportable or meaningless
+     * token degrades to null instead:
+     * - classFqcns (non-enum class) — analyzeStaticCall()'s general reflection branch has
+     *   no FQCN dispatch path for an arbitrary returned class (unlike resourceFqcn/
+     *   modelFqcn/enumFqcn elsewhere), so emitting its token would produce a TS type with
+     *   no corresponding import.
+     * - customImports (a #[TsType(import: ...)] annotation) — same problem: its import
+     *   lives only in customImports, which this branch has no dispatch path for either.
+     * - more than one enumFqcns entry (a multi-enum union, e.g. Status|Priority) —
+     *   directEnumFqcn is a single slot; plumbing only enumFqcns[0] would silently drop
+     *   the import for the rest while still naming them in the type string.
+     * - 'void' / 'never' / the 'unknown | null' that `mixed` always reflects as (mixed's
+     *   ReflectionNamedType::allowsNull() is always true) — syntactically valid TS, but
+     *   not meaningful property types.
      *
      * @param  TypeScriptTypeInfo  $tsInfo
      * @return ValueExpressionResult|null
      */
     protected function acceptReflectedTypeInfo(array $tsInfo): ?array
     {
-        if ($tsInfo['type'] === 'unknown' || $tsInfo['type'] === '') {
+        if (in_array($tsInfo['type'], ['unknown', 'unknown | null', 'void', 'never', ''], true)) {
+            return null;
+        }
+
+        if ($tsInfo['customImports'] !== []) {
             return null;
         }
 
         // Enum return — plumb the FQCN so an import is generated for the enum type alias.
         if ($tsInfo['enumFqcns'] !== []) {
+            if (count($tsInfo['enumFqcns']) > 1) {
+                return null;
+            }
+
             return [
                 ...$this->unknownResult(),
                 'type' => $tsInfo['type'],
@@ -1393,6 +1411,27 @@ class ResourceAstAnalyzer
             }
 
             return $result;
+        }
+
+        // new SomeCollection($this->items) where SomeCollection is a ResourceCollection
+        // subclass — resolve the collected resource's element type via the same
+        // collectedResourceClass() helper analyzeStaticCall() uses for ::make()/
+        // ::collection(). Must run before the generic isResourceClass() branch below for
+        // the same reason as there: ResourceCollection extends JsonResource, so the
+        // generic branch would otherwise match first and produce the unsuffixed,
+        // collection-class-named type. Falls through to it when the collected resource
+        // can't be resolved, preserving prior behavior.
+        if (is_a($className, ResourceCollection::class, true)) {
+            $collected = $this->collectedResourceClass($className);
+
+            if ($collected !== null) {
+                return [
+                    ...$result,
+                    'type' => class_basename($collected).'[]',
+                    'optional' => $this->hasConditionalNewArgument($expr),
+                    'resourceFqcn' => $collected,
+                ];
+            }
         }
 
         if (! $this->isResourceClass($className)) {

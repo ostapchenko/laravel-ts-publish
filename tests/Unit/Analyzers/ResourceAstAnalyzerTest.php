@@ -3995,4 +3995,28 @@ describe('static call inference', function () {
         // reference. acceptReflectedTypeInfo() must degrade this to unknown instead.
         expect($this->props['located_order']['type'])->toBe('unknown');
     });
+
+    test('new ResourceCollection(...) resolves to collected resource array', function () {
+        expect($this->props['new_items']['type'])->toBe('OrderItemResource[]');
+    });
+
+    test('static call declared to return a #[TsType]-annotated class degrades to unknown', function () {
+        // customImports has no dispatch path from this general-reflection branch —
+        // accepting the type token would emit a reference whose import (registered only
+        // in customImports, not classFqcns/enumFqcns) is silently dropped.
+        expect($this->props['menu_settings']['type'])->toBe('unknown');
+    });
+
+    test('static call declared to return a multi-enum union degrades to unknown', function () {
+        // directEnumFqcn carries a single FQCN. A Status|Priority union return produces
+        // two entries in enumFqcns; plumbing only enumFqcns[0] would silently drop the
+        // import for the other enum while still emitting its name in the type string.
+        expect($this->props['status_or_priority']['type'])->toBe('unknown');
+    });
+
+    test('static call declared void/never/mixed degrades to unknown', function () {
+        foreach (['void_return', 'never_return', 'mixed_return'] as $name) {
+            expect($this->props[$name]['type'])->toBe('unknown', "property {$name}");
+        }
+    });
 });

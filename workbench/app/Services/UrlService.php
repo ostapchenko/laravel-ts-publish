@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Workbench\App\Services;
 
+use RuntimeException;
+use Workbench\App\Casts\MenuSettings;
+use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Status;
 use Workbench\App\Models\Order;
 
@@ -14,6 +17,14 @@ use Workbench\App\Models\Order;
  * returned enum, and a directly returned model — the latter proves that
  * acceptReflectedTypeInfo() degrades an unpublished class token to unknown
  * rather than emit a type with no import.
+ *
+ * Also exercises acceptReflectedTypeInfo()'s remaining reject paths, each
+ * previously unproven by a fixture-backed test: a #[TsType(import: ...)]-annotated
+ * class (its import lives only in customImports, which the general-reflection
+ * branch has no dispatch path for), a multi-enum union (directEnumFqcn is a
+ * single slot — plumbing only enumFqcns[0] would silently drop the rest), and
+ * void/never/mixed return types (which produce syntactically valid but
+ * semantically nonsense property types if accepted as-is).
  */
 class UrlService
 {
@@ -36,5 +47,29 @@ class UrlService
     public static function locateOrder(int $id): Order
     {
         return Order::query()->findOrFail($id);
+    }
+
+    public static function menuSettings(): MenuSettings
+    {
+        return new MenuSettings;
+    }
+
+    public static function statusOrPriority(): Status|Priority
+    {
+        return Status::Draft;
+    }
+
+    public static function voidReturn(): void
+    {
+    }
+
+    public static function neverReturn(): never
+    {
+        throw new RuntimeException('never returns');
+    }
+
+    public static function mixedReturn(): mixed
+    {
+        return null;
     }
 }

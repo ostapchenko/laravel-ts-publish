@@ -17,4 +17,10 @@ export interface StaticCallResource
     items: OrderItemResource[];
     default_status: StatusType;
     located_order: unknown;
+    new_items: OrderItemResource[];
+    menu_settings: unknown;
+    status_or_priority: unknown;
+    void_return: unknown;
+    never_return: unknown;
+    mixed_return: unknown;
 }

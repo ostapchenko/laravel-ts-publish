@@ -8106,6 +8106,36 @@
                 "name": "located_order",
                 "type": "unknown",
                 "optional": false
+            },
+            {
+                "name": "new_items",
+                "type": "OrderItemResource[]",
+                "optional": false
+            },
+            {
+                "name": "menu_settings",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "status_or_priority",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "void_return",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "never_return",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "mixed_return",
+                "type": "unknown",
+                "optional": false
             }
         ],
         "AddressMixinResource": [

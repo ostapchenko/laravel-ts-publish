@@ -32,8 +32,10 @@ class BooleanExprResource extends JsonResource
             'compared' => $this->total <=> 100,
             // Regression guard: (float) cast already resolves to `number` without a #[TsCasts] override.
             'price_float' => (float) $this->total,
-            // Regression guard: whenLoaded closure with a `?string` return annotation already
-            // resolves to `string | null`, optional, without a #[TsCasts] override.
+            // Regression guard: whenLoaded closure over a nullsafe relation property already
+            // resolves to `string | null`, optional, without a #[TsCasts] override. The `?string`
+            // return annotation here is inert — resolution comes from the body, `$this->user?->email`,
+            // against the loaded `user` relation model, not from the annotation.
             'user_bio' => $this->whenLoaded('user', fn (): ?string => $this->user?->email),
         ];
     }
