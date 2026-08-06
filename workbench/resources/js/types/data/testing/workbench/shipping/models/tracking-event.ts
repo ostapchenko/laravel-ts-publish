@@ -5,7 +5,7 @@ export interface TrackingEvent
 {
     id: number;
     shipment_id: number;
-    status: string;
+    status: unknown;
     location: string | null;
     description: string | null;
     occurred_at: string;

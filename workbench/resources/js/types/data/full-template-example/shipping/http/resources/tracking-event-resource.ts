@@ -9,7 +9,7 @@ import type { Shipment } from '../../models';
 export interface TrackingEventResource
 {
     id: number;
-    status: string;
+    status: unknown;
     location: string | null;
     description: string | null;
     occurred_at: string;

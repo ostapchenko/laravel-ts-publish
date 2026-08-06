@@ -153,7 +153,9 @@ class LaravelTsPublish
      * 5b. __toString (non-Model) → string
      * 5. Any other class → class_basename()
      * 6. encrypted:* compound casts
-     * 7. Partial TS map string match
+     * 7. Partial TS map string match — skipped when the input looks class-like
+     *    (see looksLikeClassName()), so an unresolvable class name degrades to
+     *    unknown instead of a wrong-but-plausible scalar
      * 8. unknown
      *
      * @return TypeScriptTypeInfo
@@ -298,18 +300,40 @@ class LaravelTsPublish
             return $this->toTsType($inner);
         }
 
-        // 7. Partial map match (e.g. "tinyint(1)" contains "tinyint")
-        foreach ($typesMap as $key => $value) {
-            if (str_contains($lower, $key)) {
-                $result['type'] = is_string($value) ? $value : $value();
+        // 7. Partial map match (e.g. "tinyint(1)" contains "tinyint").
+        //    Only real database/cast type strings are eligible. A class-like
+        //    name must not partial-match — "Point" contains "int", "Character"
+        //    contains "char", "Update" contains "date" — which would emit a
+        //    wrong-but-plausible scalar for a type we simply could not resolve.
+        if (! $this->looksLikeClassName($phpType)) {
+            foreach ($typesMap as $key => $value) {
+                if (str_contains($lower, $key)) {
+                    $result['type'] = is_string($value) ? $value : $value();
 
-                return $result;
+                    return $result;
+                }
             }
         }
 
         $result['type'] = 'unknown';
 
         return $result;
+    }
+
+    /**
+     * Whether a type string looks like a class name rather than a database or
+     * cast type string.
+     *
+     * Only the head is examined — the part before the first '(', ':' or
+     * whitespace — because Laravel cast parameters legitimately carry uppercase
+     * ("date:Y-m-d", "datetime:Y-m-d H:i:s") while their type name never does.
+     */
+    protected function looksLikeClassName(string $phpType): bool
+    {
+        $head = preg_split('/[(:\s]/', $phpType, 2)[0] ?? '';
+
+        return $head !== ''
+            && (preg_match('/[A-Z]/', $head) === 1 || str_contains($head, '\\'));
     }
 
     /**

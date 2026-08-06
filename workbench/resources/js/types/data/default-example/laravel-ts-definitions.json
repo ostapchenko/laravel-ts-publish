@@ -6754,7 +6754,7 @@
             },
             {
                 "name": "status",
-                "type": "string",
+                "type": "unknown",
                 "optional": false
             },
             {

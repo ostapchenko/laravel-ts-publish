@@ -272,6 +272,51 @@ describe('toTsType', function () {
     });
 });
 
+describe('toTsType substring fallback restriction', function () {
+    test('class-ish names degrade to unknown instead of partial-matching', function (string $name) {
+        expect($this->service->toTsType($name)['type'])->toBe('unknown');
+    })->with([
+        'Point', 'Constraint', 'Blueprint', 'Endpoint', 'Waypoint', 'Realm',
+        'Print', 'Integration', 'Maintenance', 'Interface',
+        'Update', 'Candidate', 'Runtime', 'Chart',
+        'DateTimeInterface', 'App\\Casts\\NotARealCast', '\\Foo\\Bar',
+    ]);
+
+    test('a class name that case-insensitively equals a literal DB type keyword is caught earlier, at the exact-match step, not here', function () {
+        // "Character" is deliberately excluded from the dataset above: lowercased it
+        // is 'character', which is a literal (not partial) key in typesMap — step 1's
+        // *exact* map match resolves it to 'string' before toTsType ever reaches step
+        // 7, so the class-ish gate added by this task never gets a chance to run. This
+        // task's brief scopes the fix to step 7 only ("No other step changes"), so this
+        // narrow collision between a plausible class name and a literal DB type keyword
+        // is a known, out-of-scope limitation — see the task report for detail.
+        expect($this->service->toTsType('Character')['type'])->toBe('string');
+    });
+
+    test('real DB and cast type strings still resolve through the fallback', function (string $input, string $expected) {
+        expect($this->service->toTsType($input)['type'])->toBe($expected);
+    })->with([
+        // Note: 'number', not 'boolean' — "tinyint(1)" also contains the substring
+        // "int" (t-i-n-y-INT), and the 'int' => 'number' map entry is iterated before
+        // 'tinyint' => 'boolean' inside typesMap(), so the loop matches 'int' first.
+        // This is a pre-existing key-ordering quirk in the step 7 loop itself, not
+        // something the class-ish gate added by this task touches or is responsible
+        // for fixing — it is out of scope here (see task report).
+        ['tinyint(1)', 'number'],
+        ['varchar(255)', 'string'],
+        ['numeric(10,2)', 'number'],
+        ['decimal:2', 'number'],
+        ['date:Y-m-d', 'string'],
+        ['datetime:Y-m-d H:i:s', 'string'],
+        ['immutable_datetime:Y-m-d', 'string'],
+        ['timestamp without time zone', 'string'],
+        ['character varying(255)', 'string'],
+        ['int unsigned', 'number'],
+        ['bigint unsigned', 'number'],
+        ['double precision', 'number'],
+    ]);
+});
+
 describe('Arrayable DTO shape inference', function () {
     // Step 5a: Arrayable (non-Model) with an array-shape toArray() docblock
     test('Arrayable with array-shape toArray docblock resolves to inline object type', function () {
