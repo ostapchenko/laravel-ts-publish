@@ -231,22 +231,13 @@ test('bare @return Attribute docblock does not override a usable closure signatu
 });
 
 test('attributeDocblockReturnTypes resolves Attribute<> written as a fully-qualified class name', function () {
-    // Defined via eval() rather than a physical class: Pint's fully_qualified_strict_types
-    // fixer rewrites any literal FQCN it finds in a docblock — even inside a custom
-    // tag, even with no matching `use` import to begin with (it adds one) — down to
-    // its short, auto-imported form. A checked-in fixture could never keep this
-    // text intact, so the class is built from a string at runtime instead, which
-    // Pint never sees.
-    eval(<<<'CODE'
-        class FqcnAttributeDocblockFixture
-        {
-            /** @return \Illuminate\Database\Eloquent\Casts\Attribute<array<int, string>, never> */
-            public function sortedByFqcnDocblock()
-            {
-                return null;
-            }
-        }
-        CODE);
+    // Loaded from a `.php.stub` fixture rather than a `.php` class: Pint's
+    // fully_qualified_strict_types fixer rewrites any literal FQCN it finds in a
+    // docblock — even inside a custom tag, even with no matching `use` import to
+    // begin with (it adds one) — down to its short, auto-imported form. Pint's
+    // finder only matches `*.php`, so the `.stub` file's literal FQCN text
+    // survives untouched. See the fixture file for details.
+    require_once __DIR__.'/../Fixtures/FqcnAttributeDocblockFixture.php.stub';
 
     $method = new ReflectionMethod(FqcnAttributeDocblockFixture::class, 'sortedByFqcnDocblock');
     $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);

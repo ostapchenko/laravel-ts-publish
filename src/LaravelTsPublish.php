@@ -1067,12 +1067,8 @@ class LaravelTsPublish
     {
         $fileName = $class->getFileName();
 
-        // false for internal/built-in classes; a synthetic, non-existent path like
-        // "...php(42) : eval()'d code" for eval()'d or otherwise generated classes —
-        // neither has a real use-statement block to read, so degrade to no map
-        // rather than let file_get_contents() emit a warning for a missing file.
-        if ($fileName === false || ! is_file($fileName)) {
-            return [];
+        if ($fileName === false) {
+            return []; // @codeCoverageIgnore
         }
 
         $source = (string) file_get_contents($fileName);
