@@ -318,4 +318,33 @@ describe('@property docblock refinement', function () {
         expect($info['type'])->toBe('User | null')
             ->and($info['classFqcns'])->toBe([User::class]);
     });
+
+    test('an unrecognized generic container degrades to the pre-existing vague type instead of partial-matching', function () {
+        // 'tags' is tagged `@property LengthAwarePaginator<int, OrderItem>|null` —
+        // LengthAwarePaginator isn't a Collection/array/list shape
+        // resolveGenericContainerType() knows how to unwrap, so the resolved
+        // name string still contains '<' afterwards. Without degrading that
+        // case, it would fall into toTsType()'s partial string matching, where
+        // the literal "int" inside the generic silently resolves to 'number'.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'tags');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a different tag\'s description mentioning another column\'s $variable does not bleed into that column\'s type', function () {
+        // The fixture's `label` tag (not a real column) reads:
+        // "@property string $label Falls back to the $related_users value" —
+        // its description text mentions "$related_users" a second time. A type
+        // capture that doesn't stop at '$' could walk through $label's own
+        // marker and its description, then wrongly claim all of that
+        // ("string $label Falls back to the") as related_users's type — which
+        // toTsType() would then partial-match to the 'string' primitive.
+        // related_users's only real tag is @property-write (already excluded),
+        // so it must still be unrefined.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
 });

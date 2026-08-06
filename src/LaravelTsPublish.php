@@ -576,24 +576,7 @@ class LaravelTsPublish
                 continue; // @codeCoverageIgnore
             }
 
-            $generic = $this->resolveGenericContainerType($part, $useMap, $namespace);
-
-            if ($generic !== null) {
-                $infos[] = $generic;
-
-                continue;
-            }
-
-            $resolved = $this->resolveDocblockTypeName($part, $useMap, $namespace);
-
-            // A part still containing '<' is an unresolved generic (e.g. an unrecognized
-            // container shape) — resolveGenericContainerType() above already handles the
-            // known container forms. Degrade to 'unknown' here rather than let it fall into
-            // toTsType()'s partial string matching, where e.g. the 'int' inside would
-            // silently resolve to 'number'.
-            $infos[] = str_contains($resolved, '<')
-                ? $this->emptyTypeScriptInfo()
-                : $this->toTsType($resolved);
+            $infos[] = $this->resolveDocblockTypePart($part, $useMap, $namespace);
         }
 
         if ($infos === []) {
@@ -676,24 +659,7 @@ class LaravelTsPublish
         $infos = [];
 
         foreach ($parts as $part) {
-            $generic = $this->resolveGenericContainerType($part, $useMap, $namespace);
-
-            if ($generic !== null) {
-                $infos[] = $generic;
-
-                continue;
-            }
-
-            $resolved = $this->resolveDocblockTypeName($part, $useMap, $namespace);
-
-            // A part still containing '<' is an unresolved generic (e.g. an unrecognized
-            // container shape) — resolveGenericContainerType() above already handles the
-            // known container forms. Degrade to 'unknown' here rather than let it fall into
-            // toTsType()'s partial string matching, where e.g. the 'int' inside would
-            // silently resolve to 'number'.
-            $infos[] = str_contains($resolved, '<')
-                ? $this->emptyTypeScriptInfo()
-                : $this->toTsType($resolved);
+            $infos[] = $this->resolveDocblockTypePart($part, $useMap, $namespace);
         }
 
         if (count($infos) === 1) {
@@ -701,6 +667,39 @@ class LaravelTsPublish
         }
 
         return $this->mergeTypeScriptInfos($infos);
+    }
+
+    /**
+     * Resolve one split PHPDoc type-union part (a single member of e.g.
+     * `string|null`) to a TypeScriptTypeInfo — the generic-container pipeline
+     * first, falling back to plain name resolution through toTsType.
+     *
+     * A part still containing '<' after name resolution is an unrecognized
+     * generic shape (resolveGenericContainerType() below already handles the
+     * known container forms, e.g. Collection<int, X>) — degrade to 'unknown'
+     * here rather than let it fall into toTsType()'s partial string matching,
+     * where e.g. the 'int' inside would silently resolve to 'number'.
+     *
+     * Shared by every call site that resolves a split docblock type part
+     * (@return parsing, Attribute<> getter types, @property refinement) so
+     * this guard is written once instead of hand-copied per call site.
+     *
+     * @param  array<string, string>  $useMap
+     * @return TypeScriptTypeInfo
+     */
+    public function resolveDocblockTypePart(string $part, array $useMap, string $namespace): array
+    {
+        $generic = $this->resolveGenericContainerType($part, $useMap, $namespace);
+
+        if ($generic !== null) {
+            return $generic;
+        }
+
+        $resolved = $this->resolveDocblockTypeName($part, $useMap, $namespace);
+
+        return str_contains($resolved, '<')
+            ? $this->emptyTypeScriptInfo()
+            : $this->toTsType($resolved);
     }
 
     /**

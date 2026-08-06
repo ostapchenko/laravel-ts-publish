@@ -140,13 +140,22 @@ class ModelAttributeResolver
                 continue;
             }
 
-            // The type capture is a non-greedy `.+?` rather than `\S+`: PHPDoc
-            // generics routinely contain internal spaces (e.g. `array<string,
-            // string>`, per this method's own docblock example above), and `.`
-            // without the /s modifier stops at the line's newline — so this
-            // still can't cross into a different @property tag on another line.
+            // The type capture is a non-greedy `[^$\r\n]+?` rather than `\S+`:
+            // PHPDoc generics routinely contain internal spaces (e.g.
+            // `array<string, string>`, per this method's own docblock example
+            // above), so a whitespace-stopped `\S+` can't span them. Excluding
+            // `$` and line breaks from the capture (instead of the simpler
+            // `.+?`) closes two related holes: `.+?` can capture straight
+            // through a *different* tag's own `$variable` and past its
+            // description text (e.g. `@property string $label Falls back to
+            // the $otherColumn value` would otherwise let a query for
+            // `otherColumn` capture "string $label Falls back to the" as its
+            // type), and `\s+` matches newlines, so a type-less `@property`
+            // line could bleed into whatever text follows it. `[ \t]+`
+            // (instead of `\s+`) around the capture keeps the whole match
+            // confined to one line for the same reason.
             if (! preg_match(
-                '/@property(?:-read)?\s+(.+?)\s+\$'.preg_quote($attributeName, '/').'\b/',
+                '/@property(?:-read)?[ \t]+([^$\r\n]+?)[ \t]+\$'.preg_quote($attributeName, '/').'\b/',
                 $doc,
                 $m,
             )) {
@@ -159,10 +168,7 @@ class ModelAttributeResolver
             $infos = [];
 
             foreach (LaravelTsPublish::splitPhpDocUnionType($m[1]) as $part) {
-                $generic = LaravelTsPublish::resolveGenericContainerType($part, $useMap, $namespace);
-
-                $infos[] = $generic
-                    ?? LaravelTsPublish::toTsType(LaravelTsPublish::resolveDocblockTypeName($part, $useMap, $namespace));
+                $infos[] = LaravelTsPublish::resolveDocblockTypePart($part, $useMap, $namespace);
             }
 
             $resolved = count($infos) === 1 ? $infos[0] : LaravelTsPublish::mergeTypeScriptInfos($infos);

@@ -5301,7 +5301,7 @@
             },
             {
                 "name": "tags",
-                "type": "string | null"
+                "type": "unknown[] | null"
             },
             {
                 "name": "related_users",
