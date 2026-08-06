@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
 use Workbench\App\Models\Order;
+use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
 use Workbench\App\Models\User;
@@ -193,8 +194,9 @@ test('attributeDocblockReturnTypes captures nested generic getter type', functio
     $method = new ReflectionMethod(Order::class, 'sortedItems');
     $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
 
-    // Before Task 3 lands the generic resolves imperfectly, but it must NOT
-    // resolve as the truncated 'Collection<int' capture (which partial-matches
-    // 'int' => number). 'number' is the sentinel for the truncation bug.
-    expect($info['type'])->not->toBe('number');
+    // The full 'Attribute<Collection<int, OrderItem>, never>' docblock resolves
+    // through the generic-container pipeline to a typed array, carrying the
+    // OrderItem FQCN so the import machinery still fires.
+    expect($info['type'])->toBe('OrderItem[]')
+        ->and($info['classFqcns'])->toBe([OrderItem::class]);
 });

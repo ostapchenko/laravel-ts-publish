@@ -25,6 +25,8 @@ use function Orchestra\Testbench\workbench_path;
 use Workbench\App\Casts\MenuSettings;
 use Workbench\App\Enums\Role;
 use Workbench\App\Enums\Status;
+use Workbench\App\Models\Order;
+use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\User;
 use Workbench\Shipping\Enums\Status as ShippingStatus;
 
@@ -506,6 +508,45 @@ describe('phpstan-return docblock support', function () {
 
         expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
             ->toBe('string');
+    });
+});
+
+describe('psalm-return and nested generic docblock support', function () {
+    test('extractReturnTypeFromDocblock falls back to @psalm-return', function () {
+        $doc = "/**\n * @psalm-return string|null\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('string|null');
+    });
+
+    test('extractReturnTypeFromDocblock brace-walk captures a full nested generic string', function () {
+        $doc = "/**\n * @return Collection<int, array<string, int>>\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('Collection<int, array<string, int>>');
+    });
+});
+
+describe('generic container docblock types', function () {
+    test('Collection<int, Model> resolves to Model[]', function () {
+        $method = new ReflectionMethod(Order::class, 'sortedItems');
+        $info = app(LaravelTsPublish::class)->attributeDocblockReturnTypes($method);
+
+        expect($info['type'])->toBe('OrderItem[]')
+            ->and($info['classFqcns'])->toBe([OrderItem::class]);
+    });
+
+    test('array<string, int> resolves to Record<string, number>', function () {
+        $method = new ReflectionMethod(Order::class, 'scoreMap');
+        $info = app(LaravelTsPublish::class)->attributeDocblockReturnTypes($method);
+
+        expect($info['type'])->toBe('Record<string, number>');
+    });
+
+    test('list<string> resolves to string[]', function () {
+        $ts = app(LaravelTsPublish::class)->resolvePhpDocTypeToTs('list<string>', [], '');
+
+        expect($ts)->toBe('string[]');
     });
 });
 

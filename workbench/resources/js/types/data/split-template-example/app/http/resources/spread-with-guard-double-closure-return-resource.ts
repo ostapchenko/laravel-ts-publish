@@ -31,7 +31,7 @@ export interface SpreadWithGuardDoubleClosureReturnResource
     is_paid: boolean;
     formatted_total: string;
     search_index: unknown;
-    score_map: unknown;
+    score_map: Record<string, number>;
     sorted_items: unknown[] | Record<string, unknown>;
     user: User;
     items: OrderItem[];

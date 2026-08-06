@@ -476,6 +476,14 @@ class LaravelTsPublish
                 continue; // @codeCoverageIgnore
             }
 
+            $generic = $this->resolveGenericContainerType($part, $useMap, $namespace);
+
+            if ($generic !== null) {
+                $infos[] = $generic;
+
+                continue;
+            }
+
             $resolved = $this->resolveDocblockTypeName($part, $useMap, $namespace);
             $infos[] = $this->toTsType($resolved);
         }
@@ -540,27 +548,128 @@ class LaravelTsPublish
         $useMap = $this->parseFileUseStatements($declaringClass);
         $namespace = $declaringClass->getNamespaceName();
 
-        $parts = array_map(
-            fn (string $part) => $this->resolveDocblockTypeName($part, $useMap, $namespace),
-            $parts,
-        );
+        $infos = [];
 
-        // A part still containing '<' is an unresolved generic (e.g. Collection<int, Foo>) —
-        // real generic-container resolution is a separate concern. Degrade to 'unknown' here
-        // rather than let it fall into toTsType()'s partial string matching, where e.g. the
-        // 'int' inside would silently resolve to 'number'.
-        $infos = array_map(
-            fn (string $part) => str_contains($part, '<')
+        foreach ($parts as $part) {
+            $generic = $this->resolveGenericContainerType($part, $useMap, $namespace);
+
+            if ($generic !== null) {
+                $infos[] = $generic;
+
+                continue;
+            }
+
+            $resolved = $this->resolveDocblockTypeName($part, $useMap, $namespace);
+
+            // A part still containing '<' is an unresolved generic (e.g. an unrecognized
+            // container shape) — resolveGenericContainerType() above already handles the
+            // known container forms. Degrade to 'unknown' here rather than let it fall into
+            // toTsType()'s partial string matching, where e.g. the 'int' inside would
+            // silently resolve to 'number'.
+            $infos[] = str_contains($resolved, '<')
                 ? $this->emptyTypeScriptInfo()
-                : $this->toTsType($part),
-            $parts,
-        );
+                : $this->toTsType($resolved);
+        }
 
         if (count($infos) === 1) {
             return $infos[0];
         }
 
         return $this->mergeTypeScriptInfos($infos);
+    }
+
+    /**
+     * Resolve a PHPDoc generic container type (Collection<int, X>, array<string, X>,
+     * list<X>, X[]) to a TypeScriptTypeInfo. Returns null when $type is not a
+     * recognized container so callers can fall through to toTsType().
+     *
+     * @param  array<string, string>  $useMap
+     * @return TypeScriptTypeInfo|null
+     */
+    public function resolveGenericContainerType(string $type, array $useMap, string $namespace): ?array
+    {
+        $type = trim($type);
+
+        // X[] shorthand (but not TS-style unions — split upstream)
+        if (str_ends_with($type, '[]')) {
+            $inner = $this->resolveDocblockContainerValue(substr($type, 0, -2), $useMap, $namespace);
+
+            return $this->wrapAsArray($inner);
+        }
+
+        if (! preg_match('/^([\w\\\\]+)\s*<(.+)>$/s', $type, $m)) {
+            return null;
+        }
+
+        $container = $this->resolveDocblockTypeName($m[1], $useMap, $namespace);
+        $isList = strtolower($m[1]) === 'list';
+        $isArray = strtolower($m[1]) === 'array' || strtolower($m[1]) === 'iterable';
+        $isCollection = is_a($container, \Illuminate\Support\Collection::class, true);
+
+        if (! $isList && ! $isArray && ! $isCollection) {
+            return null;
+        }
+
+        $args = array_map('trim', $this->splitAtTopLevelCommas($m[2]));
+        $keyType = count($args) === 2 ? strtolower($args[0]) : 'int';
+        $valueTypeString = count($args) === 2 ? $args[1] : $args[0];
+
+        $inner = $this->resolveDocblockContainerValue($valueTypeString, $useMap, $namespace);
+
+        if ($keyType === 'string') {
+            $inner['type'] = 'Record<string, '.$inner['type'].'>';
+
+            return $inner;
+        }
+
+        if ($keyType === 'array-key' || $keyType === 'mixed') {
+            $record = 'Record<string, '.$inner['type'].'>';
+            $list = $inner['type'].'[]';
+            $inner['type'] = $record.' | '.$list;
+
+            return $inner;
+        }
+
+        return $this->wrapAsArray($inner);
+    }
+
+    /**
+     * Resolve a container's value type — recurse for nested containers,
+     * otherwise resolve through the normal docblock pipeline.
+     *
+     * @param  array<string, string>  $useMap
+     * @return TypeScriptTypeInfo
+     */
+    protected function resolveDocblockContainerValue(string $valueType, array $useMap, string $namespace): array
+    {
+        $nested = $this->resolveGenericContainerType($valueType, $useMap, $namespace);
+
+        if ($nested !== null) {
+            return $nested;
+        }
+
+        // Unions inside the value slot (e.g. Collection<int, A|B>)
+        $parts = $this->splitPhpDocUnionType($valueType);
+        $infos = [];
+
+        foreach ($parts as $part) {
+            $resolved = $this->resolveDocblockTypeName(trim($part), $useMap, $namespace);
+            $infos[] = $this->toTsType($resolved);
+        }
+
+        return count($infos) === 1 ? $infos[0] : $this->mergeTypeScriptInfos($infos);
+    }
+
+    /** @param TypeScriptTypeInfo $info
+     * @return TypeScriptTypeInfo */
+    protected function wrapAsArray(array $info): array
+    {
+        // Parenthesize unions before appending []
+        $info['type'] = str_contains($info['type'], '|')
+            ? '('.$info['type'].')[]'
+            : $info['type'].'[]';
+
+        return $info;
     }
 
     /**
@@ -605,7 +714,7 @@ class LaravelTsPublish
      * Extract the complete `@return` type string from a docblock,
      * including multiline `array{...}` shapes with nested braces.
      *
-     * Returns null when no `@return` tag is found.
+     * Returns null when no `@return`, `@phpstan-return`, or `@psalm-return` tag is found.
      */
     public function extractReturnTypeFromDocblock(string $docComment): ?string
     {
@@ -838,6 +947,13 @@ class LaravelTsPublish
             );
 
             return implode(' | ', $tsParts);
+        }
+
+        // Generic container types (Collection<int, X>, array<string, X>, list<X>, X[])
+        $generic = $this->resolveGenericContainerType($phpType, $useMap, $namespace);
+
+        if ($generic !== null) {
+            return $generic['type'];
         }
 
         // Handle array{...} shapes recursively (after union split, this is a pure shape)
