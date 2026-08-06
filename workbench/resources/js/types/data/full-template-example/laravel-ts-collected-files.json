@@ -73,6 +73,7 @@
     "app\/Http\/Resources\/ApiPostResource.php",
     "app\/Http\/Resources\/BareFuncCallResource.php",
     "app\/Http\/Resources\/BaseSharedResource.php",
+    "app\/Http\/Resources\/BooleanExprResource.php",
     "app\/Http\/Resources\/CategoryResource.php",
     "app\/Http\/Resources\/ChildSharedResource.php",
     "app\/Http\/Resources\/ClosureControlFlowResource.php",

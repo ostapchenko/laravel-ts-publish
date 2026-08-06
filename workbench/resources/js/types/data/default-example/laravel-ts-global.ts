@@ -2015,6 +2015,20 @@ declare global {
             items_exists: boolean;
             formatted_total_camel: string;
         }
+        /** Exercises comparison and boolean operator expressions. */
+        export interface BooleanExprResource {
+            is_recent: boolean;
+            is_equal: boolean;
+            is_large: boolean;
+            both: boolean;
+            negated: boolean;
+            is_order: boolean;
+            has_notes: boolean;
+            no_notes: boolean;
+            compared: number;
+            price_float: number;
+            user_bio?: string | null;
+        }
         export interface PostCollection {
             data: PostResource[];
         }

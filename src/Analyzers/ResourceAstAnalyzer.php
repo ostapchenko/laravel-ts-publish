@@ -31,8 +31,10 @@ use PhpParser\Node\Expr\Cast\Int_ as CastInt;
 use PhpParser\Node\Expr\Cast\String_ as CastString;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\ConstFetch;
+use PhpParser\Node\Expr\Empty_;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
+use PhpParser\Node\Expr\Isset_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
@@ -509,6 +511,38 @@ class ResourceAstAnalyzer
         // String concatenation always produces a string result.
         if ($expr instanceof BinaryOp\Concat) {
             return ['type' => 'string', 'optional' => false];
+        }
+
+        // Comparison, logical, and type-test operators always produce a boolean.
+        // Note: BooleanAnd/BooleanOr are sometimes used as null-guards
+        // (`$this->x && $this->x->y`), where the runtime value is the right operand or
+        // `false`, not a true boolean. We deliberately don't special-case that pattern —
+        // predicate usage dominates in resource output, and detecting the guard pattern
+        // precisely is YAGNI for this analyzer.
+        if ($expr instanceof BinaryOp\Identical
+            || $expr instanceof BinaryOp\NotIdentical
+            || $expr instanceof BinaryOp\Equal
+            || $expr instanceof BinaryOp\NotEqual
+            || $expr instanceof BinaryOp\Greater
+            || $expr instanceof BinaryOp\GreaterOrEqual
+            || $expr instanceof BinaryOp\Smaller
+            || $expr instanceof BinaryOp\SmallerOrEqual
+            || $expr instanceof BinaryOp\BooleanAnd
+            || $expr instanceof BinaryOp\BooleanOr
+            || $expr instanceof BinaryOp\LogicalAnd
+            || $expr instanceof BinaryOp\LogicalOr
+            || $expr instanceof BinaryOp\LogicalXor
+            || $expr instanceof BooleanNot
+            || $expr instanceof Instanceof_
+            || $expr instanceof Isset_
+            || $expr instanceof Empty_
+        ) {
+            return ['type' => 'boolean', 'optional' => false];
+        }
+
+        // Spaceship comparison produces -1|0|1.
+        if ($expr instanceof BinaryOp\Spaceship) {
+            return ['type' => 'number', 'optional' => false];
         }
 
         // Null coalescing operator ($left ?? $right) — returns left if non-null, right otherwise.

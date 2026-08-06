@@ -14,6 +14,7 @@ use Workbench\App\Enums\Visibility;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
+use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
@@ -3905,5 +3906,52 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('VisibilityType | null')
             ->and($prop['optional'])->toBeTrue();
+    });
+});
+
+describe('boolean expression inference', function () {
+    // Known limitation: `$a && $b` is also commonly used in resources as a null-guard
+    // (e.g. `$this->x && $this->x->y`), where the runtime value is the right operand or
+    // `false`, not a true boolean. We deliberately type all BooleanAnd/BooleanOr/Logical*
+    // expressions as plain `boolean` rather than special-casing the guard pattern — the
+    // predicate usage is by far the common case in resource output and the guard pattern
+    // is YAGNI to detect precisely. See task-9-brief.md Step 4 for the discussion.
+    test('comparison and logical operators resolve to boolean', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        foreach (['is_recent', 'is_equal', 'is_large', 'both', 'negated', 'is_order', 'has_notes', 'no_notes'] as $name) {
+            expect($props[$name]['type'])->toBe('boolean', "property {$name}");
+            expect($props[$name]['optional'])->toBeFalse("property {$name}");
+        }
+    });
+
+    test('spaceship comparison resolves to number', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['compared']['type'])->toBe('number')
+            ->and($props['compared']['optional'])->toBeFalse();
+    });
+});
+
+describe('TsCasts-removability regressions', function () {
+    test('(float) cast resolves to number', function () {
+        // Guards against a #[TsCasts] annotation being reintroduced for a plain (float) cast.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['price_float']['type'])->toBe('number')
+            ->and($props['price_float']['optional'])->toBeFalse();
+    });
+
+    test('whenLoaded closure with ?string annotation resolves to string | null optional', function () {
+        // Guards against a #[TsCasts] annotation being reintroduced for a whenLoaded closure
+        // whose nullsafe chain and ?string annotation are already inferable.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['user_bio']['type'])->toContain('string')
+            ->and($props['user_bio']['optional'])->toBeTrue();
     });
 });

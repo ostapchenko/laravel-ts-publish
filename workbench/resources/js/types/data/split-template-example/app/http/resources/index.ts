@@ -4,6 +4,7 @@ export * from './address-mixin-resource';
 export * from './api-post-resource';
 export * from './bare-func-call-resource';
 export * from './base-shared-resource';
+export * from './boolean-expr-resource';
 export * from './category-resource';
 export * from './child-shared-resource';
 export * from './closure-control-flow-resource';

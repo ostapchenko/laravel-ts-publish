@@ -9005,6 +9005,63 @@
                 "optional": false
             }
         ],
+        "BooleanExprResource": [
+            {
+                "name": "is_recent",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "is_equal",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "is_large",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "both",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "negated",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "is_order",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "has_notes",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "no_notes",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "compared",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "price_float",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "user_bio",
+                "type": "string | null",
+                "optional": true
+            }
+        ],
         "PostCollection": [
             {
                 "name": "data",
