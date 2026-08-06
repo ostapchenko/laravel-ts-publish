@@ -4692,7 +4692,7 @@
             },
             {
                 "name": "options",
-                "type": "unknown[] | null"
+                "type": "Record<string, string> | null"
             },
             {
                 "name": "deleted_at",
@@ -5294,6 +5294,36 @@
             }
         ],
         "BaseExtendableModel": [],
+        "PropertyDocblockEdge": [
+            {
+                "name": "id",
+                "type": "number"
+            },
+            {
+                "name": "tags",
+                "type": "string | null"
+            },
+            {
+                "name": "related_users",
+                "type": "unknown[] | null"
+            },
+            {
+                "name": "meta_info",
+                "type": "unknown[] | null"
+            },
+            {
+                "name": "owner_snapshot",
+                "type": "User | null"
+            },
+            {
+                "name": "created_at",
+                "type": "string | null"
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null"
+            }
+        ],
         "BaseSharedExtendableModel": [
             {
                 "name": "id",
@@ -6086,6 +6116,36 @@
                 "type": "boolean"
             }
         ],
+        "PropertyDocblockBase": [
+            {
+                "name": "id",
+                "type": "number"
+            },
+            {
+                "name": "tags",
+                "type": "Record<string, string> | null"
+            },
+            {
+                "name": "related_users",
+                "type": "string | null"
+            },
+            {
+                "name": "meta_info",
+                "type": "string | null"
+            },
+            {
+                "name": "owner_snapshot",
+                "type": "string | null"
+            },
+            {
+                "name": "created_at",
+                "type": "string | null"
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null"
+            }
+        ],
         "ModelWithTraitExtends": [
             {
                 "name": "id",
@@ -6378,6 +6438,36 @@
             {
                 "name": "imageable_exists",
                 "type": "boolean"
+            }
+        ],
+        "PropertyDocblockChild": [
+            {
+                "name": "id",
+                "type": "number"
+            },
+            {
+                "name": "tags",
+                "type": "string[] | null"
+            },
+            {
+                "name": "related_users",
+                "type": "string | null"
+            },
+            {
+                "name": "meta_info",
+                "type": "string | null"
+            },
+            {
+                "name": "owner_snapshot",
+                "type": "string | null"
+            },
+            {
+                "name": "created_at",
+                "type": "string | null"
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null"
             }
         ],
         "DatabaseNotification": [
@@ -7465,7 +7555,7 @@
             },
             {
                 "name": "post_extended",
-                "type": "{ id: number; title: string; content: string; user_id: number; status: StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: unknown[] | null; deleted_at: string | null; category_id: number | null; visibility: VisibilityType | null; priority: PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: User; categoryRel: Category | null; comments: Comment[]; tags: Tag[]; images: Image[]; attachment: Attachment | null } | null",
+                "type": "{ id: number; title: string; content: string; user_id: number; status: StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: Record<string, string> | null; deleted_at: string | null; category_id: number | null; visibility: VisibilityType | null; priority: PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: User; categoryRel: Category | null; comments: Comment[]; tags: Tag[]; images: Image[]; attachment: Attachment | null } | null",
                 "optional": false
             },
             {

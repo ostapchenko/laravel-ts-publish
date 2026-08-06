@@ -98,6 +98,8 @@ class ModelAttributeResolver
         if ($cast !== null && $cast !== '' && $cast !== 'attribute' && $cast !== 'accessor') {
             $tsInfo = LaravelTsPublish::toTsType($cast);
 
+            $tsInfo = $this->refineWithPropertyDocblock($ctx['reflection'], $attributeName, $tsInfo);
+
             return $this->appendNullable($tsInfo, $attr['nullable']);
         }
 
@@ -112,7 +114,65 @@ class ModelAttributeResolver
             return $empty; // @codeCoverageIgnore
         }
 
+        $tsInfo = $this->refineWithPropertyDocblock($ctx['reflection'], $attributeName, $tsInfo);
+
         return $this->appendNullable($tsInfo, $attr['nullable']);
+    }
+
+    /**
+     * Refine a vague resolved type using class-level @property/@property-read
+     * docblock tags (Larastan/ide-helper convention). Child class tags win.
+     *
+     * @param  ReflectionClass<Model>  $reflection
+     * @param  TypeScriptTypeInfo  $tsInfo
+     * @return TypeScriptTypeInfo
+     */
+    protected function refineWithPropertyDocblock(ReflectionClass $reflection, string $attributeName, array $tsInfo): array
+    {
+        if (! str_contains($tsInfo['type'], 'unknown') && $tsInfo['type'] !== 'object') {
+            return $tsInfo;
+        }
+
+        for ($class = $reflection; $class !== false; $class = $class->getParentClass()) {
+            $doc = $class->getDocComment();
+
+            if ($doc === false) {
+                continue;
+            }
+
+            // The type capture is a non-greedy `.+?` rather than `\S+`: PHPDoc
+            // generics routinely contain internal spaces (e.g. `array<string,
+            // string>`, per this method's own docblock example above), and `.`
+            // without the /s modifier stops at the line's newline — so this
+            // still can't cross into a different @property tag on another line.
+            if (! preg_match(
+                '/@property(?:-read)?\s+(.+?)\s+\$'.preg_quote($attributeName, '/').'\b/',
+                $doc,
+                $m,
+            )) {
+                continue;
+            }
+
+            $useMap = LaravelTsPublish::parseFileUseStatements($class);
+            $namespace = $class->getNamespaceName();
+
+            $infos = [];
+
+            foreach (LaravelTsPublish::splitPhpDocUnionType($m[1]) as $part) {
+                $generic = LaravelTsPublish::resolveGenericContainerType($part, $useMap, $namespace);
+
+                $infos[] = $generic
+                    ?? LaravelTsPublish::toTsType(LaravelTsPublish::resolveDocblockTypeName($part, $useMap, $namespace));
+            }
+
+            $resolved = count($infos) === 1 ? $infos[0] : LaravelTsPublish::mergeTypeScriptInfos($infos);
+
+            if (! str_contains($resolved['type'], 'unknown')) {
+                return $resolved;
+            }
+        }
+
+        return $tsInfo;
     }
 
     /**

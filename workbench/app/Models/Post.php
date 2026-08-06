@@ -17,6 +17,9 @@ use Workbench\App\Enums\Status;
 use Workbench\App\Enums\Visibility;
 use Workbench\App\Relations\MorphOneAttachment;
 
+/**
+ * @property array<string, string>|null $options
+ */
 class Post extends Model
 {
     use SoftDeletes;

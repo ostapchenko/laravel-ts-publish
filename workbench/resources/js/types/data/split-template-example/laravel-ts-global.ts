@@ -298,7 +298,7 @@ declare global {
             metadata: Record<string, {title: string, content: string}>;
             rating: number | null;
             category: string;
-            options: unknown[] | null;
+            options: Record<string, string> | null;
             deleted_at: string | null;
             created_at: string | null;
             updated_at: string | null;
@@ -532,6 +532,29 @@ declare global {
             last_login_ip: string | null;
         }
         export interface BaseExtendableModel extends ParentModelInterface {
+        }
+        /**
+         * Exercises the guardrails of ModelAttributeResolver::refineWithPropertyDocblock():
+         *
+         * - `related_users` has only a `@property-write` tag, which describes a setter
+         * type and must never be used to type a readable property.
+         * - `meta_info` has no matching tag at all — the `@property $meta` tag below is
+         * a shorter, unrelated name and must not match a longer column name it
+         * happens to prefix.
+         * - `owner_snapshot` has a real `@property-read` tag naming a Model class,
+         * proving the refinement produces a correctly-imported class token — not
+         * just scalars and generic containers — and that `-read` is accepted
+         * alongside the bare `@property` tag.
+         */
+        export interface PropertyDocblockEdge {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: unknown[] | null;
+            meta_info: unknown[] | null;
+            owner_snapshot: User | null;
+            created_at: string | null;
+            updated_at: string | null;
         }
         export interface BaseSharedExtendableModel extends SharedModelInterface {
             // Columns
@@ -798,6 +821,21 @@ declare global {
             attachable_count: number;
             attachable_exists: boolean;
         }
+        /**
+         * Base fixture for ModelAttributeResolver::refineWithPropertyDocblock()'s
+         * parent-class walk. `tags` casts to plain `array` (vague on its own); this
+         * class's own `@property` tag refines it to a typed Record.
+         */
+        export interface PropertyDocblockBase {
+            // Columns
+            id: number;
+            tags: Record<string, string> | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+        }
         export interface ModelWithTraitExtends extends TraitInterface {
             // Columns
             id: number;
@@ -885,6 +923,22 @@ declare global {
             imageable: Post | Product | User | crm.models.User;
             imageable_count: number;
             imageable_exists: boolean;
+        }
+        /**
+         * Child of PropertyDocblockBase that redeclares `@property` for the same
+         * `tags` column with a different shape. Proves refineWithPropertyDocblock()
+         * walks the reflection chain child-first — this class's own tag must win
+         * over the parent's, not merely be found alongside it.
+         */
+        export interface PropertyDocblockChild {
+            // Columns
+            id: number;
+            tags: string[] | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
         }
     }
     export namespace app.models.admin {
@@ -1444,7 +1498,7 @@ declare global {
             post_new?: PostResource;
             post_direct: PostResource;
             post_limited: { id: number; title: string };
-            post_extended: { id: number; title: string; content: string; user_id: number; status: crm.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: unknown[] | null; deleted_at: string | null; category_id: number | null; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: crm.models.User; categoryRel: app.models.Category | null; comments: app.models.Comment[]; tags: app.models.Tag[]; images: app.models.Image[]; attachment: app.models.Attachment | null } | null;
+            post_extended: { id: number; title: string; content: string; user_id: number; status: crm.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: Record<string, string> | null; deleted_at: string | null; category_id: number | null; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: crm.models.User; categoryRel: app.models.Category | null; comments: app.models.Comment[]; tags: app.models.Tag[]; images: app.models.Image[]; attachment: app.models.Attachment | null } | null;
             post_title?: string;
             post_content?: string | null;
             post_title_display?: string | null;

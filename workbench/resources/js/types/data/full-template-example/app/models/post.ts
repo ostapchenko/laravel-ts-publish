@@ -17,7 +17,7 @@ export interface Post
     metadata: Record<string, {title: string, content: string}>;
     rating: number | null;
     category: string;
-    options: unknown[] | null;
+    options: Record<string, string> | null;
     deleted_at: string | null;
     created_at: string | null;
     updated_at: string | null;

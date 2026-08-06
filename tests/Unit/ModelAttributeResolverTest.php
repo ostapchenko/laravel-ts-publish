@@ -12,6 +12,9 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
+use Workbench\App\Models\PropertyDocblockBase;
+use Workbench\App\Models\PropertyDocblockChild;
+use Workbench\App\Models\PropertyDocblockEdge;
 use Workbench\App\Models\User;
 
 test('resolveAttribute returns empty info for non-existent model class', function () {
@@ -253,4 +256,66 @@ test('attributeDocblockReturnTypes resolves Attribute<> written as a fully-quali
     $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
 
     expect($info['type'])->toBe('string[]');
+});
+
+describe('@property docblock refinement', function () {
+    test('refines an array cast to a typed record using an existing column', function () {
+        // Post's 'options' column casts to plain 'array' ('unknown[] | null' on
+        // its own); the class-level @property tag added in workbench/app/Models/Post.php
+        // refines it without touching the 'metadata' column's existing #[TsCasts] override.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Post::class, 'options');
+
+        expect($info['type'])->toBe('Record<string, string> | null');
+    });
+
+    test('columns without a @property tag are unaffected by the refinement', function () {
+        // 'metadata' has no @property tag on Post — the waterfall's raw cast
+        // result must pass through unchanged (refinement is opt-in per column).
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Post::class, 'metadata');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a child class @property tag wins over the parent class tag for the same column', function () {
+        // Both fixtures tag 'tags', but with different shapes. The child's own
+        // tag must be used — not the parent's — proving the reflection walk in
+        // refineWithPropertyDocblock() checks the child class first.
+        $childInfo = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockChild::class, 'tags');
+
+        $parentInfo = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockBase::class, 'tags');
+
+        expect($childInfo['type'])->toBe('string[] | null')
+            ->and($parentInfo['type'])->toBe('Record<string, string> | null');
+    });
+
+    test('a @property-write tag is never used to type a readable property', function () {
+        // 'related_users' only has a @property-write tag (a setter type) —
+        // it must not refine the column, which stays at its vague cast baseline.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a shorter @property tag does not match a column name it merely prefixes', function () {
+        // The fixture declares `@property array<string, string>|null $meta`, and
+        // the column under test is 'meta_info' — a longer name sharing the same
+        // prefix. The regex's trailing word boundary must reject this match.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'meta_info');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a @property-read tag naming a Model class refines to an importable class token', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'owner_snapshot');
+
+        expect($info['type'])->toBe('User | null')
+            ->and($info['classFqcns'])->toBe([User::class]);
+    });
 });
