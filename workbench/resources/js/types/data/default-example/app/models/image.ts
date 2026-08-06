@@ -43,6 +43,7 @@ export interface ImageMutators
     uploader_from_docblock: AppUser | null;
     config_from_docblock: MenuSettingsType;
     data_from_docblock: unknown[];
+    price_from_docblock: { amount: number; currency: string };
     label_from_docblock: string;
     no_docblock_accessor: unknown;
     wrong_format_docblock: string | null;

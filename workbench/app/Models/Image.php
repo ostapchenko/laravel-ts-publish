@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Workbench\App\Casts\MenuSettings;
 use Workbench\App\Enums\Status;
 use Workbench\App\ValueObjects\ArrayableData;
+use Workbench\App\ValueObjects\Money;
 use Workbench\App\ValueObjects\StringableLabel;
 
 class Image extends Model
@@ -139,6 +140,12 @@ class Image extends Model
 
     /** @return Attribute<ArrayableData, never> */
     protected function dataFromDocblock(): Attribute
+    {
+        return Attribute::make(get: fn () => null);
+    }
+
+    /** @return Attribute<Money, never> */
+    protected function priceFromDocblock(): Attribute
     {
         return Attribute::make(get: fn () => null);
     }

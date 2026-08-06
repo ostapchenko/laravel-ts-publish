@@ -1327,6 +1327,14 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
             ->and($data->mutators['data_from_docblock']['type'])->toBe('unknown[]');
     });
 
+    // Arrayable class with an array-shape toArray() docblock
+    test('priceFromDocblock resolves Arrayable class with a shape docblock to an inline object type', function () {
+        $data = (new ModelTransformer(Image::class))->data();
+
+        expect($data->mutators)->toHaveKey('price_from_docblock')
+            ->and($data->mutators['price_from_docblock']['type'])->toBe('{ amount: number; currency: string }');
+    });
+
     // __toString class
     test('labelFromDocblock resolves class with __toString to string', function () {
         $data = (new ModelTransformer(Image::class))->data();

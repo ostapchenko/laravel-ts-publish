@@ -147,7 +147,8 @@ class LaravelTsPublish
      * 2. #[TsType] on any class — explicit annotation wins for cast classes, enums, or anything else
      * 3. PHP enum → StatusType (type alias), enums: [Status], enumTypes: [StatusType]
      * 4. CastsAttributes implementor without #[TsType] → infer from get() return type (named or union), otherwise unknown
-     * 5a. Arrayable (non-Model) → unknown[]
+     * 5a. Arrayable (non-Model) → object shape from toArray() docblock, else unknown[]
+     * 5a-bis. JsonSerializable (non-Model, non-Arrayable) → object shape from jsonSerialize() docblock, else falls through
      * 5b. __toString (non-Model) → string
      * 5. Any other class → class_basename()
      * 6. encrypted:* compound casts
@@ -236,15 +237,35 @@ class LaravelTsPublish
             return $result;
         }
 
-        // 5a. Arrayable (non-Model) → unknown[] — checked before step 5 to avoid Model being caught here
-        //     Model implements Arrayable transitively, so we exclude Model subclasses explicitly.
+        // 5a. Arrayable (non-Model) → object shape from toArray() docblock, else unknown[]
+        //     Checked before step 5 to avoid Model being caught here — Model implements
+        //     Arrayable transitively, so we exclude Model subclasses explicitly.
         if (class_exists($phpType)
             && ! is_a($phpType, Model::class, true)
             && is_a($phpType, Arrayable::class, true)
         ) {
-            $result['type'] = 'unknown[]';
+            $shapeType = $this->arrayableShapeType($phpType, 'toArray');
+
+            $result['type'] = $shapeType ?? 'unknown[]';
 
             return $result;
+        }
+
+        // 5a-bis. JsonSerializable (non-Model, non-Arrayable) → object shape from jsonSerialize() docblock
+        //     No shape found falls through to the remaining steps below rather than
+        //     forcing unknown[] — unlike Arrayable, a bare JsonSerializable isn't
+        //     guaranteed to be array-shaped.
+        if (class_exists($phpType)
+            && ! is_a($phpType, Model::class, true)
+            && is_a($phpType, \JsonSerializable::class, true)
+        ) {
+            $shapeType = $this->arrayableShapeType($phpType, 'jsonSerialize');
+
+            if ($shapeType !== null) {
+                $result['type'] = $shapeType;
+
+                return $result;
+            }
         }
 
         // 5b. __toString magic method → string (covers both `implements \Stringable` and direct __toString)
@@ -288,6 +309,42 @@ class LaravelTsPublish
         $result['type'] = 'unknown';
 
         return $result;
+    }
+
+    /**
+     * Build an inline TS object type from a class method's @return array{...}
+     * docblock shape. Returns null when the method or shape is absent.
+     *
+     * @param  class-string  $fqcn
+     */
+    protected function arrayableShapeType(string $fqcn, string $method): ?string
+    {
+        if (! method_exists($fqcn, $method)) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $shape = $this->parseDocblockReturnArrayShape(new ReflectionMethod($fqcn, $method));
+
+        if ($shape === []) {
+            return null;
+        }
+
+        $parts = [];
+
+        foreach ($shape as $key => $type) {
+            // A shape value that resolves to a class- or enum-backed token (e.g. 'User',
+            // 'StatusType') can't carry its FQCN through parseDocblockReturnArrayShape()'s
+            // string-only shape map, so no import would ever be emitted for it here —
+            // degrade just that property to 'unknown' rather than emit a token nothing
+            // will import.
+            if ($this->extractImportableTypes($type) !== []) {
+                $type = 'unknown';
+            }
+
+            $parts[] = $key.': '.$type;
+        }
+
+        return '{ '.implode('; ', $parts).' }';
     }
 
     /**
@@ -1014,6 +1071,16 @@ class LaravelTsPublish
 
         // Simple type — resolve through the existing pipeline
         $resolved = $this->resolveDocblockTypeName($phpType, $useMap, $namespace);
+
+        // A type still containing '<' is an unresolved generic (e.g. an unrecognized
+        // container shape) — resolveGenericContainerType() above already handles the
+        // known container forms. Degrade to 'unknown' here rather than let it fall into
+        // toTsType()'s partial string matching, where e.g. the 'int' inside would
+        // silently resolve to 'number'.
+        if (str_contains($resolved, '<')) {
+            return 'unknown';
+        }
+
         $info = $this->toTsType($resolved);
 
         return $info['type'];

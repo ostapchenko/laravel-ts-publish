@@ -6344,6 +6344,10 @@
                 "type": "unknown[]"
             },
             {
+                "name": "price_from_docblock",
+                "type": "{ amount: number; currency: string }"
+            },
+            {
                 "name": "label_from_docblock",
                 "type": "string"
             },

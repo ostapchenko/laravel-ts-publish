@@ -28,6 +28,8 @@ use Workbench\App\Enums\Status;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\User;
+use Workbench\App\ValueObjects\ArrayableData;
+use Workbench\App\ValueObjects\Money;
 use Workbench\Shipping\Enums\Status as ShippingStatus;
 
 beforeEach(function () {
@@ -267,6 +269,80 @@ describe('toTsType', function () {
 
     test('toTsType resolves void to void', function () {
         expect($this->service->toTsType('void')['type'])->toBe('void');
+    });
+});
+
+describe('Arrayable DTO shape inference', function () {
+    // Step 5a: Arrayable (non-Model) with an array-shape toArray() docblock
+    test('Arrayable with array-shape toArray docblock resolves to inline object type', function () {
+        $result = $this->service->toTsType(Money::class);
+
+        expect($result['type'])->toBe('{ amount: number; currency: string }')
+            ->and($result['classes'])->toBeEmpty()
+            ->and($result['classFqcns'])->toBeEmpty();
+    });
+
+    test('Arrayable without docblock shape still resolves to unknown[]', function () {
+        $result = $this->service->toTsType(ArrayableData::class);
+
+        expect($result['type'])->toBe('unknown[]');
+    });
+
+    test('Arrayable shape value that resolves to a class-backed token degrades that property to unknown', function () {
+        // 'owner' resolves to the User model's short class name 'User', but
+        // parseDocblockReturnArrayShape() only carries type strings — not FQCNs — so
+        // there is no way to attach an import for that token here. Emitting the bare
+        // 'User' identifier would produce TypeScript referencing an unimported name;
+        // degrading just that property to 'unknown' keeps the rest of the shape useful
+        // without ever emitting a token nothing will import.
+        $result = $this->service->toTsType(ArrayableWithClassValueObject::class);
+
+        expect($result['type'])->toBe('{ owner: unknown }');
+    });
+
+    test('subclass inheriting toArray() resolves the shape from the declaring base class docblock', function () {
+        // method_exists() is true for inherited methods, and ReflectionMethod's
+        // getDeclaringClass() correctly points at the base class that actually defines
+        // toArray() — resolving the base class's docblock (and its file's use-map) is
+        // the right behavior here, not a surprising one, since that's the code that
+        // actually runs for the subclass.
+        $result = $this->service->toTsType(ArrayableShapeSubclassValueObject::class);
+
+        expect($result['type'])->toBe('{ id: number }');
+    });
+
+    test('Arrayable precedence wins over __toString for a DTO implementing both', function () {
+        // Matches Laravel's own serialization order (Arrayable before Stringable).
+        $result = $this->service->toTsType(ArrayableAndStringableValueObject::class);
+
+        expect($result['type'])->toBe('{ value: string }');
+    });
+
+    test('Arrayable precedence wins over JsonSerializable for a DTO implementing both', function () {
+        $result = $this->service->toTsType(ArrayableAndJsonSerializableValueObject::class);
+
+        expect($result['type'])->toBe('{ fromArray: string }');
+    });
+});
+
+describe('JsonSerializable DTO shape inference', function () {
+    // Step 5a-bis: JsonSerializable (non-Model, non-Arrayable) with an array-shape
+    // jsonSerialize() docblock
+    test('JsonSerializable with array-shape jsonSerialize docblock resolves to inline object type', function () {
+        $result = $this->service->toTsType(JsonSerializableShapeValueObject::class);
+
+        expect($result['type'])->toBe('{ id: number; label: string }');
+    });
+
+    test('JsonSerializable without docblock shape falls through to later toTsType steps', function () {
+        // Unlike Arrayable's unconditional unknown[] fallback, a bare JsonSerializable
+        // isn't guaranteed to be array-shaped — no shape found here should fall through
+        // to the remaining steps (here, "any other class") rather than get forced to
+        // unknown[] or unknown.
+        $result = $this->service->toTsType(JsonSerializablePlainValueObject::class);
+
+        expect($result['type'])->toBe('JsonSerializablePlainValueObject')
+            ->and($result['classFqcns'])->toBe([JsonSerializablePlainValueObject::class]);
     });
 });
 
@@ -657,6 +733,17 @@ describe('resolvePhpDocTypeToTs', function () {
 
         expect($result)->toBe('Record<string, unknown>');
     });
+
+    test('degrades an unrecognized generic instead of guessing a partial-match type', function () {
+        // Mirrors the same guard in docblockReturnTypes()/resolveDocblockTypeString():
+        // resolveGenericContainerType() doesn't recognize 'SomeGeneric' as a container,
+        // so it returns null here and the simple-type branch must degrade to 'unknown'
+        // rather than hand the still-generic string to toTsType(), where the 'int'
+        // inside would silently partial-match to 'number'.
+        $result = $this->service->resolvePhpDocTypeToTs('SomeGeneric<int, Foo>', [], '');
+
+        expect($result)->toBe('unknown');
+    });
 });
 
 describe('parseArrayShapeToTsTypes', function () {
@@ -668,6 +755,12 @@ describe('parseArrayShapeToTsTypes', function () {
     test('returns empty array for empty array shape array{}', function () {
         // Covers the `if ($inner === '') { return []; }` branch.
         expect($this->service->parseArrayShapeToTsTypes('array{}', [], ''))->toBe([]);
+    });
+
+    test('array shape value containing an unrecognized generic degrades to unknown instead of partial-matching', function () {
+        $result = $this->service->parseArrayShapeToTsTypes('array{x: SomeGeneric<int, Foo>}', [], '');
+
+        expect($result)->toBe(['x' => 'unknown']);
     });
 });
 
@@ -1714,6 +1807,114 @@ class StringableValueObject
     public function __toString(): string
     {
         return 'value';
+    }
+}
+
+/**
+ * A value object implementing Arrayable whose toArray() shape references a
+ * class-backed value type. Used to verify that a shape value resolving to a bare
+ * class token (which this string-only shape map can't attach an import to) degrades
+ * to 'unknown' instead of emitting an unimportable identifier.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithClassValueObject implements Arrayable
+{
+    /** @return array{owner: User} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object implementing Arrayable with a shape docblock, used as the base
+ * class for testing that a subclass inheriting toArray() (rather than overriding
+ * it) still resolves the shape from the declaring (base) class's docblock.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableShapeBaseValueObject implements Arrayable
+{
+    /** @return array{id: int} */
+    public function toArray(): array
+    {
+        return ['id' => 1];
+    }
+}
+
+/**
+ * Inherits toArray() from ArrayableShapeBaseValueObject without overriding it.
+ */
+class ArrayableShapeSubclassValueObject extends ArrayableShapeBaseValueObject {}
+
+/**
+ * A value object implementing both Arrayable (with a shape docblock) and Stringable,
+ * used to verify step 5a's Arrayable precedence over step 5b's __toString handling —
+ * matches Laravel's own serialization order.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableAndStringableValueObject implements Arrayable, Stringable
+{
+    /** @return array{value: string} */
+    public function toArray(): array
+    {
+        return ['value' => 'hello'];
+    }
+
+    public function __toString(): string
+    {
+        return 'hello';
+    }
+}
+
+/**
+ * A value object implementing both Arrayable (with a shape docblock) and
+ * JsonSerializable (with a different shape docblock), used to verify step 5a's
+ * Arrayable precedence over the step 5a-bis JsonSerializable sibling path.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableAndJsonSerializableValueObject implements Arrayable, JsonSerializable
+{
+    /** @return array{fromArray: string} */
+    public function toArray(): array
+    {
+        return ['fromArray' => 'value'];
+    }
+
+    /** @return array{fromJson: string} */
+    public function jsonSerialize(): array
+    {
+        return ['fromJson' => 'value'];
+    }
+}
+
+/**
+ * A value object implementing JsonSerializable (not Arrayable) whose jsonSerialize()
+ * carries an array-shape docblock, used as a fixture for the step 5a-bis inline
+ * object shape inference sibling path.
+ */
+class JsonSerializableShapeValueObject implements JsonSerializable
+{
+    /** @return array{id: int, label: string} */
+    public function jsonSerialize(): array
+    {
+        return ['id' => 1, 'label' => 'value'];
+    }
+}
+
+/**
+ * A value object implementing JsonSerializable with no array-shape docblock, used to
+ * verify step 5a-bis falls through to later toTsType() steps (rather than forcing
+ * unknown[] the way the Arrayable branch does) when no shape is found.
+ */
+class JsonSerializablePlainValueObject implements JsonSerializable
+{
+    public function jsonSerialize(): mixed
+    {
+        return null;
     }
 }
 
