@@ -1728,6 +1728,7 @@ declare global {
             void_return: unknown;
             never_return: unknown;
             mixed_return: unknown;
+            order_or_status: unknown;
         }
         /**
          * Exercises: reading model from @mixin ModelClass in docblock

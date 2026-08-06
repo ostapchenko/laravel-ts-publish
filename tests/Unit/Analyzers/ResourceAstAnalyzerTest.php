@@ -4019,4 +4019,12 @@ describe('static call inference', function () {
             expect($this->props[$name]['type'])->toBe('unknown', "property {$name}");
         }
     });
+
+    test('static call declared to return an enum-plus-class union degrades to unknown', function () {
+        // classFqcns and enumFqcns can both be non-empty for a single TypeScriptTypeInfo
+        // (e.g. an Order|Status union). The classFqcns guard must fire even when an
+        // enumFqcns entry is also present — otherwise the enum branch accepts first and
+        // plumbs only directEnumFqcn, silently dropping the Order class import.
+        expect($this->props['order_or_status']['type'])->toBe('unknown');
+    });
 });

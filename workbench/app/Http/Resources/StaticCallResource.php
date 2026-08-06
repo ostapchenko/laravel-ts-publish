@@ -50,6 +50,10 @@ class StaticCallResource extends JsonResource
             'void_return' => UrlService::voidReturn(),
             'never_return' => UrlService::neverReturn(),
             'mixed_return' => UrlService::mixedReturn(),
+            // Proves acceptReflectedTypeInfo() rejects a class token even when an enum is
+            // also present in the same union — the classFqcns guard must not be shadowed
+            // by an earlier-returning enumFqcns branch.
+            'order_or_status' => UrlService::orderOrStatus(),
         ];
     }
 }

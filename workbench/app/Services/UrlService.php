@@ -72,4 +72,15 @@ class UrlService
     {
         return null;
     }
+
+    /**
+     * A one-enum-plus-one-class union — classFqcns and enumFqcns are both non-empty for
+     * this single TypeScriptTypeInfo. Proves the classFqcns guard fires even when an
+     * enumFqcns entry is also present, instead of the enum branch accepting first and
+     * silently dropping the Order import.
+     */
+    public static function orderOrStatus(): Order|Status
+    {
+        return Status::Draft;
+    }
 }

@@ -23,4 +23,5 @@ export interface StaticCallResource
     void_return: unknown;
     never_return: unknown;
     mixed_return: unknown;
+    order_or_status: unknown;
 }

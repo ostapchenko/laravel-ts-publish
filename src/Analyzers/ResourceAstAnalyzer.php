@@ -1329,14 +1329,21 @@ class ResourceAstAnalyzer
 
     /**
      * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult when it cannot
-     * break generated imports or emit a nonsense type: primitives/unions pass through
-     * verbatim, a single enum result carries its FQCN via directEnumFqcn so an import is
-     * generated, and everything else that could produce an unimportable or meaningless
-     * token degrades to null instead:
-     * - classFqcns (non-enum class) — analyzeStaticCall()'s general reflection branch has
-     *   no FQCN dispatch path for an arbitrary returned class (unlike resourceFqcn/
+     * break generated imports or emit a nonsense type: primitives/unions with no class,
+     * enum, or custom-import backing pass through verbatim, and a single enum result
+     * carries its FQCN via directEnumFqcn so an import is generated.
+     *
+     * The accept/reject decision is made once, over every field, before any branch
+     * returns — deliberately not as a sequence of early-return guards. An enum result and
+     * a non-enum class result are not mutually exclusive on one TypeScriptTypeInfo (e.g. an
+     * `Order|Status` union has both classFqcns and enumFqcns populated); branch-ordered
+     * early returns let whichever check ran first accept a shape the next check would have
+     * rejected. Rejected wholesale by the single guard below:
+     * - classFqcns (any non-enum class) — analyzeStaticCall()'s general reflection branch
+     *   has no FQCN dispatch path for an arbitrary returned class (unlike resourceFqcn/
      *   modelFqcn/enumFqcn elsewhere), so emitting its token would produce a TS type with
-     *   no corresponding import.
+     *   no corresponding import. This must be checked unconditionally, not only when
+     *   enumFqcns is empty — see above.
      * - customImports (a #[TsType(import: ...)] annotation) — same problem: its import
      *   lives only in customImports, which this branch has no dispatch path for either.
      * - more than one enumFqcns entry (a multi-enum union, e.g. Status|Priority) —
@@ -1351,31 +1358,24 @@ class ResourceAstAnalyzer
      */
     protected function acceptReflectedTypeInfo(array $tsInfo): ?array
     {
-        if (in_array($tsInfo['type'], ['unknown', 'unknown | null', 'void', 'never', ''], true)) {
+        $isUnimportableOrMeaningless = in_array($tsInfo['type'], ['unknown', 'unknown | null', 'void', 'never', ''], true)
+            || $tsInfo['customImports'] !== []
+            || $tsInfo['classFqcns'] !== []
+            || count($tsInfo['enumFqcns']) > 1;
+
+        if ($isUnimportableOrMeaningless) {
             return null;
         }
 
-        if ($tsInfo['customImports'] !== []) {
-            return null;
-        }
-
-        // Enum return — plumb the FQCN so an import is generated for the enum type alias.
+        // Enum return (exactly one, guaranteed by the guard above) — plumb the FQCN so an
+        // import is generated for the enum type alias.
         if ($tsInfo['enumFqcns'] !== []) {
-            if (count($tsInfo['enumFqcns']) > 1) {
-                return null;
-            }
-
             return [
                 ...$this->unknownResult(),
                 'type' => $tsInfo['type'],
                 'optional' => false,
                 'directEnumFqcn' => $tsInfo['enumFqcns'][0],
             ];
-        }
-
-        // Class tokens would produce a TS reference with no import — degrade instead.
-        if ($tsInfo['classFqcns'] !== []) {
-            return null;
         }
 
         return [...$this->unknownResult(), 'type' => $tsInfo['type'], 'optional' => false];
