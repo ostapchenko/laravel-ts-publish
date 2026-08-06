@@ -300,6 +300,37 @@ describe('Arrayable DTO shape inference', function () {
         expect($result['type'])->toBe('{ owner: unknown }');
     });
 
+    test('a class-backed value hidden inside Record<string, X> or a nested array{...} shape also degrades to unknown', function () {
+        // extractImportableTypes() deliberately skips anything containing '<' or
+        // starting with '{' — fine for its one other caller (a flat, author-supplied
+        // #[TsType] string) but not here: array<string, User> resolves to
+        // 'Record<string, User>', and a nested array{owner: User} resolves to
+        // '{ owner: User }'. Both would leak the bare 'User' token past a check that
+        // only looked at the top level. shapeValueHasUnimportableToken() tokenizes the
+        // whole string instead, so both routes must degrade too.
+        $result = $this->service->toTsType(ArrayableWithHiddenClassValueObject::class);
+
+        expect($result['type'])->toBe('{ recordOfUsers: unknown; nestedOwner: unknown }');
+    });
+
+    test('class-backed array shape values keep degrading to unknown after the tokenizer rewrite', function () {
+        // array<int, X>, X[], and Collection<int, X> all resolve to 'X[]' and were
+        // already caught by extractImportableTypes()'s bracket-strip before this fix.
+        // Locked in here so the tokenizer rewrite above can't silently un-fix them.
+        $result = $this->service->toTsType(ArrayableWithClassArrayValueObject::class);
+
+        expect($result['type'])->toBe('{ listViaGeneric: unknown; listViaShorthand: unknown; listViaCollection: unknown }');
+    });
+
+    test('a nested primitive-only shape is not over-degraded by the key-stripping step', function () {
+        // 'owner' is stripped as a property key, not mistaken for a value-side
+        // identifier — only 'string' remains to check, which is a TS primitive, so
+        // the nested shape renders in full rather than collapsing to unknown.
+        $result = $this->service->toTsType(ArrayableWithNestedPrimitiveValueObject::class);
+
+        expect($result['type'])->toBe('{ meta: { owner: string } }');
+    });
+
     test('subclass inheriting toArray() resolves the shape from the declaring base class docblock', function () {
         // method_exists() is true for inherited methods, and ReflectionMethod's
         // getDeclaringClass() correctly points at the base class that actually defines
@@ -1821,6 +1852,73 @@ class StringableValueObject
 class ArrayableWithClassValueObject implements Arrayable
 {
     /** @return array{owner: User} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object implementing Arrayable whose toArray() shape exercises the two
+ * class-token leak routes extractImportableTypes()'s '<'/'{' skips miss: a
+ * string-keyed generic container (array<string, X>, which resolves to
+ * Record<string, X>) and a nested array{...} shape with a class-backed inner
+ * value. Used to verify shapeValueHasUnimportableToken() degrades both to
+ * 'unknown' instead of leaking the class token.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithHiddenClassValueObject implements Arrayable
+{
+    /**
+     * @return array{
+     *     recordOfUsers: array<string, User>,
+     *     nestedOwner: array{owner: User}
+     * }
+     */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object implementing Arrayable whose toArray() shape exercises the three
+ * class-backed array routes that already resolved to 'unknown' correctly before
+ * shapeValueHasUnimportableToken() replaced the plain extractImportableTypes()
+ * check (array<int, X>, X[], and Collection<int, X> all resolve to 'X[]', caught
+ * by the bracket split). Locks that behavior in place so a future change to the
+ * leak-detection logic can't silently regress it.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithClassArrayValueObject implements Arrayable
+{
+    /**
+     * @return array{
+     *     listViaGeneric: array<int, User>,
+     *     listViaShorthand: User[],
+     *     listViaCollection: Collection<int, User>
+     * }
+     */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object implementing Arrayable whose toArray() shape nests a primitive-only
+ * array{...} shape. Used to verify shapeValueHasUnimportableToken()'s key-stripping
+ * step doesn't over-degrade a nested shape whose own property name (e.g. 'owner')
+ * isn't a TS primitive — only its value-side identifiers should ever trigger a
+ * degrade.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithNestedPrimitiveValueObject implements Arrayable
+{
+    /** @return array{meta: array{owner: string}} */
     public function toArray(): array
     {
         return [];

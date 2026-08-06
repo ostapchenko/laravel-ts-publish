@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
+use JsonSerializable;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionFunction;
@@ -257,7 +258,7 @@ class LaravelTsPublish
         //     guaranteed to be array-shaped.
         if (class_exists($phpType)
             && ! is_a($phpType, Model::class, true)
-            && is_a($phpType, \JsonSerializable::class, true)
+            && is_a($phpType, JsonSerializable::class, true)
         ) {
             $shapeType = $this->arrayableShapeType($phpType, 'jsonSerialize');
 
@@ -332,12 +333,14 @@ class LaravelTsPublish
         $parts = [];
 
         foreach ($shape as $key => $type) {
-            // A shape value that resolves to a class- or enum-backed token (e.g. 'User',
-            // 'StatusType') can't carry its FQCN through parseDocblockReturnArrayShape()'s
-            // string-only shape map, so no import would ever be emitted for it here —
-            // degrade just that property to 'unknown' rather than emit a token nothing
-            // will import.
-            if ($this->extractImportableTypes($type) !== []) {
+            // A shape value that resolves to a class- or enum-backed identifier (e.g.
+            // 'User', 'StatusType') — whether it's the value directly, buried inside a
+            // generic container (Record<string, User>), or nested inside another
+            // array{...} shape ({ owner: User }) — can't carry its FQCN through
+            // parseDocblockReturnArrayShape()'s string-only shape map, so no import
+            // would ever be emitted for it here. Degrade just that property to
+            // 'unknown' rather than emit a token nothing will import.
+            if ($this->shapeValueHasUnimportableToken($type)) {
                 $type = 'unknown';
             }
 
@@ -345,6 +348,44 @@ class LaravelTsPublish
         }
 
         return '{ '.implode('; ', $parts).' }';
+    }
+
+    /**
+     * Determine whether a fully-resolved shape value string contains an identifier
+     * that would need an import statement to be valid — a class or enum name, however
+     * deeply it's nested (a direct value, inside Record<string, X>, inside a nested
+     * `{ key: X }` shape, inside a union, ...).
+     *
+     * extractImportableTypes() can't be reused here: it deliberately skips anything
+     * containing '<' or starting with '{' because its one existing caller (the
+     * #[TsType(import: ...)] path) only ever receives a flat, author-supplied type
+     * string. A docblock-derived shape value has no such guarantee, so this instead
+     * tokenizes the whole string on TS structural punctuation. Object-literal property
+     * keys (an identifier immediately followed by ':') are stripped first so a nested
+     * shape's own key names — e.g. 'owner' in '{ owner: User }' — aren't mistaken for
+     * value-side identifiers. Anything left that isn't a TS primitive or a known
+     * built-in global name (Record, Date, true, false) is an identifier this
+     * string-only shape map has no FQCN for.
+     */
+    protected function shapeValueHasUnimportableToken(string $type): bool
+    {
+        $withoutKeys = (string) preg_replace('/\b\w+\s*:/', '', $type);
+
+        $tokens = preg_split('/[<>{}()|,;\[\]\s]+/', $withoutKeys, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach ($tokens as $token) {
+            if (in_array($token, self::TS_PRIMITIVES, true)) {
+                continue;
+            }
+
+            if (in_array($token, ['Record', 'Date', 'true', 'false'], true)) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**
