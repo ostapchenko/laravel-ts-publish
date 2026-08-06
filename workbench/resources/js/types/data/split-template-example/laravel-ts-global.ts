@@ -276,7 +276,7 @@ declare global {
             /** Write-only mutator (no getter) for a non-DB column */
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: unknown[] | Record<string, unknown>;
+            sorted_items: OrderItem[];
             // Relations
             user: User;
             user_count: number;
@@ -2084,7 +2084,7 @@ declare global {
             order?: app.models.Order;
             options?: Record<string, string | number | boolean> | null;
             order_limited: { id: number; total: number } | null;
-            order_extended: { id: number; ulid: string; user_id: number; status: app.enums.OrderStatusType; payment_method: app.enums.PaymentMethodType | null; currency: app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: unknown[] | Record<string, unknown>; user: crm.models.User; items: app.models.OrderItem[] };
+            order_extended: { id: number; ulid: string; user_id: number; status: app.enums.OrderStatusType; payment_method: app.enums.PaymentMethodType | null; currency: app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: app.models.OrderItem[]; user: crm.models.User; items: app.models.OrderItem[] };
         }
         /**
          * Exercises resolveClosureReturnExpression with a Closure passed to merge().
@@ -2156,7 +2156,7 @@ declare global {
             formatted_total: string;
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: unknown[] | Record<string, unknown>;
+            sorted_items: app.models.OrderItem[];
             user: crm.models.User;
             items: app.models.OrderItem[];
         }
@@ -2232,7 +2232,7 @@ declare global {
             formatted_total: string;
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: unknown[] | Record<string, unknown>;
+            sorted_items: app.models.OrderItem[];
             user: crm.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2327,7 +2327,7 @@ declare global {
             formatted_total: string;
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: unknown[] | Record<string, unknown>;
+            sorted_items: app.models.OrderItem[];
             user: crm.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;

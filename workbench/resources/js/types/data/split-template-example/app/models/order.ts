@@ -51,7 +51,7 @@ export interface OrderMutators
     /** Write-only mutator (no getter) for a non-DB column */
     search_index: unknown;
     score_map: Record<string, number>;
-    sorted_items: unknown[] | Record<string, unknown>;
+    sorted_items: OrderItem[];
 }
 
 export interface OrderRelations

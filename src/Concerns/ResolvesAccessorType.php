@@ -48,12 +48,24 @@ trait ResolvesAccessorType
 
                     $getterReturn = LaravelTsPublish::closureReturnedTypes($getter);
 
+                    if ($getterReturn['type'] !== 'unknown' && ! $this->isVagueTsType($getterReturn['type'])) {
+                        return $getterReturn;
+                    }
+
+                    // Vague or unknown signature type — docblock may carry generics
+                    // (Attribute<Collection<int, X>, never>, @phpstan-return, ...)
+                    $docblockReturn = LaravelTsPublish::attributeDocblockReturnTypes($method);
+
+                    if ($docblockReturn['type'] !== 'unknown' && ! $this->isVagueTsType($docblockReturn['type'])) {
+                        return $docblockReturn;
+                    }
+
+                    // Fall back to whichever resolved at all (signature first)
                     if ($getterReturn['type'] !== 'unknown') {
                         return $getterReturn;
                     }
 
-                    // read from doc blocks — tries Attribute<Get, Set> first, then @return
-                    return LaravelTsPublish::attributeDocblockReturnTypes($method);
+                    return $docblockReturn;
                 }
 
                 // write-only mutator (set only, no get) — not readable on the model shape
@@ -71,5 +83,14 @@ trait ResolvesAccessorType
         }
 
         return $result;
+    }
+
+    /**
+     * A "vague" TS type carries no element information — a docblock
+     * generic can usually do better.
+     */
+    protected function isVagueTsType(string $type): bool
+    {
+        return str_contains($type, 'unknown') || $type === 'object';
     }
 }

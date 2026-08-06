@@ -200,3 +200,17 @@ test('attributeDocblockReturnTypes captures nested generic getter type', functio
     expect($info['type'])->toBe('OrderItem[]')
         ->and($info['classFqcns'])->toBe([OrderItem::class]);
 });
+
+test('accessor with vague closure type is refined by Attribute docblock generics', function () {
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'sorted_items');
+
+    expect($info['type'])->toBe('OrderItem[]');
+});
+
+test('accessor with @phpstan-return docblock resolves through docblock', function () {
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'score_map');
+
+    expect($info['type'])->toBe('Record<string, number>');
+});
