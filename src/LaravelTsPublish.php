@@ -12,6 +12,7 @@ use Composer\ClassMapGenerator\PhpFileParser;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
 use ReflectionClass;
@@ -604,7 +605,7 @@ class LaravelTsPublish
         $container = $this->resolveDocblockTypeName($m[1], $useMap, $namespace);
         $isList = strtolower($m[1]) === 'list';
         $isArray = strtolower($m[1]) === 'array' || strtolower($m[1]) === 'iterable';
-        $isCollection = is_a($container, \Illuminate\Support\Collection::class, true);
+        $isCollection = is_a($container, Collection::class, true);
 
         if (! $isList && ! $isArray && ! $isCollection) {
             return null;
