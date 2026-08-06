@@ -348,3 +348,61 @@ describe('@property docblock refinement', function () {
         expect($info['type'])->toBe('unknown[] | null');
     });
 });
+
+describe('attribute-lookup fallbacks', function () {
+    test('resolves {relation}_count virtual attribute (withCount) to number', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'items_count');
+
+        expect($info['type'])->toBe('number');
+    });
+
+    test('resolves {relation}_exists virtual attribute (withExists) to boolean', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'items_exists');
+
+        expect($info['type'])->toBe('boolean');
+    });
+
+    test('resolves camelCase access to a snake_case accessor', function () {
+        // $this->formattedTotal on a resource — Eloquent resolves this to the
+        // 'formatted_total' accessor at runtime via its magic __get().
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'formattedTotal');
+
+        expect($info['type'])->toBe('string');
+    });
+
+    test('a real column ending in _count resolves through the normal waterfall, not the suffix fallback', function () {
+        // Post::word_count is a genuine nullable integer column, not a withCount()
+        // virtual attribute. The exact-name lookup happens before the fallback is
+        // ever dispatched, so this must resolve to the column's real DB type
+        // ('number | null') — a bare 'number' here would mean the suffix
+        // fallback hijacked a real column.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Post::class, 'word_count');
+
+        expect($info['type'])->toBe('number | null');
+    });
+
+    test('{relation}_count fallback does not fire when no matching relation exists', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'bogus_count');
+
+        expect($info['type'])->toBe('unknown');
+    });
+
+    test('{relation}_exists fallback does not fire when no matching relation exists', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'bogus_exists');
+
+        expect($info['type'])->toBe('unknown');
+    });
+
+    test('camelCase fallback does not fire when no matching snake_case attribute exists', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'totallyMadeUpAttribute');
+
+        expect($info['type'])->toBe('unknown');
+    });
+});

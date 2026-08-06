@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionNamedType;
 use Throwable;
@@ -76,7 +77,7 @@ class ModelAttributeResolver
         $attr = $ctx['attributes']->firstWhere('name', $attributeName);
 
         if ($attr === null) {
-            return $empty;
+            return $this->resolveAttributeFallbacks($modelFqcn, $ctx, $attributeName);
         }
 
         $cast = $attr['cast'];
@@ -117,6 +118,57 @@ class ModelAttributeResolver
         $tsInfo = $this->refineWithPropertyDocblock($ctx['reflection'], $attributeName, $tsInfo);
 
         return $this->appendNullable($tsInfo, $attr['nullable']);
+    }
+
+    /**
+     * Fallbacks for names that are not literal attributes: camelCase access
+     * to snake_case attributes, and {relation}_count/{relation}_exists
+     * virtual attributes produced by withCount()/withExists().
+     *
+     * Checked in this order deliberately: a same-named accessor (reached via
+     * the snake_case fallback) is a real, declared type and takes priority
+     * over the suffix fallbacks' fixed number/boolean guess. In practice the
+     * two rarely overlap anyway — the snake_case branch only does anything
+     * when the name contains no literal underscore before "count"/"exists"
+     * (camelCase), while the suffix branches require one (snake_case).
+     *
+     * @param  class-string  $modelFqcn
+     * @param  array{attributes: Collection<int, AttributeInfo>, relations: Collection<int, RelationInfo>, ...}  $ctx
+     * @return TypeScriptTypeInfo
+     */
+    protected function resolveAttributeFallbacks(string $modelFqcn, array $ctx, string $attributeName): array
+    {
+        $empty = LaravelTsPublish::emptyTypeScriptInfo();
+
+        // camelCase → snake_case attribute (e.g. $this->palletCount → pallet_count).
+        // Guarded on the snake form actually being a literal attribute, so the
+        // recursive call below always lands on the exact-match branch of
+        // resolveAttribute() and never re-enters this method — no risk of
+        // infinite recursion regardless of Str::snake()'s output shape.
+        $snake = Str::snake($attributeName);
+
+        if ($snake !== $attributeName && $ctx['attributes']->firstWhere('name', $snake) !== null) {
+            return $this->resolveAttribute($modelFqcn, $snake);
+        }
+
+        // {relation}_count → number, {relation}_exists → boolean. Only fires
+        // when a relation with the matching name actually exists, so a real
+        // column that merely happens to end in "_count" (e.g. word_count) is
+        // never reached here — the exact-name lookup above already returned
+        // for it before resolveAttributeFallbacks() was ever called.
+        foreach (['_count' => 'number', '_exists' => 'boolean'] as $suffix => $tsType) {
+            if (! str_ends_with($attributeName, $suffix)) {
+                continue;
+            }
+
+            $base = Str::camel(substr($attributeName, 0, -strlen($suffix)));
+
+            if ($ctx['relations']->firstWhere('name', $base) !== null) {
+                return [...$empty, 'type' => $tsType];
+            }
+        }
+
+        return $empty;
     }
 
     /**

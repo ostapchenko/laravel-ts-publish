@@ -108,6 +108,7 @@
     "app\/Http\/Resources\/NonArrayReturnResource.php",
     "app\/Http\/Resources\/OrderClosureResource.php",
     "app\/Http\/Resources\/OrderCollection.php",
+    "app\/Http\/Resources\/OrderCountsResource.php",
     "app\/Http\/Resources\/OrderDetailResource.php",
     "app\/Http\/Resources\/OrderExceptResource.php",
     "app\/Http\/Resources\/OrderFilterEdgeResource.php",

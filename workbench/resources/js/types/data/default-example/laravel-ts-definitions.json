@@ -8988,6 +8988,23 @@
                 "optional": false
             }
         ],
+        "OrderCountsResource": [
+            {
+                "name": "items_count",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "items_exists",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "formatted_total_camel",
+                "type": "string",
+                "optional": false
+            }
+        ],
         "PostCollection": [
             {
                 "name": "data",

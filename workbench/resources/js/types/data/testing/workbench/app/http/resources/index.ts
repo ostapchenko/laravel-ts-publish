@@ -39,6 +39,7 @@ export * from './model-wrapped-prop-resource';
 export * from './non-array-return-resource';
 export * from './order-closure-resource';
 export * from './order-collection';
+export * from './order-counts-resource';
 export * from './order-detail-resource';
 export * from './order-except-resource';
 export * from './order-filter-edge-resource';

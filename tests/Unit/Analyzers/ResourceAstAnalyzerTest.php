@@ -45,6 +45,7 @@ use Workbench\App\Http\Resources\ModelWrappedPropResource;
 use Workbench\App\Http\Resources\NonArrayReturnResource;
 use Workbench\App\Http\Resources\OrderClosureResource;
 use Workbench\App\Http\Resources\OrderCollection;
+use Workbench\App\Http\Resources\OrderCountsResource;
 use Workbench\App\Http\Resources\OrderDetailResource;
 use Workbench\App\Http\Resources\OrderExceptResource;
 use Workbench\App\Http\Resources\OrderFilterEdgeResource;
@@ -1618,6 +1619,37 @@ describe('ResourceAstAnalyzer with OrderSummaryResource', function () {
         expect($searchIndex)->not->toBeNull()
             ->and($searchIndex['type'])->toBe('unknown')
             ->and($searchIndex['optional'])->toBeFalse();
+    });
+});
+
+describe('ResourceAstAnalyzer with OrderCountsResource', function () {
+    beforeEach(function () {
+        $reflection = new ReflectionClass(OrderCountsResource::class);
+        $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
+    });
+
+    test('resolves items_count virtual attribute (withCount) to number', function () {
+        $itemsCount = collect($this->analysis->properties)->firstWhere('name', 'items_count');
+
+        expect($itemsCount)->not->toBeNull()
+            ->and($itemsCount['type'])->toBe('number')
+            ->and($itemsCount['optional'])->toBeFalse();
+    });
+
+    test('resolves items_exists virtual attribute (withExists) to boolean', function () {
+        $itemsExists = collect($this->analysis->properties)->firstWhere('name', 'items_exists');
+
+        expect($itemsExists)->not->toBeNull()
+            ->and($itemsExists['type'])->toBe('boolean')
+            ->and($itemsExists['optional'])->toBeFalse();
+    });
+
+    test('resolves camelCase access to the formatted_total accessor', function () {
+        $formattedTotalCamel = collect($this->analysis->properties)->firstWhere('name', 'formatted_total_camel');
+
+        expect($formattedTotalCamel)->not->toBeNull()
+            ->and($formattedTotalCamel['type'])->toBe('string')
+            ->and($formattedTotalCamel['optional'])->toBeFalse();
     });
 });
 
