@@ -133,4 +133,15 @@ class Order extends Model
     {
         return Attribute::get(fn (): Collection => $this->items->sortBy('id')->values());
     }
+
+    /**
+     * Bare `@return Attribute` docblock (no generic args) paired with a vague
+     * `: Collection` closure signature — regression fixture: this must NOT
+     * resolve to the `Attribute` class itself, only to the closure's own
+     * (still vague) signature type.
+     */
+    protected function unsortedItems(): Attribute
+    {
+        return Attribute::get(fn (): Collection => $this->items);
+    }
 }

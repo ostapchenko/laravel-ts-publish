@@ -11,6 +11,7 @@ use Closure;
 use Composer\ClassMapGenerator\PhpFileParser;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
@@ -510,9 +511,15 @@ class LaravelTsPublish
 
     /**
      * Parse `@return Attribute<GetterType, SetterType>` from a method's docblock
-     * and resolve the getter type.
+     * and resolve the getter type. Matches both the short class name (`Attribute<...>`)
+     * and a fully-qualified one (`\Illuminate\Database\Eloquent\Casts\Attribute<...>`),
+     * since strict codebases commonly write docblocks with FQCNs.
      *
-     * Falls back to `docblockReturnTypes()` when no `Attribute<…>` pattern is found.
+     * Falls back to `docblockReturnTypes()` when no `Attribute<…>` pattern is found —
+     * but a bare `@return Attribute` (no generic args at all) would otherwise resolve
+     * through that fallback's generic class-name handling to the `Attribute` class
+     * itself, which is not a usable value type. Degrade to empty in that case so the
+     * caller falls back to the closure's own signature type instead.
      *
      * @return TypeScriptTypeInfo
      */
@@ -528,7 +535,7 @@ class LaravelTsPublish
         $returnTypeString = $this->extractReturnTypeFromDocblock($docComment);
 
         if ($returnTypeString !== null
-            && preg_match('/^Attribute\s*<(.+)>$/s', trim($returnTypeString), $m)
+            && preg_match('/^\\\\?(?:Illuminate\\\\Database\\\\Eloquent\\\\Casts\\\\)?Attribute\s*<(.+)>$/s', trim($returnTypeString), $m)
         ) {
             // Split the generic args at the top level; the first arg is the getter type
             $genericArgs = $this->splitAtTopLevelCommas(trim($m[1]));
@@ -539,8 +546,17 @@ class LaravelTsPublish
             }
         }
 
-        // No Attribute<…> pattern — fall back to generic @return parsing
-        return $this->docblockReturnTypes($method);
+        // No Attribute<…> pattern — fall back to generic @return parsing. A bare
+        // `@return Attribute` resolves through that path's generic class-name
+        // handling to the Attribute class itself (a real, but useless, class token) —
+        // degrade to empty rather than hand back a nonsensical type.
+        $result = $this->docblockReturnTypes($method);
+
+        if ($result['classFqcns'] === [Attribute::class]) {
+            return $this->emptyTypeScriptInfo();
+        }
+
+        return $result;
     }
 
     /**
@@ -1051,8 +1067,12 @@ class LaravelTsPublish
     {
         $fileName = $class->getFileName();
 
-        if ($fileName === false) {
-            return []; // @codeCoverageIgnore
+        // false for internal/built-in classes; a synthetic, non-existent path like
+        // "...php(42) : eval()'d code" for eval()'d or otherwise generated classes —
+        // neither has a real use-statement block to read, so degrade to no map
+        // rather than let file_get_contents() emit a warning for a missing file.
+        if ($fileName === false || ! is_file($fileName)) {
+            return [];
         }
 
         $source = (string) file_get_contents($fileName);

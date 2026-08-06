@@ -214,3 +214,42 @@ test('accessor with @phpstan-return docblock resolves through docblock', functio
 
     expect($info['type'])->toBe('Record<string, number>');
 });
+
+test('bare @return Attribute docblock does not override a usable closure signature type', function () {
+    // Regression fixture: 'unsortedItems' pairs a bare `@return Attribute` docblock
+    // (no generic args) with a vague `: Collection` closure signature. Before the
+    // fix, the fallback @return parser resolved the literal word "Attribute" to the
+    // Eloquent Attribute class itself, leaking an undefined/nonsensical TS token
+    // through the import machinery. It must instead degrade and fall back to the
+    // closure's own (still vague, but at least real) signature type.
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'unsorted_items');
+
+    expect($info['type'])->not->toBe('Attribute')
+        ->and($info['type'])->toBe('unknown[] | Record<string, unknown>')
+        ->and($info['classFqcns'])->toBe([]);
+});
+
+test('attributeDocblockReturnTypes resolves Attribute<> written as a fully-qualified class name', function () {
+    // Defined via eval() rather than a physical class: Pint's fully_qualified_strict_types
+    // fixer rewrites any literal FQCN it finds in a docblock — even inside a custom
+    // tag, even with no matching `use` import to begin with (it adds one) — down to
+    // its short, auto-imported form. A checked-in fixture could never keep this
+    // text intact, so the class is built from a string at runtime instead, which
+    // Pint never sees.
+    eval(<<<'CODE'
+        class FqcnAttributeDocblockFixture
+        {
+            /** @return \Illuminate\Database\Eloquent\Casts\Attribute<array<int, string>, never> */
+            public function sortedByFqcnDocblock()
+            {
+                return null;
+            }
+        }
+        CODE);
+
+    $method = new ReflectionMethod(FqcnAttributeDocblockFixture::class, 'sortedByFqcnDocblock');
+    $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
+
+    expect($info['type'])->toBe('string[]');
+});

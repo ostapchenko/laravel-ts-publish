@@ -35,6 +35,7 @@ export interface OrderExceptResource
     search_index: unknown;
     score_map: Record<string, number>;
     sorted_items: OrderItem[];
+    unsorted_items: unknown[] | Record<string, unknown>;
     user: User;
     items: OrderItem[];
 }

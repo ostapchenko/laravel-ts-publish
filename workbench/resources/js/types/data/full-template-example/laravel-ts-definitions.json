@@ -4625,6 +4625,10 @@
                 "type": "OrderItem[]"
             },
             {
+                "name": "unsorted_items",
+                "type": "unknown[] | Record<string, unknown>"
+            },
+            {
                 "name": "user",
                 "type": "User"
             },
@@ -9416,7 +9420,7 @@
             },
             {
                 "name": "order_extended",
-                "type": "{ id: number; ulid: string; user_id: number; status: OrderStatusType; payment_method: PaymentMethodType | null; currency: CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: OrderItem[]; user: User; items: OrderItem[] }",
+                "type": "{ id: number; ulid: string; user_id: number; status: OrderStatusType; payment_method: PaymentMethodType | null; currency: CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: User; items: OrderItem[] }",
                 "optional": false
             }
         ],
@@ -9667,6 +9671,11 @@
             {
                 "name": "sorted_items",
                 "type": "OrderItem[]",
+                "optional": false
+            },
+            {
+                "name": "unsorted_items",
+                "type": "unknown[] | Record<string, unknown>",
                 "optional": false
             },
             {
@@ -9966,6 +9975,11 @@
             {
                 "name": "sorted_items",
                 "type": "OrderItem[]",
+                "optional": false
+            },
+            {
+                "name": "unsorted_items",
+                "type": "unknown[] | Record<string, unknown>",
                 "optional": false
             },
             {
@@ -10307,6 +10321,11 @@
             {
                 "name": "sorted_items",
                 "type": "OrderItem[]",
+                "optional": false
+            },
+            {
+                "name": "unsorted_items",
+                "type": "unknown[] | Record<string, unknown>",
                 "optional": false
             },
             {

@@ -295,6 +295,13 @@ declare global {
             search_index: unknown;
             score_map: Record<string, number>;
             sorted_items: OrderItem[];
+            /**
+             * Bare `@return Attribute` docblock (no generic args) paired with a vague
+             * `: Collection` closure signature — regression fixture: this must NOT
+             * resolve to the `Attribute` class itself, only to the closure's own
+             * (still vague) signature type.
+             */
+            unsorted_items: unknown[] | Record<string, unknown>;
             // Relations
             user: User;
             user_count: number;
@@ -2084,7 +2091,7 @@ declare global {
             order?: workbench.app.models.Order;
             options?: Record<string, string | number | boolean> | null;
             order_limited: { id: number; total: number } | null;
-            order_extended: { id: number; ulid: string; user_id: number; status: workbench.app.enums.OrderStatusType; payment_method: workbench.app.enums.PaymentMethodType | null; currency: workbench.app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: workbench.app.models.OrderItem[]; user: workbench.crm.models.User; items: workbench.app.models.OrderItem[] };
+            order_extended: { id: number; ulid: string; user_id: number; status: workbench.app.enums.OrderStatusType; payment_method: workbench.app.enums.PaymentMethodType | null; currency: workbench.app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: workbench.app.models.OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: workbench.crm.models.User; items: workbench.app.models.OrderItem[] };
         }
         /**
          * Exercises resolveClosureReturnExpression with a Closure passed to merge().
@@ -2157,6 +2164,7 @@ declare global {
             search_index: unknown;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[];
+            unsorted_items: unknown[] | Record<string, unknown>;
             user: workbench.crm.models.User;
             items: workbench.app.models.OrderItem[];
         }
@@ -2233,6 +2241,7 @@ declare global {
             search_index: unknown;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[];
+            unsorted_items: unknown[] | Record<string, unknown>;
             user: workbench.crm.models.User;
             items: workbench.app.models.OrderItem[];
             customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2328,6 +2337,7 @@ declare global {
             search_index: unknown;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[];
+            unsorted_items: unknown[] | Record<string, unknown>;
             user: workbench.crm.models.User;
             items: workbench.app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;

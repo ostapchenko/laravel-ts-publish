@@ -706,6 +706,17 @@ describe('attributeDocblockReturnTypes', function () {
 
         expect($result['type'])->toBe('string');
     });
+
+    test('attributeDocblockReturnTypes degrades a bare Attribute docblock instead of leaking the Attribute class', function () {
+        // No generic args at all — the fallback @return parser would otherwise
+        // resolve the literal word "Attribute" to the Eloquent Attribute class
+        // itself via toTsType()'s "any other existing class" step.
+        $method = new ReflectionMethod(AttributeDocblockClass::class, 'withBareAttribute');
+        $result = $this->service->attributeDocblockReturnTypes($method);
+
+        expect($result['type'])->toBe('unknown')
+            ->and($result['classFqcns'])->toBe([]);
+    });
 });
 
 describe('resolveReflectionType with DNF types', function () {
@@ -1816,5 +1827,11 @@ class AttributeDocblockClass
     public function withAttributeAndComment()
     {
         return '';
+    }
+
+    /** @return Attribute */
+    public function withBareAttribute()
+    {
+        return null;
     }
 }
