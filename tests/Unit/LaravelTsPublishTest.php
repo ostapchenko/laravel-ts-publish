@@ -493,6 +493,22 @@ describe('extractReturnTypeFromDocblock', function () {
     });
 });
 
+describe('phpstan-return docblock support', function () {
+    test('extractReturnTypeFromDocblock falls back to @phpstan-return', function () {
+        $doc = "/**\n * @phpstan-return string|null\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('string|null');
+    });
+
+    test('@return wins over @phpstan-return', function () {
+        $doc = "/**\n * @phpstan-return int\n * @return string\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('string');
+    });
+});
+
 describe('splitPhpDocUnionType', function () {
     test('splits simple union', function () {
         expect($this->service->splitPhpDocUnionType('string|null'))

@@ -507,12 +507,19 @@ class LaravelTsPublish
             return $this->emptyTypeScriptInfo();
         }
 
-        // Look for @return Attribute<GetterType, SetterType>
-        // Use lookbehind for "* " to avoid matching @return in inline comments
-        if (preg_match('/(?<=\* )@return\s+Attribute\s*<\s*([^,>\s]+)\s*,\s*([^>]+)\s*>/i', $docComment, $matches)) {
-            $getterType = trim($matches[1]);
+        // Look for @return/@phpstan-return/@psalm-return Attribute<GetterType, SetterType>
+        $returnTypeString = $this->extractReturnTypeFromDocblock($docComment);
 
-            return $this->resolveDocblockTypeString($method, $getterType);
+        if ($returnTypeString !== null
+            && preg_match('/^Attribute\s*<(.+)>$/s', trim($returnTypeString), $m)
+        ) {
+            // Split the generic args at the top level; the first arg is the getter type
+            $genericArgs = $this->splitAtTopLevelCommas(trim($m[1]));
+            $getterType = trim($genericArgs[0] ?? '');
+
+            if ($getterType !== '') {
+                return $this->resolveDocblockTypeString($method, $getterType);
+            }
         }
 
         // No Attribute<…> pattern — fall back to generic @return parsing
@@ -538,14 +545,20 @@ class LaravelTsPublish
             $parts,
         );
 
-        if (count($parts) === 1) {
-            return $this->toTsType($parts[0]);
-        }
-
+        // A part still containing '<' is an unresolved generic (e.g. Collection<int, Foo>) —
+        // real generic-container resolution is a separate concern. Degrade to 'unknown' here
+        // rather than let it fall into toTsType()'s partial string matching, where e.g. the
+        // 'int' inside would silently resolve to 'number'.
         $infos = array_map(
-            fn (string $part) => $this->toTsType($part),
+            fn (string $part) => str_contains($part, '<')
+                ? $this->emptyTypeScriptInfo()
+                : $this->toTsType($part),
             $parts,
         );
+
+        if (count($infos) === 1) {
+            return $infos[0];
+        }
 
         return $this->mergeTypeScriptInfos($infos);
     }
@@ -596,24 +609,39 @@ class LaravelTsPublish
      */
     public function extractReturnTypeFromDocblock(string $docComment): ?string
     {
-        // Normalize: strip comment markers, join into a single line
+        // Normalize: strip comment markers, keep one normalized line per source line
+        // (the "\n" join is significant — it lets the tag search below anchor to line
+        // starts so a tag name mentioned mid-sentence, e.g. "The @return value...",
+        // isn't mistaken for the real tag).
         $lines = explode("\n", $docComment);
         $content = '';
 
         foreach ($lines as $line) {
             $stripped = preg_replace('#^\s*/?\*+\s?#', '', $line) ?? '';
             $stripped = preg_replace('#\s*\*+/$#', '', $stripped);
-            $content .= ' '.$stripped;
+            $content .= "\n".$stripped;
         }
 
         $content = trim($content);
 
-        // Find @return tag
-        if (! preg_match('/@return\s+/', $content, $match, PREG_OFFSET_CAPTURE)) {
+        // Find the return tag — @return preferred, then @phpstan-return, @psalm-return.
+        // Anchored to the start of a normalized line so a tag mentioned mid-sentence in
+        // a description doesn't match; the negative lookbehind additionally stops
+        // '@return' matching inside '@phpstan-return'.
+        $tagPattern = null;
+        foreach (['@return', '@phpstan-return', '@psalm-return'] as $tag) {
+            if (preg_match('/^\s*(?<![\w-])'.preg_quote($tag, '/').'\s+/m', $content, $match, PREG_OFFSET_CAPTURE)) {
+                $tagPattern = $match;
+
+                break;
+            }
+        }
+
+        if ($tagPattern === null) {
             return null;
         }
 
-        $start = (int) $match[0][1] + strlen((string) $match[0][0]);
+        $start = (int) $tagPattern[0][1] + strlen((string) $tagPattern[0][0]);
         $rest = trim(substr($content, $start));
 
         // If the type starts with array{, use brace matching to capture the full shape
@@ -646,6 +674,30 @@ class LaravelTsPublish
                     return $this->normalizeDocblockWhitespace(substr($rest, 0, $end).$trailingNormalized);
                 }
 
+                return $this->normalizeDocblockWhitespace(substr($rest, 0, $end));
+            }
+        }
+
+        // Generic type with < > — capture until the matching close bracket
+        if (preg_match('/^[\w\\\\?]+\s*</', $rest)) {
+            $depth = 0;
+            $end = 0;
+
+            for ($i = 0; $i < strlen($rest); $i++) {
+                if ($rest[$i] === '<') {
+                    $depth++;
+                } elseif ($rest[$i] === '>') {
+                    $depth--;
+
+                    if ($depth === 0) {
+                        $end = $i + 1;
+
+                        break;
+                    }
+                }
+            }
+
+            if ($end > 0) {
                 return $this->normalizeDocblockWhitespace(substr($rest, 0, $end));
             }
         }

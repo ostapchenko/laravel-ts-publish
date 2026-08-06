@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
@@ -186,4 +187,14 @@ test('resolveRelation returns unknown for MorphTo when no targets exist', functi
     // CompositeComment has nullable FK columns, so it gets ' | null' appended
     expect($result['type'])->toBe('unknown | null')
         ->and($result['modelFqcn'])->toBeNull();
+});
+
+test('attributeDocblockReturnTypes captures nested generic getter type', function () {
+    $method = new ReflectionMethod(Order::class, 'sortedItems');
+    $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
+
+    // Before Task 3 lands the generic resolves imperfectly, but it must NOT
+    // resolve as the truncated 'Collection<int' capture (which partial-matches
+    // 'int' => number). 'number' is the sentinel for the truncation bug.
+    expect($info['type'])->not->toBe('number');
 });

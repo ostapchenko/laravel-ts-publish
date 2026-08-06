@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Collection;
 use Workbench\App\Enums\Currency;
 use Workbench\App\Enums\OrderStatus;
 use Workbench\App\Enums\PaymentMethod;
@@ -119,5 +120,17 @@ class Order extends Model
         return Attribute::make(
             set: fn (string $value): string => strtolower($value),
         );
+    }
+
+    /** @phpstan-return Attribute<array<string, int>, never> */
+    protected function scoreMap(): Attribute
+    {
+        return Attribute::get(fn () => ['a' => 1]);
+    }
+
+    /** @return Attribute<Collection<int, OrderItem>, never> */
+    protected function sortedItems(): Attribute
+    {
+        return Attribute::get(fn (): Collection => $this->items->sortBy('id')->values());
     }
 }
