@@ -330,7 +330,14 @@ class LaravelTsPublish
      */
     protected function looksLikeClassName(string $phpType): bool
     {
-        $head = preg_split('/[(:\s]/', $phpType, 2)[0] ?? '';
+        // PREG_SPLIT_NO_EMPTY: a leading delimiter — a stray space, '(', or ':' —
+        // would otherwise split into an empty leading segment at offset 0, which
+        // reads as "not class-ish" and lets a class name straight through to step
+        // 7's partial match, e.g. ' Point', ':Point', and '(Point)' would all
+        // wrongly skip the gate without this. Dropping empty segments means the
+        // first *non-empty* piece is always the real head, however many leading
+        // delimiters preceded it.
+        $head = preg_split('/[(:\s]/', $phpType, -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
 
         return $head !== ''
             && (preg_match('/[A-Z]/', $head) === 1 || str_contains($head, '\\'));

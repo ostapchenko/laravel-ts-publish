@@ -293,15 +293,35 @@ describe('toTsType substring fallback restriction', function () {
         expect($this->service->toTsType('Character')['type'])->toBe('string');
     });
 
+    test('a leading delimiter must not defeat the class-ish gate', function (string $name) {
+        // looksLikeClassName() splits on the first '(', ':' or whitespace to isolate
+        // the head. If that delimiter sits at offset 0 (a leading space, ':', or '(')
+        // the head was '', and an empty head was previously treated as "not class-ish"
+        // (falsy $head !== '' check) — so a class name with a stray leading delimiter
+        // slipped straight past the gate and back into step 7's partial match, e.g.
+        // ' Point' → 'number' via the 'int' substring. Splitting with
+        // PREG_SPLIT_NO_EMPTY closes this: leading empty segments are dropped, so the
+        // head becomes 'Point' again — correctly class-ish — regardless of how many
+        // delimiters preceded it.
+        expect($this->service->toTsType($name)['type'])->toBe('unknown');
+    })->with([
+        ' Point', ':Point', '(Point)',
+    ]);
+
     test('real DB and cast type strings still resolve through the fallback', function (string $input, string $expected) {
         expect($this->service->toTsType($input)['type'])->toBe($expected);
     })->with([
-        // Note: 'number', not 'boolean' — "tinyint(1)" also contains the substring
+        // Note: 'number', not 'boolean'. This value is *known-wrong* — MySQL's
+        // tinyint(1) idiom conventionally means boolean, and typesMap() does have a
+        // 'tinyint' => 'boolean' entry — but "tinyint(1)" also contains the substring
         // "int" (t-i-n-y-INT), and the 'int' => 'number' map entry is iterated before
-        // 'tinyint' => 'boolean' inside typesMap(), so the loop matches 'int' first.
-        // This is a pre-existing key-ordering quirk in the step 7 loop itself, not
-        // something the class-ish gate added by this task touches or is responsible
-        // for fixing — it is out of scope here (see task report).
+        // 'tinyint' => 'boolean' inside typesMap() (int is earlier in TypeScriptMap's
+        // insertion order than tinyint), so step 7's loop matches 'int' first and never
+        // reaches 'tinyint'. This is a pre-existing key-ordering defect in the step 7
+        // loop itself — not something the class-ish gate added by this task touches or
+        // is responsible for fixing. It is asserted here, wrong value and all, purely as
+        // a change-detector; a future fix for the underlying ordering/priority bug
+        // should update this expectation to 'boolean' when it lands.
         ['tinyint(1)', 'number'],
         ['varchar(255)', 'string'],
         ['numeric(10,2)', 'number'],
