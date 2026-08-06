@@ -486,7 +486,15 @@ class LaravelTsPublish
             }
 
             $resolved = $this->resolveDocblockTypeName($part, $useMap, $namespace);
-            $infos[] = $this->toTsType($resolved);
+
+            // A part still containing '<' is an unresolved generic (e.g. an unrecognized
+            // container shape) — resolveGenericContainerType() above already handles the
+            // known container forms. Degrade to 'unknown' here rather than let it fall into
+            // toTsType()'s partial string matching, where e.g. the 'int' inside would
+            // silently resolve to 'number'.
+            $infos[] = str_contains($resolved, '<')
+                ? $this->emptyTypeScriptInfo()
+                : $this->toTsType($resolved);
         }
 
         if ($infos === []) {
@@ -543,7 +551,9 @@ class LaravelTsPublish
      */
     protected function resolveDocblockTypeString(ReflectionMethod $method, string $typeString): array
     {
-        $parts = array_map('trim', explode('|', $typeString));
+        // Depth-aware split so a union member with its own nested generic (e.g.
+        // Collection<int, A|B>) isn't torn apart at the '|' inside the < >.
+        $parts = $this->splitPhpDocUnionType($typeString);
 
         $declaringClass = $method->getDeclaringClass();
         $useMap = $this->parseFileUseStatements($declaringClass);
@@ -808,6 +818,18 @@ class LaravelTsPublish
             }
 
             if ($end > 0) {
+                // Capture any trailing union, allowing spaces around `|` (e.g. `Collection<...> | null`)
+                // — mirrors the array{...} trailing-union capture above so a common shape like
+                // `@return Collection<int, X>|null` doesn't silently lose the `|null`.
+                $after = substr($rest, $end);
+                $afterTrimmed = ltrim($after);
+
+                if (preg_match('/^(\s*\|\s*[^\s|@]+)+/', $afterTrimmed, $trailingMatch)) {
+                    $trailingNormalized = (string) preg_replace('/\s*\|\s*/', '|', $trailingMatch[0]);
+
+                    return $this->normalizeDocblockWhitespace(substr($rest, 0, $end).$trailingNormalized);
+                }
+
                 return $this->normalizeDocblockWhitespace(substr($rest, 0, $end));
             }
         }
@@ -1188,8 +1210,14 @@ class LaravelTsPublish
      * FQCNs share the same class_basename(), allowing the upstream disambiguation logic
      * in rewriteTypeReferences() to alias each one independently using limit=1 replacement.
      *
-     * Non-class type tokens (primitives, null, enum type aliases) are deduplicated by
-     * type string as before.
+     * A class-backed entry whose `type` is *not* simply its class name(s) joined by ' | '
+     * (e.g. 'OrderItem[]', 'Record<string, OrderItem>', '(A | B)[]' — container-decorated
+     * types produced by resolveGenericContainerType()) is treated as a single opaque token:
+     * the whole decorated string is kept intact rather than decomposed per-FQCN, which would
+     * otherwise silently drop the decoration. Its FQCNs are still registered so imports fire.
+     *
+     * Non-class type tokens (primitives, null, enum type aliases), and decorated class-backed
+     * tokens, are deduplicated by type string.
      *
      * @param  list<TypeScriptTypeInfo>  $infos
      * @return TypeScriptTypeInfo
@@ -1212,26 +1240,47 @@ class LaravelTsPublish
         /** @var list<class-string> $orderedClassFqcns */
         $orderedClassFqcns = [];
 
-        // Non-class type strings seen so far, used to deduplicate by string value.
-        /** @var list<class-string> $seenNonClassTypes */
-        $seenNonClassTypes = [];
+        // Whole-type-string tokens already added to $types — non-class types, and
+        // container-decorated class-backed types — deduplicated by string value.
+        /** @var list<string> $seenTypeTokens */
+        $seenTypeTokens = [];
 
         foreach ($infos as $info) {
             if ($info['classFqcns'] !== []) {
-                // Class-backed type: deduplicate by FQCN so the same class appearing twice
-                // does not produce duplicate tokens, but two distinct FQCNs that both resolve
-                // to the same class_basename() each emit their own token.
-                foreach ($info['classFqcns'] as $i => $fqcn) {
-                    if (! isset($classFqcnToName[$fqcn])) {
-                        $classFqcnToName[$fqcn] = $info['classes'][$i];
-                        $orderedClassFqcns[] = $fqcn;
-                        $types[] = $info['classes'][$i];
+                $isPlainClassUnion = $info['type'] === implode(' | ', $info['classes']);
+
+                if ($isPlainClassUnion) {
+                    // Undecorated class-backed type: deduplicate by FQCN so the same class
+                    // appearing twice does not produce duplicate tokens, but two distinct
+                    // FQCNs that both resolve to the same class_basename() each emit their
+                    // own token.
+                    foreach ($info['classFqcns'] as $i => $fqcn) {
+                        if (! isset($classFqcnToName[$fqcn])) {
+                            $classFqcnToName[$fqcn] = $info['classes'][$i];
+                            $orderedClassFqcns[] = $fqcn;
+                            $types[] = $info['classes'][$i];
+                        }
+                    }
+                } else {
+                    // Container-decorated class-backed type — register every FQCN for the
+                    // import machinery, but keep the decorated string as a single token
+                    // instead of decomposing it (which would drop the decoration).
+                    foreach ($info['classFqcns'] as $i => $fqcn) {
+                        if (! isset($classFqcnToName[$fqcn])) {
+                            $classFqcnToName[$fqcn] = $info['classes'][$i];
+                            $orderedClassFqcns[] = $fqcn;
+                        }
+                    }
+
+                    if (! in_array($info['type'], $seenTypeTokens, true)) {
+                        $seenTypeTokens[] = $info['type'];
+                        $types[] = $info['type'];
                     }
                 }
             } else {
                 // Non-class type (primitive, null, enum type alias): deduplicate by type string.
-                if (! in_array($info['type'], $seenNonClassTypes, true)) {
-                    $seenNonClassTypes[] = $info['type'];
+                if (! in_array($info['type'], $seenTypeTokens, true)) {
+                    $seenTypeTokens[] = $info['type'];
                     $types[] = $info['type'];
                 }
             }

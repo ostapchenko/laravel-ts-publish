@@ -396,6 +396,27 @@ describe('docblockReturnTypes', function () {
 
         expect($result['type'])->toBe('unknown[]');
     });
+
+    test('docblockReturnTypes degrades an unrecognized outer generic instead of guessing a partial-match type', function () {
+        // sortedItems' docblock is `@return Attribute<Collection<int, OrderItem>, never>`.
+        // docblockReturnTypes() (unlike attributeDocblockReturnTypes()) does not unwrap
+        // Attribute<Get, Set> — 'Attribute' is not a recognized container, so
+        // resolveGenericContainerType() returns null for the whole string, and it must
+        // degrade to 'unknown' rather than have toTsType() partial-match the 'int' inside
+        // to 'number'.
+        $method = new ReflectionMethod(Order::class, 'sortedItems');
+        $result = $this->service->docblockReturnTypes($method);
+
+        expect($result['type'])->toBe('unknown');
+    });
+
+    test('docblockReturnTypes preserves array decoration through a nullable union', function () {
+        $method = new ReflectionMethod(DocblockReturnClass::class, 'nullableGenericCollection');
+        $result = $this->service->docblockReturnTypes($method);
+
+        expect($result['type'])->toBe('OrderItem[] | null')
+            ->and($result['classFqcns'])->toBe([OrderItem::class]);
+    });
 });
 
 describe('extractReturnTypeFromDocblock', function () {
@@ -968,6 +989,39 @@ describe('mergeTypeScriptInfos', function () {
         $result = $this->service->mergeTypeScriptInfos([$infoA, $infoB, $infoNull]);
 
         expect($result['type'])->toBe('string | null');
+    });
+
+    test('preserves array-container decoration on a class-backed type merged with null', function () {
+        // A container-decorated class-backed info (e.g. from resolveGenericContainerType())
+        // must not be decomposed to its bare class name — that would silently drop the '[]'.
+        $infoArray = [...$this->service->emptyTypeScriptInfo(), 'type' => 'OrderItem[]', 'classes' => ['OrderItem'], 'classFqcns' => [OrderItem::class]];
+        $infoNull = [...$this->service->emptyTypeScriptInfo(), 'type' => 'null'];
+
+        $result = $this->service->mergeTypeScriptInfos([$infoArray, $infoNull]);
+
+        expect($result['type'])->toBe('OrderItem[] | null')
+            ->and($result['classes'])->toBe(['OrderItem'])
+            ->and($result['classFqcns'])->toBe([OrderItem::class]);
+    });
+
+    test('preserves Record-container decoration on a class-backed type merged with null', function () {
+        $infoRecord = [...$this->service->emptyTypeScriptInfo(), 'type' => 'Record<string, OrderItem>', 'classes' => ['OrderItem'], 'classFqcns' => [OrderItem::class]];
+        $infoNull = [...$this->service->emptyTypeScriptInfo(), 'type' => 'null'];
+
+        $result = $this->service->mergeTypeScriptInfos([$infoRecord, $infoNull]);
+
+        expect($result['type'])->toBe('Record<string, OrderItem> | null');
+    });
+
+    test('keeps distinct decorated tokens for two different container-decorated classes', function () {
+        $infoA = [...$this->service->emptyTypeScriptInfo(), 'type' => 'A[]', 'classes' => ['A'], 'classFqcns' => ['App\\Models\\A']];
+        $infoB = [...$this->service->emptyTypeScriptInfo(), 'type' => 'B[]', 'classes' => ['B'], 'classFqcns' => ['App\\Models\\B']];
+
+        $result = $this->service->mergeTypeScriptInfos([$infoA, $infoB]);
+
+        expect($result['type'])->toBe('A[] | B[]')
+            ->and($result['classes'])->toBe(['A', 'B'])
+            ->and($result['classFqcns'])->toBe(['App\\Models\\A', 'App\\Models\\B']);
     });
 });
 
@@ -1727,6 +1781,14 @@ class DocblockReturnClass
     public function singleLineArrayShape(): array
     {
         return [];
+    }
+
+    /**
+     * @return Collection<int, OrderItem>|null
+     */
+    public function nullableGenericCollection()
+    {
+        return null;
     }
 }
 
