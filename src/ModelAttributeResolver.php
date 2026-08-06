@@ -9,9 +9,12 @@ use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesAccessorType;
 use AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use ReflectionClass;
+use ReflectionNamedType;
 use Throwable;
 
 /**
@@ -317,7 +320,7 @@ class ModelAttributeResolver
             }
 
             foreach ($ctx['relations'] as $relation) {
-                if ($relation['type'] !== 'MorphOne' && $relation['type'] !== 'MorphMany') {
+                if (! $this->isMorphParentRelation($parentFqcn, $relation)) {
                     continue;
                 }
 
@@ -342,6 +345,38 @@ class ModelAttributeResolver
         }
 
         $this->morphTargetMap = $map;
+    }
+
+    /**
+     * A relation counts as a morph parent when its inspected type is exactly
+     * MorphOne/MorphMany, or when the declaring method's return type is a
+     * subclass of either (custom relation classes like MorphOneFile).
+     *
+     * @param  class-string  $parentFqcn
+     * @param  RelationInfo  $relation
+     */
+    protected function isMorphParentRelation(string $parentFqcn, array $relation): bool
+    {
+        if ($relation['type'] === 'MorphOne' || $relation['type'] === 'MorphMany') {
+            return true;
+        }
+
+        $reflection = $this->getReflection($parentFqcn);
+
+        if ($reflection === null || ! $reflection->hasMethod($relation['name'])) {
+            return false;
+        }
+
+        $returnType = $reflection->getMethod($relation['name'])->getReturnType();
+
+        if (! $returnType instanceof ReflectionNamedType || $returnType->isBuiltin()) {
+            return false;
+        }
+
+        $fqcn = $returnType->getName();
+
+        return is_a($fqcn, MorphOne::class, true)
+            || is_a($fqcn, MorphMany::class, true);
     }
 
     /**

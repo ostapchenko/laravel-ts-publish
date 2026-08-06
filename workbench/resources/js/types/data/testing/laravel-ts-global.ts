@@ -352,6 +352,10 @@ declare global {
             images: Image[];
             images_count: number;
             images_exists: boolean;
+            /** Polymorphic attachment via a custom MorphOne subclass */
+            attachment: Attachment | null;
+            attachment_count: number;
+            attachment_exists: boolean;
         }
         /**
          * Child model that uses SharedExtendsTrait directly AND extends a parent that also uses it.
@@ -796,6 +800,21 @@ declare global {
             settings: string | null;
             last_login_at: string | null;
             last_login_ip: string | null;
+        }
+        export interface Attachment {
+            // Columns
+            id: number;
+            attachable_type: string;
+            attachable_id: number;
+            filename: string;
+            size_bytes: number;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            /** Polymorphic parent (Post and friends) */
+            attachable: Post;
+            attachable_count: number;
+            attachable_exists: boolean;
         }
         export interface ModelWithTraitExtends extends TraitInterface {
             // Columns
@@ -1424,7 +1443,7 @@ declare global {
             post_new?: PostResource;
             post_direct: PostResource;
             post_limited: { id: number; title: string };
-            post_extended: { id: number; title: string; content: string; user_id: number; status: workbench.crm.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: unknown[] | null; deleted_at: string | null; category_id: number | null; visibility: workbench.app.enums.VisibilityType | null; priority: workbench.app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: workbench.crm.models.User; categoryRel: workbench.app.models.Category | null; comments: workbench.app.models.Comment[]; tags: workbench.app.models.Tag[]; images: workbench.app.models.Image[] } | null;
+            post_extended: { id: number; title: string; content: string; user_id: number; status: workbench.crm.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: unknown[] | null; deleted_at: string | null; category_id: number | null; visibility: workbench.app.enums.VisibilityType | null; priority: workbench.app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: workbench.crm.models.User; categoryRel: workbench.app.models.Category | null; comments: workbench.app.models.Comment[]; tags: workbench.app.models.Tag[]; images: workbench.app.models.Image[]; attachment: workbench.app.models.Attachment | null } | null;
             post_title?: string;
             post_content?: string | null;
             post_title_display?: string | null;

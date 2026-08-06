@@ -141,6 +141,7 @@
     "app\/Http\/Resources\/WarehouseResource.php",
     "app\/Models\/Address.php",
     "app\/Models\/Admin\/Store.php",
+    "app\/Models\/Attachment.php",
     "app\/Models\/BaseExtendableModel.php",
     "app\/Models\/BaseSharedExtendableModel.php",
     "app\/Models\/Category.php",

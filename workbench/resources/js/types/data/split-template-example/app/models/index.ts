@@ -1,4 +1,5 @@
 export * from './address';
+export * from './attachment';
 export * from './base-extendable-model';
 export * from './base-shared-extendable-model';
 export * from './category';

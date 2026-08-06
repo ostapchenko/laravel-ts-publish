@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Workbench\App\Models\Attachment;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
 use Workbench\App\Models\Order;
@@ -188,6 +189,15 @@ test('resolveRelation returns unknown for MorphTo when no targets exist', functi
     // CompositeComment has nullable FK columns, so it gets ' | null' appended
     expect($result['type'])->toBe('unknown | null')
         ->and($result['modelFqcn'])->toBeNull();
+});
+
+test('morph target map includes parents declaring custom MorphOne subclasses', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+    $resolver->buildMorphTargetMap([Post::class, Attachment::class]);
+
+    $info = $resolver->resolveRelation(Attachment::class, 'attachable');
+
+    expect($info['type'])->toContain('Post');
 });
 
 test('attributeDocblockReturnTypes captures nested generic getter type', function () {
