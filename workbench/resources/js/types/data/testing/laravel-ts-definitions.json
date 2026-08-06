@@ -8076,6 +8076,38 @@
                 "optional": false
             }
         ],
+        "StaticCallResource": [
+            {
+                "name": "url",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "status_badge",
+                "type": "AsEnum<typeof Status>",
+                "optional": false
+            },
+            {
+                "name": "status_const",
+                "type": "AsEnum<typeof Status>",
+                "optional": false
+            },
+            {
+                "name": "items",
+                "type": "OrderItemResource[]",
+                "optional": false
+            },
+            {
+                "name": "default_status",
+                "type": "StatusType",
+                "optional": false
+            },
+            {
+                "name": "located_order",
+                "type": "unknown",
+                "optional": false
+            }
+        ],
         "AddressMixinResource": [
             {
                 "name": "morphValue",
@@ -8342,6 +8374,13 @@
             {
                 "name": "extra",
                 "type": "Record<string, unknown>",
+                "optional": false
+            }
+        ],
+        "OrderItemCollection": [
+            {
+                "name": "data",
+                "type": "OrderItemResource[]",
                 "optional": false
             }
         ],

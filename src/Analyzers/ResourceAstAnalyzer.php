@@ -29,6 +29,7 @@ use PhpParser\Node\Expr\Cast\Bool_ as CastBool;
 use PhpParser\Node\Expr\Cast\Double as CastDouble;
 use PhpParser\Node\Expr\Cast\Int_ as CastInt;
 use PhpParser\Node\Expr\Cast\String_ as CastString;
+use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\Empty_;
@@ -75,6 +76,7 @@ use ReflectionMethod;
  * @phpstan-import-type InlineEnumFqcnsMap from ResourceAnalysis
  * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
  * @phpstan-import-type MultiEnumFqcnsMap from ResourceAnalysis
+ * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
  *
  * @phpstan-type ValueExpressionResult = array{
  *      type: string,
@@ -514,11 +516,9 @@ class ResourceAstAnalyzer
         }
 
         // Comparison, logical, and type-test operators always produce a boolean.
-        // Note: BooleanAnd/BooleanOr are sometimes used as null-guards
-        // (`$this->x && $this->x->y`), where the runtime value is the right operand or
-        // `false`, not a true boolean. We deliberately don't special-case that pattern —
-        // predicate usage dominates in resource output, and detecting the guard pattern
-        // precisely is YAGNI for this analyzer.
+        // This includes BooleanAnd/BooleanOr/LogicalAnd/LogicalOr/LogicalXor even when
+        // used as a null-guard (`$this->x && $this->x->y`) — unlike JavaScript's && and
+        // ||, PHP's operators always coerce to and return a real bool.
         if ($expr instanceof BinaryOp\Identical
             || $expr instanceof BinaryOp\NotIdentical
             || $expr instanceof BinaryOp\Equal
@@ -1203,6 +1203,29 @@ class ResourceAstAnalyzer
             return $this->analyzeEnumResourceMake($call);
         }
 
+        // SomeCollection::make(...)/::collection(...) where SomeCollection is a
+        // ResourceCollection subclass — resolve the collected resource's element type.
+        //
+        // Must run before the generic SomeResource::make/collection checks below:
+        // ResourceCollection extends JsonResource, so isResourceClass() also matches a
+        // ResourceCollection subclass. Checking the more specific ResourceCollection case
+        // first is what makes OrderItemCollection::make(...) resolve to
+        // 'OrderItemResource[]' instead of the generic branch's unsuffixed
+        // 'OrderItemCollection'. When the collected resource can't be resolved, execution
+        // falls through to the generic branch below, preserving prior behavior.
+        if (is_a($className, ResourceCollection::class, true) && in_array($methodName, ['make', 'collection'], true)) {
+            $collected = $this->collectedResourceClass($className);
+
+            if ($collected !== null) {
+                return [
+                    ...$result,
+                    'type' => class_basename($collected).'[]',
+                    'optional' => $this->hasConditionalArgument($call),
+                    'resourceFqcn' => $collected,
+                ];
+            }
+        }
+
         // SomeResource::make($this->prop) — nested resource
         if ($this->isResourceClass($className) && $methodName === 'make') {
             $resourceName = class_basename($className);
@@ -1231,7 +1254,113 @@ class ResourceAstAnalyzer
             ];
         }
 
+        // Any other existing class — reflect the static method's declared/docblock
+        // return type. Accepted only when it can't break generated imports; see
+        // acceptReflectedTypeInfo().
+        if (class_exists($className)) {
+            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($className), $methodName);
+
+            return $this->acceptReflectedTypeInfo($tsInfo) ?? $result;
+        }
+
         return $result;
+    }
+
+    /**
+     * Resolve the resource class a ResourceCollection collects, from the
+     * #[Collects] attribute, the $collects property default, or the collects()
+     * naming convention (FooCollection → FooResource). Shared by
+     * resolveSingularResourceClass() (the collection analyzing itself) and
+     * analyzeStaticCall()'s ResourceCollection branch (an arbitrary collection
+     * class named in a static call elsewhere).
+     *
+     * @param  class-string  $collectionFqcn
+     * @return class-string<JsonResource>|null
+     */
+    protected function collectedResourceClass(string $collectionFqcn): ?string
+    {
+        $reflection = new ReflectionClass($collectionFqcn);
+
+        $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
+        if (class_exists($collectsAttribute)) {
+            // Priority 1: #[Collects] attribute (Laravel 12+)
+            $collectsAttrs = $reflection->getAttributes($collectsAttribute);
+
+            if ($collectsAttrs !== []) {
+                $collectsClass = $collectsAttrs[0]->newInstance()->class;
+
+                if (class_exists($collectsClass) && is_a($collectsClass, JsonResource::class, true)) {
+                    return $collectsClass;
+                }
+            }
+        }
+
+        // Priority 2: explicit $collects property default value
+        /** @var array<string, mixed> $defaults */
+        $defaults = $reflection->getDefaultProperties();
+        $collects = $defaults['collects'] ?? null;
+
+        if (is_string($collects) && class_exists($collects) && is_a($collects, JsonResource::class, true)) {
+            return $collects;
+        }
+
+        // Priority 3: naming convention — FooCollection → FooResource
+        $className = $reflection->getShortName();
+        $namespace = $reflection->getNamespaceName();
+
+        if (str_ends_with($className, 'Collection')) {
+            $base = substr($className, 0, -10);
+
+            $candidate = $namespace.'\\'.$base.'Resource';
+
+            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
+                return $candidate;
+            }
+
+            $candidate = $namespace.'\\'.$base; // @codeCoverageIgnoreStart
+
+            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
+                return $candidate;
+            } // @codeCoverageIgnoreEnd
+        }
+
+        return null;
+    }
+
+    /**
+     * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult when it cannot
+     * break generated imports: primitives/unions pass through verbatim, enum results
+     * carry their FQCN via directEnumFqcn so an import is generated, and anything
+     * referencing a non-enum class degrades to null — analyzeStaticCall()'s general
+     * reflection branch has no FQCN dispatch path for an arbitrary returned class (unlike
+     * resourceFqcn/modelFqcn/enumFqcn elsewhere), so emitting its token would produce a
+     * TS type with no corresponding import.
+     *
+     * @param  TypeScriptTypeInfo  $tsInfo
+     * @return ValueExpressionResult|null
+     */
+    protected function acceptReflectedTypeInfo(array $tsInfo): ?array
+    {
+        if ($tsInfo['type'] === 'unknown' || $tsInfo['type'] === '') {
+            return null;
+        }
+
+        // Enum return — plumb the FQCN so an import is generated for the enum type alias.
+        if ($tsInfo['enumFqcns'] !== []) {
+            return [
+                ...$this->unknownResult(),
+                'type' => $tsInfo['type'],
+                'optional' => false,
+                'directEnumFqcn' => $tsInfo['enumFqcns'][0],
+            ];
+        }
+
+        // Class tokens would produce a TS reference with no import — degrade instead.
+        if ($tsInfo['classFqcns'] !== []) {
+            return null;
+        }
+
+        return [...$this->unknownResult(), 'type' => $tsInfo['type'], 'optional' => false];
     }
 
     /**
@@ -1382,6 +1511,27 @@ class ResourceAstAnalyzer
                     ...$result,
                     'type' => $info['type'],
                     'enumFqcn' => $info['enumFqcn'],
+                ];
+            }
+
+            // Enum::staticMethod(...) or Enum::Case — resolve the enum from the class
+            // name alone, without evaluating the call/constant. The AST is name-resolved
+            // (parseAndResolveAst runs a NameResolver), so ->class is already the FQCN.
+            $enumClassName = null;
+
+            if ($argExpr instanceof StaticCall && $argExpr->class instanceof Name) {
+                $enumClassName = $argExpr->class->toString();
+            } elseif ($argExpr instanceof ClassConstFetch && $argExpr->class instanceof Name) {
+                $enumClassName = $argExpr->class->toString();
+            }
+
+            if ($enumClassName !== null && enum_exists($enumClassName)) {
+                $enumTsInfo = LaravelTsPublish::toTsType($enumClassName);
+
+                return [
+                    ...$result,
+                    'type' => $enumTsInfo['type'],
+                    'enumFqcn' => $enumClassName,
                 ];
             }
 
@@ -2330,60 +2480,17 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve the singular resource FQCN for a ResourceCollection.
-     *
-     * Resolution order:
-     * 1. #[Collects] PHP attribute on the class (Laravel 12+)
-     * 2. Explicit $collects property default value
-     * 3. Naming convention: XCollection → XResource
+     * Resolve the singular resource FQCN this ResourceCollection collects.
+     * See collectedResourceClass() for the resolution order.
      *
      * @return class-string<JsonResource>|null
      */
     protected function resolveSingularResourceClass(): ?string
     {
-        $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
-        if (class_exists($collectsAttribute)) {
-            // Priority 1: #[Collects] attribute (Laravel 12+)
-            $collectsAttrs = $this->resourceReflection->getAttributes($collectsAttribute);
+        /** @var class-string $ownFqcn */
+        $ownFqcn = $this->resourceReflection->getName();
 
-            if ($collectsAttrs !== []) {
-                $collectsClass = $collectsAttrs[0]->newInstance()->class;
-
-                if (class_exists($collectsClass) && is_a($collectsClass, JsonResource::class, true)) {
-                    return $collectsClass;
-                }
-            }
-        }
-
-        // Priority 2: explicit $collects property default value
-        /** @var array<string, mixed> $defaults */
-        $defaults = $this->resourceReflection->getDefaultProperties();
-        $collects = $defaults['collects'] ?? null;
-
-        if (is_string($collects) && class_exists($collects) && is_a($collects, JsonResource::class, true)) {
-            return $collects;
-        }
-
-        $className = $this->resourceReflection->getShortName();
-        $namespace = $this->resourceReflection->getNamespaceName();
-
-        if (str_ends_with($className, 'Collection')) {
-            $base = substr($className, 0, -10);
-
-            $candidate = $namespace.'\\'.$base.'Resource';
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            }
-
-            $candidate = $namespace.'\\'.$base; // @codeCoverageIgnoreStart
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            } // @codeCoverageIgnoreEnd
-        }
-
-        return null;
+        return $this->collectedResourceClass($ownFqcn);
     }
 
     /**

@@ -64,6 +64,7 @@ use Workbench\App\Http\Resources\SpreadJsonBaseResource;
 use Workbench\App\Http\Resources\SpreadWithClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardDoubleClosureReturnResource;
+use Workbench\App\Http\Resources\StaticCallResource;
 use Workbench\App\Http\Resources\TagResource;
 use Workbench\App\Http\Resources\TeamMemberResource;
 use Workbench\App\Http\Resources\TeamResource;
@@ -3910,12 +3911,10 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
 });
 
 describe('boolean expression inference', function () {
-    // Known limitation: `$a && $b` is also commonly used in resources as a null-guard
-    // (e.g. `$this->x && $this->x->y`), where the runtime value is the right operand or
-    // `false`, not a true boolean. We deliberately type all BooleanAnd/BooleanOr/Logical*
-    // expressions as plain `boolean` rather than special-casing the guard pattern — the
-    // predicate usage is by far the common case in resource output and the guard pattern
-    // is YAGNI to detect precisely. See task-9-brief.md Step 4 for the discussion.
+    // All BooleanAnd/BooleanOr/Logical* expressions type as plain `boolean`, including
+    // when used as a null-guard (e.g. `$this->x && $this->x->y`) — unlike JavaScript's
+    // && and ||, PHP's operators always coerce to and return a real bool, so `boolean`
+    // is correct for every use of these operators, not just predicate usage.
     test('comparison and logical operators resolve to boolean', function () {
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
@@ -3945,13 +3944,55 @@ describe('TsCasts-removability regressions', function () {
             ->and($props['price_float']['optional'])->toBeFalse();
     });
 
-    test('whenLoaded closure with ?string annotation resolves to string | null optional', function () {
-        // Guards against a #[TsCasts] annotation being reintroduced for a whenLoaded closure
-        // whose nullsafe chain and ?string annotation are already inferable.
+    test('whenLoaded closure over nullsafe relation property resolves to string | null optional', function () {
+        // Guards against a #[TsCasts] annotation being reintroduced for a whenLoaded closure.
+        // The closure's `?string` return annotation is inert here — the type actually comes
+        // from resolving the body, `$this->user?->email`, against the loaded `user` relation
+        // model via the whenLoaded relation-model body path (nullsafe property fetch).
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 
-        expect($props['user_bio']['type'])->toContain('string')
+        expect($props['user_bio']['type'])->toBe('string | null')
             ->and($props['user_bio']['optional'])->toBeTrue();
+    });
+});
+
+describe('static call inference', function () {
+    beforeEach(function () {
+        $this->props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(StaticCallResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+    });
+
+    test('service static call resolves declared return type', function () {
+        expect($this->props['url']['type'])->toBe('string');
+    });
+
+    test('EnumResource::make with enum static method arg resolves enum type', function () {
+        expect($this->props['status_badge']['type'])->toContain('Status');
+    });
+
+    test('EnumResource::make with enum const arg resolves enum type', function () {
+        expect($this->props['status_const']['type'])->toContain('Status');
+    });
+
+    test('ResourceCollection::make resolves to collected resource array', function () {
+        expect($this->props['items']['type'])->toBe('OrderItemResource[]');
+    });
+
+    test('static call declared to return an enum resolves via directEnumFqcn', function () {
+        // Proves the acceptReflectedTypeInfo() branch that plumbs enumFqcns[0] through
+        // as directEnumFqcn — the general-reflection path (not EnumResource::make/
+        // resolveEnumFromPropertyArg) hitting an enum-typed return.
+        expect($this->props['default_status']['type'])->toContain('Status');
+    });
+
+    test('static call declared to return a non-enum class degrades to unknown', function () {
+        // Highest-risk path: a reflected return type backed by an arbitrary class (here,
+        // the Order model) has no FQCN dispatch path from analyzeStaticCall's general
+        // reflection branch, so emitting its class token would produce an import-less TS
+        // reference. acceptReflectedTypeInfo() must degrade this to unknown instead.
+        expect($this->props['located_order']['type'])->toBe('unknown');
     });
 });

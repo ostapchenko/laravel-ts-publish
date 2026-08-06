@@ -1714,6 +1714,15 @@ declare global {
             meta: { label?: string };
             empty: Record<string, unknown>;
         }
+        /** Exercises static-call return type reflection and enum static args (Task 10). */
+        export interface StaticCallResource {
+            url: string;
+            status_badge: app.enums.StatusType;
+            status_const: app.enums.StatusType;
+            items: OrderItemResource[];
+            default_status: crm.enums.StatusType;
+            located_order: unknown;
+        }
         /**
          * Exercises: reading model from @mixin ModelClass in docblock
          *
@@ -1811,6 +1820,9 @@ declare global {
             location: GeoPoint;
             flag?: string | null;
             extra: Record<string, unknown>;
+        }
+        export interface OrderItemCollection {
+            data: OrderItemResource[];
         }
         /** Exercises closure / arrow function patterns in value expressions and merge methods. */
         export interface OrderClosureResource {
