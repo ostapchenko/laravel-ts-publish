@@ -613,6 +613,19 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['member_formatted']['type'])->toBe('unknown');
     });
 
+    // Regression: map()/pluck() written as a first-class callable (`->map(...)`,
+    // `->pluck(...)`) has no args at all — it's a Closure referencing the method itself,
+    // not a call to it. CallLike::getArgs() asserts !isFirstClassCallable() internally and
+    // throws AssertionError under zend.assertions=1 (PHP's development-mode default) rather
+    // than returning an empty array, which previously aborted analysis entirely instead of
+    // degrading to 'unknown' like every other unrecognized chain shape. This test only
+    // proves the analyzer degrades cleanly instead of throwing; the assertion-enabled proof
+    // that it *used to* throw is in the "no assertion errors" gate below.
+    test('map()/pluck() as a first-class callable degrades to unknown instead of throwing', function () {
+        expect($this->props['member_mapped_fcc']['type'])->toBe('unknown')
+            ->and($this->props['member_plucked_fcc']['type'])->toBe('unknown');
+    });
+
     test('an unsupported op in the chain keeps current unknown behavior', function () {
         expect($this->props['first_member']['type'])->toBe('unknown');
     });

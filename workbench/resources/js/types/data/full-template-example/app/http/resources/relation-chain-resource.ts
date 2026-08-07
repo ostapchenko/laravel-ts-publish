@@ -17,5 +17,7 @@ export interface RelationChainResource
     member_role_resources: RoleType[];
     member_names_upper: unknown;
     member_formatted: unknown;
+    member_mapped_fcc: unknown;
+    member_plucked_fcc: unknown;
     first_member: unknown;
 }

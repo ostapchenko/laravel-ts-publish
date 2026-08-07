@@ -1410,6 +1410,8 @@ declare global {
             member_role_resources: workbench.app.enums.RoleType[];
             member_names_upper: unknown;
             member_formatted: unknown;
+            member_mapped_fcc: unknown;
+            member_plucked_fcc: unknown;
             first_member: unknown;
         }
         /** Resource that delegates to parent with a known model — tests JsonResource base delegation. */

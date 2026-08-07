@@ -66,6 +66,14 @@ class RelationChainResource extends JsonResource
             // ArrowFunction — same guard as above, different unsupported argument shape.
             'member_formatted' => $this->members->take(5)->map([$this, 'formatMember']),
 
+            // map()/pluck() as a first-class callable (no args at all — this is a Closure
+            // referencing the method itself, not a call). MethodCall::getArgs() asserts
+            // !isFirstClassCallable() and throws AssertionError under zend.assertions=1
+            // (PHP's development default) rather than returning []; must be rejected before
+            // either analyzeVariablePluckCall() or the map body analysis ever calls getArgs().
+            'member_mapped_fcc' => $this->members->map(...)->values(),
+            'member_plucked_fcc' => $this->members->pluck(...)->values(),
+
             // Unsupported op in the chain (first() isn't an identity op) → stays unknown,
             // same as current (pre-Task-13) behavior.
             'first_member' => $this->members->take(5)->first(),

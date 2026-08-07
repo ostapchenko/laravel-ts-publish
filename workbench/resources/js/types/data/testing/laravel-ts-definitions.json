@@ -7100,6 +7100,16 @@
                 "optional": false
             },
             {
+                "name": "member_mapped_fcc",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "member_plucked_fcc",
+                "type": "unknown",
+                "optional": false
+            },
+            {
                 "name": "first_member",
                 "type": "unknown",
                 "optional": false

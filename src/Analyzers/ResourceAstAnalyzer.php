@@ -3470,6 +3470,15 @@ class ResourceAstAnalyzer
         }
 
         if ($pluckNode !== null) {
+            // First-class callable syntax (`->pluck(...)`) has no args — CallLike::getArgs()
+            // asserts !isFirstClassCallable() and throws AssertionError under
+            // zend.assertions=1 (PHP's development default) rather than returning [].
+            // analyzeVariablePluckCall() calls getArgs() unconditionally, so this must be
+            // checked before calling it.
+            if ($pluckNode->isFirstClassCallable()) {
+                return null;
+            }
+
             $previousContext = $this->closureRelationModelClass;
             $this->closureRelationModelClass = $elementModel;
 
@@ -3496,6 +3505,13 @@ class ResourceAstAnalyzer
         // *that expression* — e.g. a bare 'strtoupper' string literal resolves to 'string',
         // wrongly wrapped here to 'string[]' as if it were the map's return value.
         /** @var MethodCall $mapNode */
+        // First-class callable syntax (`->map(...)`) has no args — CallLike::getArgs()
+        // asserts !isFirstClassCallable() and throws AssertionError under
+        // zend.assertions=1 (PHP's development default) rather than returning [].
+        if ($mapNode->isFirstClassCallable()) {
+            return null;
+        }
+
         $args = $mapNode->getArgs();
 
         if ($args === []) {
