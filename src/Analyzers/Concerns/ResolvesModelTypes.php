@@ -19,11 +19,12 @@ use ReflectionClass;
  *
  * @phpstan-import-type ResourcePropertyInfoList from ResourceAnalysis
  * @phpstan-import-type ClassMapType from ResourceAnalysis
+ * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
  * @phpstan-import-type AttributeInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  * @phpstan-import-type RelationInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  *
  * @phpstan-type ModelAttributeTypeResult = array{type: string, enumFqcn: class-string|null}
- * @phpstan-type ModelRelationTypeResult = array{type: string, modelFqcn: class-string<\Illuminate\Database\Eloquent\Model>|null}
+ * @phpstan-type ModelRelationTypeResult = array{type: string, modelFqcn: class-string<\Illuminate\Database\Eloquent\Model>|null, morphFqcns: list<class-string>}
  */
 trait ResolvesModelTypes
 {
@@ -80,7 +81,7 @@ trait ResolvesModelTypes
     protected function resolveModelRelationTypeInfo(string $relationName): array
     {
         if ($this->modelClass === null || $this->modelRelations === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null];
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
         return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $relationName);
@@ -133,6 +134,8 @@ trait ResolvesModelTypes
         $directEnumFqcns = [];
         /** @var ClassMapType $modelFqcns */
         $modelFqcns = [];
+        /** @var InlineModelFqcnsMap $inlineModelFqcns */
+        $inlineModelFqcns = [];
 
         foreach ($this->modelAttributes as $attr) {
             $info = $this->resolveModelAttributeTypeInfo($attr['name']);
@@ -165,6 +168,13 @@ trait ResolvesModelTypes
                     if ($info['modelFqcn'] !== null) {
                         $modelFqcns[$relation['name']] = $info['modelFqcn'];
                     }
+
+                    // Self-keyed so every arm of a MorphTo union is imported; the per-property list
+                    // additionally lets ResourceTransformer alias same-basename parents apart.
+                    foreach ($info['morphFqcns'] as $morphFqcn) {
+                        $modelFqcns[$morphFqcn] = $morphFqcn;
+                        $inlineModelFqcns[$relation['name']][] = $morphFqcn;
+                    }
                 }
             }
         }
@@ -173,6 +183,7 @@ trait ResolvesModelTypes
             properties: $properties,
             directEnumFqcns: $directEnumFqcns,
             modelFqcns: $modelFqcns,
+            inlineModelFqcns: $inlineModelFqcns,
         );
     }
 
@@ -246,6 +257,8 @@ trait ResolvesModelTypes
                     $relatedFqcn = $relationInfo['modelFqcn'];
                     $collectedModelFqcns[] = $relatedFqcn;
                 }
+
+                array_push($collectedModelFqcns, ...$relationInfo['morphFqcns']);
             }
         }
 

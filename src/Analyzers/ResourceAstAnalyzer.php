@@ -1177,6 +1177,10 @@ class ResourceAstAnalyzer
                 $result['modelFqcn'] = $info['modelFqcn'];
             }
 
+            if ($info['morphFqcns'] !== []) {
+                $result['embeddedModelFqcns'] = $info['morphFqcns'];
+            }
+
             return $result;
         }
 
@@ -1666,6 +1670,10 @@ class ResourceAstAnalyzer
                 $result['modelFqcn'] = $relationInfo['modelFqcn'];
             }
 
+            if ($relationInfo['morphFqcns'] !== []) {
+                $result['embeddedModelFqcns'] = $relationInfo['morphFqcns'];
+            }
+
             return $result;
         }
 
@@ -1960,6 +1968,10 @@ class ResourceAstAnalyzer
 
             if ($relationInfo['modelFqcn'] !== null) {
                 $result['modelFqcn'] = $relationInfo['modelFqcn'];
+            }
+
+            if ($relationInfo['morphFqcns'] !== []) {
+                $result['embeddedModelFqcns'] = $relationInfo['morphFqcns'];
             }
 
             return $result;
@@ -3041,14 +3053,14 @@ class ResourceAstAnalyzer
 
     /**
      * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
-     * {type, modelFqcn} shape — a to-many relation's type ends in '[]'.
+     * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
      *
-     * @return array{type: string, modelFqcn: class-string<Model>|null}
+     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
      */
     protected function resolveModelRelationTypeInfo(string $name): array
     {
         if ($this->modelClass === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null];
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
         return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $name);

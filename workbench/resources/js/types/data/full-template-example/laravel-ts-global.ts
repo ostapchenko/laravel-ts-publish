@@ -1395,6 +1395,11 @@ declare global {
         }
     }
     export namespace app.http.resources {
+        /** Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape. */
+        export interface PostAttachmentFilterResource {
+            id: number;
+            attachment: { id: number; filename: string; attachable: app.models.Post };
+        }
         /** Resource for testing that $this->resource->prop on a model-backed resource resolves to the model attribute type. */
         export interface ModelWrappedPropResource {
             title: string;
@@ -2332,6 +2337,12 @@ declare global {
             value: string;
             meta: { extensions: unknown[]; maxSizeMb: number; sizeUnit: string; icon: string };
         }
+        /** Exercises a morphTo relation exposed through a resource: the emitted union needs every parent imported. */
+        export interface ImageMorphResource {
+            id: number;
+            imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
+            imageable_when_loaded?: app.models.Post | app.models.Product | app.models.User | crm.models.User;
+        }
         /**
          * Regression fixture (Task 12 review, Minor b): mutual (`$a = $b; $b = $a;`) and
          * self (`$c = $c;`) referential local variable bindings must terminate instead of
@@ -2342,6 +2353,43 @@ declare global {
         export interface LocalVarRecursionResource {
             mutual: unknown;
             self: unknown;
+        }
+        /** Same morphTo union, reached through the model-delegated analysis rather than an array literal. */
+        export interface ImageDelegatedResource {
+            id: number;
+            imageable_type: string;
+            imageable_id: number;
+            url: string;
+            alt_text: string | null;
+            disk: string;
+            path: string;
+            mime_type: string;
+            size_bytes: number;
+            width: number | null;
+            height: number | null;
+            sort_order: number;
+            metadata: unknown[] | null;
+            created_at: string | null;
+            updated_at: string | null;
+            size_for_humans: string;
+            is_landscape: boolean;
+            aspect_ratio: string | null;
+            extension: string | null;
+            size: number;
+            flexible_id: string | number | null;
+            optional_label: string | null;
+            status_from_docblock: crm.enums.StatusType | null;
+            uploader_from_docblock: app.models.User | null;
+            config_from_docblock: MenuSettingsType;
+            data_from_docblock: unknown[];
+            tree_from_docblock: { label: string; child: unknown[] };
+            price_from_docblock: { amount: number; currency: string };
+            label_from_docblock: string;
+            no_docblock_accessor: unknown;
+            wrong_format_docblock: string | null;
+            positive_int_accessor: number;
+            numeric_string_accessor: string;
+            imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
         }
         /**
          * Represents a user loaded through a team's belongsToMany pivot.
@@ -2505,6 +2553,13 @@ declare global {
             var_new_enum: unknown;
             fake_field: unknown;
             fake_relation?: unknown;
+        }
+        /** Exercises a class-typed `@property` tag reaching a resource, where the token still needs its import. */
+        export interface PropertyDocblockEdgeResource {
+            id: number;
+            owner_snapshot: crm.models.User | null;
+            meta_info: unknown[] | null;
+            tags: unknown[] | null;
         }
         /**
          * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the

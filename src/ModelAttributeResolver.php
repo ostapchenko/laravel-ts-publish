@@ -201,21 +201,24 @@ class ModelAttributeResolver
     /**
      * Resolve a relation name to its TypeScript type and related model FQCN.
      *
+     * `morphFqcns` carries every parent a MorphTo may resolve to, because `modelFqcn` can only name one
+     * and every token in the emitted union still needs an import.
+     *
      * @param  class-string  $modelFqcn
-     * @return array{type: string, modelFqcn: class-string<Model>|null}
+     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
      */
     public function resolveRelation(string $modelFqcn, string $relationName): array
     {
         $ctx = $this->resolveContext($modelFqcn);
 
         if ($ctx === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null];
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
         $relation = $ctx['relations']->firstWhere('name', $relationName);
 
         if ($relation === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null];
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
         $isMorphTo = $relation['type'] === 'MorphTo'
@@ -236,7 +239,7 @@ class ModelAttributeResolver
                 $type .= ' | null';
             }
 
-            return ['type' => $type, 'modelFqcn' => null];
+            return ['type' => $type, 'modelFqcn' => null, 'morphFqcns' => $targets];
         }
 
         DependencyRecorder::recordClass($relation['related']);
@@ -245,7 +248,7 @@ class ModelAttributeResolver
         $containsMany = str_contains(strtolower($relation['type']), 'many');
 
         if ($containsMany) {
-            return ['type' => $relatedModel.'[]', 'modelFqcn' => $relation['related']];
+            return ['type' => $relatedModel.'[]', 'modelFqcn' => $relation['related'], 'morphFqcns' => []];
         }
 
         $type = $relatedModel;
@@ -255,7 +258,7 @@ class ModelAttributeResolver
             $type .= ' | null';
         }
 
-        return ['type' => $type, 'modelFqcn' => $relation['related']];
+        return ['type' => $type, 'modelFqcn' => $relation['related'], 'morphFqcns' => []];
     }
 
     /**

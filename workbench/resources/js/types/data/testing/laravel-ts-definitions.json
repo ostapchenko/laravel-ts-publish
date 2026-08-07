@@ -7059,6 +7059,18 @@
                 "optional": true
             }
         ],
+        "PostAttachmentFilterResource": [
+            {
+                "name": "id",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "attachment",
+                "type": "{ id: number; filename: string; attachable: Post }",
+                "optional": false
+            }
+        ],
         "ModelWrappedPropResource": [
             {
                 "name": "title",
@@ -9947,6 +9959,23 @@
                 "optional": false
             }
         ],
+        "ImageMorphResource": [
+            {
+                "name": "id",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "imageable",
+                "type": "Post | Product | WorkbenchUser | CrmUser",
+                "optional": false
+            },
+            {
+                "name": "imageable_when_loaded",
+                "type": "Post | Product | WorkbenchUser | CrmUser",
+                "optional": true
+            }
+        ],
         "LocalVarRecursionResource": [
             {
                 "name": "mutual",
@@ -9956,6 +9985,178 @@
             {
                 "name": "self",
                 "type": "unknown",
+                "optional": false
+            }
+        ],
+        "ImageDelegatedResource": [
+            {
+                "name": "id",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "imageable_type",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "imageable_id",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "url",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "alt_text",
+                "type": "string | null",
+                "optional": false
+            },
+            {
+                "name": "disk",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "path",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "mime_type",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "size_bytes",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "width",
+                "type": "number | null",
+                "optional": false
+            },
+            {
+                "name": "height",
+                "type": "number | null",
+                "optional": false
+            },
+            {
+                "name": "sort_order",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "metadata",
+                "type": "unknown[] | null",
+                "optional": false
+            },
+            {
+                "name": "created_at",
+                "type": "string | null",
+                "optional": false
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null",
+                "optional": false
+            },
+            {
+                "name": "size_for_humans",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "is_landscape",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "aspect_ratio",
+                "type": "string | null",
+                "optional": false
+            },
+            {
+                "name": "extension",
+                "type": "string | null",
+                "optional": false
+            },
+            {
+                "name": "size",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "flexible_id",
+                "type": "string | number | null",
+                "optional": false
+            },
+            {
+                "name": "optional_label",
+                "type": "string | null",
+                "optional": false
+            },
+            {
+                "name": "status_from_docblock",
+                "type": "StatusType | null",
+                "optional": false
+            },
+            {
+                "name": "uploader_from_docblock",
+                "type": "WorkbenchUser | null",
+                "optional": false
+            },
+            {
+                "name": "config_from_docblock",
+                "type": "MenuSettingsType",
+                "optional": false
+            },
+            {
+                "name": "data_from_docblock",
+                "type": "unknown[]",
+                "optional": false
+            },
+            {
+                "name": "tree_from_docblock",
+                "type": "{ label: string; child: unknown[] }",
+                "optional": false
+            },
+            {
+                "name": "price_from_docblock",
+                "type": "{ amount: number; currency: string }",
+                "optional": false
+            },
+            {
+                "name": "label_from_docblock",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "no_docblock_accessor",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "wrong_format_docblock",
+                "type": "string | null",
+                "optional": false
+            },
+            {
+                "name": "positive_int_accessor",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "numeric_string_accessor",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "imageable",
+                "type": "Post | Product | WorkbenchUser | CrmUser",
                 "optional": false
             }
         ],
@@ -10590,6 +10791,28 @@
                 "name": "fake_relation",
                 "type": "unknown",
                 "optional": true
+            }
+        ],
+        "PropertyDocblockEdgeResource": [
+            {
+                "name": "id",
+                "type": "number",
+                "optional": false
+            },
+            {
+                "name": "owner_snapshot",
+                "type": "User | null",
+                "optional": false
+            },
+            {
+                "name": "meta_info",
+                "type": "unknown[] | null",
+                "optional": false
+            },
+            {
+                "name": "tags",
+                "type": "unknown[] | null",
+                "optional": false
             }
         ],
         "LocalVarGuardClauseResource": [

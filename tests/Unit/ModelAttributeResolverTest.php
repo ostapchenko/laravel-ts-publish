@@ -39,7 +39,7 @@ test('resolveRelation returns unknown for non-existent model class', function ()
 
     $result = $resolver->resolveRelation('App\\Models\\NonExistent', 'posts');
 
-    expect($result)->toBe(['type' => 'unknown', 'modelFqcn' => null]);
+    expect($result)->toBe(['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []]);
 });
 
 test('resolveMethodReturnType returns empty info for non-existent method', function () {
@@ -173,7 +173,8 @@ test('resolveRelation returns union type for MorphTo when targets exist', functi
     $result = $resolver->resolveRelation(Image::class, 'imageable');
 
     expect($result['type'])->toBe('Post | Product | User')
-        ->and($result['modelFqcn'])->toBeNull();
+        ->and($result['modelFqcn'])->toBeNull()
+        ->and($result['morphFqcns'])->toBe([Post::class, Product::class, User::class]);
 });
 
 test('resolveRelation returns unknown for MorphTo when no targets exist', function () {

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\Transformers\ResourceTransformer;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\App\Http\Resources\AddressExtendsResource;
@@ -17,6 +18,8 @@ use Workbench\App\Http\Resources\EmptyResource;
 use Workbench\App\Http\Resources\EmptyWithMixinResource;
 use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\FqcnMixinResource;
+use Workbench\App\Http\Resources\ImageDelegatedResource;
+use Workbench\App\Http\Resources\ImageMorphResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
 use Workbench\App\Http\Resources\MediaTypeUnknownResource;
@@ -35,8 +38,10 @@ use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Address;
 use Workbench\App\Models\Admin\Store as AdminStore;
 use Workbench\App\Models\Comment;
+use Workbench\App\Models\Image;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\Post;
+use Workbench\App\Models\Product;
 use Workbench\App\Models\TrackingEvent;
 use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
@@ -1932,4 +1937,43 @@ describe('ResourceTransformer with PostFlatCollection (typeAlias)', function () 
 
         expect($transformer->typeAlias)->toBe('PostResource[]');
     })->skip(fn () => ! version_compare(app()->version(), '13', '>='));
+})->group('transformer');
+
+describe('ResourceTransformer with morphTo-backed resources', function () {
+    beforeEach(function () {
+        // The publish command builds this map up front; a bare transformer test has to seed it.
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            Post::class, Product::class, User::class, CrmUser::class, Image::class,
+        ]);
+    });
+
+    // The union names every morph parent, so every parent needs an import: resolveRelation()'s
+    // singular modelFqcn is null for a MorphTo and could never carry them.
+    test('a morphTo property imports and aliases every parent model', function () {
+        $data = (new ResourceTransformer(ImageMorphResource::class))->data();
+
+        $allTypeImports = array_merge(...array_values($data->typeImports));
+
+        expect($data->properties['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser')
+            ->and($data->properties['imageable_when_loaded']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser')
+            ->and($allTypeImports)->toContain('Post', 'Product', 'User as WorkbenchUser', 'User as CrmUser');
+    });
+
+    test('the model-delegated analysis imports the morph parents too', function () {
+        $data = (new ResourceTransformer(ImageDelegatedResource::class))->data();
+
+        $allTypeImports = array_merge(...array_values($data->typeImports));
+
+        expect($data->properties['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser')
+            ->and($allTypeImports)->toContain('Post', 'Product', 'User as WorkbenchUser', 'User as CrmUser');
+    });
+
+    // #[TsType(['type' => ..., 'import' => ...])] on a cast: no analysis path carried the author's
+    // import into a resource, so the token was emitted alone.
+    test('a #[TsType(import:)] cast reaching a resource brings its import', function () {
+        $data = (new ResourceTransformer(ImageDelegatedResource::class))->data();
+
+        expect($data->properties['config_from_docblock']['type'])->toBe('MenuSettingsType')
+            ->and($data->typeImports['@js/types/settings'] ?? [])->toContain('MenuSettingsType');
+    });
 })->group('transformer');

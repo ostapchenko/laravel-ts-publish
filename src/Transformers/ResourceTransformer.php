@@ -715,7 +715,8 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Register both class FQCNs of accessors typed Attribute<ClassA|ClassB, never> so they can be aliased.
+     * Register both class FQCNs of accessors typed Attribute<ClassA|ClassB, never> so they can be aliased,
+     * and the #[TsType(import:)] paths of model attributes, which no analysis path carries into a resource.
      */
     protected function resolveMultiClassAccessorFqcns(): self
     {
@@ -724,13 +725,16 @@ class ResourceTransformer extends CoreTransformer
         }
 
         $resolver = resolve(ModelAttributeResolver::class);
+        $modelClass = $this->modelClass;
 
         foreach (array_keys($this->properties) as $propName) {
             if (isset($this->propertyModelFqcns[$propName])) {
                 continue;
             }
 
-            $tsInfo = $resolver->resolveAttribute($this->modelClass, $propName);
+            $tsInfo = $resolver->resolveAttribute($modelClass, $propName);
+
+            $this->registerModelAttributeCustomImports($propName, $tsInfo['customImports']);
 
             if ($tsInfo['classFqcns'] === []) {
                 continue;
@@ -747,6 +751,24 @@ class ResourceTransformer extends CoreTransformer
         }
 
         return $this;
+    }
+
+    /**
+     * Import a model attribute's #[TsType(import:)] names, but only those the emitted property still uses.
+     *
+     * A resource may override the model's type, and an unused import is a tsc error under noUnusedLocals.
+     *
+     * @param  array<string, list<string>>  $imports
+     */
+    protected function registerModelAttributeCustomImports(string $propName, array $imports): void
+    {
+        foreach ($imports as $path => $names) {
+            foreach ($names as $name) {
+                if (str_contains($this->properties[$propName]['type'] ?? '', $name)) {
+                    $this->customImports[$path][] = $name;
+                }
+            }
+        }
     }
 
     /**
