@@ -1968,6 +1968,21 @@ describe('ResourceTransformer with morphTo-backed resources', function () {
             ->and($allTypeImports)->toContain('Post', 'Product', 'User as WorkbenchUser', 'User as CrmUser');
     });
 
+    // A widened container names its element in both arms; aliasing only the first left the second bare.
+    test('an aliased element is replaced in every arm of a widened collection type', function () {
+        $data = (new ResourceTransformer(ImageMorphResource::class))->data();
+
+        expect($data->properties['uploaders_from_docblock']['type'])
+            ->toBe('WorkbenchUser[] | Record<string, WorkbenchUser>');
+    });
+
+    // The same pass must still take exactly one occurrence when two FQCNs share the basename.
+    test('a same-basename union still gets one replacement per aliasing pass', function () {
+        $data = (new ResourceTransformer(ImageMorphResource::class))->data();
+
+        expect($data->properties['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser');
+    });
+
     // #[TsType(['type' => ..., 'import' => ...])] on a cast: no analysis path carried the author's
     // import into a resource, so the token was emitted alone.
     test('a #[TsType(import:)] cast reaching a resource brings its import', function () {

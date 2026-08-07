@@ -10,5 +10,6 @@ export interface ImageMorphResource
 {
     id: number;
     imageable: Post | Product | AppUser | CrmUser;
+    uploaders_from_docblock: AppUser[] | Record<string, AppUser>;
     imageable_when_loaded?: Post | Product | AppUser | CrmUser;
 }

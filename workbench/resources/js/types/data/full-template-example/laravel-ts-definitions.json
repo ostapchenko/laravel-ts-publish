@@ -6408,6 +6408,10 @@
                 "type": "unknown[]"
             },
             {
+                "name": "uploaders_from_docblock",
+                "type": "AppUser[] | Record<string, AppUser>"
+            },
+            {
                 "name": "tree_from_docblock",
                 "type": "{ label: string; child: unknown[] }"
             },
@@ -9971,6 +9975,11 @@
                 "optional": false
             },
             {
+                "name": "uploaders_from_docblock",
+                "type": "AppUser[] | Record<string, AppUser>",
+                "optional": false
+            },
+            {
                 "name": "imageable_when_loaded",
                 "type": "Post | Product | AppUser | CrmUser",
                 "optional": true
@@ -10117,6 +10126,11 @@
             {
                 "name": "data_from_docblock",
                 "type": "unknown[]",
+                "optional": false
+            },
+            {
+                "name": "uploaders_from_docblock",
+                "type": "AppUser[] | Record<string, AppUser>",
                 "optional": false
             },
             {

@@ -1332,3 +1332,25 @@ describe('ModelTransformer with UntypedColumn model (unknown-type fallback paths
         expect($data->columns['nullable_accessor_col']['type'])->toBe('unknown | null');
     });
 });
+
+describe('ModelTransformer alias occurrence handling', function () {
+    beforeEach(function () {
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            Post::class, Product::class, User::class, CrmUser::class, Image::class,
+        ]);
+    });
+
+    // A widened container names its element in both arms; aliasing only the first left the second bare.
+    test('an aliased element is replaced in every arm of a widened collection type', function () {
+        $data = (new ModelTransformer(Image::class))->data();
+
+        expect($data->mutators['uploaders_from_docblock']['type'])
+            ->toBe('WorkbenchUser[] | Record<string, WorkbenchUser>');
+    });
+
+    test('a same-basename morph union still gets one replacement per aliasing pass', function () {
+        $data = (new ModelTransformer(Image::class))->data();
+
+        expect($data->relations['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser');
+    });
+})->group('transformer');

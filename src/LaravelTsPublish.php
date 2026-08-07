@@ -1356,6 +1356,31 @@ class LaravelTsPublish
     }
 
     /**
+     * Replace a bare type name with its import alias inside one item's type string.
+     *
+     * Unlimited unless a second FQCN on the same item resolves to that same name: a widened container
+     * repeats its element (`X[] | Record<string, X>`) so one pass must take both, while a same-basename
+     * union has one occurrence per FQCN and must leave the rest for the other passes.
+     *
+     * @param  list<string>  $itemFqcns  every FQCN registered against the item being rewritten
+     * @param  array<string, string>  $nameMap  FQCN => unaliased type name
+     */
+    public function aliasTypeName(string $type, string $originalName, string $alias, array $itemFqcns, array $nameMap): string
+    {
+        $sharing = 0;
+
+        foreach ($itemFqcns as $itemFqcn) {
+            if (($nameMap[$itemFqcn] ?? null) === $originalName) {
+                $sharing++;
+            }
+        }
+
+        $pattern = '/(?<![A-Za-z0-9_$])'.preg_quote($originalName, '/').'(?![A-Za-z0-9_$])/';
+
+        return preg_replace($pattern, $alias, $type, $sharing > 1 ? 1 : -1) ?? $type;
+    }
+
+    /**
      * Convert a FQCN to a modular output directory path.
      *
      * Example: 'Blog\Enums\ArticleStatus' → 'blog/enums'

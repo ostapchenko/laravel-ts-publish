@@ -830,77 +830,63 @@ class ResourceTransformer extends CoreTransformer
      */
     protected function rewriteTypeReferences(): void
     {
+        $nameMap = $this->enumFqcnMap + $this->resourceFqcnMap + $this->modelFqcnMap;
+        $propertyFqcns = $this->collectPropertyFqcns();
+
         foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $this->enumFqcnMap[$fqcn]
-                ?? $this->resourceFqcnMap[$fqcn]
-                ?? $this->modelFqcnMap[$fqcn]
-                ?? null;
+            $originalName = $nameMap[$fqcn] ?? null;
 
             if ($originalName === null || $originalName === $alias) {
                 continue; // @codeCoverageIgnore
             }
 
-            $pattern = '/(?<![A-Za-z0-9_$])'.preg_quote($originalName, '/').'(?![A-Za-z0-9_$])/';
-
-            $targetProperties = [];
-
-            foreach ($this->propertyEnumFqcns as $propName => $propFqcn) {
-                if ($propFqcn === $fqcn) {
-                    $targetProperties[] = $propName;
+            foreach ($propertyFqcns as $propName => $propFqcns) {
+                if (! in_array($fqcn, $propFqcns, true) || ! isset($this->properties[$propName])) {
+                    continue;
                 }
-            }
 
-            foreach ($this->propertyResourceFqcns as $propName => $propFqcn) {
-                if ($propFqcn === $fqcn) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            foreach ($this->propertyModelFqcns as $propName => $propFqcn) {
-                if ($propFqcn === $fqcn) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            // Union accessor types can repeat a base name, so the limit=1 replace below aliases one per pass.
-            foreach ($this->propertyModelFqcnsList as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            foreach ($this->propertyEnumFqcnsList as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            foreach ($this->propertyInlineEnumFqcns as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            foreach ($this->propertyInlineModelFqcns as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            $targetProperties = array_unique($targetProperties);
-
-            foreach ($targetProperties as $propName) {
-                if (! isset($this->properties[$propName])) {
-                    continue; // @codeCoverageIgnore
-                }
-                $this->properties[$propName]['type'] = preg_replace(
-                    $pattern,
-                    $alias,
+                $this->properties[$propName]['type'] = LaravelTsPublish::aliasTypeName(
                     $this->properties[$propName]['type'],
-                    1, // Replace only first occurrence per pass to handle duplicate type tokens
-                ) ?? $this->properties[$propName]['type'];
+                    $originalName,
+                    $alias,
+                    $propFqcns,
+                    $nameMap,
+                );
             }
         }
+    }
+
+    /**
+     * Merge every per-property FQCN map — singular and list — into one property => FQCN list.
+     *
+     * @return array<string, list<class-string>>
+     */
+    protected function collectPropertyFqcns(): array
+    {
+        /** @var array<string, list<class-string>> $merged */
+        $merged = [];
+
+        foreach ([$this->propertyEnumFqcns, $this->propertyResourceFqcns, $this->propertyModelFqcns] as $map) {
+            foreach ($map as $propName => $propFqcn) {
+                $merged[$propName][] = $propFqcn;
+            }
+        }
+
+        foreach ([
+            $this->propertyModelFqcnsList,
+            $this->propertyEnumFqcnsList,
+            $this->propertyInlineEnumFqcns,
+            $this->propertyInlineModelFqcns,
+        ] as $map) {
+            foreach ($map as $propName => $propFqcns) {
+                $merged[$propName] = [...($merged[$propName] ?? []), ...$propFqcns];
+            }
+        }
+
+        return array_map(
+            fn (array $propFqcns): array => array_values(array_unique($propFqcns)),
+            $merged,
+        );
     }
 
     /**

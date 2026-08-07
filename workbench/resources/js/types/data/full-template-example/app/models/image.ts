@@ -41,6 +41,7 @@ export interface Image
     uploader_from_docblock: AppUser | null;
     config_from_docblock: MenuSettingsType;
     data_from_docblock: unknown[];
+    uploaders_from_docblock: AppUser[] | Record<string, AppUser>;
     tree_from_docblock: { label: string; child: unknown[] };
     price_from_docblock: { amount: number; currency: string };
     label_from_docblock: string;

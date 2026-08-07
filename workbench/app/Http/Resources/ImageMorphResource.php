@@ -23,6 +23,7 @@ class ImageMorphResource extends JsonResource
         return [
             'id' => $this->id,
             'imageable' => $this->imageable,
+            'uploaders_from_docblock' => $this->uploaders_from_docblock,
             'imageable_when_loaded' => $this->whenLoaded('imageable'),
         ];
     }

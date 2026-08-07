@@ -663,36 +663,54 @@ class ModelTransformer extends CoreTransformer
             }
         }
 
+        $nameMap = $this->enumFqcnMap + $this->modelFqcnMap;
+
         foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
+            $originalName = $nameMap[$fqcn] ?? null;
 
             if ($originalName === null || $originalName === $alias) {
                 continue;
             }
 
-            $pattern = '/(?<![A-Za-z0-9_$])'.preg_quote($originalName, '/').'(?![A-Za-z0-9_$])/';
-
             foreach ($this->columns as $key => $entry) {
-                if (! in_array($fqcn, $this->columnFqcns[$key] ?? [])) {
-                    continue;
-                }
-                $this->columns[$key]['type'] = preg_replace($pattern, $alias, $entry['type'], 1) ?? $entry['type'];
+                $this->columns[$key]['type'] = $this->aliasEntryType(
+                    $entry['type'], $fqcn, $originalName, $alias, $this->columnFqcns[$key] ?? [], $nameMap,
+                );
             }
 
             foreach ($this->mutators as $key => $entry) {
-                if (! in_array($fqcn, $this->mutatorFqcns[$key] ?? [])) {
-                    continue;
-                }
-                $this->mutators[$key]['type'] = preg_replace($pattern, $alias, $entry['type'], 1) ?? $entry['type'];
+                $this->mutators[$key]['type'] = $this->aliasEntryType(
+                    $entry['type'], $fqcn, $originalName, $alias, $this->mutatorFqcns[$key] ?? [], $nameMap,
+                );
             }
 
             foreach ($this->appends as $key => $entry) {
-                if (! in_array($fqcn, $this->appendsFqcns[$key] ?? [])) {
-                    continue;
-                }
-                $this->appends[$key]['type'] = preg_replace($pattern, $alias, $entry['type'], 1) ?? $entry['type'];
+                $this->appends[$key]['type'] = $this->aliasEntryType(
+                    $entry['type'], $fqcn, $originalName, $alias, $this->appendsFqcns[$key] ?? [], $nameMap,
+                );
             }
         }
+    }
+
+    /**
+     * Alias one column/mutator/append type string, leaving it untouched when it does not reference the FQCN.
+     *
+     * @param  list<string>  $entryFqcns
+     * @param  array<string, string>  $nameMap
+     */
+    private function aliasEntryType(
+        string $type,
+        string $fqcn,
+        string $originalName,
+        string $alias,
+        array $entryFqcns,
+        array $nameMap,
+    ): string {
+        if (! in_array($fqcn, $entryFqcns, true)) {
+            return $type;
+        }
+
+        return LaravelTsPublish::aliasTypeName($type, $originalName, $alias, $entryFqcns, $nameMap);
     }
 
     /**

@@ -7,6 +7,7 @@ namespace Workbench\App\Models;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Collection;
 use Workbench\App\Casts\MenuSettings;
 use Workbench\App\Enums\Status;
 use Workbench\App\ValueObjects\ArrayableData;
@@ -141,6 +142,12 @@ class Image extends Model
 
     /** @return Attribute<ArrayableData, never> */
     protected function dataFromDocblock(): Attribute
+    {
+        return Attribute::make(get: fn () => null);
+    }
+
+    /** @return Attribute<Collection<int, User>, never> */
+    protected function uploadersFromDocblock(): Attribute
     {
         return Attribute::make(get: fn () => null);
     }

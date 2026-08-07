@@ -487,22 +487,29 @@ class BroadcastEventTransformer extends CoreTransformer
      */
     protected function rewriteTypeReferences(): void
     {
+        $nameMap = $this->enumFqcnMap + $this->modelFqcnMap;
+
         foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
+            $originalName = $nameMap[$fqcn] ?? null;
 
             if ($originalName === null || $originalName === $alias) {
                 continue;
             }
 
-            $pattern = '/(?<![A-Za-z0-9_$])'.preg_quote($originalName, '/').'(?![A-Za-z0-9_$])/';
-
             foreach ($this->properties as $key => $entry) {
-                if (! in_array($fqcn, $this->propertyFqcns[$key] ?? [], true)) {
+                $entryFqcns = $this->propertyFqcns[$key] ?? [];
+
+                if (! in_array($fqcn, $entryFqcns, true)) {
                     continue;
                 }
 
-                $this->properties[$key]['type'] =
-                    preg_replace($pattern, $alias, $entry['type'], 1) ?? $entry['type'];
+                $this->properties[$key]['type'] = LaravelTsPublish::aliasTypeName(
+                    $entry['type'],
+                    $originalName,
+                    $alias,
+                    $entryFqcns,
+                    $nameMap,
+                );
             }
         }
     }
