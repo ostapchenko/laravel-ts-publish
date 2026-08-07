@@ -6404,6 +6404,10 @@
                 "type": "unknown[]"
             },
             {
+                "name": "tree_from_docblock",
+                "type": "{ label: string; child: unknown[] }"
+            },
+            {
                 "name": "price_from_docblock",
                 "type": "{ amount: number; currency: string }"
             },

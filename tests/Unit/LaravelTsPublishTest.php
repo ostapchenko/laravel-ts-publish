@@ -360,6 +360,31 @@ describe('Arrayable DTO shape inference', function () {
         expect($result['type'])->toBe('{ id: number }');
     });
 
+    test('a self-referential shape terminates instead of exhausting memory', function () {
+        $result = $this->service->toTsType(ArrayableSelfReferentialValueObject::class);
+
+        expect($result['type'])->toBe('{ id: number; child: unknown[] }');
+    });
+
+    test('a self-reference reached through a container also terminates', function () {
+        $result = $this->service->toTsType(ArrayableSelfReferentialListValueObject::class);
+
+        expect($result['type'])->toBe('{ children: unknown[][] }');
+    });
+
+    test('a mutual A to B to A shape cycle terminates', function () {
+        $result = $this->service->toTsType(ArrayableMutualAValueObject::class);
+
+        expect($result['type'])->toBe('{ b: { a: unknown[] } }');
+    });
+
+    test('the cycle guard is released, so the same DTO resolves fully on a later call', function () {
+        $this->service->toTsType(ArrayableMutualAValueObject::class);
+
+        expect($this->service->toTsType(ArrayableMutualBValueObject::class)['type'])
+            ->toBe('{ a: { b: unknown[] } }');
+    });
+
     test('Arrayable precedence wins over __toString for a DTO implementing both', function () {
         // Matches Laravel's own serialization order (Arrayable before Stringable).
         $result = $this->service->toTsType(ArrayableAndStringableValueObject::class);
@@ -1919,6 +1944,62 @@ class ArrayableWithClassArrayValueObject implements Arrayable
 class ArrayableWithNestedPrimitiveValueObject implements Arrayable
 {
     /** @return array{meta: array{owner: string}} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object whose toArray() shape names itself, so shape expansion would recurse forever.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableSelfReferentialValueObject implements Arrayable
+{
+    /** @return array{id: int, child: ArrayableSelfReferentialValueObject} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * The same cycle reached through a container rather than a bare class name.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableSelfReferentialListValueObject implements Arrayable
+{
+    /** @return array{children: ArrayableSelfReferentialListValueObject[]} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * Half of a mutual A -> B -> A shape cycle.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableMutualAValueObject implements Arrayable
+{
+    /** @return array{b: ArrayableMutualBValueObject} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * The other half of the mutual A -> B -> A shape cycle.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableMutualBValueObject implements Arrayable
+{
+    /** @return array{a: ArrayableMutualAValueObject} */
     public function toArray(): array
     {
         return [];

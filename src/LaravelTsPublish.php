@@ -44,6 +44,13 @@ class LaravelTsPublish
 {
     protected static ?Closure $callCommandWith = null;
 
+    /**
+     * "{FQCN}::{method}" keys currently being expanded by arrayableShapeType(), as a recursion guard.
+     *
+     * @var array<string, true>
+     */
+    protected array $shapeExpansionStack = [];
+
     /** @var list<string> */
     private const array RESERVED_JS_IDENTIFIERS = [
         'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger',
@@ -317,7 +324,21 @@ class LaravelTsPublish
             return null; // @codeCoverageIgnore
         }
 
-        $shape = $this->parseDocblockReturnArrayShape(new ReflectionMethod($fqcn, $method));
+        $key = $fqcn.'::'.$method;
+
+        // A DTO documented `array{child: self}` — or a mutual pair — otherwise recurses until memory is
+        // exhausted, aborting the whole publish run with no indication of which class caused it.
+        if (isset($this->shapeExpansionStack[$key])) {
+            return null;
+        }
+
+        $this->shapeExpansionStack[$key] = true;
+
+        try {
+            $shape = $this->parseDocblockReturnArrayShape(new ReflectionMethod($fqcn, $method));
+        } finally {
+            unset($this->shapeExpansionStack[$key]);
+        }
 
         if ($shape === []) {
             return null;
