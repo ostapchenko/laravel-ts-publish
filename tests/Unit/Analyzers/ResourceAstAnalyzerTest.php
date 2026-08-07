@@ -17,6 +17,7 @@ use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
+use Workbench\App\Http\Resources\ClosureParamShadowResource;
 use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\CommonResource;
@@ -4147,6 +4148,18 @@ describe('local variable bindings', function () {
     // A variable also written inside nested control flow is dropped from $localVarBindings entirely.
     test('a variable reassigned in nested control flow degrades to unknown, not the stale top-level type', function () {
         expect($this->props['shadowed']['type'])->toBe('unknown');
+    });
+
+    // A closure parameter rebinds the name, so a same-named top-level local must not resolve inside it.
+    test('a closure or arrow-function parameter shadowing an outer local drops the binding', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(ClosureParamShadowResource::class), Team::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['mapped_members']['type'])->toBe('unknown')
+            ->and($props['loaded_owner']['type'])->toBe('unknown')
+            ->and($props['outer_member']['type'])->toBe('unknown');
     });
 
     // Order has the default int key; UuidPost covers getKey()'s string-keyed branch.

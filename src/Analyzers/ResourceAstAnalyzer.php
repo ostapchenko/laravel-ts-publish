@@ -266,6 +266,10 @@ class ResourceAstAnalyzer
      * call arguments (e.g. `preg_match(..., $matches)`) are a known gap — detecting them needs the
      * callee's signature, which is not statically knowable for dynamic callables.
      *
+     * Closure and arrow-function parameters count too: they rebind the name, so an outer local of the
+     * same name would otherwise leak into the closure body. A by-value `use ($x)` is not a write — it
+     * carries the outer value in — while `use (&$x)` aliases it, exactly like AssignRef.
+     *
      * @param  array<Node>  $stmts
      * @return list<string>
      */
@@ -282,7 +286,9 @@ class ResourceAstAnalyzer
                 || $node instanceof PostInc
                 || $node instanceof PreDec
                 || $node instanceof PostDec
-                || $node instanceof Foreach_,
+                || $node instanceof Foreach_
+                || $node instanceof ClosureExpr
+                || $node instanceof ArrowFunction,
         );
 
         /** @var list<string> $names */
@@ -304,6 +310,18 @@ class ResourceAstAnalyzer
 
                 if ($node->keyVar !== null) {
                     $targets[] = $node->keyVar;
+                }
+            } elseif ($node instanceof ClosureExpr || $node instanceof ArrowFunction) {
+                foreach ($node->params as $param) {
+                    $targets[] = $param->var;
+                }
+
+                if ($node instanceof ClosureExpr) {
+                    foreach ($node->uses as $use) {
+                        if ($use->byRef) {
+                            $targets[] = $use->var;
+                        }
+                    }
                 }
             }
 

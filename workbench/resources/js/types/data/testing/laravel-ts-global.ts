@@ -2648,6 +2648,12 @@ declare global {
             items: workbench.app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
         }
+        /** A closure parameter that shadows a top-level local must not resolve through the outer binding. */
+        export interface ClosureParamShadowResource {
+            outer_member: unknown;
+            mapped_members: unknown;
+            loaded_owner?: unknown;
+        }
         /**
          * Exercises issue #43: EnumResource wrapping an enum accessed via `$this->resource->property`
          * returns `unknown` instead of the correct `AsEnum` utility type.

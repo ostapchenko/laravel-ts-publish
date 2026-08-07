@@ -11095,6 +11095,23 @@
                 "optional": true
             }
         ],
+        "ClosureParamShadowResource": [
+            {
+                "name": "outer_member",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "mapped_members",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "loaded_owner",
+                "type": "unknown",
+                "optional": true
+            }
+        ],
         "ResourceWrappedEnumResource": [
             {
                 "name": "id",

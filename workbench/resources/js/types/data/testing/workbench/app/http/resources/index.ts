@@ -8,6 +8,7 @@ export * from './boolean-expr-resource';
 export * from './category-resource';
 export * from './child-shared-resource';
 export * from './closure-control-flow-resource';
+export * from './closure-param-shadow-resource';
 export * from './closure-union-metadata-resource';
 export * from './comment-resource';
 export * from './conditional-param-array-resource';
