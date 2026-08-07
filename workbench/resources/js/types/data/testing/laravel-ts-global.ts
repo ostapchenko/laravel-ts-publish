@@ -1437,6 +1437,16 @@ declare global {
          * return a Stringable-but-not-string value object (CarbonInterval, CarbonPeriod) must
          * degrade to unknown rather than falsely resolve to `string` via toTsType()'s
          * __toString fallback.
+         *
+         * `to_mutable`/`to_immutable` are a Task 12 review follow-up: unlike CarbonInterval/
+         * CarbonPeriod, Carbon and CarbonImmutable themselves ARE correctly `string` via
+         * __toString() (their canonical ISO-ish datetime representation), so the Stringable
+         * guard must not over-degrade these two.
+         *
+         * `user_key` is a Task 12 review follow-up (Important 4): `getKey()`'s type depends
+         * on which model it's called on, unlike can()/cannot()/canAny() which are bool
+         * regardless of receiver — so getKey() must NOT fire on an arbitrary receiver like
+         * `$request->user()`, only on `$this->resource`. Must stay unknown.
          */
         export interface HelperCallResource {
             route_url: string;
@@ -1445,6 +1455,9 @@ declare global {
             item_total: number;
             diff_result: unknown;
             period_result: unknown;
+            to_mutable: string;
+            to_immutable: string;
+            user_key: unknown;
         }
         /** Exercises ...$this->only([...]) spread with additional manual keys. */
         export interface OrderOnlyResource {
@@ -1635,6 +1648,17 @@ declare global {
             notes_upper?: string;
             notes_length?: number;
         }
+        /**
+         * Regression fixture (Task 12 review, Critical 1): $localVarBindings collected for
+         * toArray() must not leak into a DIFFERENT method's analysis when that method is
+         * reached via a `...$this->method()` spread. `extra()`'s own `$data` (a string
+         * literal) is unrelated to toArray()'s `$data` (the order id) even though they share
+         * a name.
+         */
+        export interface LocalVarSpreadResource {
+            y: string;
+            x: number;
+        }
         /** Exercises: multiple whenHas on different column types, multiple whenNotNull. */
         export interface ProfileResource {
             id: number;
@@ -1797,6 +1821,25 @@ declare global {
             avatar?: string | null;
             posts_count?: number;
             comments_count?: number;
+        }
+        /**
+         * Regression fixture (Task 12 review, Important 3): a variable reassigned through a
+         * non-`Assign` form — a `foreach` loop's value variable, a compound assignment
+         * operator, increment, or a by-reference alias — must be excluded from
+         * $localVarBindings just like a plain nested `Assign` would be. Each property here
+         * has exactly one TOP-LEVEL `Assign`, so the naive "only look for a second `Assign`"
+         * check would have missed all four; each must degrade to unknown.
+         *
+         * Deliberately NOT covered here: by-reference function/method arguments (e.g.
+         * `preg_match($pattern, $subject, $matches)`), which would require resolving the
+         * callee's parameter-by-reference signature — not statically knowable in general.
+         * See ResourceAstAnalyzer::collectWrittenVariableNames()'s docblock.
+         */
+        export interface LocalVarReassignResource {
+            via_foreach: unknown;
+            via_concat: unknown;
+            via_increment: unknown;
+            via_ref: unknown;
         }
         /**
          * Resource with non-conventional name — tests #[UseResource] attribute model resolution.
@@ -2265,6 +2308,17 @@ declare global {
             meta: { extensions: unknown[]; maxSizeMb: number; sizeUnit: string; icon: string };
         }
         /**
+         * Regression fixture (Task 12 review, Minor b): mutual (`$a = $b; $b = $a;`) and
+         * self (`$c = $c;`) referential local variable bindings must terminate instead of
+         * hanging the generator, degrading to unknown rather than infinitely recursing. A
+         * regression here manifests as a CI hang, not a test failure, so this is committed
+         * rather than left as a throwaway verification.
+         */
+        export interface LocalVarRecursionResource {
+            mutual: unknown;
+            self: unknown;
+        }
+        /**
          * Represents a user loaded through a team's belongsToMany pivot.
          *
          * Exercises: whenPivotLoaded, whenPivotLoadedAs, whenHas on enum attributes.
@@ -2424,6 +2478,18 @@ declare global {
             var_new_enum: unknown;
             fake_field: unknown;
             fake_relation?: unknown;
+        }
+        /**
+         * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the
+         * same variable, separated by a guard-clause return, must not resolve either return
+         * branch through a single static binding — which assignment was "last" depends on
+         * which branch actually ran, and this analyzer does not do flow analysis. Both
+         * `early` and `late` must degrade to unknown rather than resolving through
+         * whichever assignment happens to be recorded.
+         */
+        export interface LocalVarGuardClauseResource {
+            early?: unknown;
+            late?: unknown;
         }
         /**
          * Exercises advanced merge patterns: mergeWhen with EnumResource::make,

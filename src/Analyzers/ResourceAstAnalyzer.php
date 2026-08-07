@@ -12,6 +12,7 @@ use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Carbon\Carbon as BaseCarbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -24,6 +25,8 @@ use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrayDimFetch;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\AssignOp;
+use PhpParser\Node\Expr\AssignRef;
 use PhpParser\Node\Expr\BinaryOp;
 use PhpParser\Node\Expr\BooleanNot;
 use PhpParser\Node\Expr\Cast\Array_ as CastArray_;
@@ -42,6 +45,10 @@ use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
+use PhpParser\Node\Expr\PostDec;
+use PhpParser\Node\Expr\PostInc;
+use PhpParser\Node\Expr\PreDec;
+use PhpParser\Node\Expr\PreInc;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Ternary;
@@ -136,12 +143,19 @@ class ResourceAstAnalyzer
     protected array $closureParamExprBindings = [];
 
     /**
-     * Top-level `$var = expr;` assignments recorded from toArray()'s statement list
-     * before the return statement, so a bare `Variable` value expression (e.g.
-     * `'label' => $label`) can resolve through its bound expression instead of
-     * degrading to unknown. Populated by collectLocalVarBindings(); only top-level
-     * statements are recorded (nested control-flow assignments are excluded — see
-     * that method's docblock). Last assignment to a given name wins.
+     * Top-level `$var = expr;` assignments recorded from a method's statement list
+     * (normally toArray()'s, before its return statement — see collectLocalVarBindings())
+     * so a bare `Variable` value expression (e.g. `'label' => $label`) can resolve
+     * through its bound expression instead of degrading to unknown. Only a variable
+     * written to EXACTLY ONCE anywhere in the whole method — that one write being a
+     * top-level `$var = expr;` — is recorded; see collectLocalVarBindings()'s docblock
+     * for why a second write anywhere (even another top-level one) excludes it entirely
+     * rather than trusting "last assignment wins".
+     *
+     * Scoped to whichever method was last analyzed: analyzeThisMethodSpread() saves,
+     * clears, and restores this map around analyzing a *different* method's body (a
+     * `...$this->otherMethod()` spread), so that method's local variables never leak
+     * into — or are leaked into by — toArray()'s bindings.
      *
      * @var array<string, Expr>
      */
@@ -239,54 +253,135 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Record top-level `$var = expr;` statements in toArray() so property values
+     * Record top-level `$var = expr;` statements in a method's body so property values
      * referencing those variables can resolve their types (see $localVarBindings).
      *
-     * Last (top-level) assignment wins — but only among variables that are exclusively
-     * assigned at the top level. A variable that is *also* assigned anywhere in nested
-     * control flow (inside `if`/`foreach`/`while`/a closure/...) is excluded from
-     * $localVarBindings entirely, even though it has a top-level assignment too:
-     * resolving it through the top-level binding alone would mean presenting a type
-     * that may not match what the variable actually holds on every code path — a
-     * nested assignment can run instead of, or after, the top-level one, silently
-     * changing the runtime value (and possibly its type) in a way this simple
-     * statement-list walk cannot see. That's a wrong-but-plausible result, which this
-     * codebase treats as strictly worse than the always-safe alternative: the variable
-     * degrades to unknown. A variable assigned *only* at the top level (however many
-     * times) is unaffected — last top-level assignment wins as usual.
+     * A variable is recorded only when it is written to EXACTLY ONCE anywhere in the
+     * whole method — top-level or nested — and that one write is a top-level
+     * `$var = expr;` statement. "Written to" covers every PHP form that can change a
+     * variable's value, not just a plain top-level `Assign` — see
+     * collectWrittenVariableNames() for the full list.
+     *
+     * Two writes anywhere disqualifies the variable entirely, even when BOTH are at the
+     * top level. A single flat statement list has no notion of "which write is active
+     * at this point in the code" once more than one exists: a nested write (inside
+     * `if`/`foreach`/a closure/...) might run instead of, or after, the recorded one on
+     * some code paths; two top-level writes separated by a guard-clause `return` mean
+     * different return branches see different values, and analyzeAllReturnBranches()
+     * analyzes each branch's array literal independently, with no notion of "which
+     * statement precedes this particular return" — a single global binding would be
+     * presented identically to every branch regardless of position. Either way,
+     * resolving through the binding risks presenting a type that does not match the
+     * variable's actual value on some code path — a wrong-but-plausible result, which
+     * this codebase treats as strictly worse than the always-safe alternative: the
+     * variable degrades to unknown.
      *
      * @param  array<Node\Stmt>  $stmts
      */
     protected function collectLocalVarBindings(array $stmts): void
     {
-        /** @var array<int, true> $topLevelAssignIds spl_object_id() of each top-level `$var = expr;` Assign node, used below to tell a top-level assignment apart from a structurally-identical one nested inside if/foreach/a closure/etc. */
-        $topLevelAssignIds = [];
+        /** @var array<string, int> $writeCounts */
+        $writeCounts = [];
+
+        foreach ($this->collectWrittenVariableNames($stmts) as $name) {
+            $writeCounts[$name] = ($writeCounts[$name] ?? 0) + 1;
+        }
 
         foreach ($stmts as $stmt) {
             if ($stmt instanceof ExpressionStmt
                 && $stmt->expr instanceof Assign
                 && $stmt->expr->var instanceof Variable
                 && is_string($stmt->expr->var->name)
+                && ($writeCounts[$stmt->expr->var->name] ?? 0) === 1
             ) {
                 $this->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
-                $topLevelAssignIds[spl_object_id($stmt->expr)] = true;
             }
         }
+    }
 
+    /**
+     * Collect the name of every local variable written to anywhere in the given
+     * statement tree (top-level or nested — inside `if`/`foreach`/`while`/a closure/...),
+     * via any of PHP's assignment/mutation forms:
+     * - `$x = ...;` (Assign) and `$x = &$y;` (AssignRef)
+     * - compound assignment (`+=`, `.=`, `??=`, ...) (AssignOp)
+     * - `$x++`/`$x--`/`++$x`/`--$x` (PreInc/PostInc/PreDec/PostDec)
+     * - a `foreach` loop's key and/or value variable, including array/list
+     *   destructuring in any of these positions (e.g. `[$a, $b] = [...]`,
+     *   `foreach ($rows as [$id, $name])`) — every `Variable` leaf inside the write
+     *   target is counted, so destructuring is covered without special-casing
+     *   `Array_`/`List_` shapes.
+     *
+     * `AssignRef` counts BOTH sides as written: `$alias = &$x;` means any later write
+     * to `$alias` also mutates `$x` through the reference, which this AST-level
+     * analysis cannot otherwise trace — so `$x` is conservatively treated as written by
+     * the aliasing statement itself.
+     *
+     * Deliberately NOT covered: a variable passed as a by-reference argument to a
+     * function or method call (e.g. `preg_match($pattern, $subject, $matches)`, or a
+     * user-defined `function f(&$x)`). Detecting this in general requires resolving the
+     * callee's parameter-by-reference signature, which is not statically knowable for
+     * arbitrary/dynamic callables, and would require a reflection lookup per call site
+     * even for the resolvable cases. This is a conscious, narrow gap: a variable whose
+     * only "reassignment" is through such a by-reference argument will still be
+     * recorded and resolved through its (possibly stale) declared binding.
+     *
+     * @param  array<Node>  $stmts
+     * @return list<string>
+     */
+    protected function collectWrittenVariableNames(array $stmts): array
+    {
         $finder = new NodeFinder;
-        $nestedAssigns = $finder->find(
+
+        $writeNodes = $finder->find(
             $stmts,
             fn (Node $node): bool => $node instanceof Assign
-                && $node->var instanceof Variable
-                && is_string($node->var->name)
-                && ! isset($topLevelAssignIds[spl_object_id($node)]),
+                || $node instanceof AssignRef
+                || $node instanceof AssignOp
+                || $node instanceof PreInc
+                || $node instanceof PostInc
+                || $node instanceof PreDec
+                || $node instanceof PostDec
+                || $node instanceof Foreach_,
         );
 
-        foreach ($nestedAssigns as $assign) {
-            if ($assign instanceof Assign && $assign->var instanceof Variable && is_string($assign->var->name)) {
-                unset($this->localVarBindings[$assign->var->name]);
+        /** @var list<string> $names */
+        $names = [];
+
+        foreach ($writeNodes as $node) {
+            /** @var list<Expr> $targets */
+            $targets = [];
+
+            if ($node instanceof AssignRef) {
+                $targets[] = $node->var;
+                $targets[] = $node->expr;
+            } elseif ($node instanceof Assign || $node instanceof AssignOp
+                || $node instanceof PreInc || $node instanceof PostInc
+                || $node instanceof PreDec || $node instanceof PostDec) {
+                $targets[] = $node->var;
+            } elseif ($node instanceof Foreach_) {
+                $targets[] = $node->valueVar;
+
+                if ($node->keyVar !== null) {
+                    $targets[] = $node->keyVar;
+                }
+            }
+
+            foreach ($targets as $target) {
+                $vars = $finder->find(
+                    $target,
+                    fn (Node $n): bool => $n instanceof Variable && is_string($n->name),
+                );
+
+                foreach ($vars as $var) {
+                    if ($var instanceof Variable && is_string($var->name)) {
+                        $names[] = $var->name;
+                    }
+                }
             }
         }
+
+        return $names;
     }
 
     protected function analyzeReturnArray(Array_ $array): ResourceAnalysis
@@ -1862,6 +1957,16 @@ class ResourceAstAnalyzer
 
     /**
      * Resolve and analyze a $this->method() spread from a trait or the class itself.
+     *
+     * $localVarBindings/$resolvingLocalVars are scoped to whichever method's statement
+     * list they were last collected from (normally toArray()'s). Analyzing a DIFFERENT
+     * method's body here must not see the caller's local variable bindings — a `$data`
+     * in toArray() and an unrelated, same-named `$data` in the spread method are
+     * different variables — and must not leak its own bindings back out once this
+     * method returns (this method itself may be reached from inside an array literal
+     * that toArray() is still in the middle of analyzing). Saved, cleared, and
+     * re-collected from the target method's own statements before analyzing it; always
+     * restored afterward via `finally`, including on the early-return paths above.
      */
     protected function analyzeThisMethodSpread(string $methodName): ?ResourceAnalysis
     {
@@ -1888,17 +1993,28 @@ class ResourceAstAnalyzer
             return null; // @codeCoverageIgnore
         }
 
-        $returnStmt = $finder->findFirst($targetMethod->stmts, function (Node $node): bool {
-            return $node instanceof Return_;
-        });
+        $previousLocalVarBindings = $this->localVarBindings;
+        $previousResolvingLocalVars = $this->resolvingLocalVars;
+        $this->localVarBindings = [];
+        $this->resolvingLocalVars = [];
+        $this->collectLocalVarBindings($targetMethod->stmts);
 
-        if ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Array_) {
-            $analysis = $this->analyzeReturnArray($returnStmt->expr);
-        } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Variable
-            && is_string($returnStmt->expr->name)) {
-            $analysis = $this->resolveVariableReturnAnalysis($targetMethod->stmts, $returnStmt->expr->name);
-        } else {
-            $analysis = new ResourceAnalysis;
+        try {
+            $returnStmt = $finder->findFirst($targetMethod->stmts, function (Node $node): bool {
+                return $node instanceof Return_;
+            });
+
+            if ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Array_) {
+                $analysis = $this->analyzeReturnArray($returnStmt->expr);
+            } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Variable
+                && is_string($returnStmt->expr->name)) {
+                $analysis = $this->resolveVariableReturnAnalysis($targetMethod->stmts, $returnStmt->expr->name);
+            } else {
+                $analysis = new ResourceAnalysis;
+            }
+        } finally {
+            $this->localVarBindings = $previousLocalVarBindings;
+            $this->resolvingLocalVars = $previousResolvingLocalVars;
         }
 
         // Apply PHPDoc @return array shape types to resolve unknown property types
@@ -3178,6 +3294,15 @@ class ResourceAstAnalyzer
      * unaffected: `ReflectionNamedType::getName()` returns the literal string `'static'`,
      * which `class_exists()` reports false for, so those already degrade to unknown via
      * toTsType()'s final fallback — same as before this method existed.
+     *
+     * Exception: `Carbon\Carbon` and `Carbon\CarbonImmutable` themselves (e.g.
+     * `toMutable(): Carbon`, `toImmutable(): CarbonImmutable`) are explicitly allow-listed
+     * rather than flagged. Unlike `CarbonInterval`/`CarbonPeriod` — whose `__toString()` is
+     * a formatting convenience (a human-readable duration / period summary), not each
+     * class's canonical representation — Carbon's own `__toString()` IS its well-documented
+     * canonical datetime string, the same family of value `toDateString()` et al. already
+     * produce correctly. Flagging these two would over-degrade real, correct resolutions
+     * for no safety benefit.
      */
     protected function carbonMethodReturnsUnimportableStringable(string $carbonClass, string $methodName): bool
     {
@@ -3192,6 +3317,10 @@ class ResourceAstAnalyzer
         }
 
         $name = $returnType->getName();
+
+        if (in_array($name, [BaseCarbon::class, CarbonImmutable::class], true)) {
+            return false;
+        }
 
         return class_exists($name)
             && ! is_a($name, Model::class, true)
@@ -3248,15 +3377,20 @@ class ResourceAstAnalyzer
      * a plain Collection property, a Stringable) where guessing wrong would emit a
      * wrong-but-plausible type.
      *
-     * getKey() (Task 12) also matches by name alone, with no receiver-type check, for the
-     * same reason as can()/cannot()/canAny(): every plausible receiver for a method
-     * literally named getKey() in a JsonResource body — an Eloquent model, whether `$this
-     * ->resource` or a relation — is either the resource's own backing model or another
-     * model sharing the same Eloquent `Model::getKey()` convention, and there is no
-     * common convention where a method literally named getKey() means something else.
-     * Resolves against `$closureRelationModelClass` when set (matching the convention
-     * used by analyzePropertyChain() and friends for "the model currently in scope
-     * inside a whenLoaded closure"), falling back to `$modelClass` otherwise.
+     * getKey() (Task 12), UNLIKE can()/cannot()/canAny(), IS receiver-type gated: its
+     * return type is receiver-*dependent* (an int-keyed model vs. a string/UUID-keyed
+     * model), so — unlike a bool that's correct for every plausible can() receiver —
+     * assuming `$this->modelClass`'s key type for an arbitrary `->getKey()` receiver
+     * risks a wrong-but-plausible result (e.g. `$request->user()->getKey()` when the
+     * auth user model's key type differs from the resource's own model, or
+     * `$this->someService()->getKey()` on an object that isn't a model at all).
+     * Constrained to the one receiver shape that is unambiguously "the resource's own
+     * backing model": `$this->resource->getKey()`. Resolves against `$this->modelClass`
+     * directly — `$this->resource` always refers to the outer resource's wrapped model
+     * regardless of whether resolution happens inside a whenLoaded closure, so
+     * `$closureRelationModelClass` (the convention used by analyzePropertyChain() and
+     * friends for closure-scoped *variable* chains, e.g. `$user->...` inside a
+     * whenLoaded closure) does not apply to this specific receiver shape.
      *
      * @return ValueExpressionResult|null
      */
@@ -3273,14 +3407,16 @@ class ResourceAstAnalyzer
         }
 
         if ($method === 'getKey') {
-            /** @var class-string<Model>|null $targetModelClass */
-            $targetModelClass = $this->closureRelationModelClass ?? $this->modelClass;
+            $isResourceReceiver = $expr->var instanceof PropertyFetch
+                && $this->isThisPropertyFetch($expr->var)
+                && $expr->var->name instanceof Identifier
+                && $expr->var->name->toString() === 'resource';
 
-            if ($targetModelClass === null) {
+            if (! $isResourceReceiver || $this->modelClass === null) {
                 return null;
             }
 
-            $instance = resolve(ModelAttributeResolver::class)->getInstance($targetModelClass);
+            $instance = resolve(ModelAttributeResolver::class)->getInstance($this->modelClass);
 
             $type = $instance?->getKeyType() === 'int' ? 'number' : 'string';
 

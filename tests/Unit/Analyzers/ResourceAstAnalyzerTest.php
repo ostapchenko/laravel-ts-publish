@@ -35,7 +35,11 @@ use Workbench\App\Http\Resources\ExtendedAddressResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
 use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
+use Workbench\App\Http\Resources\LocalVarGuardClauseResource;
+use Workbench\App\Http\Resources\LocalVarReassignResource;
+use Workbench\App\Http\Resources\LocalVarRecursionResource;
 use Workbench\App\Http\Resources\LocalVarResource;
+use Workbench\App\Http\Resources\LocalVarSpreadResource;
 use Workbench\App\Http\Resources\LoopReturnResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypePositiveInstanceOfResource;
@@ -88,6 +92,7 @@ use Workbench\App\Models\Profile;
 use Workbench\App\Models\Tag;
 use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
+use Workbench\App\Models\UuidPost;
 use Workbench\Blog\Enums\ArticleStatus;
 use Workbench\Blog\Enums\ContentType;
 use Workbench\Blog\Http\Resources\ApiArticleResource;
@@ -4069,6 +4074,26 @@ describe('helper and receiver method inference', function () {
     test('Carbon toPeriod() returning CarbonPeriod degrades to unknown, not string', function () {
         expect($this->props['period_result']['type'])->toBe('unknown');
     });
+
+    // Task 12 review follow-up (Minor a): Carbon/CarbonImmutable themselves are not
+    // "merely Stringable" the way CarbonInterval/CarbonPeriod are -- their __toString()
+    // IS their canonical representation, same family as toDateString() etc. -- so the
+    // Stringable guard must not over-degrade toMutable()/toImmutable().
+    test('Carbon toMutable() returning Carbon resolves to string, not unknown', function () {
+        expect($this->props['to_mutable']['type'])->toBe('string');
+    });
+
+    test('Carbon toImmutable() returning CarbonImmutable resolves to string, not unknown', function () {
+        expect($this->props['to_immutable']['type'])->toBe('string');
+    });
+
+    // Task 12 review follow-up (Important 4): getKey()'s type is receiver-dependent
+    // (unlike can()/cannot()/canAny(), which are bool regardless of receiver), so it
+    // must not fire on an arbitrary receiver like $request->user() -- only on
+    // $this->resource, where the resolved model class is actually correct.
+    test('getKey() on a non-$this->resource receiver stays unknown', function () {
+        expect($this->props['user_key']['type'])->toBe('unknown');
+    });
 });
 
 describe('local variable bindings', function () {
@@ -4089,5 +4114,83 @@ describe('local variable bindings', function () {
     // entirely, rather than resolved through the (possibly stale) top-level binding.
     test('a variable reassigned in nested control flow degrades to unknown, not the stale top-level type', function () {
         expect($this->props['shadowed']['type'])->toBe('unknown');
+    });
+
+    // Task 12 review follow-up (Important 4): getKey() must resolve to `string` for a
+    // string-keyed model, not just `number` -- the only workbench model previously
+    // exercised (Order) has the default int key, leaving the string branch uncovered.
+    test('getKey() resolves to string for a string-keyed model', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarResource::class), UuidPost::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['key']['type'])->toBe('string');
+    });
+});
+
+describe('local variable bindings — review follow-up regressions', function () {
+    // Critical 1: $localVarBindings collected for toArray() must not leak into a
+    // DIFFERENT method's analysis when that method is reached via a
+    // `...$this->method()` spread. Before the fix: 'y' wrongly resolved to 'number'
+    // (leaked from toArray()'s $data -> $this->id binding) instead of 'string' (its
+    // own extra()-local $data -> 'a literal string' binding).
+    test('a spread method\'s own local var bindings do not leak from or into toArray()', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarSpreadResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['x']['type'])->toBe('number')
+            ->and($props['y']['type'])->toBe('string');
+    });
+
+    // Critical 2: two TOP-LEVEL assignments to the same variable, separated by a
+    // guard-clause return, must not resolve either return branch through a single
+    // static "last assignment wins" binding -- which assignment is active depends on
+    // which branch actually executed. Before the fix: 'early' wrongly resolved
+    // through the LATE assignment's expression ($this->resource->getKey() ->
+    // 'number') even though at that point in the code $x still held $this->notes
+    // ('string'). Both branches must degrade to unknown.
+    test('two top-level assignments to the same var across return branches both degrade to unknown', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarGuardClauseResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['early']['type'])->toBe('unknown')
+            ->and($props['late']['type'])->toBe('unknown');
+    });
+
+    // Important 3: non-Assign reassignment forms (foreach loop variable, compound
+    // assignment, increment, by-reference alias) must be recognized as a write, even
+    // though each property here has exactly one top-level `Assign`.
+    test('non-Assign reassignment forms are recognized and degrade to unknown', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarReassignResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['via_foreach']['type'])->toBe('unknown')
+            ->and($props['via_concat']['type'])->toBe('unknown')
+            ->and($props['via_increment']['type'])->toBe('unknown')
+            ->and($props['via_ref']['type'])->toBe('unknown');
+    });
+
+    // Minor b: mutual and self-referential bindings must terminate rather than hang.
+    // A regression here manifests as a CI hang, not an assertion failure, so the
+    // wall-clock bound is the real assertion; the type checks confirm the safe
+    // degrade.
+    test('mutual and self-referential local var bindings terminate instead of hanging', function () {
+        $start = microtime(true);
+
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarRecursionResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect(microtime(true) - $start)->toBeLessThan(5.0)
+            ->and($props['mutual']['type'])->toBe('unknown')
+            ->and($props['self']['type'])->toBe('unknown');
     });
 });

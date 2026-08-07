@@ -7230,6 +7230,21 @@
                 "name": "period_result",
                 "type": "unknown",
                 "optional": false
+            },
+            {
+                "name": "to_mutable",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "to_immutable",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "user_key",
+                "type": "unknown",
+                "optional": false
             }
         ],
         "OrderOnlyResource": [
@@ -7864,6 +7879,18 @@
                 "optional": true
             }
         ],
+        "LocalVarSpreadResource": [
+            {
+                "name": "y",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "x",
+                "type": "number",
+                "optional": false
+            }
+        ],
         "ProfileResource": [
             {
                 "name": "id",
@@ -8278,6 +8305,28 @@
             {
                 "name": "coordinates",
                 "type": "GeoPoint",
+                "optional": false
+            }
+        ],
+        "LocalVarReassignResource": [
+            {
+                "name": "via_foreach",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "via_concat",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "via_increment",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "via_ref",
+                "type": "unknown",
                 "optional": false
             }
         ],
@@ -9803,6 +9852,18 @@
                 "optional": false
             }
         ],
+        "LocalVarRecursionResource": [
+            {
+                "name": "mutual",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "self",
+                "type": "unknown",
+                "optional": false
+            }
+        ],
         "TeamMemberResource": [
             {
                 "name": "id",
@@ -10422,6 +10483,18 @@
             },
             {
                 "name": "fake_relation",
+                "type": "unknown",
+                "optional": true
+            }
+        ],
+        "LocalVarGuardClauseResource": [
+            {
+                "name": "early",
+                "type": "unknown",
+                "optional": true
+            },
+            {
+                "name": "late",
                 "type": "unknown",
                 "optional": true
             }
