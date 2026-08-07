@@ -721,6 +721,12 @@ class LaravelTsPublish
             return $inner;
         }
 
+        // Collection<int, X> only promises integer keys, not sequential ones, and json_encode turns a
+        // gapped Collection into an object — the same union TypeScriptMap carries for a bare Collection.
+        if ($isCollection) {
+            return $this->wrapAsMaybeKeyedArray($inner);
+        }
+
         return $this->wrapAsArray($inner);
     }
 
@@ -749,6 +755,21 @@ class LaravelTsPublish
         }
 
         return count($infos) === 1 ? $infos[0] : $this->mergeTypeScriptInfos($infos);
+    }
+
+    /**
+     * Wrap a value type for a container whose key sequentiality is not guaranteed: `X[] | Record<string, X>`.
+     *
+     * @param  TypeScriptTypeInfo  $info
+     * @return TypeScriptTypeInfo
+     */
+    protected function wrapAsMaybeKeyedArray(array $info): array
+    {
+        $record = 'Record<string, '.$info['type'].'>';
+        $info = $this->wrapAsArray($info);
+        $info['type'] .= ' | '.$record;
+
+        return $info;
     }
 
     /** @param TypeScriptTypeInfo $info

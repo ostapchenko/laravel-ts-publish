@@ -3099,12 +3099,22 @@ class ResourceAstAnalyzer
         $mapNode = null;
         $pluckNode = null;
 
+        // A relation collection starts keyed 0..n-1; each op below says whether that still holds.
+        $sequentialKeys = true;
+
         foreach (array_reverse($ops) as $op) {
             if (in_array($op['name'], $identityOps, true)) {
+                $sequentialKeys = match ($op['name']) {
+                    'values' => true,
+                    'take' => $sequentialKeys && $this->isFrontAnchoredTake($op['node']),
+                    default => false,
+                };
+
                 continue;
             }
 
             if ($op['name'] === 'map' && $mapNode === null && $pluckNode === null) {
+                // map() preserves the receiver's keys, so it neither breaks nor restores sequentiality.
                 $mapNode = $op['node'];
 
                 continue;
@@ -3112,6 +3122,7 @@ class ResourceAstAnalyzer
 
             if ($op['name'] === 'pluck' && $pluckNode === null && $mapNode === null) {
                 $pluckNode = $op['node'];
+                $sequentialKeys = $op['node']->isFirstClassCallable() || count($op['node']->getArgs()) < 2;
 
                 continue;
             }
@@ -3123,7 +3134,7 @@ class ResourceAstAnalyzer
         if ($mapNode === null && $pluckNode === null) {
             return [
                 ...$this->unknownResult(),
-                'type' => $relationInfo['type'],
+                'type' => $sequentialKeys ? $relationInfo['type'] : $this->keyedObjectArm($relationInfo['type']),
                 'optional' => false,
                 'modelFqcn' => $elementModel,
             ];
@@ -3150,6 +3161,10 @@ class ResourceAstAnalyzer
             // so the caller's fallthrough produces plain 'unknown' like every other unrecognized chain.
             if ($pluckResult['type'] === 'unknown[]') {
                 return null;
+            }
+
+            if (! $sequentialKeys) {
+                $pluckResult['type'] = $this->keyedObjectArm($pluckResult['type']);
             }
 
             return [...$this->unknownResult(), ...$pluckResult];
@@ -3199,7 +3214,37 @@ class ResourceAstAnalyzer
             unset($bodyResult['enumFqcn']);
         }
 
-        return [...$bodyResult, 'type' => $this->arrayWrapType($bodyResult['type']), 'optional' => false];
+        $mapped = $this->arrayWrapType($bodyResult['type']);
+
+        return [
+            ...$bodyResult,
+            'type' => $sequentialKeys ? $mapped : $this->keyedObjectArm($mapped),
+            'optional' => false,
+        ];
+    }
+
+    /**
+     * Whether a `take()` call slices from the front, where a sequentially keyed receiver stays sequential.
+     *
+     * A negative count takes from the tail and a non-literal count could be either, so both are rejected.
+     */
+    private function isFrontAnchoredTake(MethodCall $call): bool
+    {
+        if ($call->isFirstClassCallable()) {
+            return false;
+        }
+
+        $args = $call->getArgs();
+
+        return count($args) === 1 && $args[0]->value instanceof Int_;
+    }
+
+    /**
+     * Add the object arm that json_encode emits for a gapped or reordered collection: `X[]` → `X[] | Record<string, X>`.
+     */
+    private function keyedObjectArm(string $arrayType): string
+    {
+        return $arrayType.' | Record<string, '.substr($arrayType, 0, -2).'>';
     }
 
     /**

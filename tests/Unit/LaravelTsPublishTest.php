@@ -582,7 +582,7 @@ describe('docblockReturnTypes', function () {
         $method = new ReflectionMethod(DocblockReturnClass::class, 'nullableGenericCollection');
         $result = $this->service->docblockReturnTypes($method);
 
-        expect($result['type'])->toBe('OrderItem[] | null')
+        expect($result['type'])->toBe('OrderItem[] | Record<string, OrderItem> | null')
             ->and($result['classFqcns'])->toBe([OrderItem::class]);
     });
 });
@@ -717,8 +717,16 @@ describe('psalm-return and nested generic docblock support', function () {
 });
 
 describe('generic container docblock types', function () {
-    test('Collection<int, Model> resolves to Model[]', function () {
+    test('Collection<int, Model> keeps the object arm because int keys need not be sequential', function () {
         $method = new ReflectionMethod(Order::class, 'sortedItems');
+        $info = app(LaravelTsPublish::class)->attributeDocblockReturnTypes($method);
+
+        expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>')
+            ->and($info['classFqcns'])->toBe([OrderItem::class]);
+    });
+
+    test('list<Model> resolves to the bare array, since list<> does guarantee sequential keys', function () {
+        $method = new ReflectionMethod(Order::class, 'listedItems');
         $info = app(LaravelTsPublish::class)->attributeDocblockReturnTypes($method);
 
         expect($info['type'])->toBe('OrderItem[]')

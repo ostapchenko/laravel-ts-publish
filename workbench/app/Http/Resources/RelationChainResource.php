@@ -77,6 +77,19 @@ class RelationChainResource extends JsonResource
             // Unsupported op in the chain (first() isn't an identity op) → stays unknown,
             // same as current (pre-Task-13) behavior.
             'first_member' => $this->members->take(5)->first(),
+
+            // Key-preserving ops with no values() to reindex: json_encode serializes a gapped or
+            // reordered Collection as an OBJECT, so the array type alone would be wrong.
+            'members_sorted' => $this->members->sortBy('name'),
+            'members_filtered_cards' => $this->members->filter(fn ($member) => $member->id > 1)->map(fn ($member) => [
+                'id' => $member->id,
+            ]),
+            'members_tail' => $this->members->take(-2),
+            'members_sliced_emails' => $this->members->pluck('email')->sortBy(fn (string $email) => $email),
+            'members_keyed_by_id' => $this->members->pluck('email', 'id'),
+
+            // values() at the end of a key-preserving chain restores 0..n-1, so these stay arrays.
+            'members_skipped' => $this->members->skip(2)->values(),
         ];
     }
 

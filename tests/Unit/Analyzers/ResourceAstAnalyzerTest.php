@@ -612,6 +612,21 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
     test('an unsupported op in the chain keeps current unknown behavior', function () {
         expect($this->props['first_member']['type'])->toBe('unknown');
     });
+
+    // A Collection whose keys are gapped or reordered json_encodes to an object, not an array.
+    test('a key-preserving chain with no values() carries the object arm', function () {
+        expect($this->props['members_sorted']['type'])->toBe('User[] | Record<string, User>')
+            ->and($this->props['members_filtered_cards']['type'])
+            ->toBe('{ id: number }[] | Record<string, { id: number }>')
+            ->and($this->props['members_tail']['type'])->toBe('User[] | Record<string, User>')
+            ->and($this->props['members_sliced_emails']['type'])->toBe('string[] | Record<string, string>')
+            ->and($this->props['members_keyed_by_id']['type'])->toBe('string[] | Record<string, string>');
+    });
+
+    test('values() at the end of a key-preserving chain restores the plain array type', function () {
+        expect($this->props['members_skipped']['type'])->toBe('User[]')
+            ->and($this->analysis->modelFqcns['members_skipped'])->toBe(User::class);
+    });
 });
 
 describe('ResourceAstAnalyzer with ProductResource', function () {

@@ -201,7 +201,7 @@ test('attributeDocblockReturnTypes captures nested generic getter type', functio
     $method = new ReflectionMethod(Order::class, 'sortedItems');
     $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
 
-    expect($info['type'])->toBe('OrderItem[]')
+    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>')
         ->and($info['classFqcns'])->toBe([OrderItem::class]);
 });
 
@@ -209,7 +209,7 @@ test('accessor with vague closure type is refined by Attribute docblock generics
     $info = resolve(ModelAttributeResolver::class)
         ->resolveAttribute(Order::class, 'sorted_items');
 
-    expect($info['type'])->toBe('OrderItem[]');
+    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>');
 });
 
 test('accessor with @phpstan-return docblock resolves through docblock', function () {

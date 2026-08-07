@@ -134,6 +134,12 @@ class Order extends Model
         return Attribute::get(fn (): Collection => $this->items->sortBy('id')->values());
     }
 
+    /** @return Attribute<list<OrderItem>, never> */
+    protected function listedItems(): Attribute
+    {
+        return Attribute::get(fn (): array => $this->items->values()->all());
+    }
+
     /**
      * All items on the order, in their natural database order.
      *

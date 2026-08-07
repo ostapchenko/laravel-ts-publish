@@ -34,7 +34,8 @@ export interface OrderExceptResource
     formatted_total: string;
     search_index: unknown;
     score_map: Record<string, number>;
-    sorted_items: OrderItem[];
+    sorted_items: OrderItem[] | Record<string, OrderItem>;
+    listed_items: OrderItem[];
     unsorted_items: unknown[] | Record<string, unknown>;
     user: User;
     items: OrderItem[];

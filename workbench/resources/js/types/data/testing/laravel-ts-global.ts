@@ -294,7 +294,8 @@ declare global {
             /** Write-only mutator (no getter) for a non-DB column */
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: OrderItem[];
+            sorted_items: OrderItem[] | Record<string, OrderItem>;
+            listed_items: OrderItem[];
             /** All items on the order, in their natural database order. */
             unsorted_items: unknown[] | Record<string, unknown>;
             // Relations
@@ -1414,6 +1415,12 @@ declare global {
             member_mapped_fcc: unknown;
             member_plucked_fcc: unknown;
             first_member: unknown;
+            members_sorted: workbench.crm.models.User[] | Record<string, workbench.crm.models.User>;
+            members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
+            members_tail: workbench.crm.models.User[] | Record<string, workbench.crm.models.User>;
+            members_sliced_emails: string[] | Record<string, string>;
+            members_keyed_by_id: string[] | Record<string, string>;
+            members_skipped: workbench.crm.models.User[];
         }
         /** Resource that delegates to parent with a known model — tests JsonResource base delegation. */
         export interface DelegatingWithMixinResource {
@@ -2309,7 +2316,7 @@ declare global {
             order?: workbench.app.models.Order;
             options?: Record<string, string | number | boolean> | null;
             order_limited: { id: number; total: number } | null;
-            order_extended: { id: number; ulid: string; user_id: number; status: workbench.app.enums.OrderStatusType; payment_method: workbench.app.enums.PaymentMethodType | null; currency: workbench.app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: workbench.app.models.OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: workbench.crm.models.User; items: workbench.app.models.OrderItem[] };
+            order_extended: { id: number; ulid: string; user_id: number; status: workbench.app.enums.OrderStatusType; payment_method: workbench.app.enums.PaymentMethodType | null; currency: workbench.app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>; listed_items: workbench.app.models.OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: workbench.crm.models.User; items: workbench.app.models.OrderItem[] };
         }
         /**
          * Exercises resolveClosureReturnExpression with a Closure passed to merge().
@@ -2392,7 +2399,8 @@ declare global {
             formatted_total: string;
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: workbench.app.models.OrderItem[];
+            sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
+            listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             user: workbench.crm.models.User;
             items: workbench.app.models.OrderItem[];
@@ -2469,7 +2477,8 @@ declare global {
             formatted_total: string;
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: workbench.app.models.OrderItem[];
+            sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
+            listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             user: workbench.crm.models.User;
             items: workbench.app.models.OrderItem[];
@@ -2577,7 +2586,8 @@ declare global {
             formatted_total: string;
             search_index: unknown;
             score_map: Record<string, number>;
-            sorted_items: workbench.app.models.OrderItem[];
+            sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
+            listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             user: workbench.crm.models.User;
             items: workbench.app.models.OrderItem[];
