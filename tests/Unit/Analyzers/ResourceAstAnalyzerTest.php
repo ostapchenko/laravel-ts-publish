@@ -4072,13 +4072,22 @@ describe('helper and receiver method inference', function () {
 });
 
 describe('local variable bindings', function () {
-    test('assigned locals resolve through their bound expressions', function () {
-        $props = collect(
+    beforeEach(function () {
+        $this->props = collect(
             (new ResourceAstAnalyzer(new ReflectionClass(LocalVarResource::class), Order::class))
                 ->analyze()->properties,
         )->keyBy('name');
+    });
 
-        expect($props['label']['type'])->toBe('string')
-            ->and($props['key']['type'])->toBe('number');
+    test('assigned locals resolve through their bound expressions', function () {
+        expect($this->props['label']['type'])->toBe('string')
+            ->and($this->props['key']['type'])->toBe('number');
+    });
+
+    // Task 12 decision: a variable assigned at the top level AND reassigned inside
+    // nested control flow (here, an `if` block) is excluded from $localVarBindings
+    // entirely, rather than resolved through the (possibly stale) top-level binding.
+    test('a variable reassigned in nested control flow degrades to unknown, not the stale top-level type', function () {
+        expect($this->props['shadowed']['type'])->toBe('unknown');
     });
 });

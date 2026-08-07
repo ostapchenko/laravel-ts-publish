@@ -242,17 +242,26 @@ class ResourceAstAnalyzer
      * Record top-level `$var = expr;` statements in toArray() so property values
      * referencing those variables can resolve their types (see $localVarBindings).
      *
-     * Last assignment wins. Nested control-flow assignments (inside if/foreach/while/
-     * etc.) are deliberately NOT recorded — this walks only the top-level statement
-     * list, with no flow analysis. Recording a binding from inside an `if` block would
-     * mean resolving a variable through an assignment that might not have executed on
-     * every path, which risks a wrong-but-plausible type; leaving it unrecorded instead
-     * means the variable simply degrades to unknown, which is always safe.
+     * Last (top-level) assignment wins — but only among variables that are exclusively
+     * assigned at the top level. A variable that is *also* assigned anywhere in nested
+     * control flow (inside `if`/`foreach`/`while`/a closure/...) is excluded from
+     * $localVarBindings entirely, even though it has a top-level assignment too:
+     * resolving it through the top-level binding alone would mean presenting a type
+     * that may not match what the variable actually holds on every code path — a
+     * nested assignment can run instead of, or after, the top-level one, silently
+     * changing the runtime value (and possibly its type) in a way this simple
+     * statement-list walk cannot see. That's a wrong-but-plausible result, which this
+     * codebase treats as strictly worse than the always-safe alternative: the variable
+     * degrades to unknown. A variable assigned *only* at the top level (however many
+     * times) is unaffected — last top-level assignment wins as usual.
      *
      * @param  array<Node\Stmt>  $stmts
      */
     protected function collectLocalVarBindings(array $stmts): void
     {
+        /** @var array<int, true> $topLevelAssignIds spl_object_id() of each top-level `$var = expr;` Assign node, used below to tell a top-level assignment apart from a structurally-identical one nested inside if/foreach/a closure/etc. */
+        $topLevelAssignIds = [];
+
         foreach ($stmts as $stmt) {
             if ($stmt instanceof ExpressionStmt
                 && $stmt->expr instanceof Assign
@@ -260,6 +269,22 @@ class ResourceAstAnalyzer
                 && is_string($stmt->expr->var->name)
             ) {
                 $this->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
+                $topLevelAssignIds[spl_object_id($stmt->expr)] = true;
+            }
+        }
+
+        $finder = new NodeFinder;
+        $nestedAssigns = $finder->find(
+            $stmts,
+            fn (Node $node): bool => $node instanceof Assign
+                && $node->var instanceof Variable
+                && is_string($node->var->name)
+                && ! isset($topLevelAssignIds[spl_object_id($node)]),
+        );
+
+        foreach ($nestedAssigns as $assign) {
+            if ($assign instanceof Assign && $assign->var instanceof Variable && is_string($assign->var->name)) {
+                unset($this->localVarBindings[$assign->var->name]);
             }
         }
     }

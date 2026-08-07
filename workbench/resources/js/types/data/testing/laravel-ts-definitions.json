@@ -9676,6 +9676,11 @@
                 "name": "key",
                 "type": "number",
                 "optional": false
+            },
+            {
+                "name": "shadowed",
+                "type": "unknown",
+                "optional": false
             }
         ],
         "UserCollection": [

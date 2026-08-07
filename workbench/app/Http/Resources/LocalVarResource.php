@@ -11,6 +11,10 @@ use Workbench\App\Models\Order;
 /**
  * Exercises local variable type tracking inside toArray().
  *
+ * `shadowed` is a Task 12 regression: a variable assigned at the top level AND
+ * reassigned inside nested control flow must not resolve through the (possibly
+ * stale) top-level binding — it degrades to unknown instead.
+ *
  * @mixin Order
  */
 class LocalVarResource extends JsonResource
@@ -22,10 +26,16 @@ class LocalVarResource extends JsonResource
     {
         $label = $this->notes ?? 'None';
         $key = $this->resource->getKey();
+        $shadowed = 'top-level default';
+
+        if ($request->boolean('flag')) {
+            $shadowed = $this->notes;
+        }
 
         return [
             'label' => $label,
             'key' => $key,
+            'shadowed' => $shadowed,
         ];
     }
 }
