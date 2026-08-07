@@ -59,9 +59,7 @@ class UrlService
         return Status::Draft;
     }
 
-    public static function voidReturn(): void
-    {
-    }
+    public static function voidReturn(): void {}
 
     public static function neverReturn(): never
     {
