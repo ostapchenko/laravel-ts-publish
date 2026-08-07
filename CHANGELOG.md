@@ -2,26 +2,6 @@
 
 All notable changes to `laravel-ts-publish` will be documented in this file.
 
-## Unreleased
-
-### What's Changed
-
-* Extended type inference across models, accessors, and API resources so far fewer properties fall back to `unknown` — measured against a 457-model production Laravel app, `unknown` properties dropped 29% with zero regressions.
-* `morphTo()` relations now resolve their target types even when declared through a custom `MorphOne`/`MorphMany` subclass, not only Laravel's built-in relation classes — the single largest source of the improvement above.
-* Accessor docblocks now support `@phpstan-return` and `@psalm-return` tags, not just `@return`.
-* Generic container docblock types — `Collection<int, X>`, `array<string, X>`, `list<X>`, `X[]`, including inside `Attribute<Get, Set>` — resolve to typed arrays (`X[]`) and records (`Record<string, X>`) instead of `unknown[]`/`unknown`.
-* An accessor whose closure return type is vague (`: Collection`, `: array`, `: iterable`, `: object`) is now refined using a more specific docblock generic when one is available.
-* Classes implementing `Arrayable` or `JsonSerializable` with an `@return array{...}` shape on `toArray()`/`jsonSerialize()` now generate an inline TypeScript object type instead of `unknown[]`.
-* A class-level `@property`/`@property-read` docblock tag — the same convention PHPStan/Larastan already read — can now type a column that would otherwise resolve to `unknown` (most usefully `array`-cast columns), without needing `#[TsCasts]`. See the README's "Typing `array` casts with `@property`" section.
-* Postgres/MySQL network column types (`inet`, `cidr`, `macaddr`, `macaddr8`) now map to `string` instead of `unknown`.
-* Comparison and logical expressions in a resource's `toArray()` (`===`, `>`, `&&`, `!`, `instanceof`, `isset()`, `empty()`) now resolve to `boolean`; the spaceship operator (`<=>`) resolves to `number`.
-* Static method calls in resources now resolve their real return type via reflection when it's safe to do so, resource-collection calls (`SomeCollection::make(...)`) resolve to their element type, and enum values passed as static calls or constant fetches to `EnumResource::make()` now resolve correctly.
-* Common method-call patterns — built-in Laravel helper functions (e.g. `route(...)`), methods called on a Carbon-typed date attribute, and `$request->user()->can(...)`-style checks — now resolve their real return type instead of `unknown`.
-* `{relation}_count` / `{relation}_exists` virtual attributes and camelCase access to a snake_case accessor or column now resolve correctly in both models and resources.
-* Local variables assigned exactly once inside a resource's `toArray()`, and the resource's `getKey()` call (including string UUID keys), now resolve to their real types instead of `unknown`.
-* Relation collection chains (e.g. `->take()->map()->values()`) now keep the element type through the whole chain instead of losing it to `unknown`.
-* Fixed a source of wrong-but-plausible types: a class name that happened to contain a mapped substring (e.g. `Point` → `number` because it contains "int", `Update` → `string` because it contains "date") no longer silently resolves to the wrong scalar — it now correctly falls back to `unknown`, or resolves to its real enum type where one applies.
-
 ## v2.1.0 - 2026-07-11
 
 Fix docs & Laravel Boost skill to help AI understand how to create types and how to use them from this package.
