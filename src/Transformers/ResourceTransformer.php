@@ -831,7 +831,7 @@ class ResourceTransformer extends CoreTransformer
     protected function rewriteTypeReferences(): void
     {
         $nameMap = $this->enumFqcnMap + $this->resourceFqcnMap + $this->modelFqcnMap;
-        $propertyFqcns = $this->collectPropertyFqcns();
+        $propertyFqcns = $this->mergePropertyFqcnMaps();
 
         foreach ($this->importAliases as $fqcn => $alias) {
             $originalName = $nameMap[$fqcn] ?? null;
@@ -859,9 +859,11 @@ class ResourceTransformer extends CoreTransformer
     /**
      * Merge every per-property FQCN map — singular and list — into one property => FQCN list.
      *
+     * Named apart from BroadcastEventTransformer::collectPropertyFqcns(), whose signature differs.
+     *
      * @return array<string, list<class-string>>
      */
-    protected function collectPropertyFqcns(): array
+    protected function mergePropertyFqcnMaps(): array
     {
         /** @var array<string, list<class-string>> $merged */
         $merged = [];

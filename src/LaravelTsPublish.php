@@ -1362,14 +1362,16 @@ class LaravelTsPublish
      * repeats its element (`X[] | Record<string, X>`) so one pass must take both, while a same-basename
      * union has one occurrence per FQCN and must leave the rest for the other passes.
      *
-     * @param  list<string>  $itemFqcns  every FQCN registered against the item being rewritten
+     * @param  list<string>  $itemFqcns  every FQCN registered against the item being rewritten; deduped
+     *                                   here, since a repeated FQCN would read as a name collision and
+     *                                   silently restore the single-replacement behaviour
      * @param  array<string, string>  $nameMap  FQCN => unaliased type name
      */
     public function aliasTypeName(string $type, string $originalName, string $alias, array $itemFqcns, array $nameMap): string
     {
         $sharing = 0;
 
-        foreach ($itemFqcns as $itemFqcn) {
+        foreach (array_unique($itemFqcns) as $itemFqcn) {
             if (($nameMap[$itemFqcn] ?? null) === $originalName) {
                 $sharing++;
             }

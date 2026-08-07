@@ -747,6 +747,45 @@ describe('generic container docblock types', function () {
     });
 });
 
+describe('aliasTypeName', function () {
+    $nameMap = ['App\\Models\\User' => 'User', 'Crm\\Models\\User' => 'User', 'App\\Models\\Post' => 'Post'];
+
+    test('replaces every occurrence when the item has one FQCN of that name', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User[] | Record<string, User>', 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        ))->toBe('AppUser[] | Record<string, AppUser>');
+    });
+
+    test('replaces one occurrence when two FQCNs on the item share the name', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User | User', 'User', 'AppUser', ['App\\Models\\User', 'Crm\\Models\\User'], $nameMap,
+        ))->toBe('AppUser | User');
+    });
+
+    // A repeated FQCN would otherwise read as a collision and silently restore single replacement.
+    test('a duplicated FQCN is not mistaken for a name collision', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User[] | Record<string, User>',
+            'User',
+            'AppUser',
+            ['App\\Models\\User', 'App\\Models\\User'],
+            $nameMap,
+        ))->toBe('AppUser[] | Record<string, AppUser>');
+    });
+
+    test('a non-colliding sibling FQCN does not restrict the replacement', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User[] | Record<string, User>', 'User', 'AppUser', ['App\\Models\\User', 'App\\Models\\Post'], $nameMap,
+        ))->toBe('AppUser[] | Record<string, AppUser>');
+    });
+
+    test('word boundaries keep longer identifiers intact', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User | UserProfile | Users', 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        ))->toBe('AppUser | UserProfile | Users');
+    });
+});
+
 describe('splitPhpDocUnionType', function () {
     test('splits simple union', function () {
         expect($this->service->splitPhpDocUnionType('string|null'))
