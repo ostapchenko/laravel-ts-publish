@@ -1397,6 +1397,17 @@ declare global {
         export interface ModelWrappedPropResource {
             title: string;
         }
+        /**
+         * Exercises collection method chains rooted at a many-relation
+         * ($this->members->take(5)->map(...)->values()).
+         */
+        export interface RelationChainResource {
+            first_members: workbench.crm.models.User[];
+            member_cards: { id: number; name: string }[];
+            member_profiles: ({ id: number; role: workbench.app.enums.RoleType | null; owner: workbench.crm.models.User })[];
+            member_emails: string[];
+            first_member: unknown;
+        }
         /** Resource that delegates to parent with a known model — tests JsonResource base delegation. */
         export interface DelegatingWithMixinResource {
             id: number;

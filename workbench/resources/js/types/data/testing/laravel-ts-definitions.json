@@ -7058,6 +7058,33 @@
                 "optional": false
             }
         ],
+        "RelationChainResource": [
+            {
+                "name": "first_members",
+                "type": "User[]",
+                "optional": false
+            },
+            {
+                "name": "member_cards",
+                "type": "{ id: number; name: string }[]",
+                "optional": false
+            },
+            {
+                "name": "member_profiles",
+                "type": "({ id: number; role: RoleType | null; owner: User })[]",
+                "optional": false
+            },
+            {
+                "name": "member_emails",
+                "type": "string[]",
+                "optional": false
+            },
+            {
+                "name": "first_member",
+                "type": "unknown",
+                "optional": false
+            }
+        ],
         "DelegatingWithMixinResource": [
             {
                 "name": "id",

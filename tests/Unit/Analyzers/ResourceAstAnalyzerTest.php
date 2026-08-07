@@ -65,6 +65,7 @@ use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\QuirkyResource;
+use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\SpreadJsonBaseResource;
 use Workbench\App\Http\Resources\SpreadWithClosureResource;
@@ -543,6 +544,46 @@ describe('ResourceAstAnalyzer with TeamResource', function () {
 
         expect($settings)->not->toBeNull()
             ->and($settings['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collection chains)', function () {
+    beforeEach(function () {
+        $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(RelationChainResource::class), Team::class))
+            ->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('identity-only chain preserves the relation element type', function () {
+        expect($this->props['first_members']['type'])->toBe('User[]')
+            ->and($this->props['first_members']['optional'])->toBeFalse()
+            ->and($this->analysis->modelFqcns)->toHaveKey('first_members')
+            ->and($this->analysis->modelFqcns['first_members'])->toBe(User::class);
+    });
+
+    test('map() closure with an inline array body produces an inline object array', function () {
+        expect($this->props['member_cards']['type'])->toBe('{ id: number; name: string }[]')
+            ->and($this->props['member_cards']['optional'])->toBeFalse();
+    });
+
+    test('map() closure body embeds both an enum-cast column and a model-backed property, and both propagate', function () {
+        // role is a nullable DB column, so the closure body's type is a union
+        // ({ ... } | { ... role: null ... } collapses to role: RoleType | null) — the chain
+        // analyzer parenthesizes any body type containing '|' before appending '[]'.
+        expect($this->props['member_profiles']['type'])->toBe('({ id: number; role: RoleType | null; owner: User })[]')
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_profiles')
+            ->and($this->analysis->inlineEnumFqcns['member_profiles'])->toContain(Role::class)
+            ->and($this->analysis->inlineModelFqcns)->toHaveKey('member_profiles')
+            ->and($this->analysis->inlineModelFqcns['member_profiles'])->toContain(User::class);
+    });
+
+    test('pluck() after the relation root resolves to the column type, array-wrapped', function () {
+        expect($this->props['member_emails']['type'])->toBe('string[]')
+            ->and($this->props['member_emails']['optional'])->toBeFalse();
+    });
+
+    test('an unsupported op in the chain keeps current unknown behavior', function () {
+        expect($this->props['first_member']['type'])->toBe('unknown');
     });
 });
 

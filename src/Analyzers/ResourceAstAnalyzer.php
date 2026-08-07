@@ -945,6 +945,22 @@ class ResourceAstAnalyzer
             }
         }
 
+        // $this->relation->take(5)->map(...)->values() — a collection method chain rooted at a
+        // $this->{manyRelation} receiver. Must run before the "$this->anyProp->method()" branch
+        // below: for a 2+-deep chain the outer call's receiver is itself a MethodCall (not a
+        // direct $this->prop PropertyFetch), so that branch never matches it anyway — but a
+        // 1-deep chain like $this->items->count() DOES match it, and analyzeRelationCollectionChain()
+        // returns null for that (count isn't an identity/map/pluck op), so it falls through
+        // unchanged to analyzeWrappedResourceMethodCall() -> knownMethodRule()'s existing
+        // count()/exists() rule (Task 11).
+        if ($expr instanceof MethodCall) {
+            $chainResult = $this->analyzeRelationCollectionChain($expr);
+
+            if ($chainResult !== null) {
+                return $chainResult;
+            }
+        }
+
         // $this->anyProp->method() — e.g. $this->resource->extensions() on a backed enum or model
         if ($expr instanceof MethodCall
             && $this->isThisPropertyFetch($expr->var)
@@ -3356,6 +3372,149 @@ class ResourceAstAnalyzer
         }
 
         return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $name);
+    }
+
+    /**
+     * Analyze a method-call chain rooted at `$this->{manyRelation}` composed of
+     * identity-preserving collection ops (`take`, `skip`, `filter`, `reject`, `values`,
+     * `unique`, `sortBy`, `sortByDesc`, `slice`, `reverse`, `where`, `whereNotNull` — none
+     * of which change the element type) plus at most one `map()` or `pluck()`:
+     *
+     *  - No `map()`/`pluck()` in the chain → the relation's own `Model[]` type
+     *    (e.g. `$this->members->take(5)->values()` → `User[]`).
+     *  - Exactly one `map(closure)` → the closure body is analyzed with the relation's
+     *    element model bound as `$closureRelationModelClass`, so `$member->id` etc.
+     *    inside the closure resolve against it. An inline array-literal body produces an
+     *    inline `{ ... }[]` shape (via analyzeInlineArray()); other resolvable bodies
+     *    produce `T[]`.
+     *  - Exactly one `pluck('attr')` → `attrType[]`, reusing analyzeVariablePluckCall()
+     *    against the same element-model context.
+     *
+     * Returns null — deferring to the existing unknown-producing fallthrough — when the
+     * chain is not rooted at a many-relation, contains any op outside the set above,
+     * contains more than one of map()/pluck(), or the map/pluck body doesn't resolve.
+     * This is why a single `$this->items->count()` call is unaffected: `count` is not an
+     * identity/map/pluck op, so this returns null and the caller falls through to the
+     * existing `$this->anyProp->method()` branch and its count()/exists() rule.
+     *
+     * Termination: the chain is walked by repeatedly reassigning $node to $node->var,
+     * which strictly descends the (finite) expression AST one level per iteration — the
+     * loop below is bounded by the chain's depth and always terminates, for any input.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeRelationCollectionChain(MethodCall $call): ?array
+    {
+        $identityOps = [
+            'take', 'skip', 'filter', 'reject', 'values', 'unique',
+            'sortBy', 'sortByDesc', 'slice', 'reverse', 'where', 'whereNotNull',
+        ];
+
+        // Walk down the chain collecting op names until we reach $this->prop.
+        /** @var list<array{name: string, node: MethodCall}> $ops */
+        $ops = [];
+        $node = $call;
+
+        while ($node instanceof MethodCall) {
+            if (! $node->name instanceof Identifier) {
+                return null;
+            }
+
+            $ops[] = ['name' => $node->name->toString(), 'node' => $node];
+            $node = $node->var;
+        }
+
+        if (! $node instanceof PropertyFetch || ! $this->isThisPropertyFetch($node) || ! $node->name instanceof Identifier) {
+            return null;
+        }
+
+        $relationInfo = $this->resolveModelRelationTypeInfo($node->name->toString());
+
+        if (! str_ends_with($relationInfo['type'], '[]') || $relationInfo['modelFqcn'] === null) {
+            return null;
+        }
+
+        $elementModel = $relationInfo['modelFqcn'];
+        $mapNode = null;
+        $pluckNode = null;
+
+        foreach (array_reverse($ops) as $op) {
+            if (in_array($op['name'], $identityOps, true)) {
+                continue;
+            }
+
+            if ($op['name'] === 'map' && $mapNode === null && $pluckNode === null) {
+                $mapNode = $op['node'];
+
+                continue;
+            }
+
+            if ($op['name'] === 'pluck' && $pluckNode === null && $mapNode === null) {
+                $pluckNode = $op['node'];
+
+                continue;
+            }
+
+            // Unsupported op — including a 2nd map()/pluck(), or map()+pluck() combined —
+            // keep current unknown behavior.
+            return null;
+        }
+
+        if ($mapNode === null && $pluckNode === null) {
+            return [
+                ...$this->unknownResult(),
+                'type' => $relationInfo['type'],
+                'optional' => false,
+                'modelFqcn' => $elementModel,
+            ];
+        }
+
+        if ($pluckNode !== null) {
+            $previousContext = $this->closureRelationModelClass;
+            $this->closureRelationModelClass = $elementModel;
+
+            try {
+                $pluckResult = $this->analyzeVariablePluckCall($pluckNode);
+            } finally {
+                $this->closureRelationModelClass = $previousContext;
+            }
+
+            // analyzeVariablePluckCall() degrades an unresolved field to 'unknown[]' rather
+            // than 'unknown' — normalize back to null here so the caller's fallthrough
+            // produces the same plain 'unknown' as every other unrecognized chain.
+            if ($pluckResult['type'] === 'unknown[]') {
+                return null;
+            }
+
+            return [...$this->unknownResult(), ...$pluckResult];
+        }
+
+        // Analyze the map closure with the element model as context.
+        /** @var MethodCall $mapNode */
+        $args = $mapNode->getArgs();
+
+        if ($args === []) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $previousContext = $this->closureRelationModelClass;
+        $this->closureRelationModelClass = $elementModel;
+
+        try {
+            $bodyResult = $this->analyzeValueExpression($args[0]->value);
+        } finally {
+            $this->closureRelationModelClass = $previousContext;
+        }
+
+        if ($bodyResult['type'] === 'unknown') {
+            return null;
+        }
+
+        $elementType = str_contains($bodyResult['type'], '|')
+            ? '('.$bodyResult['type'].')'
+            : $bodyResult['type'];
+
+        return [...$bodyResult, 'type' => $elementType.'[]', 'optional' => false];
     }
 
     /**
