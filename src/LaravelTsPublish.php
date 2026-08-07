@@ -481,7 +481,17 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve a PHP built-in function name to its TypeScript return type using reflection.
+     * Resolve a PHP function name (built-in or userland global) to its TypeScript return
+     * type using reflection. Covers both PHP-internal functions (e.g. `strtolower()`) and
+     * userland globals — including Laravel's own helpers (e.g. `route()`, `url()`), which
+     * are plain functions declared in `illuminate/foundation`'s `helpers.php` and are not
+     * `ReflectionFunction::isInternal()`.
+     *
+     * Only a declared return type made up entirely of builtin scalar members (named or
+     * union) is mapped — a class/interface member is never safe to map here, since
+     * `toTsType()`'s partial string matching can produce false matches (e.g.
+     * `Carbon\CarbonInterface` contains "int" → number), and this method has no way to
+     * emit an import for a class-backed return type anyway.
      *
      * @return TypeScriptTypeInfo
      */
@@ -499,10 +509,6 @@ class LaravelTsPublish
         try {
             $rf = new ReflectionFunction($name);
         } catch (ReflectionException) {
-            return $cache[$name] = $result;
-        }
-
-        if (! $rf->isInternal()) {
             return $cache[$name] = $result;
         }
 

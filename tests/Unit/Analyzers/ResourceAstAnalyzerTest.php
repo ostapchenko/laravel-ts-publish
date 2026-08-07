@@ -33,6 +33,7 @@ use Workbench\App\Http\Resources\EmptyWithMixinResource;
 use Workbench\App\Http\Resources\EnumNullFirstResource;
 use Workbench\App\Http\Resources\ExtendedAddressResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
+use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
 use Workbench\App\Http\Resources\LoopReturnResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
@@ -4026,5 +4027,34 @@ describe('static call inference', function () {
         // enumFqcns entry is also present — otherwise the enum branch accepts first and
         // plumbs only directEnumFqcn, silently dropping the Order class import.
         expect($this->props['order_or_status']['type'])->toBe('unknown');
+    });
+});
+
+describe('helper and receiver method inference', function () {
+    beforeEach(function () {
+        $this->props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(HelperCallResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+    });
+
+    test('route() helper resolves to string', function () {
+        expect($this->props['route_url']['type'])->toBe('string')
+            ->and($this->props['route_url']['optional'])->toBeFalse();
+    });
+
+    test('Carbon method on datetime attribute resolves to string', function () {
+        expect($this->props['ship_date']['type'])->toBe('string')
+            ->and($this->props['ship_date']['optional'])->toBeFalse();
+    });
+
+    test('can() resolves to boolean', function () {
+        expect($this->props['can_edit']['type'])->toBe('boolean')
+            ->and($this->props['can_edit']['optional'])->toBeFalse();
+    });
+
+    test('count() on a many relation resolves to number', function () {
+        expect($this->props['item_total']['type'])->toBe('number')
+            ->and($this->props['item_total']['optional'])->toBeFalse();
     });
 });

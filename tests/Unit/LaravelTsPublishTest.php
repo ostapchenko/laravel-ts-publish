@@ -523,6 +523,38 @@ describe('methodOrDocblockReturnTypes', function () {
     });
 });
 
+describe('nativePhpFunctionReturnedTypes', function () {
+    test('userland function with scalar return type reflects', function () {
+        // route() is a userland global (defined in illuminate/foundation's helpers.php,
+        // not a PHP-internal function) declared to return `string`.
+        expect(app(LaravelTsPublish::class)->nativePhpFunctionReturnedTypes('route')['type'])
+            ->toBe('string');
+    });
+
+    test('a still-internal builtin keeps resolving', function () {
+        expect($this->service->nativePhpFunctionReturnedTypes('strtolower')['type'])
+            ->toBe('string');
+    });
+
+    test('userland function returning a non-builtin class stays excluded', function () {
+        // url() is declared to return `UrlGenerator|string` — a union containing a
+        // non-builtin member. The guard that rejects non-builtin named/union members
+        // must still apply now that isInternal() no longer gates reflection.
+        expect($this->service->nativePhpFunctionReturnedTypes('url')['type'])
+            ->toBe('unknown');
+    });
+
+    test('collect() remains excluded because it returns a Collection', function () {
+        expect($this->service->nativePhpFunctionReturnedTypes('collect')['type'])
+            ->toBe('unknown');
+    });
+
+    test('unknown function name resolves to unknown', function () {
+        expect($this->service->nativePhpFunctionReturnedTypes('thisFunctionDoesNotExist')['type'])
+            ->toBe('unknown');
+    });
+});
+
 describe('docblockReturnTypes', function () {
     test('docblockReturnTypes resolves simple @return type', function () {
         $method = new ReflectionMethod(DocblockReturnClass::class, 'simpleString');

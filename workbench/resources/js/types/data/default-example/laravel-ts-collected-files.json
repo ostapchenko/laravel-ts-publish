@@ -95,6 +95,7 @@
     "app\/Http\/Resources\/ExtendedAddressResource.php",
     "app\/Http\/Resources\/FqcnMixinResource.php",
     "app\/Http\/Resources\/GuardClauseClosureResource.php",
+    "app\/Http\/Resources\/HelperCallResource.php",
     "app\/Http\/Resources\/ImageResource.php",
     "app\/Http\/Resources\/InlineArrayFqcnResource.php",
     "app\/Http\/Resources\/LoopReturnResource.php",

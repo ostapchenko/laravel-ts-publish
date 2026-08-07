@@ -26,6 +26,7 @@ export * from './event-log-resource';
 export * from './extended-address-resource';
 export * from './fqcn-mixin-resource';
 export * from './guard-clause-closure-resource';
+export * from './helper-call-resource';
 export * from './image-resource';
 export * from './inline-array-fqcn-resource';
 export * from './loop-return-resource';

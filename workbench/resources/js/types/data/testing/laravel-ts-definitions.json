@@ -7200,6 +7200,28 @@
                 "optional": false
             }
         ],
+        "HelperCallResource": [
+            {
+                "name": "route_url",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "ship_date",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "can_edit",
+                "type": "boolean",
+                "optional": false
+            },
+            {
+                "name": "item_total",
+                "type": "number",
+                "optional": false
+            }
+        ],
         "OrderOnlyResource": [
             {
                 "name": "id",

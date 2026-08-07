@@ -1428,6 +1428,17 @@ declare global {
             images: workbench.app.models.Image[];
             notifications: illuminate.notifications.DatabaseNotification[];
         }
+        /**
+         * Exercises userland global-helper reflection (route()), Carbon
+         * receiver-method inference on a datetime-cast attribute, and the
+         * can()/count() known-method rules (Task 11).
+         */
+        export interface HelperCallResource {
+            route_url: string;
+            ship_date: string;
+            can_edit: boolean;
+            item_total: number;
+        }
         /** Exercises ...$this->only([...]) spread with additional manual keys. */
         export interface OrderOnlyResource {
             id: number;

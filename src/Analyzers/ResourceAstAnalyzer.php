@@ -12,9 +12,11 @@ use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
@@ -866,6 +868,19 @@ class ResourceAstAnalyzer
 
             if ($boundExpr !== null) {
                 return $this->analyzeValueExpression($boundExpr);
+            }
+        }
+
+        // Late known-method rules for otherwise-unresolved calls whose receiver isn't one
+        // of the shapes handled above (e.g. `$request->user()->can('update', ...)`, whose
+        // receiver is itself a MethodCall, not a `$this->prop` PropertyFetch). Only
+        // MethodCall reaches this point — every NullsafeMethodCall is already
+        // unconditionally handled (and returned) by analyzeMethodChain() above.
+        if ($expr instanceof MethodCall) {
+            $known = $this->knownMethodRule($expr);
+
+            if ($known !== null) {
+                return $known;
             }
         }
 
@@ -2070,6 +2085,12 @@ class ResourceAstAnalyzer
         $tsInfo = $resolver->resolveMethodReturnType($currentModel, $methodName);
 
         if ($tsInfo['type'] === '' || $tsInfo['type'] === 'unknown') {
+            // Fall back to the same can()/cannot()/canAny()/count()/exists() convention
+            // rules analyzeWrappedResourceMethodCall() uses for the non-nullsafe chain.
+            $tsInfo = $this->knownMethodRule($call) ?? $this->unknownResult();
+        }
+
+        if ($tsInfo['type'] === 'unknown') {
             return $this->unknownResult();
         }
 
@@ -2953,6 +2974,12 @@ class ResourceAstAnalyzer
      * Analyze `$this->anyProp->method()` by resolving the method on the wrapped class
      * (e.g. `$this->resource->extensions()` on an enum-backed resource).
      *
+     * When neither the wrapped class nor the @mixin model declares the method, two
+     * further fallbacks run before giving up: a receiver whose model attribute is a
+     * date-family cast (e.g. `created_at`) reflects the called method on Carbon instead
+     * (e.g. `$this->created_at->toDateString()`), and knownMethodRule() covers
+     * can()/cannot()/canAny() and count()/exists() on a many-relation receiver.
+     *
      * @return ValueExpressionResult
      */
     protected function analyzeWrappedResourceMethodCall(MethodCall $expr): array
@@ -2966,30 +2993,149 @@ class ResourceAstAnalyzer
 
         $wrappedClass = $this->resolveWrappedClass();
 
-        if ($wrappedClass === null || ! method_exists($wrappedClass, $methodName)) {
+        if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
+            /** @var class-string $wrappedClass */
+            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
+
+            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
+                return [...$tsInfo, 'optional' => false];
+            }
+        } elseif ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
             // Fall back to modelClass for `$this->resource->method()` calls on @mixin-style resources
             // (e.g. `$this->resource->commentsCount()` where commentsCount() lives on the model).
-            if ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
-                /** @var class-string $modelClass */
-                $modelClass = $this->modelClass;
-                $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
+            /** @var class-string $modelClass */
+            $modelClass = $this->modelClass;
+            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
 
-                if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                    return [...$tsInfo, 'optional' => false];
+            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
+                return [...$tsInfo, 'optional' => false];
+            }
+        }
+
+        // Receiver is a date-cast attribute (e.g. `created_at`) — the called method isn't
+        // declared on the model itself, it's a Carbon instance method reached through the
+        // cast. Reflect it on Carbon (or CarbonImmutable for immutable_* casts) instead.
+        if ($expr->var instanceof PropertyFetch && $expr->var->name instanceof Identifier) {
+            $receiverAttr = $this->modelClass !== null
+                ? resolve(ModelAttributeResolver::class)->getAttributes($this->modelClass)
+                    ?->firstWhere('name', $expr->var->name->toString())
+                : null;
+
+            $cast = $receiverAttr['cast'] ?? null;
+
+            if (is_string($cast) && $this->isDateFamilyCast($cast)) {
+                $carbonClass = str_starts_with($cast, 'immutable_')
+                    ? CarbonImmutable::class
+                    : Carbon::class;
+
+                $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(
+                    new ReflectionClass($carbonClass),
+                    $methodName,
+                );
+
+                $accepted = $this->acceptReflectedTypeInfo($tsInfo);
+
+                if ($accepted !== null) {
+                    return $accepted;
                 }
             }
-
-            return $result;
         }
 
-        /** @var class-string $wrappedClass */
-        $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
+        // Known-method rules — authorization checks and relation counts/existence.
+        $known = $this->knownMethodRule($expr);
 
-        if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-            return [...$tsInfo, 'optional' => false];
+        if ($known !== null) {
+            return $known;
         }
 
-        return $result; // @codeCoverageIgnore
+        return $result;
+    }
+
+    /**
+     * Determine whether a resolved model cast string belongs to the date/datetime family
+     * (including immutable_* variants, and the `:format` suffix on custom_datetime casts).
+     * Used by analyzeWrappedResourceMethodCall() to decide whether a `$this->prop->method()`
+     * receiver should be reflected against Carbon rather than the model/wrapped class.
+     */
+    protected function isDateFamilyCast(string $cast): bool
+    {
+        return in_array(explode(':', $cast)[0], [
+            'date', 'datetime', 'custom_datetime', 'timestamp',
+            'immutable_date', 'immutable_datetime', 'immutable_custom_datetime',
+        ], true);
+    }
+
+    /**
+     * Resolve a `$this->{name}` property as a model relation, in the same
+     * {type, modelFqcn} shape as ModelAttributeResolver::resolveRelation() — a to-many
+     * relation's type ends in '[]'. Returns the 'unknown' shape when there is no backing
+     * model class or `name` is not a declared relation.
+     *
+     * @return array{type: string, modelFqcn: class-string<Model>|null}
+     */
+    protected function resolveModelRelationTypeInfo(string $name): array
+    {
+        if ($this->modelClass === null) {
+            return ['type' => 'unknown', 'modelFqcn' => null];
+        }
+
+        return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $name);
+    }
+
+    /**
+     * Late-stage rules for methods whose return type is fixed by Laravel convention rather
+     * than a declared/docblock return type: can()/cannot()/canAny() → boolean (Laravel's
+     * Authorizable::can() and the Gate facade always return bool), and count()/exists() →
+     * number/boolean when called on a `$this->{manyRelation}` receiver (a HasMany/
+     * BelongsToMany relation proxies to Eloquent Collection::count() or the query builder's
+     * count()/exists(), both of which are unconditionally int/bool). Applied last, after
+     * every more specific resolution path (declared return type, Carbon reflection, ...)
+     * has already had a chance to produce a real type.
+     *
+     * can()/cannot()/canAny() match by method name alone, with no receiver-type check:
+     * every plausible can() receiver in a JsonResource body — an Authorizable user, the
+     * Gate facade, a policy-backed model — returns bool for it, and there is no Laravel or
+     * common userland convention where a method literally named can()/cannot()/canAny()
+     * returns anything else. count()/exists() are name-*and*-receiver gated instead (must be
+     * a real many-relation), since those verb names are far more commonly overloaded (e.g.
+     * a plain Collection property, a Stringable) where guessing wrong would emit a
+     * wrong-but-plausible type.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function knownMethodRule(MethodCall|NullsafeMethodCall $expr): ?array
+    {
+        if (! $expr->name instanceof Identifier) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $method = $expr->name->toString();
+
+        if (in_array($method, ['can', 'cannot', 'canAny'], true)) {
+            return [...$this->unknownResult(), 'type' => 'boolean', 'optional' => false];
+        }
+
+        if (! in_array($method, ['count', 'exists'], true)) {
+            return null;
+        }
+
+        // Receiver must be $this->{manyRelation}
+        if ($expr->var instanceof PropertyFetch
+            && $this->isThisPropertyFetch($expr->var)
+            && $expr->var->name instanceof Identifier
+        ) {
+            $relation = $this->resolveModelRelationTypeInfo($expr->var->name->toString());
+
+            if (str_ends_with($relation['type'], '[]')) {
+                return [
+                    ...$this->unknownResult(),
+                    'type' => $method === 'count' ? 'number' : 'boolean',
+                    'optional' => false,
+                ];
+            }
+        }
+
+        return null;
     }
 
     /**
