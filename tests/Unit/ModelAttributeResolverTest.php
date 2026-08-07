@@ -359,6 +359,14 @@ describe('attribute-lookup fallbacks', function () {
         expect($info['type'])->toBe('unknown');
     });
 
+    test('camelCase access to a plain column stays unknown, matching its null runtime value', function () {
+        // Eloquent camel-cases the key only when hunting for a mutator; $order->placedAt is always null.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'placedAt');
+
+        expect($info['type'])->toBe('unknown');
+    });
+
     test('camelCase fallback does not fire when no matching snake_case attribute exists', function () {
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(Order::class, 'totallyMadeUpAttribute');

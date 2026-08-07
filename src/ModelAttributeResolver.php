@@ -126,8 +126,11 @@ class ModelAttributeResolver
         // Guarded on the snake form being a literal attribute, so the recursive call always lands on
         // resolveAttribute()'s exact-match branch and can never re-enter this method.
         $snake = Str::snake($attributeName);
+        $snakeAttr = $snake === $attributeName ? null : $ctx['attributes']->firstWhere('name', $snake);
 
-        if ($snake !== $attributeName && $ctx['attributes']->firstWhere('name', $snake) !== null) {
+        // Only accessors: Eloquent camel-cases the key when looking for a mutator method, but never when
+        // reading $attributes, so $order->placedAt on a plain placed_at column is null at runtime.
+        if ($snakeAttr !== null && ($snakeAttr['cast'] === 'attribute' || $snakeAttr['cast'] === 'accessor')) {
             return $this->resolveAttribute($modelFqcn, $snake);
         }
 
