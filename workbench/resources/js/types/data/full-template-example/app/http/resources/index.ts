@@ -29,6 +29,7 @@ export * from './guard-clause-closure-resource';
 export * from './helper-call-resource';
 export * from './image-resource';
 export * from './inline-array-fqcn-resource';
+export * from './local-var-resource';
 export * from './loop-return-resource';
 export * from './media-type-instance-of-resource';
 export * from './media-type-positive-instance-of-resource';

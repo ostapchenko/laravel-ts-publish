@@ -67,6 +67,7 @@ use PhpParser\NodeFinder;
 use ReflectionClass;
 use ReflectionEnum;
 use ReflectionMethod;
+use ReflectionNamedType;
 
 /**
  * Analyzes a JsonResource's toArray() method body to extract property names,
@@ -135,6 +136,29 @@ class ResourceAstAnalyzer
     protected array $closureParamExprBindings = [];
 
     /**
+     * Top-level `$var = expr;` assignments recorded from toArray()'s statement list
+     * before the return statement, so a bare `Variable` value expression (e.g.
+     * `'label' => $label`) can resolve through its bound expression instead of
+     * degrading to unknown. Populated by collectLocalVarBindings(); only top-level
+     * statements are recorded (nested control-flow assignments are excluded — see
+     * that method's docblock). Last assignment to a given name wins.
+     *
+     * @var array<string, Expr>
+     */
+    protected array $localVarBindings = [];
+
+    /**
+     * Re-entrancy guard for resolving a variable through $closureParamExprBindings or
+     * $localVarBindings. Tracks which variable names are currently mid-resolution so a
+     * self- or mutually-referential binding (e.g. `$a = $b; $b = $a;`) cannot recurse
+     * forever — a variable name already in this set resolves as unknown instead of
+     * recursing again.
+     *
+     * @var array<string, true>
+     */
+    protected array $resolvingLocalVars = [];
+
+    /**
      * @param  ReflectionClass<JsonResource>  $resourceReflection
      * @param  class-string<Model>|null  $modelClass
      */
@@ -175,6 +199,11 @@ class ResourceAstAnalyzer
         // e.g. `if (!$this->resource instanceof MediaType) { return []; }`
         $this->instanceOfWrappedClass = $this->resolveInstanceOfType($toArrayMethod, $finder);
 
+        // Record top-level `$var = expr;` assignments so property values that merely
+        // reference a local variable (e.g. `$label = $this->notes ?? 'None'; return
+        // ['label' => $label];`) can resolve through the bound expression.
+        $this->collectLocalVarBindings($toArrayMethod->stmts);
+
         // Analyze all direct Return_ statements that yield non-empty array literals.
         // If multiple exist (e.g. if/elseif/else branches), their properties are merged
         // with union semantics (branch-specific properties become optional).
@@ -207,6 +236,32 @@ class ResourceAstAnalyzer
         }
 
         return new ResourceAnalysis;
+    }
+
+    /**
+     * Record top-level `$var = expr;` statements in toArray() so property values
+     * referencing those variables can resolve their types (see $localVarBindings).
+     *
+     * Last assignment wins. Nested control-flow assignments (inside if/foreach/while/
+     * etc.) are deliberately NOT recorded — this walks only the top-level statement
+     * list, with no flow analysis. Recording a binding from inside an `if` block would
+     * mean resolving a variable through an assignment that might not have executed on
+     * every path, which risks a wrong-but-plausible type; leaving it unrecorded instead
+     * means the variable simply degrades to unknown, which is always safe.
+     *
+     * @param  array<Node\Stmt>  $stmts
+     */
+    protected function collectLocalVarBindings(array $stmts): void
+    {
+        foreach ($stmts as $stmt) {
+            if ($stmt instanceof ExpressionStmt
+                && $stmt->expr instanceof Assign
+                && $stmt->expr->var instanceof Variable
+                && is_string($stmt->expr->var->name)
+            ) {
+                $this->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
+            }
+        }
     }
 
     protected function analyzeReturnArray(Array_ $array): ResourceAnalysis
@@ -859,15 +914,28 @@ class ResourceAstAnalyzer
             return $this->analyzeTernary($expr);
         }
 
-        // Bare closure-parameter variable bound via bindClosureParamsFromCondition().
-        // E.g. `$this->when($this->status, fn ($status) => $status)` — the closure body
-        // returns just `$status`, which is bound to `$this->status`, so we resolve the
-        // bound expression to get the correct type (e.g. `OrderStatusType`).
+        // Bare variable bound to a known expression — either a closure-parameter bound via
+        // bindClosureParamsFromCondition() (e.g. `$this->when($this->status, fn ($status) =>
+        // $status)` binds `$status` to `$this->status`) or a top-level local assignment
+        // recorded by collectLocalVarBindings() (e.g. `$label = $this->notes ?? 'None';
+        // return ['label' => $label];`). Closure-param bindings take precedence since they're
+        // scoped to the immediate closure, matching the lookup order used when both maps are
+        // populated. A re-entrancy guard prevents infinite recursion on a self- or
+        // mutually-referential binding (e.g. `$a = $b; $b = $a;`): a variable name already
+        // mid-resolution resolves as unknown instead of recursing again.
         if ($expr instanceof Variable && is_string($expr->name)) {
-            $boundExpr = $this->closureParamExprBindings[$expr->name] ?? null;
+            $boundExpr = $this->closureParamExprBindings[$expr->name]
+                ?? $this->localVarBindings[$expr->name]
+                ?? null;
 
-            if ($boundExpr !== null) {
-                return $this->analyzeValueExpression($boundExpr);
+            if ($boundExpr !== null && ! isset($this->resolvingLocalVars[$expr->name])) {
+                $this->resolvingLocalVars[$expr->name] = true;
+
+                try {
+                    return $this->analyzeValueExpression($boundExpr);
+                } finally {
+                    unset($this->resolvingLocalVars[$expr->name]);
+                }
             }
         }
 
@@ -2977,8 +3045,11 @@ class ResourceAstAnalyzer
      * When neither the wrapped class nor the @mixin model declares the method, two
      * further fallbacks run before giving up: a receiver whose model attribute is a
      * date-family cast (e.g. `created_at`) reflects the called method on Carbon instead
-     * (e.g. `$this->created_at->toDateString()`), and knownMethodRule() covers
-     * can()/cannot()/canAny() and count()/exists() on a many-relation receiver.
+     * (e.g. `$this->created_at->toDateString()`), guarded by
+     * carbonMethodReturnsUnimportableStringable() so a Carbon method that returns a
+     * Stringable-but-not-string value object (e.g. `diff()` → `CarbonInterval`) degrades
+     * to unknown instead of falsely resolving to `string`; and knownMethodRule() covers
+     * can()/cannot()/canAny(), getKey(), and count()/exists() on a many-relation receiver.
      *
      * @return ValueExpressionResult
      */
@@ -3028,15 +3099,17 @@ class ResourceAstAnalyzer
                     ? CarbonImmutable::class
                     : Carbon::class;
 
-                $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(
-                    new ReflectionClass($carbonClass),
-                    $methodName,
-                );
+                if (! $this->carbonMethodReturnsUnimportableStringable($carbonClass, $methodName)) {
+                    $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(
+                        new ReflectionClass($carbonClass),
+                        $methodName,
+                    );
 
-                $accepted = $this->acceptReflectedTypeInfo($tsInfo);
+                    $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-                if ($accepted !== null) {
-                    return $accepted;
+                    if ($accepted !== null) {
+                        return $accepted;
+                    }
                 }
             }
         }
@@ -3049,6 +3122,55 @@ class ResourceAstAnalyzer
         }
 
         return $result;
+    }
+
+    /**
+     * Determine whether a Carbon(Immutable) method's *declared* return type is a concrete
+     * class that merely happens to implement `__toString()` (e.g. `CarbonInterval` from
+     * `diff()`/`diffAsCarbonInterval()`, `CarbonPeriod` from `toPeriod()`/`range()`) —
+     * as opposed to a genuine `: string` return.
+     *
+     * `LaravelTsPublish::toTsType()`'s step 5b maps *any* non-Model class implementing
+     * `__toString()` to a bare `string` with no attached class/enum FQCN, so
+     * `acceptReflectedTypeInfo()` has nothing to reject: the result is indistinguishable
+     * from a real `: string` return by the time it reaches that guard. Distinguishing the
+     * two requires inspecting the raw reflected return type *before* it is converted,
+     * which is what this does — mirroring toTsType() step 5b's own condition
+     * (`class_exists() && ! is_a(Model::class) && method_exists('__toString')`) so it
+     * flags exactly the return types that would hit that fallback.
+     *
+     * Deliberately conservative: any class-typed, Stringable return is rejected outright
+     * here rather than trying to predict whether an earlier toTsType() step (e.g. the
+     * JsonSerializable shape fallback) would have produced a legitimate, differently-typed
+     * result first — `CarbonPeriod::jsonSerialize()` only declares `@return
+     * CarbonInterface[]`, which the shape parser doesn't understand either, so in practice
+     * there is no real resolution being sacrificed for any of Carbon's current Stringable
+     * return types. A false positive here just means one more Carbon method degrades to
+     * unknown, which is always the safe outcome; the binding constraint on this branch is
+     * "never a wrong-but-plausible type," not "never unknown."
+     *
+     * A `static`-typed return (e.g. `copy()`, `startOfDay()`, `setTimezone()`) is
+     * unaffected: `ReflectionNamedType::getName()` returns the literal string `'static'`,
+     * which `class_exists()` reports false for, so those already degrade to unknown via
+     * toTsType()'s final fallback — same as before this method existed.
+     */
+    protected function carbonMethodReturnsUnimportableStringable(string $carbonClass, string $methodName): bool
+    {
+        if (! method_exists($carbonClass, $methodName)) {
+            return false;
+        }
+
+        $returnType = new ReflectionMethod($carbonClass, $methodName)->getReturnType();
+
+        if (! $returnType instanceof ReflectionNamedType) {
+            return false;
+        }
+
+        $name = $returnType->getName();
+
+        return class_exists($name)
+            && ! is_a($name, Model::class, true)
+            && method_exists($name, '__toString');
     }
 
     /**
@@ -3101,6 +3223,16 @@ class ResourceAstAnalyzer
      * a plain Collection property, a Stringable) where guessing wrong would emit a
      * wrong-but-plausible type.
      *
+     * getKey() (Task 12) also matches by name alone, with no receiver-type check, for the
+     * same reason as can()/cannot()/canAny(): every plausible receiver for a method
+     * literally named getKey() in a JsonResource body — an Eloquent model, whether `$this
+     * ->resource` or a relation — is either the resource's own backing model or another
+     * model sharing the same Eloquent `Model::getKey()` convention, and there is no
+     * common convention where a method literally named getKey() means something else.
+     * Resolves against `$closureRelationModelClass` when set (matching the convention
+     * used by analyzePropertyChain() and friends for "the model currently in scope
+     * inside a whenLoaded closure"), falling back to `$modelClass` otherwise.
+     *
      * @return ValueExpressionResult|null
      */
     protected function knownMethodRule(MethodCall|NullsafeMethodCall $expr): ?array
@@ -3113,6 +3245,21 @@ class ResourceAstAnalyzer
 
         if (in_array($method, ['can', 'cannot', 'canAny'], true)) {
             return [...$this->unknownResult(), 'type' => 'boolean', 'optional' => false];
+        }
+
+        if ($method === 'getKey') {
+            /** @var class-string<Model>|null $targetModelClass */
+            $targetModelClass = $this->closureRelationModelClass ?? $this->modelClass;
+
+            if ($targetModelClass === null) {
+                return null;
+            }
+
+            $instance = resolve(ModelAttributeResolver::class)->getInstance($targetModelClass);
+
+            $type = $instance?->getKeyType() === 'int' ? 'number' : 'string';
+
+            return [...$this->unknownResult(), 'type' => $type, 'optional' => false];
         }
 
         if (! in_array($method, ['count', 'exists'], true)) {

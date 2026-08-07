@@ -7220,6 +7220,16 @@
                 "name": "item_total",
                 "type": "number",
                 "optional": false
+            },
+            {
+                "name": "diff_result",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "period_result",
+                "type": "unknown",
+                "optional": false
             }
         ],
         "OrderOnlyResource": [
@@ -9654,6 +9664,18 @@
                 "name": "currency",
                 "type": "CurrencyType",
                 "optional": true
+            }
+        ],
+        "LocalVarResource": [
+            {
+                "name": "label",
+                "type": "string",
+                "optional": false
+            },
+            {
+                "name": "key",
+                "type": "number",
+                "optional": false
             }
         ],
         "UserCollection": [

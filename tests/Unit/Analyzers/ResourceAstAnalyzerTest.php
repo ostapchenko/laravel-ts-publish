@@ -35,6 +35,7 @@ use Workbench\App\Http\Resources\ExtendedAddressResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
 use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
+use Workbench\App\Http\Resources\LocalVarResource;
 use Workbench\App\Http\Resources\LoopReturnResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypePositiveInstanceOfResource;
@@ -4056,5 +4057,28 @@ describe('helper and receiver method inference', function () {
     test('count() on a many relation resolves to number', function () {
         expect($this->props['item_total']['type'])->toBe('number')
             ->and($this->props['item_total']['optional'])->toBeFalse();
+    });
+
+    // Task 12 carry-over fix: Carbon methods that return a Stringable-but-not-string
+    // value object (CarbonInterval, CarbonPeriod) must degrade to unknown instead of
+    // falsely resolving to `string` via toTsType()'s __toString fallback (step 5b).
+    test('Carbon diff() returning CarbonInterval degrades to unknown, not string', function () {
+        expect($this->props['diff_result']['type'])->toBe('unknown');
+    });
+
+    test('Carbon toPeriod() returning CarbonPeriod degrades to unknown, not string', function () {
+        expect($this->props['period_result']['type'])->toBe('unknown');
+    });
+});
+
+describe('local variable bindings', function () {
+    test('assigned locals resolve through their bound expressions', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['label']['type'])->toBe('string')
+            ->and($props['key']['type'])->toBe('number');
     });
 });
