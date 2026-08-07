@@ -37,17 +37,24 @@ def snapshot(rev: str) -> dict[tuple[str, str, str], str]:
         except subprocess.CalledProcessError:
             continue
         stack: list[tuple[str, int]] = []  # (name, brace depth at which it opened)
+        pending: str | None = None  # block header whose '{' is on a later line
         depth = 0
         for raw in body.splitlines():
             line = raw.split("//")[0]
             block = BLOCK.match(line)
             if block:
-                stack.append((block.group(2), depth))
+                pending = block.group(2)
             m = PROP.match(raw)
             if m and not block:
                 scope = ".".join(n for n, _ in stack) or "<root>"
                 out[(path, scope, m.group(1))] = m.group(2).strip()
-            depth += line.count("{") - line.count("}")
+            opens = line.count("{")
+            # Push only once the brace is seen: this repo puts `interface Foo` and `{` on separate
+            # lines, and pushing at the header's depth pops it again on that very line.
+            if pending is not None and opens:
+                stack.append((pending, depth))
+                pending = None
+            depth += opens - line.count("}")
             while stack and depth <= stack[-1][1]:
                 stack.pop()
     return out

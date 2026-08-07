@@ -16,7 +16,21 @@
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-errs=$(npx tsc --noEmit -p tsconfig.json 2>&1 | grep -E "error TS(2304|2552)" || true)
+out=$(npx tsc --noEmit -p tsconfig.json 2>&1)
+status=$?
+
+# Without these the gate fails OPEN: a tsc that never type-checked anything emits no TS2304 lines,
+# which reads as a pass. Config and CLI failures print unanchored, while a real diagnostic always
+# carries its `file(line,col):` prefix.
+setup_errs=$(printf '%s\n' "$out" | grep -E "^error TS[0-9]+" || true)
+
+if [ -n "$setup_errs" ] || { [ "$status" -ne 0 ] && ! printf '%s\n' "$out" | grep -qE "error TS[0-9]+"; }; then
+  echo "FAIL - tsc exited $status without type-checking the generated tree, so there is nothing to gate on"
+  printf '%s\n' "$out"
+  exit 1
+fi
+
+errs=$(printf '%s\n' "$out" | grep -E "error TS(2304|2552)" || true)
 count=$(printf '%s' "$errs" | grep -c . || true)
 
 echo "TS2304/TS2552 (cannot find name) in generated tree: $count"
