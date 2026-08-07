@@ -52,7 +52,6 @@ trait ParsesTsCasts
             }
         }
 
-        // Method wins over property wins over class, matching Laravel's own cast resolution
         $merged = array_merge($classOverrides, $propertyOverrides, $methodOverrides);
 
         $overrides = [];

@@ -24,12 +24,6 @@ class RoutesCollector
     /**
      * Collect all controller FQCNs that have at least one publishable route.
      *
-     * Skips:
-     * - Routes with names starting with 'generated::' (cache artifacts)
-     * - Fallback routes
-     * - Routes without a controller (closure-only routes)
-     * - Controllers whose class carries a #[TsExclude] attribute
-     *
      * @return Collection<int, class-string>
      */
     public function collect(): Collection
@@ -55,9 +49,7 @@ class RoutesCollector
     /**
      * Determine whether a controller class should be included.
      *
-     * Since collect() already filters controllers from actual routes, we skip the
-     * redundant route-iteration in validateController() and only check exclusion
-     * attributes and concrete class constraints.
+     * collect() already sourced these from real routes, so validateController()'s route iteration is skipped.
      *
      * @param  class-string  $class
      */

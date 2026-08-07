@@ -85,8 +85,7 @@ abstract class CoreCollector
     }
 
     /**
-     * Resolve a mixed list of fully-qualified class names and directory paths
-     * into a flat list of class names.
+     * Resolve a mixed list of class names and directory paths into a flat list of class names.
      *
      * @param  list<string>  $entries
      * @return array<int, string>

@@ -13,16 +13,9 @@ arch('it will not use debugging functions')
 
 arch()->preset()->php();
 
-// The generation cache's file backend must (de)serialize its own on-disk
-// payloads — the standard mechanism for a cache (Laravel's own file cache does
-// the same). It is hardened: payloads can be HMAC-signed and `unserialize()` is
-// called with `['allowed_classes' => false]`, so no objects are ever
-// instantiated from cache files. These are trusted, locally-written files, not
-// user input, so the security preset's blanket ban is scoped out for this class.
-// BaseRunner::cachedGenerate() also uses serialize()/unserialize() to restore
-// transformer snapshots from the manifest — these are our own trusted cache
-// payloads; classes must be allowed here so transformer objects can be rebuilt
-// (unlike the file backend's array payloads which use allowed_classes:false).
+// Pest's security preset bans serialize()/unserialize() outright; the cache backends need both to
+// persist their own payloads. File payloads are HMAC-signed and read with allowed_classes:false;
+// BaseRunner must allow classes so transformer snapshots can be rebuilt from the manifest.
 arch()->preset()->security()
     ->ignoring([FileCacheRepository::class, StoreCacheRepository::class, SignsCachePayloads::class, BaseRunner::class]);
 

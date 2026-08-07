@@ -19,8 +19,7 @@ use ReflectionClass;
 use Throwable;
 
 /**
- * Detects Inertia::render() calls in controller actions via Ranger's static
- * analysis and extracts component names and page-prop types.
+ * Detects Inertia::render() calls in controller actions and extracts component names and page-prop types.
  *
  * @phpstan-type PageTypeResult = array{type: string, fqcns: list<class-string>, externalImports: array<string, list<string>>}
  * @phpstan-type InertiaPageData = array{
@@ -33,8 +32,7 @@ use Throwable;
 class InertiaPageAnalyzer
 {
     /**
-     * Create the analyzer with Ranger's response collector and an optional
-     * static table analyzer override for tests.
+     * Create the analyzer with Ranger's response collector and an optional table analyzer override.
      */
     public function __construct(
         protected ResponseCollector $responseCollector,
@@ -43,10 +41,6 @@ class InertiaPageAnalyzer
 
     /**
      * Analyze a controller action and extract Inertia page data.
-     *
-     * Ranger's parseResponse() returns component name strings for Inertia
-     * responses. We collect those names, then look up full InertiaResponse
-     * objects via InertiaComponents::getComponent().
      *
      * @param  array{uses: string}  $action  The route action array with 'uses' key (Controller@method format).
      * @return InertiaPageData|null Null when the action does not render an Inertia response.
@@ -60,13 +54,8 @@ class InertiaPageAnalyzer
             return $tableData;
         }
 
-        // Taint branch: the controller file (or a service class it delegates to)
-        // references an Inertia UI Table subclass — loading it through Ranger would
-        // trigger a PhpSpreadsheet fatal on unrelated actions (e.g. a sibling CRUD
-        // form route that shares the file).  Skip parseResponse() entirely and build
-        // the page type statically: either from a #[TsCasts] escape hatch on the
-        // method, or return `pageType: null` so the route helper is emitted without
-        // an auto page-prop type.
+        // Autoloading an Inertia UI Table subclass through Ranger triggers a PhpSpreadsheet fatal, so any
+        // action in a file that references one must be typed statically instead of via parseResponse().
         if (str_contains($action['uses'], '@') && $tableAnalyzer->isTainted($action['uses'])) {
             $component = $tableAnalyzer->resolveComponent($action['uses']);
 
@@ -95,19 +84,15 @@ class InertiaPageAnalyzer
                 ];
             }
 
-            // Tainted but no resolvable Inertia component (e.g. a non-Inertia store()/update()):
-            // not an Inertia page — skip Ranger entirely to avoid the table autoload.
             return null;
         }
 
-        // Reset the InertiaComponents static registry so each analyze() call gets
-        // only the props declared in *this* controller method, not accumulated state
-        // from previous calls that happened to render the same component name.
+        // InertiaComponents keeps a static registry that accumulates props across calls rendering the
+        // same component name; reset it so this method sees only its own props.
         $componentsProperty = (new ReflectionClass(InertiaComponents::class))->getProperty('components');
         $componentsProperty->setValue(null, []);
 
-        // Ranger's parseResponse() returns component name strings for Inertia
-        // responses despite its docblock claiming InertiaResponse objects.
+        // Ranger's parseResponse() returns component name strings, despite its docblock claiming InertiaResponse.
         /** @var list<string|mixed> $responses */
         $responses = $this->responseCollector->parseResponse($action);
 
@@ -172,10 +157,8 @@ class InertiaPageAnalyzer
     /**
      * Build the page data from one or more InertiaResponse instances.
      *
-     * For a single component, `pageType` is a plain inline type string.
-     * For multiple (conditional) components, `pageType` is a list of inline
-     * type strings parallel to the `component` list so the transformer can
-     * build a keyed map aligned with the component keys.
+     * With multiple (conditional) components, `pageType` is a list parallel to `component` so the
+     * transformer can key one against the other.
      *
      * @param  list<InertiaResponse>  $responses
      * @param  array<string, string>  $methodOverrides  TsCasts overrides from the controller method.
@@ -216,7 +199,6 @@ class InertiaPageAnalyzer
             ...array_map(fn (array $r): array => $r['fqcns'], $pageTypeResults),
         )));
 
-        // Aggregate external imports from page type results and method-level TsCasts import map
         /** @var array<string, list<string>> $externalImports */
         $externalImports = $methodImportMap;
 
@@ -230,10 +212,8 @@ class InertiaPageAnalyzer
             }
         }
 
-        // Single component → string; multiple (conditional) → list
         $component = count($components) === 1 ? $components[0] : $components;
 
-        // Single type → string; multiple → list (transformer builds keyed map)
         $pageType = count($pageTypes) === 1 ? $pageTypes[0] : $pageTypes;
 
         return [
@@ -246,10 +226,6 @@ class InertiaPageAnalyzer
 
     /**
      * Build the TypeScript type string for a single InertiaResponse.
-     *
-     * Returns the rewritten type string, the list of PHP FQCNs found within it
-     * (for import resolution by the transformer), and any external package imports
-     * (e.g. `@tolki/types` entries for pagination/resource types).
      *
      * @param  array<string, string>  $methodOverrides  TsCasts overrides from the controller method.
      * @param  array<string, class-string>  $paginatorModelMap  Prop key => model FQCN from controller AST analysis.
@@ -352,7 +328,6 @@ class InertiaPageAnalyzer
             $parts[] = $key.$separator.$tsType;
         }
 
-        // Add any override keys not already in the Surveyor-analyzed props
         foreach ($overrides as $key => $type) {
             if (! array_key_exists($key, $props)) {
                 $parts[] = $key.': '.$type;
@@ -364,12 +339,6 @@ class InertiaPageAnalyzer
 
     /**
      * Rewrite paginator generic types in the type string based on the paginator-model map.
-     *
-     * For each entry in `$paginatorModelMap`, searches the type string for
-     * `propKey: PaginatorFqcn<...>` (using dot-notation, matching any generic suffix)
-     * and replaces the generic with the model's dot-notation class name. The model FQCN
-     * is appended to `$fqcns` so the existing import pipeline resolves it to a relative
-     * import path.
      *
      * @param  list<class-string>  $fqcns
      * @param  array<string, class-string>  $paginatorModelMap  prop key => model FQCN
@@ -410,12 +379,8 @@ class InertiaPageAnalyzer
     /**
      * Rewrite prop types for resource objects constructed with a paginated variable.
      *
-     * For non-flat resources/collections (those with `$wrap !== null`), appends `& ResourcePagination`
-     * and adds `ResourcePagination` to the `@tolki/types` external imports.
-     *
-     * For flat collections (`$wrap === null`), replaces the prop type entirely with
-     * `JsonResourcePaginator<SingularType>` and adds `JsonResourcePaginator` to external imports.
-     * The flat collection FQCN is removed from `$fqcns` and the singular resource FQCN is added.
+     * A collection with `$wrap === null` emits no `data` key, so it becomes `JsonResourcePaginator<Singular>`
+     * rather than the wrapped resource intersected with `ResourcePagination`.
      *
      * @param  list<class-string>  $fqcns
      * @param  array<string, class-string<object>>  $paginatedResourceProps  Prop key => resource FQCN.
@@ -473,14 +438,7 @@ class InertiaPageAnalyzer
     }
 
     /**
-     * Rewrite `Resource::collection($paginatedVar)` props from `AnonymousResourceCollection<ResourceName>`
-     * to `JsonResourcePaginator<ResourceName>` in the type string.
-     *
-     * After `rewritePaginatorGenerics()` has replaced `<unknown>` with the resource FQCN and
-     * `rewriteDotNotationToBasenames()` has shortened the dot-notation, the type string contains
-     * entries like `propKey: AnonymousResourceCollection<WarehouseResource>`. This method replaces
-     * those entries with `propKey: JsonResourcePaginator<WarehouseResource>` for props whose
-     * collection argument was a paginated variable.
+     * Rewrite paginated `Resource::collection()` props to `JsonResourcePaginator<ResourceName>`.
      *
      * @param  list<class-string>  $fqcns
      * @param  array<string, class-string>  $paginatedStaticCollectionProps  Prop key => resource FQCN.
@@ -504,9 +462,7 @@ class InertiaPageAnalyzer
 
             $baseName = (new ReflectionClass($resourceFqcn))->getShortName();
 
-            // At this point the type string has: `propKey: AnonymousResourceCollection<unknown>`
-            // (the non-paginated path fills in the generic via rewritePaginatorGenerics, but
-            // paginated props bypass that — they're not in paginatorModelMap — so <unknown> remains)
+            // Paginated props are absent from paginatorModelMap, so rewritePaginatorGenerics left `<unknown>`.
             $pattern = '/\b'.preg_quote($propKey, '/').': AnonymousResourceCollection<unknown>/';
             $typeString = (string) preg_replace($pattern, $propKey.': JsonResourcePaginator<'.$baseName.'>', $typeString);
 
@@ -543,7 +499,6 @@ class InertiaPageAnalyzer
                 continue;
             }
 
-            // Only rewrite concrete ResourceCollection subclasses
             if (! class_exists($fqcn) || ! is_a($fqcn, LaravelResourceCollection::class, true)) {
                 DependencyRecorder::recordClass($fqcn);
                 $rewrittenFqcns[] = $fqcn;
@@ -566,8 +521,7 @@ class InertiaPageAnalyzer
     /**
      * Resolve the singular resource FQCN for a ResourceCollection subclass.
      *
-     * Checks the `$collects` property first, then falls back to the naming convention
-     * (`XCollection` → `XResource` in the same namespace).
+     * Mirrors Laravel's own resolution order: #[Collects], then `$collects`, then `XCollection` → `XResource`.
      *
      * @param  class-string  $collectionFqcn
      * @return class-string|null
@@ -578,7 +532,6 @@ class InertiaPageAnalyzer
 
         $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
         if (class_exists($collectsAttribute)) {
-            // Priority 0: #[Collects] attribute
             $collectsAttrs = $reflection->getAttributes($collectsAttribute);
 
             if ($collectsAttrs !== []) {
@@ -621,10 +574,7 @@ class InertiaPageAnalyzer
     }
 
     /**
-     * Parse TsCasts attribute from a controller method.
-     *
-     * Reads `#[TsCasts([...])]` from the given controller method and returns
-     * the type overrides map and any import map for external type packages.
+     * Parse the `#[TsCasts]` attribute from a controller method.
      *
      * @return array{overrides: array<string, string>, importMap: array<string, list<string>>}
      */

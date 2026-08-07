@@ -69,7 +69,6 @@ test('ts:publish writes files to disk', function () {
         ->and(file_exists("$outputDir/workbench/app/enums/index.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/workbench/app/models/index.ts"))->toBeTrue();
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -121,27 +120,22 @@ test('ts:publish writes modular files to namespace-based directories', function 
     $this->artisan('ts:publish', ['--preview' => 'false'])
         ->assertSuccessful();
 
-    // Route files should be in app/http/controllers/
     expect(file_exists("$outputDir/app/http/controllers/post-controller.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/app/http/controllers/index.ts"))->toBeTrue();
 
-    // App models and enums should be in app/ subdirectories
     expect(file_exists("$outputDir/app/models/user.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/app/enums/status.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/app/models/index.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/app/enums/index.ts"))->toBeTrue();
 
-    // Accounting module files should be in accounting/ subdirectories
     expect(file_exists("$outputDir/accounting/models/invoice.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/accounting/enums/invoice-status.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/accounting/models/index.ts"))->toBeTrue()
         ->and(file_exists("$outputDir/accounting/enums/index.ts"))->toBeTrue();
 
-    // Old flat directories should NOT exist
     expect(is_dir("$outputDir/enums"))->toBeFalse()
         ->and(is_dir("$outputDir/models"))->toBeFalse();
 
-    // Verify import paths in a modular model file
     $invoiceContent = file_get_contents("$outputDir/accounting/models/invoice.ts");
     expect($invoiceContent)
         ->toContain("from '../enums'")
@@ -200,7 +194,6 @@ test('ts:publish --source writes file to disk', function () {
 
     expect(file_exists("$outputDir/workbench/app/enums/status.ts"))->toBeTrue();
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -233,7 +226,6 @@ test('ts:publish --only-enums writes only enum files to disk', function () {
     expect(is_dir("$outputDir/workbench/app/enums"))->toBeTrue()
         ->and(is_dir("$outputDir/workbench/app/models"))->toBeFalse();
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -248,7 +240,6 @@ test('ts:publish --only-models writes only model files to disk', function () {
     expect(is_dir("$outputDir/workbench/app/models"))->toBeTrue()
         ->and(is_dir("$outputDir/workbench/app/enums"))->toBeFalse();
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -305,7 +296,6 @@ test('ts:publish verbose mode shows detailed tables', function () {
         ->expectsOutputToContain('Cases')
         ->expectsOutputToContain('Columns');
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -320,7 +310,6 @@ test('ts:publish normal verbosity shows compact summary', function () {
         ->doesntExpectOutputToContain('Cases')
         ->doesntExpectOutputToContain('Columns');
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -333,11 +322,9 @@ test('ts:publish quiet mode produces no output', function () {
         ->assertSuccessful()
         ->doesntExpectOutput();
 
-    // Files should still be written
     expect(is_dir("$outputDir/workbench/app/enums"))->toBeTrue()
         ->and(is_dir("$outputDir/workbench/app/models"))->toBeTrue();
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -352,7 +339,6 @@ test('ts:publish quiet mode with --source produces no output', function () {
 
     expect(file_exists("$outputDir/workbench/app/enums/status.ts"))->toBeTrue();
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -429,10 +415,8 @@ test('ts:publish reports multiple --only-* options failure under --quiet', funct
 });
 
 test('ts:publish reports unexpected writer failures under --quiet', function () {
-    // Regression test: writers can raise ErrorException/RuntimeException (e.g.
-    // an mkdir() race or, as forced here, an output path blocked by a file),
-    // not just InvalidArgumentException. Those must still be caught and
-    // reported to stderr under --quiet rather than escaping uncaught.
+    // Writers raise ErrorException/RuntimeException too — here from an output path blocked by a file —
+    // not only the InvalidArgumentException the handler originally caught.
     $blockedFile = sys_get_temp_dir().'/ts-publish-blocked-'.uniqid();
     file_put_contents($blockedFile, '');
 
@@ -514,7 +498,6 @@ test('ts:publish --only-routes writes only route files to disk', function () {
         ->and(is_dir("$outputDir/models"))->toBeFalse()
         ->and(is_dir("$outputDir/enums"))->toBeFalse();
 
-    // Cleanup
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
@@ -548,7 +531,6 @@ test('ts:publish --only-functional ignores other --only flags', function () {
     config()->set('ts-publish.output_to_files', false);
     config()->set('ts-publish.routes.enabled', true);
 
-    // --only-enums should be ignored when --only-functional is set
     $this->artisan('ts:publish', ['--preview' => 'true', '--only-functional' => true, '--only-enums' => true])
         ->assertSuccessful()
         ->expectsOutputToContain('only functional content');
@@ -574,10 +556,8 @@ test('ts:publish preview shows broadcast channels content', function () {
 });
 
 test('ts:publish fails gracefully when broadcast channels have conflicting parameter names', function () {
-    // 'orders.{orderId}' is registered in the workbench. Registering 'orders.{slug}.timeline'
-    // in the same test causes the 'orders' segment to have two different wildcard names.
-    // Before the fix, runAll() had no try/catch so this surfaced as an uncaught exception.
-    // After the fix it must print a friendly error message and exit with a failure code.
+    // The workbench already registers 'orders.{orderId}', so adding 'orders.{slug}.timeline' gives the
+    // 'orders' segment two different wildcard names.
     config()->set('ts-publish.output_to_files', false);
     config()->set('ts-publish.broadcast_channels.enabled', true);
 
@@ -602,16 +582,13 @@ test('ts:publish --only-broadcast-channels publishes only the broadcast-channels
         ->toContain('export type BroadcastChannel')
         ->toContain('export const BroadcastChannels');
 
-    // No enum or model files
     expect(is_dir($outputDir.'/workbench/app/enums'))->toBeFalse();
 
     (new Filesystem)->deleteDirectory($outputDir);
 });
 
 test('ts:publish --only-broadcast-channels published file contains $channel accessor for overlapping channels', function () {
-    // 'chat.{roomId}' and 'chat.{roomId}.messages' are both registered in the
-    // workbench. The published file must contain a $channel accessor inside the
-    // chat() function so both channel strings are accessible at runtime.
+    // The workbench registers both 'chat.{roomId}' and 'chat.{roomId}.messages'.
     $outputDir = sys_get_temp_dir().'/ts-publish-bc-overlap-'.uniqid();
     config()->set('ts-publish.output_directory', $outputDir);
     config()->set('ts-publish.output_to_files', true);
@@ -676,7 +653,6 @@ test('ts:publish --only-broadcast-events publishes only the broadcast events fil
         ->toContain('export type BroadcastEvent')
         ->toContain('export const BroadcastEvents');
 
-    // No enum or model files
     expect(is_dir($outputDir.'/workbench/app/enums'))->toBeFalse();
 
     (new Filesystem)->deleteDirectory($outputDir);
@@ -711,8 +687,7 @@ test('quiet run produces no ts:publish output', function () {
 });
 
 test('summary callout lists generated type counts and a totals footer', function () {
-    // The callout writes once; Mockery satisfies one substring expectation per write.
-    // 'models' comes from the callout content, 'All done' from outro() – separate writes.
+    // Mockery satisfies one substring expectation per write; 'models' and 'All done' are separate writes.
     $this->artisan('ts:publish', ['--preview' => 'false'])
         ->expectsOutputToContain('models')
         ->expectsOutputToContain('files')

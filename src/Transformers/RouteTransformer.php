@@ -227,18 +227,15 @@ class RouteTransformer extends CoreTransformer
                 $actionMethod = self::INVOKE;
             }
 
-            // Skip if the action method has #[TsExclude]
             if ($this->isMethodExcluded($actionMethod)) {
                 continue;
             }
 
             $methodName = $this->resolveMethodName($actionMethod, $methodCasing);
 
-            // When multiple routes map to the same controller method, keep the one with a name
-            // (or the first one seen if none have a name).
+            // Several routes can map to one controller method: prefer a named one, else the first seen.
             if (isset($actionsByMethod[$actionMethod])) {
                 if ($routeName !== null && $actionsByMethod[$actionMethod]['name'] === null) {
-                    // Replace un-named entry with named one
                     $actionsByMethod[$actionMethod] = $this->buildAction($route, $methodName, $actionMethod);
                 }
 
@@ -390,14 +387,12 @@ class RouteTransformer extends CoreTransformer
      */
     protected function resolveMethodName(string $actionMethod, string $casing): string
     {
-        // __invoke maps to 'invoke' at the action level; the blade renders the
-        // emitted const using the controller short name (see route.blade.php).
+        // __invoke maps to 'invoke'; route.blade.php emits the const under the controller short name.
         if ($actionMethod === self::INVOKE) {
             return 'invoke';
         }
 
-        // Mirror Wayfinder: the export name is the controller action method name,
-        // never the route name.
+        // Mirror Wayfinder: the export name is the action method name, never the route name.
         return LaravelTsPublish::safeJsIdentifier(
             LaravelTsPublish::keyCase($actionMethod, $casing),
             'Method'
@@ -426,7 +421,6 @@ class RouteTransformer extends CoreTransformer
             $methodParams = $this->reflectionController->getMethod($actionMethod)->getParameters();
         }
 
-        // Build a map of param name → ReflectionParameter for type-hint inspection
         /** @var array<string, ReflectionParameter> $paramMap */
         $paramMap = [];
 
@@ -448,20 +442,17 @@ class RouteTransformer extends CoreTransformer
             /** @var RouteArgData $arg */
             $arg = ['name' => $cleanName, 'required' => $required];
 
-            // Check for regex constraint
             $whereValue = $wheres[$cleanName] ?? null;
 
             if (is_string($whereValue) && $whereValue !== '') {
                 $arg['where'] = $whereValue;
             }
 
-            // Resolve binding type
             $bindingField = $this->resolveBindingField($route, $cleanName, $paramMap);
 
             if ($bindingField !== null) {
                 $arg['_routeKey'] = $bindingField;
             } else {
-                // Check for enum binding
                 $enumValues = $this->resolveEnumValues($cleanName, $paramMap);
 
                 if ($enumValues !== null) {
@@ -476,26 +467,20 @@ class RouteTransformer extends CoreTransformer
     }
 
     /**
-     * Resolve the route key field for a model-bound parameter.
-     * Returns null if the parameter is not model-bound.
+     * Resolve the route key field for a model-bound parameter, or null when the param is not model-bound.
      *
-     * Priority:
-     * 1. Explicit binding field from {post:slug} syntax
-     * 2. Type-hinted to a Model — call getRouteKeyName()
-     * 3. Default: null (not model-bound)
+     * An explicit {post:slug} binding wins over the model's own getRouteKeyName().
      *
      * @param  array<string, ReflectionParameter>  $paramMap
      */
     protected function resolveBindingField(Route $route, string $paramName, array $paramMap): ?string
     {
-        // 1. Explicit binding field from route definition (e.g. {post:slug})
         $explicit = $route->bindingFieldFor($paramName);
 
         if ($explicit !== null && $explicit !== '') {
             return $explicit;
         }
 
-        // 2. Check if the param is type-hinted to a Model
         if (! isset($paramMap[$paramName])) {
             return null;
         }
@@ -513,12 +498,11 @@ class RouteTransformer extends CoreTransformer
             return null; // @codeCoverageIgnore
         }
 
-        // Check it's actually a Model (not an Enum or other class)
         if (! is_a($className, Model::class, true)) {
             return null;
         }
 
-        // Only instantiate if the class overrides the default route key
+        // Instantiating a model is expensive, so only do it when 'id' would be the wrong answer.
         if ($this->overridesRouteKey($className)) {
             if (! isset(self::$modelInstanceCache[$className])) {
                 self::$modelInstanceCache[$className] = new $className;
@@ -534,10 +518,7 @@ class RouteTransformer extends CoreTransformer
     }
 
     /**
-     * Check if a model class overrides the default route key name.
-     *
-     * Only instantiate the model if it actually overrides getRouteKeyName,
-     * getKeyName, or $primaryKey — otherwise assume 'id'.
+     * Check whether a model class overrides getRouteKeyName(), getKeyName(), or $primaryKey.
      *
      * @param  class-string  $className
      */
@@ -545,7 +526,6 @@ class RouteTransformer extends CoreTransformer
     {
         $reflection = new ReflectionClass($className);
 
-        // Check if getRouteKeyName is overridden
         if ($reflection->hasMethod('getRouteKeyName')) {
             $method = $reflection->getMethod('getRouteKeyName');
 
@@ -554,7 +534,7 @@ class RouteTransformer extends CoreTransformer
             }
         }
 
-        // Check if getKeyName is overridden (getRouteKeyName delegates to getKeyName)
+        // Eloquent's getRouteKeyName() delegates to getKeyName(), so an override there counts too.
         if ($reflection->hasMethod('getKeyName')) {
             $method = $reflection->getMethod('getKeyName');
 
@@ -563,7 +543,6 @@ class RouteTransformer extends CoreTransformer
             }
         }
 
-        // Check if $primaryKey property is overridden
         if ($reflection->hasProperty('primaryKey')) {
             $prop = $reflection->getProperty('primaryKey');
 
@@ -576,8 +555,7 @@ class RouteTransformer extends CoreTransformer
     }
 
     /**
-     * Resolve backed enum values for an enum-bound parameter.
-     * Returns null if the parameter is not enum-bound.
+     * Resolve backed enum values for an enum-bound parameter, or null when the param is not enum-bound.
      *
      * @param  array<string, ReflectionParameter>  $paramMap
      * @return list<string|int>|null
@@ -627,8 +605,6 @@ class RouteTransformer extends CoreTransformer
 
     /**
      * Clear the static model instance cache.
-     *
-     * Useful in test suites to prevent stale state between tests.
      */
     public static function clearModelInstanceCache(): void
     {
@@ -637,10 +613,6 @@ class RouteTransformer extends CoreTransformer
 
     /**
      * Build a TypeScript import map for all FormRequest types referenced in route actions.
-     *
-     * Iterates the collected actions, groups each requestTypeAlias by its requestImportPath,
-     * and deduplicates so that multiple actions sharing the same import path produce a
-     * single consolidated import statement.
      *
      * @return TypesImportMap
      */
@@ -667,10 +639,6 @@ class RouteTransformer extends CoreTransformer
 
     /**
      * Build a TypeScript import map for all PHP classes/enums referenced in page-prop types.
-     *
-     * Collects all FQCNs gathered from Inertia page-type analysis, computes relative
-     * import paths from this controller's namespace path, and returns a deduplicated
-     * sorted map of `importPath => list<TypeName>`.
      *
      * @return TypesImportMap
      */
@@ -701,7 +669,6 @@ class RouteTransformer extends CoreTransformer
             $imports[$importPath][] = class_basename($fqcn);
         }
 
-        // Merge external imports collected from InertiaPageAnalyzer (e.g. ResourceCollection, TsCasts)
         foreach ($this->actionExternalImports as $externalImports) {
             foreach ($externalImports as $path => $types) {
                 foreach ($types as $type) {
@@ -723,10 +690,6 @@ class RouteTransformer extends CoreTransformer
 
     /**
      * Normalize Inertia component data for the route action.
-     *
-     * Single components remain as-is (a plain string). Multi-component
-     * arrays are converted to an associative array keyed by the short
-     * component name (last segment, transformed by component_casing config).
      *
      * @param  string|list<string>  $component
      * @return string|array<string, string>
@@ -750,12 +713,7 @@ class RouteTransformer extends CoreTransformer
     }
 
     /**
-     * Normalize Inertia page type data aligned with normalized component keys.
-     *
-     * For a single component (string), the page type is returned as-is.
-     * For multiple (conditional) components, the page type list is converted
-     * to an associative array with the same keys used by normalizeComponent()
-     * so the blade template can emit one `export type` alias per variant.
+     * Normalize Inertia page type data, reusing normalizeComponent()'s keys so variants stay aligned.
      *
      * @param  string|list<string>  $component  Raw component list from the analyzer.
      * @param  string|list<string>  $pageType  Parallel page type list from the analyzer.
@@ -798,11 +756,7 @@ class RouteTransformer extends CoreTransformer
     }
 
     /**
-     * Compute unique casing keys for each component path.
-     *
-     * Uses depth=1 (last segment) first. When two paths share the same short name
-     * (e.g. Admin/Dashboard and User/Dashboard both yield "dashboard"), the depth
-     * is incremented until all keys in the group are distinct.
+     * Compute unique casing keys per component path, deepening from the last segment until all keys differ.
      *
      * @param  array<string>  $paths
      * @return array<string, string> path => key

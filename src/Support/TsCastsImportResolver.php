@@ -59,8 +59,6 @@ class TsCastsImportResolver
             }
         }
 
-        // Pre-compute unique prefixes per type so that paths sharing the same basename
-        // get more trailing segments until all prefixes in the conflict group are distinct.
         /** @var array<string, array<string, string>> $prefixMap type => (path => prefix) */
         $prefixMap = [];
 
@@ -119,9 +117,6 @@ class TsCastsImportResolver
     /**
      * Derive StudlyCase prefixes that are unique across a set of conflicting import paths.
      *
-     * Incrementally uses more trailing path segments until every path in the group
-     * maps to a distinct prefix, preventing duplicate alias identifiers in TypeScript.
-     *
      * @param  list<string>  $paths
      * @return array<string, string> path => prefix
      */
@@ -146,16 +141,14 @@ class TsCastsImportResolver
             }
         }
 
-        // Fallback: use all segments (distinct paths will produce distinct prefixes)
         $prefixes = [];
 
         foreach ($paths as $path) {
             $prefixes[$path] = $this->computePathPrefixAtDepth($path, $maxDepth);
         }
 
-        // Last resort: append a 1-based numeric suffix to guarantee uniqueness when
-        // two paths still collide after sanitization at max depth (e.g. '@types/auth.ts'
-        // and '@types/auth.d.ts' both reduce to 'TypesAuth').
+        // Extension stripping can still collide at max depth: '@types/auth.ts' and
+        // '@types/auth.d.ts' both reduce to 'TypesAuth', so number the survivors.
         $grouped = [];
 
         foreach ($prefixes as $path => $prefix) {
@@ -176,25 +169,20 @@ class TsCastsImportResolver
     /**
      * Derive a StudlyCase prefix from the last $depth segments of $path, stripping all extensions.
      *
-     * Strips composite extensions (e.g. `.d.ts`, `.ts`, `.js`) from the final segment
-     * before converting to StudlyCase. Non-identifier characters (such as `@` in path
-     * aliases like `@js`) are removed so the result is always a valid TypeScript identifier.
-     *
-     * For example: depth=1, `@js/types/user-profile` → `UserProfile`
-     * For example: depth=2, `@js/types/user-profile` → `TypesUserProfile`
+     * depth=1, `@js/types/user-profile` → `UserProfile`; depth=2 → `TypesUserProfile`.
      */
     private function computePathPrefixAtDepth(string $path, int $depth): string
     {
         $segments = array_values(array_filter(explode('/', $path), fn (string $s) => $s !== ''));
         $segments = array_slice($segments, -$depth);
 
-        // Strip all extensions from the last segment (handles .d.ts, .ts, .js, etc.)
+        // Composite extensions such as `.d.ts` must go too, not just the last one.
         $last = (string) array_pop($segments);
         $last = (string) preg_replace('/(\.[^.]+)+$/', '', $last);
         $segments[] = $last;
 
-        // Remove characters that would produce invalid TypeScript identifiers (e.g. '@' in '@js').
-        // Hyphens and underscores are kept because Str::studly uses them as word separators.
+        // Drop characters invalid in a TypeScript identifier (e.g. '@' in '@js'), but keep
+        // hyphens and underscores — Str::studly treats them as word separators.
         $segments = array_values(array_filter(
             array_map(fn (string $s) => (string) preg_replace('/[^A-Za-z0-9_-]/', '', $s), $segments),
             fn (string $s) => $s !== ''

@@ -10,17 +10,11 @@ use Laravel\Surveyor\Types\Contracts\Type;
 
 /**
  * Converts Laravel Surveyor types into TypeScript type strings.
- *
- * Used by InertiaSharedDataAnalyzer and InertiaPageAnalyzer to
- * translate PHPDoc array shapes into TypeScript object types.
  */
 class SurveyorTypeMapper
 {
     /**
      * Maps PHP FQCNs to their TypeScript names in the `@tolki/types` package.
-     *
-     * Includes both concrete pagination classes and their contract interfaces, plus
-     * AnonymousResourceCollection which becomes `AnonymousResourceCollection<T>` in TypeScript.
      *
      * @var array<string, string>
      */
@@ -173,10 +167,7 @@ class SurveyorTypeMapper
     }
 
     /**
-     * Build the generic suffix for a TOLKI_TYPES_MAP class type.
-     *
-     * Uses the Surveyor-provided generic types when available, falling back
-     * to `<unknown>` when none are present (e.g. for bare paginator returns).
+     * Build the generic suffix for a TOLKI_TYPES_MAP class type, or `<unknown>` when Surveyor supplied none.
      */
     private static function buildGenericSuffix(Types\ClassType $type): string
     {
@@ -224,7 +215,6 @@ class SurveyorTypeMapper
             ->filter()
             ->unique();
 
-        // Simplify: if "unknown" is in a union alongside concrete types (other than null), remove it
         if ($glue === '|' && $results->count() > 1 && $results->contains('unknown')) {
             $withoutUnknown = $results->filter(fn (string $t): bool => $t !== 'unknown');
 
@@ -253,23 +243,18 @@ class SurveyorTypeMapper
     /**
      * Extract PHP FQCNs from a type string containing dot-notation class references.
      *
-     * Matches multi-segment PascalCase dot-notation (e.g. `Workbench.App.Models.Post`)
-     * and converts them back to FQCNs (`Workbench\App\Models\Post`). Filters to only
-     * those that actually exist as a class or enum. Excludes `Inertia.*` references
-     * which are TypeScript global namespaces, not PHP classes.
+     * `Inertia.*` is skipped: it is a TypeScript global namespace, not a PHP class.
      *
      * @return list<class-string>
      */
     public static function extractDotNotationFqcns(string $typeString): array
     {
-        // Match sequences of 2+ PascalCase segments separated by dots
         preg_match_all('/\b([A-Z][A-Za-z0-9]*(?:\.[A-Z][A-Za-z0-9]*)+)\b/', $typeString, $matches);
 
         /** @var list<class-string> $fqcns */
         $fqcns = [];
 
         foreach (array_unique($matches[1]) as $dotNotation) {
-            // Exclude TypeScript globals (Inertia.*)
             if (str_starts_with($dotNotation, 'Inertia.')) {
                 continue;
             }
@@ -287,11 +272,6 @@ class SurveyorTypeMapper
 
     /**
      * Rewrite dot-notation class references in a type string to their base names.
-     *
-     * For each FQCN in `$fqcns`, replaces the dot-notation form
-     * (e.g. `Workbench.App.Models.Post`) with the base name (e.g. `Post`).
-     * FQCNs in `TOLKI_TYPES_MAP` use their mapped TypeScript name instead of
-     * the PHP class basename (e.g. `Paginator` → `SimplePaginator`).
      *
      * @param  list<class-string>  $fqcns
      */

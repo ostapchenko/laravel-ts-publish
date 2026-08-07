@@ -11,13 +11,10 @@ use Illuminate\Support\Collection;
 use InvalidArgumentException;
 
 /**
- * Transforms a flat collection of broadcast channel name strings into a
- * TsBroadcastChannelsDto containing pre-rendered TypeScript declarations.
+ * Transforms broadcast channel names into a TsBroadcastChannelsDto of pre-rendered TypeScript.
  *
- * The algorithm mirrors Wayfinder's BroadcastChannels::toConstData() approach:
- * 1. For each channel, build flat dot-notation entries keyed parent-before-child.
- * 2. Merge all entries and call Arr::undot() to get a nested tree.
- * 3. Recursively render each tree node to a TypeScript property string.
+ * Mirrors Wayfinder's BroadcastChannels::toConstData(): flat dot-notation entries, Arr::undot(),
+ * then a recursive render of the resulting tree.
  *
  * @phpstan-type ChannelMeta = array{params?: list<string>, originalName: string, selfChannel?: string}
  * @phpstan-type ChannelFlatEntry = array{__meta: ChannelMeta}
@@ -91,8 +88,7 @@ class BroadcastChannelsTransformer
                     if ($existingParams !== $newParams) {
                         throw new InvalidArgumentException("Broadcast channel segment [{$key}] has conflicting parameter names.");
                     }
-                    // Propagate selfChannel when the incoming entry marks this segment as a
-                    // terminal channel (i.e. the channel name ends at this static segment).
+                    // Another channel may terminate at this shared segment; keep that marker.
                     if (isset($entry['__meta']['selfChannel']) && ! isset($this->flatMap[$key]['__meta']['selfChannel'])) {
                         $this->flatMap[$key]['__meta']['selfChannel'] = $entry['__meta']['selfChannel'];
                     }
@@ -133,8 +129,6 @@ class BroadcastChannelsTransformer
     /**
      * Build the complete "export type BroadcastChannel = ..." statement.
      *
-     * Single member → one-liner. Multiple → multi-line with leading `|` per member.
-     *
      * @param  list<string>  $members
      */
     private function buildTypeUnion(array $members): string
@@ -157,15 +151,7 @@ class BroadcastChannelsTransformer
     /**
      * Produce flat dot-notation entries for a single channel name.
      *
-     * Parents are always listed before children so that Arr::undot() merges correctly
-     * without overwriting existing nested values.
-     *
-     * Algorithm:
-     * - Iterate parts in REVERSE. When a {param} is encountered, queue it. When a
-     *   static segment is encountered, store it in $chain with the queued params and
-     *   reset the queue.
-     * - Iterate parts FORWARD to build the flat map with dot-separated keys, ensuring
-     *   parent keys (e.g. 'user') always appear before child keys (e.g. 'user.notifications').
+     * Parents must precede children or Arr::undot() overwrites the already-nested values.
      *
      * @return array<string, ChannelFlatEntry>
      */
@@ -206,8 +192,7 @@ class BroadcastChannelsTransformer
             }
         }
 
-        // Mark the last static-segment entry as the terminal for this channel so that
-        // renderTree can emit a $channel accessor when the node also has child channels.
+        // Mark the last static segment as terminal so renderTree can give it a $channel accessor.
         $lastKey = array_key_last($nested);
         if ($lastKey !== null) {
             $nested[$lastKey]['__meta']['selfChannel'] = $channelName;
@@ -219,9 +204,7 @@ class BroadcastChannelsTransformer
     /**
      * Recursively render a nested channel tree to TypeScript const body lines.
      *
-     * Each call returns the indented lines for the given depth as a single string
-     * (entries joined by newline, no leading or trailing newline). The caller is
-     * responsible for adding surrounding braces and newlines.
+     * Returns joined lines with no leading or trailing newline; callers add the braces.
      *
      * @param  array<string, mixed>  $tree
      */
@@ -253,8 +236,6 @@ class BroadcastChannelsTransformer
             );
 
             $isFinalSegment = $children === [];
-            // Delegate to the shared facade utility: quotes keys that are not valid JS identifiers
-            // (e.g. 'public-announcements' → '"public-announcements"'), leaves valid ones as-is.
             $tsKey = LaravelTsPublish::validJsObjectKey((string) $key);
 
             if ($isFinalSegment) {
@@ -271,9 +252,8 @@ class BroadcastChannelsTransformer
                 $closingIndent = str_repeat('    ', $depth + 1);
                 $contentIndent = str_repeat('    ', $depth + 2);
 
-                // When this node is also a terminal channel (e.g. 'chat.{roomId}' exists
-                // alongside 'chat.{roomId}.messages'), inject a $channel accessor so the
-                // parent channel string is reachable alongside its child channels.
+                // A node that is itself a channel ('chat.{roomId}' next to 'chat.{roomId}.messages')
+                // needs a $channel accessor to stay reachable beside its children.
                 $rawSelfChannel = $meta['selfChannel'] ?? null;
                 if (is_string($rawSelfChannel)) {
                     $selfValue = '`'.$this->toTemplateString($rawSelfChannel).'` as const';

@@ -28,9 +28,10 @@ use ReflectionNamedType;
 use ReflectionType;
 
 /**
- * Statically detects Inertia UI Table props on a controller action and builds
- * page-prop type data (component, page type, model FQCNs, table-package import)
- * without instantiating the table or calling its Arrayable::toArray() method.
+ * Statically detects Inertia UI Table props on a controller action and builds its page-prop type data.
+ *
+ * Everything here is reflection and AST only: instantiating a table or calling its `toArray()` pulls in
+ * PhpSpreadsheet, which fatals during analysis.
  *
  * @phpstan-type TablePageData = array{component: string, pageType: string, classFqcns: list<class-string>, externalImports: array<string, list<string>>}
  */
@@ -45,11 +46,7 @@ class InertiaTableAnalyzer
     private const TABLE_PACKAGES = ['@inertiaui/table-vue', '@inertiaui/table-react'];
 
     /**
-     * Resolve the Inertia component name from a controller action's first
-     * `Inertia::render()` argument without instantiating any objects.
-     *
-     * Returns `null` when the action cannot be found, contains no render call,
-     * or the component argument is not a string literal.
+     * Resolve the Inertia component name from a controller action's first `Inertia::render()` argument.
      */
     public function resolveComponent(string $uses): ?string
     {
@@ -81,21 +78,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Determine whether analyzing this route would parse a file containing an
-     * `InertiaUI\Table\Table` subclass reference.
-     *
-     * Three taint sources are checked in order:
-     *   (a) the controller file itself — any `StaticCall`/`New_` rooted at a
-     *       `Table` subclass anywhere in the file taints every action in it;
-     *   (b) table-bearing controller dependencies (constructor params or typed properties);
-     *       the action's `Inertia::render()` call — if that resource file
-     *       contains a table reference the route is tainted.
-     *   (c) any class reached via a `$this->property->method(...)` argument in
-     *       the `Inertia::render()` call — if that class contains a table reference
-     *       the route is tainted.
-     *
-     * Only `class_exists` and `is_a` are used to test class membership; no
-     * table method is invoked and no `toArray()` is triggered.
+     * Determine whether analyzing this route would parse a file referencing an `InertiaUI\Table\Table` subclass.
      */
     public function isTainted(string $uses): bool
     {
@@ -118,7 +101,6 @@ class InertiaTableAnalyzer
 
         ['reflection' => $reflection, 'method' => $method, 'finder' => $finder] = $context;
 
-        // (a) Taint from the controller file itself — scan all stmts, not just the target method.
         $controllerFile = $reflection->getFileName();
 
         if ($controllerFile !== false) {
@@ -129,15 +111,12 @@ class InertiaTableAnalyzer
             }
         }
 
-        // (c) Taint from a table-bearing controller dependency (constructor param or
-        // typed property). Ranger parses the whole controller file, including the
-        // constructor's injected resource, so any action on such a controller can reach
-        // the table — even ones with no Inertia::render() (e.g. store()/update()).
+        // Ranger parses the whole controller file, including constructor-injected classes, so a table-bearing
+        // dependency taints every action — even ones with no Inertia::render() at all.
         if ($this->controllerDependsOnTable($reflection)) {
             return true;
         }
 
-        // (b) Taint from a resource/service class resolved via $this->property->method(...).
         $renderCall = $this->findInertiaRenderCall($method, $finder);
 
         if ($renderCall === null) {
@@ -182,9 +161,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Whether the controller depends on a table-bearing class via a constructor
-     * parameter type or a typed property — Surveyor resolves these when it parses
-     * the controller file, so they taint every action on the controller.
+     * Whether the controller depends on a table-bearing class via a constructor param or typed property.
      *
      * @param  ReflectionClass<object>  $reflection
      */
@@ -238,8 +215,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Whether the file declaring the given class references an Inertia UI Table
-     * subclass. Reflection + `containsTableReference()` only; no table is evaluated.
+     * Whether the file declaring the given class references an Inertia UI Table subclass.
      *
      * @param  class-string  $class
      */
@@ -257,8 +233,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Analyze a controller action for Inertia UI Table props without evaluating
-     * the table object or its Arrayable::toArray() method.
+     * Analyze a controller action for Inertia UI Table props.
      *
      * @return TablePageData|null
      */
@@ -337,8 +312,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Reflect a class method, record its file as a cache dependency, and parse
-     * its name-resolved AST for further static inspection.
+     * Reflect a class method, record its file as a cache dependency, and parse its name-resolved AST.
      *
      * @param  class-string  $class
      * @return array{reflection: ReflectionClass<object>, method: ClassMethod, finder: NodeFinder}|null
@@ -426,8 +400,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Resolve table props from a props expression: an inline array literal or a
-     * service-method call such as $this->resource->index($request).
+     * Resolve table props from an inline array literal or a service-method call.
      *
      * @param  ReflectionClass<object>  $controllerReflection
      * @return array<string, class-string<Model>>
@@ -446,8 +419,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Map each string-keyed array item to its backing model class when the
-     * item value is an Inertia UI Table expression.
+     * Map each string-keyed array item holding a table expression to its backing model class.
      *
      * @return array<string, class-string<Model>>
      */
@@ -472,8 +444,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Resolve table props returned from a service method invoked on a typed
-     * controller property (e.g. $this->resource->index()).
+     * Resolve table props returned from a service method invoked on a typed controller property.
      *
      * @param  ReflectionClass<object>  $controllerReflection
      * @return array<string, class-string<Model>>
@@ -506,8 +477,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Resolve the class of a $this->property reference from the controller's
-     * typed property declaration.
+     * Resolve the class of a `$this->property` reference from its typed property declaration.
      *
      * @param  ReflectionClass<object>  $reflection
      * @return class-string|null
@@ -545,8 +515,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Walk a table prop expression (e.g. PostTable::make()->defaultSort(...)) to
-     * its root table class and resolve that table's backing model.
+     * Walk a table prop expression back to its root table class and resolve that table's backing model.
      *
      * @return class-string<Model>|null
      */
@@ -578,10 +547,8 @@ class InertiaTableAnalyzer
     /**
      * Resolve the backing Eloquent model for a table without instantiating it.
      *
-     * Inertia UI Table tables declare their model as the default value of the
-     * `$resource` property (`protected ?string $resource = Post::class;`) or by
-     * returning `Post::query()` from a `query()` method. Both are read
-     * statically and never touch table state or `toArray()`.
+     * Inertia UI Table exposes the model two ways: a `$resource` property default, or `Model::query()`
+     * returned from a `query()` method.
      *
      * @param  class-string  $tableFqcn
      * @return class-string<Model>|null
@@ -598,9 +565,7 @@ class InertiaTableAnalyzer
     /**
      * Read the model FQCN from `protected ?string $resource = Model::class;`.
      *
-     * The model is the property's *default value* (a compile-time `Model::class`
-     * constant), not its `?string` type hint, so we read the default value via
-     * reflection rather than the type. This is side-effect-free.
+     * The model lives in the property's default value; its declared type is only `?string`.
      *
      * @param  ReflectionClass<object>  $reflection
      * @return class-string<Model>|null
@@ -630,8 +595,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Read the model FQCN from a statically-analyzable `query()` method that
-     * returns `Model::query()`, `Model::class`, or a query chain rooted at a model.
+     * Read the model FQCN from the return expression of a `query()` method.
      *
      * @param  ReflectionClass<object>  $reflection
      * @return class-string<Model>|null
@@ -658,8 +622,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Resolve a model class from a query() return expression such as
-     * Model::query(), Model::class, or a query chain rooted at the model.
+     * Resolve a model class from a `Model::query()`, `Model::class`, or model-rooted query chain.
      *
      * @return class-string<Model>|null
      */
@@ -695,10 +658,7 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Report whether a parsed AST contains any `StaticCall` or `New_` node whose
-     * resolved class name is a subclass of `InertiaUI\Table\Table`.
-     *
-     * Uses only `class_exists` and `is_a` — no table method is invoked.
+     * Report whether a parsed AST references an `InertiaUI\Table\Table` subclass.
      *
      * @param  array<Node>  $stmts
      */

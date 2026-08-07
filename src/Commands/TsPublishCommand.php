@@ -109,10 +109,8 @@ class TsPublishCommand extends Command
     /**
      * Report a failure message so it stays visible under --quiet.
      *
-     * Laravel Prompts renders to stdout at normal verbosity, which --quiet
-     * suppresses entirely. Non-interactive callers such as the Vite plugin
-     * pass --quiet and would otherwise only receive a bare exit code, so
-     * quiet failures are written to stderr with the QUIET verbosity flag.
+     * Laravel Prompts renders to stdout at normal verbosity, which --quiet suppresses entirely, leaving
+     * callers like the Vite plugin with only an exit code. Quiet failures go to stderr instead.
      */
     protected function reportError(string $message): void
     {
@@ -156,9 +154,8 @@ class TsPublishCommand extends Command
 
         $runner = resolve(Runner::class);
 
-        // Attach the generation cache for real (file-writing) runs only. Preview
-        // runs write nothing, so caching them would record empty outputs and
-        // poison later real runs into skipping files that were never written.
+        // Cache real runs only: a preview writes nothing, so caching it would record empty outputs
+        // and make later real runs skip files that were never written.
         if (! $preview && CacheBootstrap::enabled()) {
             $repository = CacheBootstrap::repository();
 
@@ -289,7 +286,6 @@ class TsPublishCommand extends Command
             'routes' => ['config' => 'ts-publish.routes.enabled', 'option' => 'only-routes', 'label' => 'routes', 'functional' => true],
         ];
 
-        // Build initial flags from config; --only-functional forces non-functional types off.
         /** @var array<string, bool> $flags */
         $flags = [];
 
@@ -311,7 +307,7 @@ class TsPublishCommand extends Command
             return [$flags['enums'], $flags['models'], $flags['resources'], $flags['routes'], $flags['form_requests'], $flags['broadcast_channels'], $flags['broadcast_events']];
         }
 
-        // Find the active --only-* key, if any (validateOnlyOptions enforces at most one).
+        // validateOnlyOptions() already guaranteed at most one --only-* flag is set.
         $onlyKey = null;
 
         foreach ($types as $key => $type) {
@@ -548,9 +544,7 @@ class TsPublishCommand extends Command
     }
 
     /**
-     * Ordered [singular-label => count] map of the primary published types, omitting
-     * zero counts. The singular label is pluralized by `Str::plural(..., prependCount: true)`
-     * at render time (e.g. 'model' → "128 models", "1 model").
+     * Ordered [singular-label => count] map of the primary published types, omitting zero counts.
      *
      * @return array<string, int>
      */
@@ -575,9 +569,7 @@ class TsPublishCommand extends Command
     }
 
     /**
-     * Render the published-files summary as a scannable callout: a key/value list
-     * of type counts, a bulleted list of extras, and a footer with the file total
-     * and elapsed time.
+     * Render the published-files summary as a callout of type counts, extras, and totals.
      */
     protected function renderSummaryCallout(Runner|RunnerForSource $runner): void
     {
@@ -585,7 +577,7 @@ class TsPublishCommand extends Command
         $primaryLines = [];
 
         foreach ($this->primaryCounts($runner) as $singular => $count) {
-            // prependCount: true → auto-pluralized AND count-prefixed: "128 models", "1 resource".
+            // Str::plural's prependCount also prefixes the number: "128 models", "1 resource".
             $primaryLines[] = Str::plural($singular, $count, prependCount: true);
         }
 
@@ -596,8 +588,6 @@ class TsPublishCommand extends Command
             $content[] = Element::bulletedList($primaryLines);
         }
 
-        // Extras: a singleton (e.g. "vite env", "inertia config") shows no count;
-        // multiples are pluralized + counted (e.g. "38 model barrels").
         $extras = $this->collectExtras($runner);
 
         if ($extras !== []) {

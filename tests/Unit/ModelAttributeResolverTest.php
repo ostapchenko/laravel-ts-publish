@@ -69,7 +69,6 @@ test('resolveAccessorModelFqcn returns null for non-existent model class', funct
 test('resolveAccessorModelFqcn returns null for non-accessor attribute', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // 'name' is a regular string column, not an accessor
     $result = $resolver->resolveAccessorModelFqcn(User::class, 'name');
 
     expect($result)->toBeNull();
@@ -78,7 +77,6 @@ test('resolveAccessorModelFqcn returns null for non-accessor attribute', functio
 test('resolveAccessorModelFqcn returns null when accessor does not return a Model', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // 'initials' is an accessor that returns string, not a Model
     $result = $resolver->resolveAccessorModelFqcn(User::class, 'initials');
 
     expect($result)->toBeNull();
@@ -139,21 +137,18 @@ test('getMorphToTargets returns empty array when no inverse relations exist', fu
         Image::class,
     ]);
 
-    // CompositeComment has no inverse MorphOne/MorphMany relations in the scanned models
     expect($resolver->getMorphToTargets(CompositeComment::class))->toBe([]);
 });
 
 test('getMorphToTargets returns empty array when map is not built', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // No buildMorphTargetMap() call — default empty map
     expect($resolver->getMorphToTargets(Image::class))->toBe([]);
 });
 
 test('buildMorphTargetMap skips non-existent model classes', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // Should not throw, just skip the non-existent class
     $resolver->buildMorphTargetMap([
         'App\\Models\\NonExistent',
         User::class,
@@ -184,7 +179,6 @@ test('resolveRelation returns union type for MorphTo when targets exist', functi
 test('resolveRelation returns unknown for MorphTo when no targets exist', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // Build map with only Image — no inverse relations for CompositeComment
     $resolver->buildMorphTargetMap([Image::class]);
 
     $result = $resolver->resolveRelation(CompositeComment::class, 'commentable');
@@ -207,9 +201,6 @@ test('attributeDocblockReturnTypes captures nested generic getter type', functio
     $method = new ReflectionMethod(Order::class, 'sortedItems');
     $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
 
-    // The full 'Attribute<Collection<int, OrderItem>, never>' docblock resolves
-    // through the generic-container pipeline to a typed array, carrying the
-    // OrderItem FQCN so the import machinery still fires.
     expect($info['type'])->toBe('OrderItem[]')
         ->and($info['classFqcns'])->toBe([OrderItem::class]);
 });
@@ -229,12 +220,8 @@ test('accessor with @phpstan-return docblock resolves through docblock', functio
 });
 
 test('bare @return Attribute docblock does not override a usable closure signature type', function () {
-    // Regression fixture: 'unsortedItems' pairs a bare `@return Attribute` docblock
-    // (no generic args) with a vague `: Collection` closure signature. Before the
-    // fix, the fallback @return parser resolved the literal word "Attribute" to the
-    // Eloquent Attribute class itself, leaking an undefined/nonsensical TS token
-    // through the import machinery. It must instead degrade and fall back to the
-    // closure's own (still vague, but at least real) signature type.
+    // 'unsortedItems' pairs a bare `@return Attribute` with a vague `: Collection` closure signature;
+    // the @return parser must not resolve the bare word to Eloquent's own Attribute class.
     $info = resolve(ModelAttributeResolver::class)
         ->resolveAttribute(Order::class, 'unsorted_items');
 
@@ -244,12 +231,8 @@ test('bare @return Attribute docblock does not override a usable closure signatu
 });
 
 test('attributeDocblockReturnTypes resolves Attribute<> written as a fully-qualified class name', function () {
-    // Loaded from a `.php.stub` fixture rather than a `.php` class: Pint's
-    // fully_qualified_strict_types fixer rewrites any literal FQCN it finds in a
-    // docblock — even inside a custom tag, even with no matching `use` import to
-    // begin with (it adds one) — down to its short, auto-imported form. Pint's
-    // finder only matches `*.php`, so the `.stub` file's literal FQCN text
-    // survives untouched. See the fixture file for details.
+    // A `.php.stub` fixture because Pint's fully_qualified_strict_types fixer would rewrite the
+    // literal FQCN in the docblock down to a short auto-imported name; its finder only sees `*.php`.
     require_once __DIR__.'/../Fixtures/FqcnAttributeDocblockFixture.php.stub';
 
     $method = new ReflectionMethod(FqcnAttributeDocblockFixture::class, 'sortedByFqcnDocblock');
@@ -260,9 +243,7 @@ test('attributeDocblockReturnTypes resolves Attribute<> written as a fully-quali
 
 describe('@property docblock refinement', function () {
     test('refines an array cast to a typed record using an existing column', function () {
-        // Post's 'options' column casts to plain 'array' ('unknown[] | null' on
-        // its own); the class-level @property tag added in workbench/app/Models/Post.php
-        // refines it without touching the 'metadata' column's existing #[TsCasts] override.
+        // Post's 'options' casts to plain 'array' and is refined only by the class-level @property tag.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(Post::class, 'options');
 
@@ -270,8 +251,7 @@ describe('@property docblock refinement', function () {
     });
 
     test('columns without a @property tag are unaffected by the refinement', function () {
-        // 'metadata' has no @property tag on Post — the waterfall's raw cast
-        // result must pass through unchanged (refinement is opt-in per column).
+        // Post's 'metadata' carries no @property tag.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(Post::class, 'metadata');
 
@@ -279,9 +259,7 @@ describe('@property docblock refinement', function () {
     });
 
     test('a child class @property tag wins over the parent class tag for the same column', function () {
-        // Both fixtures tag 'tags', but with different shapes. The child's own
-        // tag must be used — not the parent's — proving the reflection walk in
-        // refineWithPropertyDocblock() checks the child class first.
+        // Both fixtures tag 'tags', with different shapes.
         $childInfo = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(PropertyDocblockChild::class, 'tags');
 
@@ -293,8 +271,7 @@ describe('@property docblock refinement', function () {
     });
 
     test('a @property-write tag is never used to type a readable property', function () {
-        // 'related_users' only has a @property-write tag (a setter type) —
-        // it must not refine the column, which stays at its vague cast baseline.
+        // 'related_users' carries only a @property-write tag.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
 
@@ -302,9 +279,7 @@ describe('@property docblock refinement', function () {
     });
 
     test('a shorter @property tag does not match a column name it merely prefixes', function () {
-        // The fixture declares `@property array<string, string>|null $meta`, and
-        // the column under test is 'meta_info' — a longer name sharing the same
-        // prefix. The regex's trailing word boundary must reject this match.
+        // The fixture tags `$meta`; the column under test is the longer 'meta_info'.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(PropertyDocblockEdge::class, 'meta_info');
 
@@ -320,12 +295,8 @@ describe('@property docblock refinement', function () {
     });
 
     test('an unrecognized generic container degrades to the pre-existing vague type instead of partial-matching', function () {
-        // 'tags' is tagged `@property LengthAwarePaginator<int, OrderItem>|null` —
-        // LengthAwarePaginator isn't a Collection/array/list shape
-        // resolveGenericContainerType() knows how to unwrap, so the resolved
-        // name string still contains '<' afterwards. Without degrading that
-        // case, it would fall into toTsType()'s partial string matching, where
-        // the literal "int" inside the generic silently resolves to 'number'.
+        // 'tags' is tagged `@property LengthAwarePaginator<int, OrderItem>|null`, a container shape that
+        // stays unwrapped; left un-degraded, toTsType()'s partial matching reads the inner "int" as 'number'.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(PropertyDocblockEdge::class, 'tags');
 
@@ -333,15 +304,8 @@ describe('@property docblock refinement', function () {
     });
 
     test('a different tag\'s description mentioning another column\'s $variable does not bleed into that column\'s type', function () {
-        // The fixture's `label` tag (not a real column) reads:
-        // "@property string $label Falls back to the $related_users value" —
-        // its description text mentions "$related_users" a second time. A type
-        // capture that doesn't stop at '$' could walk through $label's own
-        // marker and its description, then wrongly claim all of that
-        // ("string $label Falls back to the") as related_users's type — which
-        // toTsType() would then partial-match to the 'string' primitive.
-        // related_users's only real tag is @property-write (already excluded),
-        // so it must still be unrefined.
+        // The fixture's `label` tag reads "@property string $label Falls back to the $related_users value",
+        // so a type capture that doesn't stop at '$' claims "string $label Falls back to the" for related_users.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
 
@@ -365,8 +329,7 @@ describe('attribute-lookup fallbacks', function () {
     });
 
     test('resolves camelCase access to a snake_case accessor', function () {
-        // $this->formattedTotal on a resource — Eloquent resolves this to the
-        // 'formatted_total' accessor at runtime via its magic __get().
+        // Eloquent's __get() resolves $this->formattedTotal to the 'formatted_total' accessor at runtime.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(Order::class, 'formattedTotal');
 
@@ -374,11 +337,7 @@ describe('attribute-lookup fallbacks', function () {
     });
 
     test('a real column ending in _count resolves through the normal waterfall, not the suffix fallback', function () {
-        // Post::word_count is a genuine nullable integer column, not a withCount()
-        // virtual attribute. The exact-name lookup happens before the fallback is
-        // ever dispatched, so this must resolve to the column's real DB type
-        // ('number | null') — a bare 'number' here would mean the suffix
-        // fallback hijacked a real column.
+        // Post::word_count is a real nullable integer column, not a withCount() virtual attribute.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(Post::class, 'word_count');
 

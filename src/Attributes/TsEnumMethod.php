@@ -7,11 +7,9 @@ namespace AbeTwoThree\LaravelTsPublish\Attributes;
 use Attribute;
 
 /**
- * Attribute to specify that an enum method should be included when generating TypeScript types
+ * Attribute to specify that an enum method should be included when generating TypeScript types.
  *
- * If included, each case of the enum will be used to call the method.
- * The returned values will be included in the generated TypeScript types as an object
- * with keys corresponding to the case names and values corresponding to the method return values.
+ * The method is called once per case; the results are emitted as an object keyed by case name.
  */
 #[Attribute(Attribute::TARGET_METHOD)]
 class TsEnumMethod

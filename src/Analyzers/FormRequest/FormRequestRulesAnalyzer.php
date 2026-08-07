@@ -36,18 +36,15 @@ use ReflectionException;
 use Throwable;
 
 /**
- * Analyzes a FormRequest class's `rules()` method and normalizes the result
- * into a structured tree for TypeScript interface generation.
+ * Analyzes a FormRequest's `rules()` method and normalizes the result into a tree for interface generation.
  *
- * Instantiates the FormRequest with an empty HTTP context and calls `rules()`.
- * If `rules()` throws (e.g. when it accesses request state), falls back to a
- * dynamic placeholder that emits `Record<string, unknown>` in the generated output.
+ * `rules()` is invoked against an empty HTTP context; one that reads request state throws and degrades to
+ * a dynamic `Record<string, unknown>`.
  */
 class FormRequestRulesAnalyzer
 {
     /**
      * Whether the rules could not be resolved statically.
-     * When true, the generated interface will be `Record<string, unknown>`.
      */
     public protected(set) bool $isDynamic = false;
 
@@ -73,8 +70,7 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Attempt to instantiate the FormRequest and call `rules()`.
-     * Returns null when the rules cannot be resolved without HTTP context.
+     * Instantiate the FormRequest and call `rules()`, or null when it needs HTTP context.
      *
      * @param  class-string<FormRequest>  $fqcn
      * @return array<string, mixed>|null
@@ -91,10 +87,6 @@ class FormRequestRulesAnalyzer
             $formRequest = $fqcn::createFrom($fakeRequest);
             $formRequest->setContainer(app());
 
-            // Stub a fake authenticated user so that rules() methods calling
-            // Auth::user()->someMethod() don't throw on null. The stub returns
-            // false for any unknown method call, so auth-gated branches always
-            // resolve to the "unauthenticated" path.
             $this->stubAuthUser();
 
             /** @var array<string, mixed> $rules */
@@ -114,8 +106,7 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Set a stub authenticated user so that `Auth::user()->anyMethod()` calls
-     * inside `rules()` don't throw. Any unknown method returns `false`.
+     * Stub an authenticated user so `Auth::user()->anyMethod()` inside `rules()` returns false instead of throwing.
      */
     private function stubAuthUser(): void
     {
@@ -138,16 +129,11 @@ class FormRequestRulesAnalyzer
     /**
      * Normalize a raw rules array into a list of `FormRequestRuleNode` objects.
      *
-     * Handles dot-notation nested keys (e.g. `meta.description`) and wildcard
-     * array element keys (e.g. `tags.*`).
-     *
      * @param  array<string, mixed>  $rawRules
      * @return list<FormRequestRuleNode>
      */
     protected function normalizeRules(array $rawRules): array
     {
-        // Pre-scan wildcard keys (e.g. `tags.*`) to build an element type lookup.
-        // Used to upgrade parent array fields from `unknown[]` to `elementType[]`.
         /** @var array<string, string> $wildcardElementTypes */
         $wildcardElementTypes = [];
 
@@ -173,7 +159,6 @@ class FormRequestRulesAnalyzer
 
             $tsType = $this->resolveTsType($parsedRules);
 
-            // Upgrade `unknown[]` to a typed array when a wildcard sibling defines the element type
             if ($tsType === 'unknown[]' && isset($wildcardElementTypes[$fieldPath])) {
                 $tsType = $wildcardElementTypes[$fieldPath].'[]';
             }
@@ -184,9 +169,7 @@ class FormRequestRulesAnalyzer
             $isSometimes = $this->isSometimes($parsedRules);
             $jsDocMetadata = $this->resolveJsDocMetadata($parsedRules);
 
-            // Dot-notation and wildcard paths (e.g. `tags.*`, `order.id`) describe
-            // constraints on nested values, not root-level JSON keys. They can never
-            // be directly satisfied by a caller, so force them to optional.
+            // Dotted paths constrain nested values, not root-level keys a caller can supply, so never required.
             if (str_contains($fieldPath, '.')) {
                 $isRequired = false;
             }
@@ -211,7 +194,6 @@ class FormRequestRulesAnalyzer
      */
     protected function parseFieldRules(mixed $ruleDefinition): array
     {
-        // Normalize to array form
         if (is_string($ruleDefinition)) {
             $ruleDefinition = explode('|', $ruleDefinition);
         }
@@ -235,7 +217,6 @@ class FormRequestRulesAnalyzer
             } elseif ($rule instanceof AnyOf) {
                 $parsed[] = [$rule, []];
             } elseif (is_object($rule)) {
-                // Unknown object rule — treat as unresolvable
                 $parsed[] = [$rule, []];
             }
         }
@@ -250,28 +231,25 @@ class FormRequestRulesAnalyzer
      */
     protected function resolveTsType(array $rules): string
     {
-        // Check for File rule object (covers File and ImageFile since ImageFile extends File)
+        // Passes run most-specific first; `File` also catches `ImageFile`, which extends it.
         foreach ($rules as [$rule]) {
             if ($rule instanceof File) {
                 return 'File';
             }
         }
 
-        // Check for AnyOf rule object — union inner rule sets
         foreach ($rules as [$rule]) {
             if ($rule instanceof AnyOf) {
                 return $this->resolveAnyOfType($rule);
             }
         }
 
-        // Check for enum rule first (most specific)
         foreach ($rules as [$rule]) {
             if ($rule instanceof Enum) {
                 return $this->resolveEnumType($rule);
             }
         }
 
-        // Check for `in:a,b,c` rule
         foreach ($rules as [$rule]) {
             if ($rule instanceof In) {
                 return $this->resolveInType($rule);
@@ -282,7 +260,6 @@ class FormRequestRulesAnalyzer
             }
         }
 
-        // Check for fluent Rule objects that determine the field's base TypeScript type
         foreach ($rules as [$rule]) {
             if ($rule instanceof StringRule || $rule instanceof Email || $rule instanceof Date || $rule instanceof Password) {
                 return 'string';
@@ -305,14 +282,12 @@ class FormRequestRulesAnalyzer
             }
         }
 
-        // Check rule strings for scalar type
         foreach ($rules as [$rule, $params]) {
             if (! is_string($rule)) {
                 continue;
             }
 
-            // ValidationRuleParser::parse() normalizes rule names to PascalCase
-            // (e.g. alpha_dash → AlphaDash). Convert back to lowercase snake_case.
+            // ValidationRuleParser::parse() returns PascalCase names (alpha_dash → AlphaDash); undo that here.
             $pascalToSnake = preg_replace('/[A-Z]/', '_$0', lcfirst($rule));
             $ruleLower = strtolower(is_string($pascalToSnake) ? $pascalToSnake : $rule);
 
@@ -337,7 +312,6 @@ class FormRequestRulesAnalyzer
             }
         }
 
-        // Default fallback
         return 'unknown';
     }
 
@@ -378,10 +352,6 @@ class FormRequestRulesAnalyzer
 
     /**
      * Resolve the TypeScript union type from an `AnyOf` rule object.
-     *
-     * Inspects each inner rule set and resolves its type.
-     * Returns a union of all non-`unknown` resolved types, or `'unknown'`
-     * when none of the inner sets can be resolved.
      */
     protected function resolveAnyOfType(AnyOf $rule): string
     {
@@ -426,7 +396,6 @@ class FormRequestRulesAnalyzer
 
         /** @var \BackedEnum[] $cases */
 
-        // Apply .only() and .except() filters if set on the Enum rule
         /** @var \UnitEnum[] $only */
         $only = $reflection->getProperty('only')->getValue($rule);
         /** @var \UnitEnum[] $except */
@@ -534,7 +503,6 @@ class FormRequestRulesAnalyzer
     {
         $metadata = [];
 
-        // Handle fluent Rule object annotations
         foreach ($rules as [$rule]) {
             if ($rule instanceof RequiredIf || $rule instanceof RequiredUnless) {
                 $metadata[] = '@metadata required-if conditional';
@@ -562,8 +530,7 @@ class FormRequestRulesAnalyzer
                 continue;
             }
 
-            // ValidationRuleParser::parse() normalizes rule names to PascalCase
-            // (e.g. required_with_all → RequiredWithAll). Convert back to snake_case.
+            // ValidationRuleParser::parse() returns PascalCase names (required_with_all → RequiredWithAll).
             $pascalToSnake = preg_replace('/[A-Z]/', '_$0', lcfirst($rule));
             $ruleLower = strtolower(is_string($pascalToSnake) ? $pascalToSnake : $rule);
 

@@ -38,13 +38,7 @@ use UnitEnum;
  *    classFqcns: list<class-string>,
  * }
  *
- * - type:          The TypeScript type string to use in the interface (e.g. 'StatusType', 'string | null')
- * - enums:         The PHP enum const names (e.g. ['Status']) — informational, useful for display
- * - enumTypes:     The TypeScript type alias names to import (e.g. ['StatusType']) — used in import statements
- * - classes:       Other class short names to import from the models barrel (e.g. ['User'])
- * - customImports: Custom import paths mapped to their type names (e.g. ['@js/types/product' => ['ProductDimensions']])
- * - enumFqcns:     The fully-qualified class names of resolved PHP enums (e.g. ['App\Enums\Status'])
- * - classFqcns:    The fully-qualified class names of resolved non-enum classes (e.g. ['App\Models\User'])
+ * `enums` holds PHP enum const names (display only); `enumTypes` holds the TS alias names emitted in imports.
  */
 class LaravelTsPublish
 {
@@ -85,8 +79,7 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve an absolute file path to a path relative to the project root.
-     * Falls back to a vendor-relative path for files outside base_path().
+     * Resolve an absolute file path to a project-root-relative path, or a vendor-relative one.
      */
     public static function resolveRelativePath(string $absolutePath): string
     {
@@ -96,7 +89,7 @@ class LaravelTsPublish
             return Str::after($absolutePath, $basePath);
         }
 
-        // File is outside base_path() (e.g. vendor in a package development context)
+        // Outside base_path(), e.g. vendor in a package development context
         if (str_contains($absolutePath, DIRECTORY_SEPARATOR.'vendor'.DIRECTORY_SEPARATOR)) {
             return 'vendor'.DIRECTORY_SEPARATOR.Str::after($absolutePath, DIRECTORY_SEPARATOR.'vendor'.DIRECTORY_SEPARATOR);
         }
@@ -121,9 +114,7 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve the nullability strategy for a relation type.
-     *
-     * Accepts a short class name (e.g. 'HasOne') or a FQCN.
+     * Resolve the nullability strategy for a relation type, given a short class name or a FQCN.
      */
     public function relationStrategy(string $type): string
     {
@@ -141,22 +132,10 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve the TypeScript type for a given PHP type, using the following resolution order:
+     * Resolve the TypeScript type for a given PHP type.
      *
-     * 0. ?T nullable shorthand → recurse on T and append | null
-     * 1. Exact map match
-     * 2. #[TsType] on any class — explicit annotation wins for cast classes, enums, or anything else
-     * 3. PHP enum → StatusType (type alias), enums: [Status], enumTypes: [StatusType]
-     * 4. CastsAttributes implementor without #[TsType] → infer from get() return type (named or union), otherwise unknown
-     * 5a. Arrayable (non-Model) → object shape from toArray() docblock, else unknown[]
-     * 5a-bis. JsonSerializable (non-Model, non-Arrayable) → object shape from jsonSerialize() docblock, else falls through
-     * 5b. __toString (non-Model) → string
-     * 5. Any other class → class_basename()
-     * 6. encrypted:* compound casts
-     * 7. Partial TS map string match — skipped when the input looks class-like
-     *    (see looksLikeClassName()), so an unresolvable class name degrades to
-     *    unknown instead of a wrong-but-plausible scalar
-     * 8. unknown
+     * The numbered steps below are ordered deliberately: every class-shaped resolution runs before the
+     * partial map match, which would otherwise match a substring like "int" inside a class name.
      *
      * @return TypeScriptTypeInfo
      */
@@ -166,7 +145,7 @@ class LaravelTsPublish
         $lower = strtolower($phpType);
         $result = $this->emptyTypeScriptInfo();
 
-        // 0. Nullable shorthand ?T → recurse on T and append | null
+        // 0. Nullable shorthand ?T
         if (str_starts_with($phpType, '?')) {
             $inner = $this->toTsType(substr($phpType, 1));
             if (! str_contains($inner['type'], 'null')) {
@@ -185,7 +164,7 @@ class LaravelTsPublish
             return $result;
         }
 
-        // 2. #[TsType] on any class — explicit override wins before any automatic resolution
+        // 2. #[TsType] explicit override, ahead of every automatic resolution
         if (class_exists($phpType)) {
             $attrs = (new ReflectionClass($phpType))->getAttributes(TsType::class);
             if ($attrs) {
@@ -208,10 +187,7 @@ class LaravelTsPublish
             }
         }
 
-        // 3. PHP enum class (before partial match to prevent e.g. "App\Enums\Status" matching "enum" => "string")
-        //    - type uses the TypeScript type alias (StatusType) so it can be used as an interface member type
-        //    - enums tracks the const name (Status) for informational/display purposes
-        //    - enumTypes tracks the type alias name (StatusType) to include in import statements
+        // 3. PHP enum, before the partial match so "App\Enums\Status" can't hit the "enum" => "string" entry
         if (class_exists($phpType) && (new ReflectionClass($phpType))->isEnum()) {
             $ref = new ReflectionClass($phpType);
             $tsEnumAttrs = $ref->getAttributes(TsEnum::class);
@@ -240,9 +216,8 @@ class LaravelTsPublish
             return $result;
         }
 
-        // 5a. Arrayable (non-Model) → object shape from toArray() docblock, else unknown[]
-        //     Checked before step 5 to avoid Model being caught here — Model implements
-        //     Arrayable transitively, so we exclude Model subclasses explicitly.
+        // 5a. Arrayable (non-Model) → object shape from toArray(). Model implements Arrayable
+        //     transitively, so Model subclasses are excluded and left for step 5.
         if (class_exists($phpType)
             && ! is_a($phpType, Model::class, true)
             && is_a($phpType, Arrayable::class, true)
@@ -254,10 +229,9 @@ class LaravelTsPublish
             return $result;
         }
 
-        // 5a-bis. JsonSerializable (non-Model, non-Arrayable) → object shape from jsonSerialize() docblock
-        //     No shape found falls through to the remaining steps below rather than
-        //     forcing unknown[] — unlike Arrayable, a bare JsonSerializable isn't
-        //     guaranteed to be array-shaped.
+        // 5a-bis. JsonSerializable (non-Model, non-Arrayable) → object shape from jsonSerialize().
+        //     No shape falls through rather than forcing unknown[]: unlike Arrayable, a bare
+        //     JsonSerializable isn't guaranteed to be array-shaped.
         if (class_exists($phpType)
             && ! is_a($phpType, Model::class, true)
             && is_a($phpType, JsonSerializable::class, true)
@@ -271,8 +245,7 @@ class LaravelTsPublish
             }
         }
 
-        // 5b. __toString magic method → string (covers both `implements \Stringable` and direct __toString)
-        //     Exclude Model subclasses — Model defines __toString() returning JSON; models should stay at step 5.
+        // 5b. __toString → string. Models are excluded: Model::__toString() returns JSON.
         if (class_exists($phpType)
             && ! is_a($phpType, Model::class, true)
             && method_exists($phpType, '__toString')
@@ -300,11 +273,8 @@ class LaravelTsPublish
             return $this->toTsType($inner);
         }
 
-        // 7. Partial map match (e.g. "tinyint(1)" contains "tinyint").
-        //    Only real database/cast type strings are eligible. A class-like
-        //    name must not partial-match — "Point" contains "int", "Character"
-        //    contains "char", "Update" contains "date" — which would emit a
-        //    wrong-but-plausible scalar for a type we simply could not resolve.
+        // 7. Partial map match (e.g. "tinyint(1)" contains "tinyint"). Class-like names are excluded —
+        //    "Point" contains "int", "Update" contains "date" — which would emit a plausible wrong scalar.
         if (! $this->looksLikeClassName($phpType)) {
             foreach ($typesMap as $key => $value) {
                 if (str_contains($lower, $key)) {
@@ -321,22 +291,15 @@ class LaravelTsPublish
     }
 
     /**
-     * Whether a type string looks like a class name rather than a database or
-     * cast type string.
+     * Whether a type string looks like a class name rather than a database or cast type string.
      *
-     * Only the head is examined — the part before the first '(', ':' or
-     * whitespace — because Laravel cast parameters legitimately carry uppercase
-     * ("date:Y-m-d", "datetime:Y-m-d H:i:s") while their type name never does.
+     * Only the head — before the first '(', ':' or whitespace — is examined, because Laravel cast
+     * parameters legitimately carry uppercase ("date:Y-m-d") while their type name never does.
      */
     protected function looksLikeClassName(string $phpType): bool
     {
-        // PREG_SPLIT_NO_EMPTY: a leading delimiter — a stray space, '(', or ':' —
-        // would otherwise split into an empty leading segment at offset 0, which
-        // reads as "not class-ish" and lets a class name straight through to step
-        // 7's partial match, e.g. ' Point', ':Point', and '(Point)' would all
-        // wrongly skip the gate without this. Dropping empty segments means the
-        // first *non-empty* piece is always the real head, however many leading
-        // delimiters preceded it.
+        // PREG_SPLIT_NO_EMPTY: a leading ' ', '(' or ':' would otherwise make the head an empty
+        // segment, letting ' Point' or '(Point)' through the gate into step 7's partial match.
         $head = preg_split('/[(:\s]/', $phpType, -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
 
         return $head !== ''
@@ -344,8 +307,7 @@ class LaravelTsPublish
     }
 
     /**
-     * Build an inline TS object type from a class method's @return array{...}
-     * docblock shape. Returns null when the method or shape is absent.
+     * Build an inline TS object type from a method's `@return array{...}` shape, or null when absent.
      *
      * @param  class-string  $fqcn
      */
@@ -364,13 +326,8 @@ class LaravelTsPublish
         $parts = [];
 
         foreach ($shape as $key => $type) {
-            // A shape value that resolves to a class- or enum-backed identifier (e.g.
-            // 'User', 'StatusType') — whether it's the value directly, buried inside a
-            // generic container (Record<string, User>), or nested inside another
-            // array{...} shape ({ owner: User }) — can't carry its FQCN through
-            // parseDocblockReturnArrayShape()'s string-only shape map, so no import
-            // would ever be emitted for it here. Degrade just that property to
-            // 'unknown' rather than emit a token nothing will import.
+            // The shape map is string-only, so a class- or enum-backed value carries no FQCN and could
+            // never emit an import — degrade that property rather than emit a token nothing imports.
             if ($this->shapeValueHasUnimportableToken($type)) {
                 $type = 'unknown';
             }
@@ -382,21 +339,11 @@ class LaravelTsPublish
     }
 
     /**
-     * Determine whether a fully-resolved shape value string contains an identifier
-     * that would need an import statement to be valid — a class or enum name, however
-     * deeply it's nested (a direct value, inside Record<string, X>, inside a nested
-     * `{ key: X }` shape, inside a union, ...).
+     * Whether a resolved shape value contains an identifier that would need an import to be valid.
      *
-     * extractImportableTypes() can't be reused here: it deliberately skips anything
-     * containing '<' or starting with '{' because its one existing caller (the
-     * #[TsType(import: ...)] path) only ever receives a flat, author-supplied type
-     * string. A docblock-derived shape value has no such guarantee, so this instead
-     * tokenizes the whole string on TS structural punctuation. Object-literal property
-     * keys (an identifier immediately followed by ':') are stripped first so a nested
-     * shape's own key names — e.g. 'owner' in '{ owner: User }' — aren't mistaken for
-     * value-side identifiers. Anything left that isn't a TS primitive or a known
-     * built-in global name (Record, Date, true, false) is an identifier this
-     * string-only shape map has no FQCN for.
+     * extractImportableTypes() can't be reused: it skips anything containing '<' or '{', which
+     * docblock-derived shapes routinely contain. Object-literal keys are stripped first so the
+     * 'owner' in '{ owner: User }' isn't read as a value-side identifier.
      */
     protected function shapeValueHasUnimportableToken(string $type): bool
     {
@@ -481,17 +428,11 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve a PHP function name (built-in or userland global) to its TypeScript return
-     * type using reflection. Covers both PHP-internal functions (e.g. `strtolower()`) and
-     * userland globals — including Laravel's own helpers (e.g. `route()`, `url()`), which
-     * are plain functions declared in `illuminate/foundation`'s `helpers.php` and are not
-     * `ReflectionFunction::isInternal()`.
+     * Resolve a PHP function name (built-in or userland global) to its TypeScript return type.
      *
-     * Only a declared return type made up entirely of builtin scalar members (named or
-     * union) is mapped — a class/interface member is never safe to map here, since
-     * `toTsType()`'s partial string matching can produce false matches (e.g.
-     * `Carbon\CarbonInterface` contains "int" → number), and this method has no way to
-     * emit an import for a class-backed return type anyway.
+     * Laravel's helpers (`route()`, `url()`) are plain functions from `illuminate/foundation`'s
+     * `helpers.php`, so they are not `isInternal()`. Only all-builtin scalar return types are mapped:
+     * `toTsType()`'s partial matching turns `Carbon\CarbonInterface` into number, and no import can fire here.
      *
      * @return TypeScriptTypeInfo
      */
@@ -518,9 +459,6 @@ class LaravelTsPublish
             return $cache[$name] = $result;
         }
 
-        // Exclude class/interface return types — only built-in scalar types are safe to map.
-        // Non-builtin types can produce false matches via toTsType's partial
-        // string matching (e.g. Carbon\CarbonInterface contains "int" → number).
         if ($returnType instanceof ReflectionNamedType && ! $returnType->isBuiltin()) {
             return $cache[$name] = $result;
         }
@@ -541,7 +479,6 @@ class LaravelTsPublish
     {
         $result = $this->emptyTypeScriptInfo();
 
-        // Single named type — includes ?T shorthand (allowsNull() + getName() !== 'null')
         if ($returnType instanceof ReflectionNamedType) {
             $result = $this->toTsType($returnType->getName());
 
@@ -552,12 +489,11 @@ class LaravelTsPublish
             return $result;
         }
 
-        // Intersection type (e.g. Countable&Iterator) — no meaningful TS equivalent
+        // Intersection types (Countable&Iterator) have no meaningful TS equivalent
         if ($returnType instanceof ReflectionIntersectionType) {
             return $result;
         }
 
-        // Union type — includes DNF members (e.g. (A&B)|null), intersection slots become unknown
         if ($returnType instanceof ReflectionUnionType) {
             $infos = [];
 
@@ -574,12 +510,8 @@ class LaravelTsPublish
     }
 
     /**
-     * Parse the `@return` docblock of a method and resolve each type part
-     * through toTsType, resolving short class names via the
-     * declaring file's use statements.
-     *
-     * Supports multiline `@return` types including `array{...}` shapes
-     * that span multiple lines in the docblock.
+     * Parse a method's `@return` docblock — including multiline `array{...}` shapes — into type info,
+     * resolving short class names through the declaring file's use statements.
      *
      * @return TypeScriptTypeInfo
      */
@@ -599,7 +531,6 @@ class LaravelTsPublish
 
         $parts = $this->splitPhpDocUnionType($returnTypeString);
 
-        // Build a use-map from the declaring file for short name resolution
         $declaringClass = $method->getDeclaringClass();
         $useMap = $this->parseFileUseStatements($declaringClass);
         $namespace = $declaringClass->getNamespaceName();
@@ -628,16 +559,10 @@ class LaravelTsPublish
     }
 
     /**
-     * Parse `@return Attribute<GetterType, SetterType>` from a method's docblock
-     * and resolve the getter type. Matches both the short class name (`Attribute<...>`)
-     * and a fully-qualified one (`\Illuminate\Database\Eloquent\Casts\Attribute<...>`),
-     * since strict codebases commonly write docblocks with FQCNs.
+     * Parse `Attribute<Getter, Setter>` from a method's return docblock and resolve the getter type.
      *
-     * Falls back to `docblockReturnTypes()` when no `Attribute<…>` pattern is found —
-     * but a bare `@return Attribute` (no generic args at all) would otherwise resolve
-     * through that fallback's generic class-name handling to the `Attribute` class
-     * itself, which is not a usable value type. Degrade to empty in that case so the
-     * caller falls back to the closure's own signature type instead.
+     * Both the short and fully-qualified class forms are matched. A bare `Attribute` with no generic
+     * args degrades to empty so the caller falls back to the closure's own signature type.
      *
      * @return TypeScriptTypeInfo
      */
@@ -649,13 +574,11 @@ class LaravelTsPublish
             return $this->emptyTypeScriptInfo();
         }
 
-        // Look for @return/@phpstan-return/@psalm-return Attribute<GetterType, SetterType>
         $returnTypeString = $this->extractReturnTypeFromDocblock($docComment);
 
         if ($returnTypeString !== null
             && preg_match('/^\\\\?(?:Illuminate\\\\Database\\\\Eloquent\\\\Casts\\\\)?Attribute\s*<(.+)>$/s', trim($returnTypeString), $m)
         ) {
-            // Split the generic args at the top level; the first arg is the getter type
             $genericArgs = $this->splitAtTopLevelCommas(trim($m[1]));
             $getterType = trim($genericArgs[0] ?? '');
 
@@ -664,10 +587,6 @@ class LaravelTsPublish
             }
         }
 
-        // No Attribute<…> pattern — fall back to generic @return parsing. A bare
-        // `@return Attribute` resolves through that path's generic class-name
-        // handling to the Attribute class itself (a real, but useless, class token) —
-        // degrade to empty rather than hand back a nonsensical type.
         $result = $this->docblockReturnTypes($method);
 
         if ($result['classFqcns'] === [Attribute::class]) {
@@ -685,8 +604,7 @@ class LaravelTsPublish
      */
     protected function resolveDocblockTypeString(ReflectionMethod $method, string $typeString): array
     {
-        // Depth-aware split so a union member with its own nested generic (e.g.
-        // Collection<int, A|B>) isn't torn apart at the '|' inside the < >.
+        // Depth-aware split so Collection<int, A|B> isn't torn apart at the '|' inside the < >
         $parts = $this->splitPhpDocUnionType($typeString);
 
         $declaringClass = $method->getDeclaringClass();
@@ -707,19 +625,10 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve one split PHPDoc type-union part (a single member of e.g.
-     * `string|null`) to a TypeScriptTypeInfo — the generic-container pipeline
-     * first, falling back to plain name resolution through toTsType.
+     * Resolve one member of a PHPDoc type union: generic containers first, then plain names.
      *
-     * A part still containing '<' after name resolution is an unrecognized
-     * generic shape (resolveGenericContainerType() below already handles the
-     * known container forms, e.g. Collection<int, X>) — degrade to 'unknown'
-     * here rather than let it fall into toTsType()'s partial string matching,
-     * where e.g. the 'int' inside would silently resolve to 'number'.
-     *
-     * Shared by every call site that resolves a split docblock type part
-     * (@return parsing, Attribute<> getter types, @property refinement) so
-     * this guard is written once instead of hand-copied per call site.
+     * A part still containing '<' is an unrecognized generic — degrade it to 'unknown' rather than let
+     * toTsType()'s partial string matching resolve the 'int' inside it to 'number'.
      *
      * @param  array<string, string>  $useMap
      * @return TypeScriptTypeInfo
@@ -825,7 +734,6 @@ class LaravelTsPublish
      * @return TypeScriptTypeInfo */
     protected function wrapAsArray(array $info): array
     {
-        // Parenthesize unions before appending []
         $info['type'] = str_contains($info['type'], '|')
             ? '('.$info['type'].')[]'
             : $info['type'].'[]';
@@ -840,17 +748,14 @@ class LaravelTsPublish
      */
     public function resolveDocblockTypeName(string $type, array $useMap, string $namespace): string
     {
-        // Nullable shorthand ?T → resolve T and re-prepend ?
         if (str_starts_with($type, '?')) {
             return '?'.$this->resolveDocblockTypeName(substr($type, 1), $useMap, $namespace);
         }
 
-        // Fully qualified
         if (str_starts_with($type, '\\')) {
             return substr($type, 1); // @codeCoverageIgnore
         }
 
-        // Check use-map for the root segment
         $root = Str::before($type, '\\');
 
         if (isset($useMap[$root])) {
@@ -859,7 +764,6 @@ class LaravelTsPublish
             return $rest !== $type ? $useMap[$root].'\\'.$rest : $useMap[$root];
         }
 
-        // Try the declaring class's namespace
         if ($namespace !== '') { // @codeCoverageIgnoreStart
             $qualified = $namespace.'\\'.$type;
 
@@ -872,17 +776,14 @@ class LaravelTsPublish
     }
 
     /**
-     * Extract the complete `@return` type string from a docblock,
-     * including multiline `array{...}` shapes with nested braces.
+     * Extract the complete return type string from a docblock, including multiline `array{...}` shapes.
      *
      * Returns null when no `@return`, `@phpstan-return`, or `@psalm-return` tag is found.
      */
     public function extractReturnTypeFromDocblock(string $docComment): ?string
     {
-        // Normalize: strip comment markers, keep one normalized line per source line
-        // (the "\n" join is significant — it lets the tag search below anchor to line
-        // starts so a tag name mentioned mid-sentence, e.g. "The @return value...",
-        // isn't mistaken for the real tag).
+        // The "\n" join is significant: it lets the tag search below anchor to line starts, so a tag
+        // named mid-sentence — "The @return value..." — isn't mistaken for the real tag.
         $lines = explode("\n", $docComment);
         $content = '';
 
@@ -894,10 +795,7 @@ class LaravelTsPublish
 
         $content = trim($content);
 
-        // Find the return tag — @return preferred, then @phpstan-return, @psalm-return.
-        // Anchored to the start of a normalized line so a tag mentioned mid-sentence in
-        // a description doesn't match; the negative lookbehind additionally stops
-        // '@return' matching inside '@phpstan-return'.
+        // The negative lookbehind stops '@return' from matching inside '@phpstan-return'
         $tagPattern = null;
         foreach (['@return', '@phpstan-return', '@psalm-return'] as $tag) {
             if (preg_match('/^\s*(?<![\w-])'.preg_quote($tag, '/').'\s+/m', $content, $match, PREG_OFFSET_CAPTURE)) {
@@ -914,7 +812,6 @@ class LaravelTsPublish
         $start = (int) $tagPattern[0][1] + strlen((string) $tagPattern[0][0]);
         $rest = trim(substr($content, $start));
 
-        // If the type starts with array{, use brace matching to capture the full shape
         if (str_starts_with($rest, 'array{')) {
             $depth = 0;
             $end = 0;
@@ -948,7 +845,6 @@ class LaravelTsPublish
             }
         }
 
-        // Generic type with < > — capture until the matching close bracket
         if (preg_match('/^[\w\\\\?]+\s*</', $rest)) {
             $depth = 0;
             $end = 0;
@@ -968,9 +864,7 @@ class LaravelTsPublish
             }
 
             if ($end > 0) {
-                // Capture any trailing union, allowing spaces around `|` (e.g. `Collection<...> | null`)
-                // — mirrors the array{...} trailing-union capture above so a common shape like
-                // `@return Collection<int, X>|null` doesn't silently lose the `|null`.
+                // Trailing union, mirroring the array{...} case so `Collection<int, X>|null` keeps its `|null`
                 $after = substr($rest, $end);
                 $afterTrimmed = ltrim($after);
 
@@ -984,7 +878,6 @@ class LaravelTsPublish
             }
         }
 
-        // Otherwise, capture until whitespace (single-line type)
         preg_match('/^(\S+)/', $rest, $typeMatch);
 
         return $typeMatch[1] ?? null;
@@ -1035,11 +928,9 @@ class LaravelTsPublish
     }
 
     /**
-     * Parse the `@return array{...}` docblock of a method into a map of
-     * property name → TypeScript type string.
+     * Parse a method's `@return array{...}` docblock into a map of property name → TypeScript type.
      *
-     * Only handles top-level `array{key: type, ...}` shapes. Returns an empty
-     * array when the `@return` tag is missing or not an array shape.
+     * Only top-level shapes are handled; anything else yields an empty array.
      *
      * @return array<string, string>
      */
@@ -1065,10 +956,8 @@ class LaravelTsPublish
     }
 
     /**
-     * Parse a PHPDoc `array{key: type, ...}` shape string into a map
-     * of property name → TypeScript type string.
-     *
-     * Handles nested `array{...}` shapes and union types recursively.
+     * Parse a PHPDoc `array{key: type, ...}` shape into a map of property name → TypeScript type,
+     * recursing through nested shapes and unions.
      *
      * @param  array<string, string>  $useMap
      * @return array<string, string>
@@ -1109,8 +998,7 @@ class LaravelTsPublish
     {
         $phpType = trim($phpType);
 
-        // Handle union types first (e.g. string|null, array{...}|null)
-        // so that depth-aware splitting separates "array{...}" from "|null" correctly
+        // Unions first, so the depth-aware split separates "array{...}" from a trailing "|null"
         $unionParts = $this->splitPhpDocUnionType($phpType);
 
         if (count($unionParts) > 1) {
@@ -1122,14 +1010,13 @@ class LaravelTsPublish
             return implode(' | ', $tsParts);
         }
 
-        // Generic container types (Collection<int, X>, array<string, X>, list<X>, X[])
         $generic = $this->resolveGenericContainerType($phpType, $useMap, $namespace);
 
         if ($generic !== null) {
             return $generic['type'];
         }
 
-        // Handle array{...} shapes recursively (after union split, this is a pure shape)
+        // After the union split this is a pure shape
         if (str_starts_with($phpType, 'array{')) {
             $innerTypes = $this->parseArrayShapeToTsTypes($phpType, $useMap, $namespace);
 
@@ -1146,14 +1033,10 @@ class LaravelTsPublish
             return 'Record<string, unknown>';
         }
 
-        // Simple type — resolve through the existing pipeline
         $resolved = $this->resolveDocblockTypeName($phpType, $useMap, $namespace);
 
-        // A type still containing '<' is an unresolved generic (e.g. an unrecognized
-        // container shape) — resolveGenericContainerType() above already handles the
-        // known container forms. Degrade to 'unknown' here rather than let it fall into
-        // toTsType()'s partial string matching, where e.g. the 'int' inside would
-        // silently resolve to 'number'.
+        // A type still containing '<' is an unrecognized generic — degrade it rather than let
+        // toTsType()'s partial string matching resolve the 'int' inside it to 'number'.
         if (str_contains($resolved, '<')) {
             return 'unknown';
         }
@@ -1237,8 +1120,6 @@ class LaravelTsPublish
 
     public function validJsObjectKey(string $key): string
     {
-        // If the key is a valid JS identifier, return as-is, otherwise quote it
-        // It needs to start with a letter, $ or _, and can only contain letters, numbers, $ and _
         if (preg_match('/^[a-zA-Z_$][a-zA-Z0-9_$]*$/', $key)) {
             return $key;
         }
@@ -1248,11 +1129,9 @@ class LaravelTsPublish
     }
 
     /**
-     * Ensure a string is safe to use as a bare JavaScript/TypeScript identifier
-     * (i.e., for `const` declarations or export aliases — NOT object property keys,
-     * where reserved words are valid in TypeScript interfaces and object literals).
+     * Ensure a string is safe as a bare JS/TS identifier ('delete' → 'deleteMethod').
      *
-     * Guards against reserved JS/TS keywords (e.g. 'delete' → 'deleteMethod').
+     * Not for object property keys — reserved words are legal there in TS interfaces and literals.
      *
      * @param  string  $name  The proposed identifier
      * @param  string  $suffix  Required suffix appended when $name is reserved (e.g., 'Method', 'Controller')
@@ -1269,15 +1148,8 @@ class LaravelTsPublish
     /**
      * Convert a PHP value to a raw JavaScript/TypeScript literal.
      *
-     * Unlike @js() / Js::from(), this outputs readable object/array literals directly
-     * instead of wrapping them in JSON.parse(...). Suitable for generating .ts files
-     * where XSS-safe encoding is not needed.
-     *
-     * Examples:
-     *   ['Draft' => 0, 'Published' => 1]  →  {Draft: 0, Published: 1}
-     *   [0, 1]                             →  [0, 1]
-     *   'pencil'                           →  'pencil'
-     *   true                               →  true
+     * Unlike Js::from(), this emits readable object/array literals instead of JSON.parse(...) — the
+     * output lands in generated .ts files, where XSS-safe encoding is not needed.
      */
     public function toJsLiteral(mixed $value): string
     {
@@ -1297,7 +1169,6 @@ class LaravelTsPublish
             return "'".str_replace(['\\', "'", "\n", "\r", "\t"], ['\\\\', "\\'", '\\n', '\\r', '\\t'], $value)."'";
         }
 
-        // BackedEnum → its scalar value; UnitEnum → its name as a string
         if ($value instanceof BackedEnum) {
             return $this->toJsLiteral($value->value);
         }
@@ -1344,12 +1215,10 @@ class LaravelTsPublish
                 continue;
             }
 
-            // Skip inline object types, tuple types, and generic types
             if (str_starts_with($part, '{') || str_starts_with($part, '[') || str_contains($part, '<')) {
                 continue;
             }
 
-            // Strip array shorthand (e.g. MyType[]) to get the base type name
             $importable[] = str_ends_with($part, '[]') ? substr($part, 0, -2) : $part;
         }
 
@@ -1365,19 +1234,9 @@ class LaravelTsPublish
     /**
      * Merge a list of TypeScriptTypeInfo results into one, joining type strings with ' | '.
      *
-     * Class-backed entries are deduplicated by FQCN rather than by short name.
-     * This preserves a separate type token for each distinct FQCN even when multiple
-     * FQCNs share the same class_basename(), allowing the upstream disambiguation logic
-     * in rewriteTypeReferences() to alias each one independently using limit=1 replacement.
-     *
-     * A class-backed entry whose `type` is *not* simply its class name(s) joined by ' | '
-     * (e.g. 'OrderItem[]', 'Record<string, OrderItem>', '(A | B)[]' — container-decorated
-     * types produced by resolveGenericContainerType()) is treated as a single opaque token:
-     * the whole decorated string is kept intact rather than decomposed per-FQCN, which would
-     * otherwise silently drop the decoration. Its FQCNs are still registered so imports fire.
-     *
-     * Non-class type tokens (primitives, null, enum type aliases), and decorated class-backed
-     * tokens, are deduplicated by type string.
+     * Class-backed entries dedupe by FQCN, not short name, so two classes sharing a class_basename()
+     * keep separate tokens for rewriteTypeReferences() to alias independently with limit=1 replacement.
+     * Container-decorated types ('OrderItem[]', 'Record<string, OrderItem>') stay one opaque token.
      *
      * @param  list<TypeScriptTypeInfo>  $infos
      * @return TypeScriptTypeInfo
@@ -1391,17 +1250,12 @@ class LaravelTsPublish
         $customImports = [];
         $enumFqcns = [];
 
-        // Track class-backed type tokens by FQCN to deduplicate same-FQCN entries
-        // while preserving a distinct token for each unique FQCN.
         /** @var array<string, class-string> $classFqcnToName */
         $classFqcnToName = [];
 
-        // Ordered list of class FQCNs kept in sync with $classFqcnToName (insertion order).
         /** @var list<class-string> $orderedClassFqcns */
         $orderedClassFqcns = [];
 
-        // Whole-type-string tokens already added to $types — non-class types, and
-        // container-decorated class-backed types — deduplicated by string value.
         /** @var list<string> $seenTypeTokens */
         $seenTypeTokens = [];
 
@@ -1410,10 +1264,6 @@ class LaravelTsPublish
                 $isPlainClassUnion = $info['type'] === implode(' | ', $info['classes']);
 
                 if ($isPlainClassUnion) {
-                    // Undecorated class-backed type: deduplicate by FQCN so the same class
-                    // appearing twice does not produce duplicate tokens, but two distinct
-                    // FQCNs that both resolve to the same class_basename() each emit their
-                    // own token.
                     foreach ($info['classFqcns'] as $i => $fqcn) {
                         if (! isset($classFqcnToName[$fqcn])) {
                             $classFqcnToName[$fqcn] = $info['classes'][$i];
@@ -1422,9 +1272,7 @@ class LaravelTsPublish
                         }
                     }
                 } else {
-                    // Container-decorated class-backed type — register every FQCN for the
-                    // import machinery, but keep the decorated string as a single token
-                    // instead of decomposing it (which would drop the decoration).
+                    // Register every FQCN so imports fire, but keep the decorated string as one token
                     foreach ($info['classFqcns'] as $i => $fqcn) {
                         if (! isset($classFqcnToName[$fqcn])) {
                             $classFqcnToName[$fqcn] = $info['classes'][$i];
@@ -1438,7 +1286,6 @@ class LaravelTsPublish
                     }
                 }
             } else {
-                // Non-class type (primitive, null, enum type alias): deduplicate by type string.
                 if (! in_array($info['type'], $seenTypeTokens, true)) {
                     $seenTypeTokens[] = $info['type'];
                     $types[] = $info['type'];
@@ -1469,9 +1316,6 @@ class LaravelTsPublish
     /**
      * Convert a FQCN to a modular output directory path.
      *
-     * Strips the class name, applies the configurable namespace prefix strip,
-     * kebab-cases each segment, and joins with '/'.
-     *
      * Example: 'Blog\Enums\ArticleStatus' → 'blog/enums'
      */
     public function namespaceToPath(string $fqcn): string
@@ -1493,10 +1337,7 @@ class LaravelTsPublish
     /**
      * Compute the TypeScript relative import path from one namespace path to another.
      *
-     * Example: 'blog/models' → 'blog/enums' = '../enums'
-     * Example: 'app/models' → 'blog/enums' = '../../blog/enums'
-     * Example: 'blog/models' → 'blog/models' = '.'
-     * Example: 'models' → 'models/videos' = './videos'
+     * Example: 'blog/models' → 'blog/enums' = '../enums'; 'models' → 'models/videos' = './videos'
      */
     public function relativeImportPath(string $fromNamespacePath, string $toNamespacePath): string
     {
@@ -1507,7 +1348,6 @@ class LaravelTsPublish
         $fromParts = explode('/', $fromNamespacePath);
         $toParts = explode('/', $toNamespacePath);
 
-        // Find common prefix length
         $commonLength = 0;
         $maxCommon = min(count($fromParts), count($toParts));
 
@@ -1518,11 +1358,8 @@ class LaravelTsPublish
         $upCount = count($fromParts) - $commonLength;
         $downSegments = array_slice($toParts, $commonLength);
 
-        // Target is the same directory or a descendant of it (no upward steps).
-        // A bare specifier like 'videos' is treated by TypeScript as a module
-        // lookup, not a relative path, so it must be prefixed with './'.
-        // ($downSegments is always non-empty here: an empty one means
-        // $from === $to, which returned '.' at the top of the method.)
+        // TypeScript reads a bare specifier like 'videos' as a module lookup, not a relative
+        // path, so a descendant target must be prefixed with './'.
         if ($upCount === 0) {
             return './'.implode('/', $downSegments);
         }
@@ -1533,13 +1370,8 @@ class LaravelTsPublish
     }
 
     /**
-     * Sort import paths following eslint-plugin-simple-import-sort conventions:
-     *
-     * 1. Package imports (npm packages: start with letter/digit/_ or @letter)
-     * 2. Absolute/other imports (everything else not starting with .)
-     * 3. Relative imports (starting with .), deeper paths first
-     *
-     * Within each group, paths are sorted alphabetically (case-insensitive).
+     * Sort import paths following eslint-plugin-simple-import-sort conventions: packages, then
+     * absolute/other, then relative (deeper first), alphabetical (case-insensitive) within a group.
      *
      * @param  array<string, list<string>>  $imports
      * @return array<string, list<string>>
@@ -1571,11 +1403,7 @@ class LaravelTsPublish
     }
 
     /**
-     * Determine the sort group for an import path.
-     *
-     * 0 = Package (starts with letter/digit/_ or @letter)
-     * 1 = Absolute/other (everything else not starting with .)
-     * 2 = Relative (starts with .)
+     * Determine the sort group for an import path: 0 = package, 1 = absolute/other, 2 = relative.
      */
     protected function importSortGroup(string $path): int
     {
@@ -1593,11 +1421,9 @@ class LaravelTsPublish
     /**
      * Prefix unqualified type names in a TypeScript type string with their global namespace.
      *
-     * Used when generating the globals file, where types from other namespaces must be
-     * fully qualified (e.g. `PaymentStatusType` → `enums.PaymentStatusType`).
-     *
-     * Pass 1 resolves per-file import aliases (e.g. `CrmUser` → `models.User`) before the
-     * normal qualification pass so that aliased names are correctly qualified in the globals file.
+     * Used for the globals file, where types from other namespaces must be fully qualified
+     * (`PaymentStatusType` → `enums.PaymentStatusType`). Pass 1 resolves per-file import aliases
+     * (`CrmUser` → `models.User`) first, so aliased names reach the qualification pass resolved.
      *
      * @param  string  $typeStr  The TypeScript type string to rewrite.
      * @param  array<string, list<string>>  $namespacedTypes  Map of namespace prefix → type names it owns.
@@ -1610,7 +1436,6 @@ class LaravelTsPublish
         foreach ($aliasResolution as $alias => $qualified) {
             $lastDot = strrpos($qualified, '.');
             $targetNs = $lastDot !== false ? substr($qualified, 0, $lastDot) : '';
-            // Use bare name when the target namespace is the current (skip) namespace
             $replacement = ($targetNs === $skipNamespace)
                 ? substr($qualified, $lastDot + 1)
                 : $qualified;
@@ -1618,9 +1443,8 @@ class LaravelTsPublish
             $typeStr = preg_replace($pattern, $replacement, $typeStr) ?? $typeStr;
         }
 
-        // Pass 2: qualify any remaining bare type names with their namespace.
-        // Skip names that also exist in the skip namespace — those bare references
-        // belong to the current context and must not be re-qualified with another namespace.
+        // Pass 2: names that also exist in the skip namespace belong to the current context,
+        // so they must not be re-qualified with another namespace.
         /** @var list<string> $skipTypeNames */
         $skipTypeNames = $namespacedTypes[$skipNamespace] ?? [];
 
@@ -1675,12 +1499,9 @@ class LaravelTsPublish
     }
 
     /**
-     * Format a description string into a properly-structured JSDoc comment block.
+     * Format a description string into a JSDoc comment block.
      *
-     * For single-line descriptions, outputs an inline `/** ... *\/` block.
-     * For multi-line descriptions (those containing newlines), outputs a multi-line
-     * JSDoc block with each line prefixed by ` * `, and blank lines rendered as ` *`.
-     * Internally calls sanitizeJsDoc() to escape any closing comment sequences.
+     * Single-line descriptions render inline; multi-line ones become a ` * `-prefixed block.
      *
      * @param  int  $indent  Number of leading spaces to prefix every line of the output.
      */
@@ -1724,15 +1545,13 @@ class LaravelTsPublish
         $inTag = false;
 
         foreach ($lines as $line) {
-            // Strip leading whitespace, asterisks, and the opening/closing markers
             $cleaned = preg_replace('#^\s*/?\*+/?\s?#', '', $line) ?? '';
             $cleaned = preg_replace('#\s*\*+/\s*$#', '', $cleaned) ?? '';
             $trimmed = trim($cleaned);
 
-            // Skip empty remnants from /** and */
+            // Empty remnants of /** and */
             if ($trimmed === '' || $trimmed === '/') {
-                // Preserve blank lines within the description (but not while inside a tag
-                // block, and not as leading blank lines before any text has been collected)
+                // Preserve interior blank lines only — not inside a tag block, not before any text
                 if (! $inTag && $description !== []) {
                     $description[] = '';
                 }
@@ -1741,14 +1560,13 @@ class LaravelTsPublish
                 continue;
             }
 
-            // Skip @-tag lines and mark as inside a (possibly multi-line) tag
+            // An @-tag line opens a (possibly multi-line) tag block
             if (str_starts_with($trimmed, '@')) {
                 $inTag = true;
 
                 continue;
             }
 
-            // Skip continuation lines of multi-line @-tags
             if ($inTag) {
                 continue;
             }
@@ -1763,7 +1581,7 @@ class LaravelTsPublish
             $description[] = $trimmed;
         }
 
-        // Trim trailing blank lines produced by the closing */ line
+        // Trailing blank lines produced by the closing */ line
         while ($description !== [] && end($description) === '') {
             array_pop($description);
         }
@@ -1774,8 +1592,7 @@ class LaravelTsPublish
     /**
      * Serialize a list of route arg metadata objects to a JavaScript array literal.
      *
-     * Each entry is output as an inline object with only the fields that are present,
-     * so that the generated TypeScript stays compact (no `undefined` noise).
+     * Only fields that are present are emitted, so the generated TypeScript carries no `undefined` noise.
      *
      * @param  list<array{name: string, required: bool, _routeKey?: string, _enumValues?: list<string|int>, where?: string}>  $args
      */

@@ -42,20 +42,18 @@ test('manifest is written on first run', function () {
 });
 
 test('unchanged output keeps its mtime on a second run', function () {
-    // Run once to populate the cache
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
-    // The globals file is always written at the output_directory root
+    // The globals file is always written at the output_directory root.
     $globalsFile = $this->out.'/'.Config::string('ts-publish.globals.filename');
     expect(file_exists($globalsFile))->toBeTrue('Globals file must exist after first run');
 
     $mtime1 = filemtime($globalsFile);
 
-    // Sleep long enough to detect a filesystem mtime change (1.1 s)
+    // Long enough for the filesystem to record a different mtime.
     usleep(1_100_000);
 
-    // Run again — cache should hit; the file must NOT be rewritten
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
@@ -66,38 +64,31 @@ test('unchanged output keeps its mtime on a second run', function () {
 });
 
 test('--fresh flag rebuilds and cache files are present after rebuild', function () {
-    // First run — warms the cache
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
-    // Second run with --fresh — flushes, then rebuilds
     $exitCode = Artisan::call('ts:publish', ['--fresh' => true, '--quiet' => true]);
     expect($exitCode)->toBe(0);
 
-    // Cache directory must still contain .cache files (rebuilt, not permanently deleted)
     $cacheFiles = glob($this->cacheDir.'/*.cache') ?: [];
     expect($cacheFiles)->not->toBeEmpty('Expected .cache files to be present after --fresh rebuild');
 });
 
 test('config-fingerprint change busts the cache and a full rebuild succeeds', function () {
-    // First run — warms the cache with the current fingerprint
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
-    // Alter a config value that is part of the fingerprint
+    // namespace_strip_prefix is part of the fingerprint hashed into the manifest header.
     Config::set('ts-publish.namespace_strip_prefix', 'Changed\\');
 
-    // Second run — the manifest header mismatch must flush + rebuild cleanly
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
-    // The cache must have been recreated (not empty after the bust+rebuild)
     $cacheFiles = glob($this->cacheDir.'/*.cache') ?: [];
     expect($cacheFiles)->not->toBeEmpty('Expected .cache files to be present after fingerprint-busted rebuild');
 });
 
 test('output is identical whether the cache is on or off', function () {
-    // Run with cache enabled
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
@@ -105,7 +96,6 @@ test('output is identical whether the cache is on or off', function () {
     expect(file_exists($globalsFile))->toBeTrue();
     $cachedContent = file_get_contents($globalsFile);
 
-    // Remove generated files and disable the cache, then re-run
     $items = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($this->out, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::CHILD_FIRST,
@@ -126,11 +116,9 @@ test('output is identical whether the cache is on or off', function () {
 });
 
 test('deleted output files are regenerated even with a populated manifest', function () {
-    // First run — warms the cache and writes all .ts files
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
-    // Confirm .ts files were written
     $tsFilesBefore = [];
     if (is_dir($this->out)) {
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->out, FilesystemIterator::SKIP_DOTS)) as $f) {
@@ -141,12 +129,11 @@ test('deleted output files are regenerated even with a populated manifest', func
     }
     expect($tsFilesBefore)->not->toBeEmpty('No .ts files were written on the first run');
 
-    // Recursively delete all .ts files while keeping the cache dir intact
+    // Delete the outputs but leave the cache directory intact.
     foreach ($tsFilesBefore as $tsFile) {
         @unlink($tsFile);
     }
 
-    // Verify files are gone
     $tsFilesDeleted = [];
     if (is_dir($this->out)) {
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->out, FilesystemIterator::SKIP_DOTS)) as $f) {
@@ -157,7 +144,7 @@ test('deleted output files are regenerated even with a populated manifest', func
     }
     expect($tsFilesDeleted)->toBeEmpty('Expected all .ts files to be deleted before second run');
 
-    // Second run — manifest exists but outputs are missing, so hit() returns false → full rebuild
+    // Manifest still exists, so only the missing-output check can force the rebuild.
     $exitCode = Artisan::call('ts:publish', ['--quiet' => true]);
     expect($exitCode)->toBe(0);
 
@@ -191,17 +178,14 @@ test('a new route on an already-cached controller busts and regenerates its outp
         return $all;
     };
 
-    // Ensure CacheBustController is published AND cached on the first run.
-    // Only the 'baseline' action is routed — 'probe' is not yet wired up.
+    // Only 'baseline' is routed here, so 'probe' cannot appear in the first run's output.
     Route::get('posts-baseline', [CacheBustController::class, 'baseline'])->name('posts.baseline');
 
     expect(Artisan::call('ts:publish', ['--quiet' => true]))->toBe(0)
         ->and($concat($this->out))->not->toContain('cache-bust-probe');
 
-    // Add a SECOND route to the same, already-cached controller. Only the route
-    // DEFINITION changes — CacheBustController's class file (a recorded dependency)
-    // does not — so a correct cache must detect the change via the route
-    // signature and regenerate. A buggy cache HITs and the probe URI is absent.
+    // Only the route definition changes; CacheBustController's file — the recorded dependency —
+    // does not, so the route signature is the cache's only way to notice.
     Route::post('cache-bust-probe', [CacheBustController::class, 'probe'])->name('cache.bust.probe');
 
     expect(Artisan::call('ts:publish', ['--quiet' => true]))->toBe(0)

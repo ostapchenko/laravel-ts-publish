@@ -11,13 +11,9 @@ use Illuminate\Contracts\Cache\Repository as IlluminateCache;
 /**
  * Generation-cache backend that persists the manifest in a Laravel cache store.
  *
- * Payloads are HMAC-signed (see SignsCachePayloads) and verified on read, which
- * protects their integrity. The underlying Laravel store, however, deserializes
- * its own values on get() — and by default (`cache.serializable_classes` unset) it
- * does so with PHP classes allowed, BEFORE this layer's HMAC is checked. The signing
- * is therefore defense-in-depth: for a shared or untrusted store, also set Laravel's
- * `cache.serializable_classes` to false (or an allowlist) and/or use a trusted store.
- * The file backend is unaffected — it deserializes with allowed_classes: false.
+ * Payloads are HMAC-signed, but the Laravel store deserializes its own value on get() — with PHP classes
+ * allowed unless `cache.serializable_classes` is set — before this layer verifies anything. On a shared or
+ * untrusted store, set that config to false or an allowlist as well.
  */
 class StoreCacheRepository implements CacheRepository
 {
@@ -37,12 +33,7 @@ class StoreCacheRepository implements CacheRepository
     }
 
     /**
-     * Fetch and verify a prefixed payload from the store, or null when absent,
-     * unreadable, or its signature does not match. Entry payloads are HMAC-signed
-     * and deserialized with objects disabled, so a tampered entry cannot inject an
-     * object on this package's read path. (The underlying Laravel store may still
-     * instantiate objects when it deserializes its own value upstream — see the
-     * class-level caveat.)
+     * Fetch and verify a prefixed payload, or null when absent, unreadable, or wrongly signed.
      *
      * @return array<string, mixed>|null
      */
@@ -58,8 +49,7 @@ class StoreCacheRepository implements CacheRepository
     }
 
     /**
-     * Sign and store a prefixed payload forever and track its key in the
-     * in-memory index. The index is persisted once on commit(), not on every put.
+     * Sign and store a prefixed payload forever, tracking its key in the in-memory index.
      *
      * @param  array<string, mixed>  $value
      */
@@ -79,8 +69,7 @@ class StoreCacheRepository implements CacheRepository
     }
 
     /**
-     * Remove only this repository's tracked keys, never unrelated store entries,
-     * then reset the in-memory index.
+     * Remove only this repository's tracked keys — never unrelated store entries — and reset the index.
      */
     public function flush(): void
     {
@@ -93,11 +82,9 @@ class StoreCacheRepository implements CacheRepository
     }
 
     /**
-     * Persist the in-memory key index to the store. Call once after a batch of
-     * writes so the index is rewritten a single time per run instead of per put.
-     * The index holds only key names, so it is stored as-is without signing —
-     * signing it would not help anyway, since the store deserializes its own raw
-     * bytes upstream of this layer (see the class-level caveat).
+     * Persist the in-memory key index to the store, once per run rather than on every put().
+     *
+     * Stored unsigned: it holds only key names, and the store deserializes its own bytes upstream anyway.
      */
     public function commit(): void
     {

@@ -19,13 +19,9 @@ use ReflectionNamedType;
 use Throwable;
 
 /**
- * Centralized model attribute → TypeScript type resolver.
+ * Resolves model attributes and relations to TypeScript types via the accessor → cast → DB type waterfall.
  *
- * Encapsulates the "accessor → cast → DB type" waterfall that was previously
- * duplicated across ResolvesModelTypes, ResourceAstAnalyzer, and ModelTransformer.
- *
- * Registered as a singleton so ModelInspector results are cached per FQCN for the
- * duration of the publish run.
+ * Registered as a singleton so inspected model contexts are cached per FQCN for the whole publish run.
  *
  * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
  * @phpstan-import-type AttributeInfo from ModelInfo
@@ -49,18 +45,14 @@ class ModelAttributeResolver
     protected array $contexts = [];
 
     /**
-     * Map from a morphable child model FQCN to the sorted list of parent
-     * model FQCNs that declare a MorphOne/MorphMany pointing at it.
-     *
-     * Built once via buildMorphTargetMap() before model processing begins.
+     * Morphable child model FQCN → sorted parent FQCNs that declare a MorphOne/MorphMany pointing at it.
      *
      * @var array<class-string, list<class-string>>
      */
     protected array $morphTargetMap = [];
 
     /**
-     * Resolve the full TypeScriptTypeInfo for a model attribute through the
-     * accessor → cast → DB type waterfall.
+     * Resolve a model attribute's TypeScript type through the accessor → cast → DB type waterfall.
      *
      * @param  class-string  $modelFqcn
      * @return TypeScriptTypeInfo
@@ -82,7 +74,6 @@ class ModelAttributeResolver
 
         $cast = $attr['cast'];
 
-        // 1. Accessor — resolve via reflection to get the getter's return type
         if (($cast === 'attribute' || $cast === 'accessor')) {
             try {
                 $accessorInfo = $this->resolveAccessorType($attributeName, $ctx['instance'], $ctx['reflection']);
@@ -95,7 +86,6 @@ class ModelAttributeResolver
             }
         }
 
-        // 2. Regular cast (enum, date, json, etc.)
         if ($cast !== null && $cast !== '' && $cast !== 'attribute' && $cast !== 'accessor') {
             $tsInfo = LaravelTsPublish::toTsType($cast);
 
@@ -104,7 +94,6 @@ class ModelAttributeResolver
             return $this->appendNullable($tsInfo, $attr['nullable']);
         }
 
-        // 3. DB column type
         if ($attr['type'] === null || $attr['type'] === '') {
             return $empty;
         }
@@ -121,16 +110,10 @@ class ModelAttributeResolver
     }
 
     /**
-     * Fallbacks for names that are not literal attributes: camelCase access
-     * to snake_case attributes, and {relation}_count/{relation}_exists
-     * virtual attributes produced by withCount()/withExists().
+     * Resolve names that are not literal attributes: camelCase aliases, and withCount()/withExists() virtuals.
      *
-     * Checked in this order deliberately: a same-named accessor (reached via
-     * the snake_case fallback) is a real, declared type and takes priority
-     * over the suffix fallbacks' fixed number/boolean guess. In practice the
-     * two rarely overlap anyway — the snake_case branch only does anything
-     * when the name contains no literal underscore before "count"/"exists"
-     * (camelCase), while the suffix branches require one (snake_case).
+     * The snake_case fallback is tried first because a same-named accessor is a declared type, while the
+     * suffix fallbacks are a fixed number/boolean guess.
      *
      * @param  class-string  $modelFqcn
      * @param  array{attributes: Collection<int, AttributeInfo>, relations: Collection<int, RelationInfo>, ...}  $ctx
@@ -140,22 +123,15 @@ class ModelAttributeResolver
     {
         $empty = LaravelTsPublish::emptyTypeScriptInfo();
 
-        // camelCase → snake_case attribute (e.g. $this->palletCount → pallet_count).
-        // Guarded on the snake form actually being a literal attribute, so the
-        // recursive call below always lands on the exact-match branch of
-        // resolveAttribute() and never re-enters this method — no risk of
-        // infinite recursion regardless of Str::snake()'s output shape.
+        // Guarded on the snake form being a literal attribute, so the recursive call always lands on
+        // resolveAttribute()'s exact-match branch and can never re-enter this method.
         $snake = Str::snake($attributeName);
 
         if ($snake !== $attributeName && $ctx['attributes']->firstWhere('name', $snake) !== null) {
             return $this->resolveAttribute($modelFqcn, $snake);
         }
 
-        // {relation}_count → number, {relation}_exists → boolean. Only fires
-        // when a relation with the matching name actually exists, so a real
-        // column that merely happens to end in "_count" (e.g. word_count) is
-        // never reached here — the exact-name lookup above already returned
-        // for it before resolveAttributeFallbacks() was ever called.
+        // Requires a matching relation, so a real column ending in "_count" is never guessed at here.
         foreach (['_count' => 'number', '_exists' => 'boolean'] as $suffix => $tsType) {
             if (! str_ends_with($attributeName, $suffix)) {
                 continue;
@@ -192,20 +168,9 @@ class ModelAttributeResolver
                 continue;
             }
 
-            // The type capture is a non-greedy `[^$\r\n]+?` rather than `\S+`:
-            // PHPDoc generics routinely contain internal spaces (e.g.
-            // `array<string, string>`, per this method's own docblock example
-            // above), so a whitespace-stopped `\S+` can't span them. Excluding
-            // `$` and line breaks from the capture (instead of the simpler
-            // `.+?`) closes two related holes: `.+?` can capture straight
-            // through a *different* tag's own `$variable` and past its
-            // description text (e.g. `@property string $label Falls back to
-            // the $otherColumn value` would otherwise let a query for
-            // `otherColumn` capture "string $label Falls back to the" as its
-            // type), and `\s+` matches newlines, so a type-less `@property`
-            // line could bleed into whatever text follows it. `[ \t]+`
-            // (instead of `\s+`) around the capture keeps the whole match
-            // confined to one line for the same reason.
+            // PHPDoc generics contain spaces (`array<string, string>`), so the type capture cannot be `\S+`.
+            // Excluding `$` and newlines instead of using `.+?` stops it running through a neighbouring
+            // tag's own `$variable` and description text.
             if (! preg_match(
                 '/@property(?:-read)?[ \t]+([^$\r\n]+?)[ \t]+\$'.preg_quote($attributeName, '/').'\b/',
                 $doc,
@@ -312,9 +277,7 @@ class ModelAttributeResolver
     }
 
     /**
-     * If an attribute is an accessor whose getter returns exactly one Eloquent
-     * Model subclass, return its FQCN. Used as a fallback when the property is
-     * not a database relation.
+     * The single Eloquent Model FQCN an accessor's getter returns, or null when it is not exactly one.
      *
      * @param  class-string  $modelFqcn
      * @return class-string<Model>|null
@@ -327,9 +290,7 @@ class ModelAttributeResolver
     }
 
     /**
-     * Return all Eloquent Model FQCNs that an accessor's getter may return.
-     * Used when an accessor is typed as Attribute<ModelA|ModelB, never> and a
-     * partial filter (->only / ->except) is applied to the result.
+     * Return every Eloquent Model FQCN that an accessor's getter may return.
      *
      * @param  class-string  $modelFqcn
      * @return list<class-string<Model>>
@@ -357,11 +318,8 @@ class ModelAttributeResolver
                 fn (string $fqcn) => is_a($fqcn, Model::class, true),
             ));
 
-            // An accessor-returned model reached here is inlined into a resource's
-            // output when the resource applies ->only()/->except() to it (its
-            // column/cast types become an anonymous object shape). Its source file
-            // is therefore a real cache dependency — record it, mirroring how
-            // resolveRelation() records related models.
+            // These models get inlined into a resource by ->only()/->except(), so their files are real
+            // cache dependencies.
             foreach ($fqcns as $fqcn) {
                 DependencyRecorder::recordClass($fqcn);
             }
@@ -416,12 +374,7 @@ class ModelAttributeResolver
     }
 
     /**
-     * Scan all configured models' relations to build the morph target map.
-     *
-     * For each model that declares a MorphOne or MorphMany relation, the
-     * related (child) model is recorded as being morphable by the declaring
-     * (parent) model.  The resulting map lets getMorphToTargets() resolve
-     * MorphTo relations to precise union types instead of `unknown`.
+     * Scan every model's MorphOne/MorphMany relations to build the child → parents morph target map.
      *
      * @param  list<class-string>  $modelFqcns  All model FQCNs that will be processed.
      */
@@ -456,7 +409,7 @@ class ModelAttributeResolver
             }
         }
 
-        // Sort each target list alphabetically for deterministic output.
+        // Sorted so the generated union type is stable across runs.
         foreach ($map as $childFqcn => $parents) {
             sort($parents);
             $map[$childFqcn] = $parents;
@@ -466,9 +419,7 @@ class ModelAttributeResolver
     }
 
     /**
-     * A relation counts as a morph parent when its inspected type is exactly
-     * MorphOne/MorphMany, or when the declaring method's return type is a
-     * subclass of either (custom relation classes like MorphOneFile).
+     * Whether a relation is a morph parent, counting custom subclasses of MorphOne/MorphMany.
      *
      * @param  class-string  $parentFqcn
      * @param  RelationInfo  $relation

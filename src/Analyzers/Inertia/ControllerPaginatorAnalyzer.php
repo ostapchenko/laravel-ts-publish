@@ -25,12 +25,6 @@ use ReflectionClass;
 
 /**
  * Analyzes a controller method body to infer paginator-model relationships.
- *
- * Inspects assignment statements of the form:
- *   $var = SomeModel::chain()->paginate/simplePaginate/cursorPaginate()
- *
- * and pairs the variable names with prop keys from the Inertia::render() call
- * to produce a map of prop key → model FQCN, used to replace `<unknown>` generics.
  */
 class ControllerPaginatorAnalyzer
 {
@@ -59,13 +53,8 @@ class ControllerPaginatorAnalyzer
     /**
      * Analyze the controller method body to find paginator-model relationships.
      *
-     * Returns an empty array when the class or method does not exist, the file
-     * cannot be read, or no matching assignment patterns are found.
-     *
-     * For raw paginator props (`$var = Model::paginate()` → `'key' => $var`), the value
-     * is the model FQCN so that `rewritePaginatorGenerics()` can fill in the generic type.
-     * For `Resource::collection()` props, the value is the resource FQCN directly because
-     * the type is `AnonymousResourceCollection<ResourceName>`, not `AnonymousResourceCollection<ModelName>`.
+     * `Resource::collection()` props map to the resource FQCN, not the model: the emitted type is
+     * `AnonymousResourceCollection<ResourceName>`.
      *
      * @return array<string, class-string> prop key => model or resource FQCN
      */
@@ -100,12 +89,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Analyze the controller method body to find props that are resource objects
-     * constructed with a paginated variable.
-     *
-     * Returns a map of prop key → resource FQCN for props of the form:
-     *   'key' => new SomeResource($paginatedVar)
-     * where `$paginatedVar` was assigned from a paginator method call.
+     * Find props of the form `'key' => new SomeResource($paginatedVar)`.
      *
      * @return array<string, class-string<object>> prop key => resource FQCN
      */
@@ -123,11 +107,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Analyze the controller method body to find `Resource::collection($paginatedVar)` props.
-     *
-     * Returns a map of prop key → resource FQCN for props of the form:
-     *   'key' => SomeResource::collection($paginatedVar)
-     * where `$paginatedVar` was assigned from a paginator method call.
+     * Find props of the form `'key' => SomeResource::collection($paginatedVar)`.
      *
      * @return array<string, class-string> prop key => resource FQCN
      */
@@ -161,9 +141,6 @@ class ControllerPaginatorAnalyzer
 
     /**
      * Build the method context from the controller class and method name.
-     *
-     * Parses the controller file, resolves the method node, and builds the
-     * variable-to-model map for use by both `analyze()` and `analyzePaginatedResourceProps()`.
      *
      * @return array{method: ClassMethod, finder: NodeFinder, varModelMap: array<string, class-string>}|null
      */
@@ -206,12 +183,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Scan the Inertia::render() props array for items of the form
-     * `'key' => new SomeResource($paginatedVar)`, where `$paginatedVar` appears
-     * in `$varModelMap` (i.e., it was assigned from a paginator method call).
-     *
-     * Only props with exactly one constructor argument that is a paginated variable
-     * and whose class is a JsonResource subclass are included.
+     * Scan the Inertia::render() props array for `'key' => new SomeResource($paginatedVar)` items.
      *
      * @param  array<string, class-string>  $varModelMap  Variable name => model FQCN from paginator analysis.
      * @return array<string, class-string> prop key => resource FQCN
@@ -292,12 +264,9 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Walk all assignments in the method to find variables assigned from
-     * a paginator method call chain rooted at an Eloquent Model static call.
+     * Find variables assigned from a paginator call chain rooted at an Eloquent Model static call.
      *
-     * Only direct chains are supported: `$var = Model::scope()->paginate()`.
-     * Variable-indirection patterns (`$q = Post::query(); $q->paginate()`)
-     * fall back to `<unknown>`.
+     * Only direct chains resolve; indirection (`$q = Post::query(); $q->paginate()`) falls back to `<unknown>`.
      *
      * @return array<string, class-string> variable name => model FQCN
      */
@@ -344,11 +313,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Recursively walk a method call chain back to its root StaticCall node
-     * and return the FQCN if it resolves to an Eloquent Model subclass.
-     *
-     * Returns null when the root is not a StaticCall on a known Model subclass
-     * or when any non-method-call node is encountered before the root.
+     * Walk a method call chain back to its root StaticCall and return its Eloquent Model FQCN.
      *
      * @return class-string|null
      */
@@ -377,10 +342,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Find the Inertia::render() call in the method body and extract a map of
-     * prop key to variable name from its second argument.
-     *
-     * Handles array literal `['key' => $var]` and `compact('key')` forms.
+     * Extract a prop key => variable name map from the Inertia::render() props argument.
      *
      * @return array<string, string> prop key => variable name
      */
@@ -413,11 +375,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Extract a prop key => variable name map from an Inertia::render() props argument.
-     *
-     * Handles:
-     *  - Array literal: `['posts' => $posts, ...]`
-     *  - compact(): `compact('posts', 'users')`
+     * Extract a prop key => variable name map from an array literal or `compact()` call.
      *
      * @return array<string, string>
      */
@@ -457,10 +415,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Scan the Inertia::render() props array for items whose value is a
-     * `SomeResource::collection(...)` static call, and return a map split into
-     * two buckets: props whose collection argument is a paginated variable
-     * (`paginated`) and all other collection props (`nonPaginated`).
+     * Bucket `SomeResource::collection(...)` props by whether their argument is a paginated variable.
      *
      * @param  array<string, class-string>  $varModelMap  Variable name => model FQCN (from paginator analysis).
      * @return array{nonPaginated: array<string, class-string>, paginated: array<string, class-string>}
@@ -525,7 +480,6 @@ class ControllerPaginatorAnalyzer
             /** @var class-string $resourceFqcn */
             $propKey = $item->key->value;
 
-            // Determine if the first argument is a paginated variable
             $isPaginated = false;
             if ($item->value->args !== [] && $item->value->args[0] instanceof Node\Arg) {
                 $firstArg = $item->value->args[0]->value;

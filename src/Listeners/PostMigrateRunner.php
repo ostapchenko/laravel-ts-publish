@@ -25,10 +25,8 @@ class PostMigrateRunner
 
         self::$shouldRun = false;
 
-        // Migrations change the database schema, which is NOT part of the
-        // generation cache fingerprint (it has no source file). Run with
-        // --fresh so the post-migration republish always reflects the new
-        // schema — restoring the pre-cache "always full rebuild" behavior.
+        // The database schema has no source file, so it is not part of the cache fingerprint.
+        // --fresh is the only way the post-migration republish sees the new schema.
         $this->artisan->call(TsPublishCommand::class, ['--fresh' => true], $event->output);
     }
 }

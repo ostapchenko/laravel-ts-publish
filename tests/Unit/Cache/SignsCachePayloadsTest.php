@@ -47,11 +47,8 @@ it('rejects a signed payload read with the wrong key', function () {
 });
 
 it('never instantiates objects from a payload', function () {
-    // A serialized array whose value is a real object. With allowed_classes:false
-    // the object must NOT be rebuilt, so no __wakeup()/__destruct() gadget runs.
-    // DateTimeImmutable (rather than an exception) keeps this portable: an
-    // exception constructed inside Pest's test closure captures un-serializable
-    // closures in its trace when zend.exception_ignore_args is off.
+    // DateTimeImmutable rather than an exception: an exception constructed inside Pest's test closure
+    // captures un-serializable closures in its trace when zend.exception_ignore_args is off.
     $payload = serialize(['evil' => new DateTimeImmutable('2020-01-01')]);
 
     $result = $this->host->read($payload, null);

@@ -235,7 +235,6 @@ class ModelTransformer extends CoreTransformer
         foreach ($attributes as $attribute) {
             $name = $attribute['name'];
 
-            // #[TsCasts] override takes priority over automatic type resolution
             if (isset($this->tsTypeOverrides[$name])) {
                 $this->columns[$name] = ['type' => $this->tsTypeOverrides[$name], 'description' => '', 'optional' => $this->optionalOverrides[$name] ?? false];
 
@@ -244,11 +243,10 @@ class ModelTransformer extends CoreTransformer
 
             $cast = $attribute['cast'];
 
-            // Resolve type through the centralised accessor → cast → DB type waterfall
+            // Resolves through the accessor → cast → DB type waterfall.
             $typings = $resolver->resolveAttribute($this->findable, $name);
 
-            // When the resolver returns unknown, fall back to the raw input so that
-            // downstream enum/class metadata still propagates when available.
+            // Fall back to the raw cast so enum and class metadata still propagates.
             if ($typings['type'] === 'unknown') {
                 $typings = match ($cast) {
                     'attribute', 'accessor' => LaravelTsPublish::toTsType($attribute['type'] ?? ''),
@@ -304,10 +302,8 @@ class ModelTransformer extends CoreTransformer
                 continue;
             }
 
-            // Determine whether this mutator is an appended attribute
             $isAppended = in_array($name, $this->appendedAttributes, true);
 
-            // #[TsCasts] override takes priority
             if (isset($this->tsTypeOverrides[$name])) {
                 if ($isAppended) {
                     $this->appends[$name] = ['type' => $this->tsTypeOverrides[$name], 'description' => '', 'optional' => $this->optionalOverrides[$name] ?? false];
@@ -420,7 +416,6 @@ class ModelTransformer extends CoreTransformer
                 $resolver = resolve(ModelAttributeResolver::class);
                 $morphTargets = $resolver->getMorphToTargets($this->findable);
 
-                // Post-filter morph targets against included/excluded model lists
                 if ($includedModels !== []) {
                     $morphTargets = array_values(array_filter(
                         $morphTargets,
@@ -529,13 +524,11 @@ class ModelTransformer extends CoreTransformer
     /**
      * Detect conflicting import names and generate aliases.
      *
-     * Uses a hybrid strategy: relationship-name-based aliases when a FQCN is
-     * referenced by exactly one relation, namespace-segment-based otherwise.
-     * Enum FQCNs always use namespace-segment-based aliases.
+     * A model FQCN used by exactly one relation is aliased from that relation's name; everything
+     * else, enums included, is aliased from its namespace segment.
      */
     protected function resolveImportConflicts(): self
     {
-        // Build reverse map: typeName => [{fqcn, kind}]
         /** @var array<string, list<array{fqcn: string, kind: 'enum'|'model'}>> $reverseMap */
         $reverseMap = [];
 
@@ -557,7 +550,6 @@ class ModelTransformer extends CoreTransformer
                 continue;
             }
 
-            // First pass: compute candidate aliases for each entry
             /** @var list<array{fqcn: string, kind: 'enum'|'model', alias: string, originalName: string}> $candidates */
             $candidates = [];
 
@@ -582,7 +574,7 @@ class ModelTransformer extends CoreTransformer
                 $candidates[] = ['fqcn' => $fqcn, 'kind' => $entry['kind'], 'alias' => $alias, 'originalName' => $originalName];
             }
 
-            // Second pass: detect collisions and fall back to namespace-based aliases
+            // Relation-derived aliases can collide with each other; namespace prefixes cannot.
             $aliasCounts = array_count_values(array_column($candidates, 'alias'));
 
             foreach ($candidates as $i => $candidate) {
@@ -591,7 +583,6 @@ class ModelTransformer extends CoreTransformer
                 }
             }
 
-            // Apply aliases
             foreach ($candidates as $candidate) {
                 $this->importAliases[$candidate['fqcn']] = $candidate['alias'];
 
@@ -611,13 +602,9 @@ class ModelTransformer extends CoreTransformer
 
     /**
      * Rewrite type references in columns, mutators, and relations to use aliases.
-     *
-     * Relations are rewritten using FQCN-to-relation tracking for precision.
-     * Columns and mutators use regex replacement with word boundaries.
      */
     protected function rewriteTypeReferences(): void
     {
-        // Build a per-FQCN type-name → alias lookup from import aliases
         /** @var array<string, string> $fqcnToAlias */
         $fqcnToAlias = [];
 
@@ -631,11 +618,8 @@ class ModelTransformer extends CoreTransformer
             $fqcnToAlias[$fqcn] = $alias;
         }
 
-        // Rewrite relation types using per-member substitution within union strings.
-        // For each relation, determine which FQCNs reference it, then build
-        // a basename → alias list scoped to that specific relation.
-        // Multiple FQCNs can share the same basename (e.g. App\User & Crm\User),
-        // so we track an array of aliases per basename and consume them in order.
+        // Two FQCNs can share a basename (App\User & Crm\User), so a morph union is rewritten
+        // member by member, consuming that basename's aliases in order.
         $case = Config::string('ts-publish.models.relationship_case');
         if ($fqcnToAlias !== []) {
             /** @var array<string, array<string, list<string>>> $relationAliases relation_key => [basename => [alias, ...]] */
@@ -679,7 +663,6 @@ class ModelTransformer extends CoreTransformer
             }
         }
 
-        // Rewrite column and mutator types using precise FQCN→column tracking
         foreach ($this->importAliases as $fqcn => $alias) {
             $originalName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
 
@@ -723,7 +706,6 @@ class ModelTransformer extends CoreTransformer
         $valueImports = [];
         $hasEnums = $this->shouldGenerateHasEnums();
 
-        // Filter out self-references from model FQCN map
         $modelFqcnMap = array_filter(
             $this->modelFqcnMap,
             fn (string $typeName, string $fqcn) => $fqcn !== $this->findable,
@@ -749,9 +731,6 @@ class ModelTransformer extends CoreTransformer
 
     /**
      * Build a map of per-file import aliases → namespace-qualified global names.
-     *
-     * Used by GlobalsWriter to resolve aliases (e.g. `CrmUser`, `WorkbenchStatusType`) back to
-     * their correct globally-qualified names before the normal `qualifyGlobalType()` pass.
      *
      * @return array<string, string> alias => 'namespace.OriginalName'
      */

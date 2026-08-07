@@ -7,13 +7,9 @@ namespace AbeTwoThree\LaravelTsPublish\Cache;
 class Fingerprinter
 {
     /**
-     * Compute an order-independent fingerprint from a set of files by combining
-     * each file's content hash. Missing files contribute a stable 'missing'
-     * marker so their later appearance/removal still changes the fingerprint.
+     * Compute an order-independent fingerprint over a file set, plus an optional non-file input.
      *
-     * The optional $extra string folds a non-file input (e.g. route definitions
-     * read from the router) into the hash. An empty $extra is a no-op, so the
-     * result stays byte-identical to a pure file-set fingerprint.
+     * Missing files contribute a 'missing' marker so their later appearance or removal still moves the hash.
      *
      * @param  list<string>  $paths
      */

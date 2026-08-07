@@ -43,10 +43,10 @@ class RouteGenerator extends CoreGenerator implements ProvidesCacheSignature
     }
 
     /**
-     * Signature of every route definition mapped to this controller. Route URIs,
-     * methods, names, domains, action methods, and middleware live in route files
-     * rather than the controller class, so they are folded into the cache
-     * fingerprint here to bust the cache when a route changes.
+     * Signature of every route definition mapped to this controller.
+     *
+     * URIs, methods, names, domains and middleware live in route files, not the controller class,
+     * so they are folded in here to bust the cache when a route changes.
      */
     #[Override]
     public static function cacheSignature(string $fqcn): string

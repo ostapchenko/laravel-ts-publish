@@ -103,7 +103,6 @@ class InertiaSharedDataAnalyzer
         $resolver = new TsCastsImportResolver;
         $resolvedTsCasts = $resolver->resolve($tsCasts['overrides'], $tsCasts['importPaths']);
 
-        // TsCasts overrides win over docblock; docblock fills gaps Surveyor can't infer
         $mergedOverrides = array_merge($docblockOverrides, $resolvedTsCasts['overrides']);
         $propsType = $this->buildTypeStringWithOverrides($props, $mergedOverrides);
 
@@ -163,8 +162,7 @@ class InertiaSharedDataAnalyzer
     }
 
     /**
-     * Parse the `@return array{...}` docblock from the middleware's share() method
-     * to extract per-key TypeScript type overrides.
+     * Extract per-key type overrides from the `@return array{...}` docblock on the middleware's share().
      *
      * @param  class-string|null  $className
      * @return array<string, string>
@@ -220,7 +218,6 @@ class InertiaSharedDataAnalyzer
             $parts[] = $key.$separator.$tsType;
         }
 
-        // Add any override keys not already in the Surveyor-analyzed props
         foreach ($overrides as $key => $type) {
             if (! array_key_exists($key, $props)) {
                 $parts[] = $key.': '.$type;

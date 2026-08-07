@@ -11,15 +11,10 @@ use Illuminate\Support\Str;
 use ReflectionClass;
 
 /**
- * Parses #[TsExtends] attributes from a class and global config entries,
- * returning the merged extends clauses and their associated imports.
+ * Parses #[TsExtends] attributes and config entries into merged extends clauses and imports.
  *
- * Deduplication and conflict resolution rules:
- *  - Identical (extends, import) pairs from any source → kept once.
- *  - Same type name, same import path (across different extends clauses) → single import statement.
- *  - Same type name, different import paths → aliased using the import path's last segment as a
- *    prefix (e.g. `Routable` from `@/types/routing` → `RoutingRoutable`) and the extends clause
- *    is rewritten to use the alias.
+ * A type name reachable from two different import paths is aliased with that path's last segment
+ * (`Routable` from `@/types/routing` → `RoutingRoutable`), and its extends clause is rewritten.
  *
  * @phpstan-type RawEntry = array{extends: string, import: string|null, types: list<string>}
  * @phpstan-type TsExtendsResult = array{
@@ -43,10 +38,9 @@ trait ParsesTsExtends
         /** @var list<RawEntry> $rawEntries */
         $rawEntries = [];
 
-        // Attribute-level extends on the class itself
         $this->collectTsExtendsAttributes($reflection, $rawEntries);
 
-        // Inherited #[TsExtends] attributes from traits and parent classes (BFS)
+        // Traits and parent classes, breadth-first.
         $queue = [...array_values($reflection->getTraits())];
         if ($parent = $reflection->getParentClass()) {
             $queue[] = $parent;
@@ -70,7 +64,6 @@ trait ParsesTsExtends
             }
         }
 
-        // Config-level extends
         /** @var list<string|array{extends: string, import?: string, types?: list<string>}> $configEntries */
         $configEntries = array_values(array_filter(
             Config::array("ts-publish.ts_extends.{$scope}", []),
@@ -127,7 +120,6 @@ trait ParsesTsExtends
      */
     private function deduplicateAndResolveExtendsConflicts(array $rawEntries): array
     {
-        // Step 1: Deduplicate identical (extends, import) pairs — covers situation 1 and BFS duplicates.
         $deduped = [];
         $seenPairs = [];
 
@@ -139,7 +131,6 @@ trait ParsesTsExtends
             }
         }
 
-        // Step 2: Build reverse map — typeName → unique list of import paths it appears under.
         /** @var array<string, list<string>> $typeToImportPaths */
         $typeToImportPaths = [];
         foreach ($deduped as $entry) {
@@ -153,8 +144,7 @@ trait ParsesTsExtends
             }
         }
 
-        // Step 3: Build alias map for type names that appear under multiple import paths — situation 2/3.
-        // Key: "$typeName\0$importPath" → aliased TypeScript name.
+        // Only names reachable from more than one import path need an alias.
         /** @var array<string, string> $aliasMap */
         $aliasMap = [];
         foreach ($typeToImportPaths as $typeName => $importPaths) {
@@ -167,7 +157,6 @@ trait ParsesTsExtends
             }
         }
 
-        // Step 4: Build final extends clauses and imports, applying aliases and deduplicating imports.
         $extendsClauses = [];
         /** @var array<string, list<string>> $imports */
         $imports = [];
@@ -192,7 +181,6 @@ trait ParsesTsExtends
                     }
                 }
 
-                // Merge into imports, deduplicating per path — situation 3.
                 $existing = $imports[$entry['import']] ?? [];
                 foreach ($typeNamesToImport as $tn) {
                     if (! in_array($tn, $existing, true)) {

@@ -49,13 +49,9 @@ class DependencyRecorder
     }
 
     /**
-     * Record a class's own file plus every parent class, trait (recursively),
-     * and interface file. This makes a class's fingerprint change whenever any
-     * of its ancestry changes, without per-transformer wiring.
+     * Record a class's own file plus every parent class, trait (recursively), and interface file.
      *
-     * Guards with class_exists() so an unresolvable class string can never crash
-     * generation — this is a cache side-channel and must stay silent on failure.
-     * The guard also narrows the string to a class-string for reflection.
+     * class_exists() guards reflection: this is a cache side-channel and must stay silent on a bad class name.
      */
     public static function recordClass(string $class): void
     {
@@ -90,9 +86,9 @@ class DependencyRecorder
     }
 
     /**
-     * Record a reflection's own file plus, recursively, the files of every
-     * trait it uses (and traits used by those traits — getTraits() returns only
-     * direct traits, so recursion is required for nested trait chains).
+     * Record a reflection's own file plus, recursively, the files of every trait it uses.
+     *
+     * ReflectionClass::getTraits() returns only direct traits, hence the recursion for nested trait chains.
      *
      * @param  ReflectionClass<object>  $reflection
      */
@@ -110,8 +106,9 @@ class DependencyRecorder
     }
 
     /**
-     * Record the source file for an interface (or class) name. Names passed here
-     * come from reflection of an already-loaded class, so they always resolve.
+     * Record the source file for an interface (or class) name.
+     *
+     * Unguarded: names reach here from reflection of an already-loaded class, so they always resolve.
      *
      * @param  class-string  $class
      */

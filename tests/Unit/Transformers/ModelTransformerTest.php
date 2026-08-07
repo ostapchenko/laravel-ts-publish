@@ -55,7 +55,6 @@ describe('ModelTransformer with User model', function () {
             ->toHaveKey('role')
             ->toHaveKey('membership_level');
 
-        // Enum columns resolve to their TypeType
         expect($data->columns['role']['type'])->toBe('RoleType | null');
         expect($data->columns['membership_level']['type'])->toBe('MembershipLevelType | null');
     });
@@ -63,15 +62,13 @@ describe('ModelTransformer with User model', function () {
     test('resolves DB column type from Attribute accessor get closure', function () {
         $data = (new ModelTransformer(User::class))->data();
 
-        // The `name` column has an Attribute accessor with get: fn($value): string
-        // It should resolve to 'string' from the closure return type, not 'Attribute'
+        // The `name` column's Attribute accessor is `get: fn ($value): string`.
         expect($data->columns['name']['type'])->toBe('string');
     });
 
     test('transforms User model with TsCasts overrides on casts method', function () {
         $data = (new ModelTransformer(User::class))->data();
 
-        // TsCasts applied on the casts() method override the default type inference
         expect($data->columns['settings']['type'])->toBe('{ theme: "light" | "dark"; notifications: boolean; locale: string } | null');
         expect($data->columns['options']['type'])->toBe('Record<string, unknown> | null');
     });
@@ -117,7 +114,6 @@ describe('ModelTransformer with User model', function () {
     test('transforms User model imports', function () {
         $data = (new ModelTransformer(User::class))->data();
 
-        // Model imports should include related model types but not self
         expect($data->typeImports)->toHaveKey('.');
         expect($data->typeImports['.'])->toContain('Profile')
             ->and($data->typeImports['.'])->toContain('Post')
@@ -154,7 +150,7 @@ describe('ModelTransformer with Address model that has class-level TsCasts', fun
     test('transforms Address model appends with TsCasts override', function () {
         $data = (new ModelTransformer(Address::class))->data();
 
-        // full_address is in $appends so it goes to appends, not mutators
+        // full_address is in $appends, so it lands in appends rather than mutators.
         expect($data->appends)
             ->toHaveKey('full_address')
             ->and($data->appends['full_address']['type'])->toBe('string | null');
@@ -167,10 +163,8 @@ describe('ModelTransformer with Product model that has TsCasts with custom impor
 
         expect($data->modelName)->toBe('Product');
 
-        // dimensions uses an inline type override with no import
         expect($data->columns['dimensions']['type'])->toBe('{ length: number; width: number; height: number; unit: "cm" | "in" }');
 
-        // metadata uses array-with-import syntax
         expect($data->columns['metadata']['type'])->toBe('ProductMetadata | ProductJsonMetaData | null');
     });
 
@@ -179,7 +173,6 @@ describe('ModelTransformer with Product model that has TsCasts with custom impor
 
         expect($data->typeImports)->toHaveKey('@js/types/product');
 
-        // Should extract just the importable type names, not primitives or null
         $importedTypes = $data->typeImports['@js/types/product'];
         expect($importedTypes)->toContain('ProductMetadata')
             ->and($importedTypes)->toContain('ProductJsonMetaData')
@@ -229,7 +222,6 @@ describe('ModelTransformer with Category model that has self-referencing relatio
             ->and($data->relations['children']['type'])->toBe('Category[]')
             ->and($data->relations['posts']['type'])->toBe('Post[]');
 
-        // Self-reference should NOT appear in model imports
         $modelImports = $data->typeImports['./'] ?? [];
         expect($modelImports)->not->toContain('Category');
     });
@@ -300,7 +292,7 @@ describe('ModelTransformer with Profile model that has property-level TsCasts, w
     test('transforms Profile model with property-level TsCasts', function () {
         $data = (new ModelTransformer(Profile::class))->data();
 
-        // Property-level #[TsCasts(['timezone' => 'string'])] should override
+        // Profile declares #[TsCasts(['timezone' => 'string'])] on its $casts property.
         expect($data->columns['timezone']['type'])->toBe('string');
     });
 
@@ -314,7 +306,7 @@ describe('ModelTransformer with Profile model that has property-level TsCasts, w
     test('transforms Profile model write-only mutator as unknown', function () {
         $data = (new ModelTransformer(Profile::class))->data();
 
-        // normalizedPhone is set-only — no get — should resolve to unknown
+        // normalizedPhone is set-only on the fixture — no get.
         expect($data->mutators)->toHaveKey('normalized_phone')
             ->and($data->mutators['normalized_phone']['type'])->toBe('unknown');
     });
@@ -352,10 +344,9 @@ describe('ModelTransformer resolveRelativePath method', function () {
     test('resolveRelativePath returns vendor-relative path for files outside base_path', function () {
         $transformer = new ModelTransformer(User::class);
 
-        // Use reflection to test the protected method
         $method = new ReflectionMethod($transformer, 'resolveRelativePath');
 
-        // Simulate path outside base_path() but containing /vendor/
+        // Outside base_path() but containing /vendor/.
         $vendorPath = '/some/other/path/vendor/package/src/Model.php';
         $result = $method->invoke($transformer, $vendorPath);
 
@@ -398,10 +389,8 @@ describe('ModelTransformer modular typeImports', function () {
 
         $data = (new ModelTransformer(Invoice::class))->data();
 
-        // Invoice is in accounting/models
-        // InvoiceStatus enum is in accounting/enums → ../enums
-        // User model is in app/models → ../../app/models
-        // Payment model is in accounting/models → . (same dir)
+        // Invoice sits in accounting/models; InvoiceStatus in accounting/enums, User in app/models,
+        // Payment alongside it.
         expect($data->typeImports)->toHaveKey('../enums');
         expect($data->typeImports['../enums'])->toContain('InvoiceStatusType');
 
@@ -417,13 +406,11 @@ describe('ModelTransformer modular typeImports', function () {
 
         $data = (new ModelTransformer(User::class))->data();
 
-        // User is in app/models
-        // Role, MembershipLevel enums are in app/enums → ../enums
+        // User sits in app/models; the Role and MembershipLevel enums in app/enums.
         expect($data->typeImports)->toHaveKey('../enums');
         expect($data->typeImports['../enums'])->toContain('RoleType')
             ->and($data->typeImports['../enums'])->toContain('MembershipLevelType');
 
-        // Related models in the same namespace (Profile, Post, etc.) → . (same dir)
         expect($data->typeImports)->toHaveKey('.');
         expect($data->typeImports['.'])->toContain('Profile')
             ->and($data->typeImports['.'])->toContain('Post')
@@ -436,15 +423,13 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
         // Deal relates to Crm\User (via customer) and App\User (via admin)
         $data = (new ModelTransformer(Deal::class))->data();
 
-        // Both relations should be present with aliased type names
         expect($data->relations)->toHaveKey('customer')
             ->and($data->relations)->toHaveKey('admin');
 
-        // Types should use relationship-based aliases since each FQCN has exactly one relation
+        // Each FQCN has exactly one relation, so the aliases are relationship-based.
         expect($data->relations['customer']['type'])->toBe('CustomerUser');
         expect($data->relations['admin']['type'])->toBe('AdminUser');
 
-        // Imports should use "OriginalName as Alias" syntax
         $allImports = array_merge(...array_values($data->typeImports));
         expect($allImports)->toContain('User as CustomerUser')
             ->and($allImports)->toContain('User as AdminUser');
@@ -453,15 +438,12 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
     test('aliases enum imports when two enums from different namespaces share the same TypeScript type name', function () {
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
-        // Deal casts status to App\Enums\Status (→ StatusType)
-        // and crm_status to Crm\Enums\Status (→ StatusType) — a genuine collision
+        // Deal casts status to App\Enums\Status and crm_status to Crm\Enums\Status — both become StatusType.
         $data = (new ModelTransformer(Deal::class))->data();
 
-        // Both columns should use namespace-prefixed aliases
         expect($data->columns['status']['type'])->toBe('AppStatusType');
         expect($data->columns['crm_status']['type'])->toBe('CrmStatusType');
 
-        // Imports should use "as" aliasing syntax for the enum types
         $allImports = array_merge(...array_values($data->typeImports));
         expect($allImports)->toContain('StatusType as AppStatusType')
             ->and($allImports)->toContain('StatusType as CrmStatusType');
@@ -472,9 +454,7 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
 
         $data = (new ModelTransformer(Deal::class))->data();
 
-        // Deal is in crm/models
-        // Crm\User is in crm/models → . (same dir)
-        // App\User is in app/models → ../../app/models
+        // Deal and Crm\User sit in crm/models; App\User in app/models.
         expect($data->relations['customer']['type'])->toBe('CustomerUser');
         expect($data->relations['admin']['type'])->toBe('AdminUser');
 
@@ -492,7 +472,6 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
         expect($data->relations['user']['type'])->toBe('User');
         expect($data->relations['payments']['type'])->toBe('Payment[]');
 
-        // No "as" aliasing in imports
         $allImports = array_merge(...array_values($data->typeImports));
 
         foreach ($allImports as $importEntry) {
@@ -531,9 +510,8 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
     test('falls back to namespace-based alias when relation-based aliases collide', function () {
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
-        // Both App\User and Crm\User have morphMany(Image, 'imageable')
-        // → both get modelFqcnRelations[FQCN] = ['imageable'] → Str::studly('imageable').'User' = 'ImageableUser'
-        // → collision detected → fallback to namespace-based: AppUser, CrmUser
+        // Both App\User and Crm\User declare morphMany(Image, 'imageable'), so the relation-based
+        // alias is 'ImageableUser' for each and the namespace-based fallback has to break the tie.
         resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
             User::class,
             CrmUser::class,
@@ -544,10 +522,8 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
 
         $data = (new ModelTransformer(Image::class))->data();
 
-        // The MorphTo union should use distinct namespace-based aliases
         expect($data->relations['imageable']['type'])->toBe('Post | Product | AppUser | CrmUser');
 
-        // Imports should use namespace-based aliases, not duplicate ImageableUser
         $allImports = array_merge(...array_values($data->typeImports));
         expect($allImports)->toContain('User as AppUser')
             ->and($allImports)->toContain('User as CrmUser')
@@ -571,21 +547,18 @@ describe('ModelTransformer doc block descriptions', function () {
     test('reads accessor description for column from doc block', function () {
         $data = (new ModelTransformer(User::class))->data();
 
-        // name() has /** User name formatted with first letter capitalized */
         expect($data->columns['name']['description'])->toBe('User name formatted with first letter capitalized');
     });
 
     test('reads accessor description for mutator from doc block', function () {
         $data = (new ModelTransformer(User::class))->data();
 
-        // initials() has /** User initials (e.g. "JD" for "John Doe") */
         expect($data->mutators['initials']['description'])->toBe('User initials (e.g. "JD" for "John Doe")');
     });
 
     test('reads relation description from doc block', function () {
         $data = (new ModelTransformer(User::class))->data();
 
-        // images() has /** Polymorphic images (avatar gallery, etc.) */
         expect($data->relations['images']['description'])->toBe('Polymorphic images (avatar gallery, etc.)');
     });
 
@@ -613,11 +586,8 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toHaveKey('visibility')
             ->toHaveKey('priority');
 
-        // status is not nullable
         expect($data->enumColumns['status'])->toBe(['constName' => 'Status', 'nullable' => false]);
-        // visibility is nullable
         expect($data->enumColumns['visibility'])->toBe(['constName' => 'Visibility', 'nullable' => true]);
-        // priority is nullable
         expect($data->enumColumns['priority'])->toBe(['constName' => 'Priority', 'nullable' => true]);
     });
 
@@ -670,7 +640,6 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toContain('Visibility')
             ->toContain('Priority');
 
-        // Type names remain in typeImports
         expect($data->typeImports['../enums'])
             ->toContain('StatusType')
             ->toContain('VisibilityType')
@@ -692,16 +661,14 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
 
         $data = (new ModelTransformer(Post::class))->data();
 
-        // Type names still in typeImports
         expect($data->typeImports['../enums'])
             ->toContain('StatusType');
 
-        // valueImports should be empty
         expect($data->valueImports)->toBeEmpty();
     });
 
     test('TsCasts-overridden columns are excluded from enumColumns', function () {
-        // Post has metadata with TsCasts override — should not appear in enumColumns
+        // Post's metadata column carries a TsCasts override.
         $data = (new ModelTransformer(Post::class))->data();
 
         expect($data->enumColumns)->not->toHaveKey('metadata');
@@ -723,7 +690,7 @@ describe('ModelTransformer with Warehouse model', function () {
     test('write-only accessor on DB column falls back to column type', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
-        // phone has a write-only Attribute (set only, no get) — falls back to DB column type
+        // Warehouse::phone has a write-only Attribute — set, no get.
         expect($data->columns)->toHaveKey('phone')
             ->and($data->columns['phone']['type'])->toBe('string | null');
     });
@@ -731,7 +698,7 @@ describe('ModelTransformer with Warehouse model', function () {
     test('column cast to CastsAttributes returning a plain class tracks classFqcns', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
-        // CoordinateCast.get() returns Coordinate — a class with no TsType/CastsAttributes
+        // CoordinateCast::get() returns Coordinate, a class with neither TsType nor CastsAttributes.
         expect($data->columns)->toHaveKey('coordinate_data')
             ->and($data->columns['coordinate_data']['type'])->toBe('Coordinate | null');
     });
@@ -757,9 +724,8 @@ describe('ModelTransformer with Warehouse model', function () {
 
         $data = (new ModelTransformer(Warehouse::class))->data();
 
-        // Column status uses App\Enums\Status → aliased to AppStatusType
+        // The status column casts to App\Enums\Status, the appended current_crm_status to Crm\Enums\Status.
         expect($data->columns['status']['type'])->toBe('AppStatusType | null');
-        // Appended current_crm_status uses Crm\Enums\Status → aliased to CrmStatusType
         expect($data->appends['current_crm_status']['type'])->toBe('CrmStatusType | null');
     });
 
@@ -768,20 +734,18 @@ describe('ModelTransformer with Warehouse model', function () {
 
         $data = (new ModelTransformer(Warehouse::class))->data();
 
-        // Crm\User has 2 relations (primaryContact, secondaryContact) → namespace prefix alias
+        // Crm\User is reached by two relations (primaryContact, secondaryContact), App\User by one (manager).
         expect($data->relations['primary_contact']['type'])->toBe('CrmUser | null')
             ->and($data->relations['secondary_contact']['type'])->toBe('CrmUser | null');
 
-        // App\User has 1 relation (manager) → relation-based alias
         expect($data->relations['manager']['type'])->toBe('ManagerUser | null');
     });
 
     test('accessor returning a union of two different models with the same basename produces both type tokens', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
-        // lastUserActivityBy returns CrmUser|User|null where User is Workbench\App\Models\User.
-        // Workbench\Crm\Models\User is aliased CrmUser (appears in 2 relations → namespace prefix).
-        // Workbench\App\Models\User is aliased ManagerUser (already established from the manager relation).
+        // lastUserActivityBy returns CrmUser|User|null; both aliases were already fixed by the
+        // relations above — CrmUser by namespace prefix, ManagerUser by the manager relation.
         expect($data->mutators)->toHaveKey('last_user_activity_by')
             ->and($data->mutators['last_user_activity_by']['type'])->toBe('CrmUser | ManagerUser | null');
     });
@@ -793,7 +757,6 @@ describe('ModelTransformer resolveMutatorType edge cases', function () {
 
         $method = new ReflectionMethod($transformer, 'resolveMutatorType');
 
-        // Pass a name with no matching new-style or old-style accessor
         $result = $method->invoke($transformer, 'nonexistent_property');
 
         expect($result['type'])->toBe('unknown');
@@ -820,11 +783,9 @@ describe('ModelTransformer rewriteTypeReferences defensive branches', function (
         $map['Fake\\Model\\Ghost'] = 'Ghost';
         $mapProp->setValue($transformer, $map);
 
-        // Call rewriteTypeReferences — should not throw, just skip the nonexistent relation
         $method = new ReflectionMethod($transformer, 'rewriteTypeReferences');
         $method->invoke($transformer);
 
-        // Relations should remain unchanged
         expect($transformer->relations)->not->toHaveKey('nonexistent_relation');
     });
 
@@ -837,11 +798,9 @@ describe('ModelTransformer rewriteTypeReferences defensive branches', function (
         $aliases['Fake\\Unmapped\\Thing'] = 'AliasedThing';
         $aliasProp->setValue($transformer, $aliases);
 
-        // Call rewriteTypeReferences — should hit the continue for unmapped FQCN
         $method = new ReflectionMethod($transformer, 'rewriteTypeReferences');
         $method->invoke($transformer);
 
-        // Nothing should have changed
         expect($transformer->columns)->not->toBeEmpty();
     });
 });
@@ -871,8 +830,7 @@ describe('ModelTransformer nullable relations', function () {
 
         $data = (new ModelTransformer(Image::class))->data();
 
-        // Image uses morphs('imageable') — NOT NULL columns
-        // MorphTo targets resolved via inverse MorphMany scanning: Post, Product, User
+        // Image uses morphs('imageable'), whose columns are NOT NULL.
         expect($data->relations['imageable']['type'])->toBe('Post | Product | User');
     });
 
@@ -886,7 +844,6 @@ describe('ModelTransformer nullable relations', function () {
 
         $data = (new ModelTransformer(Image::class))->data();
 
-        // Each morph target should appear in the type imports (flattened values)
         $importedTypes = array_merge(...array_values($data->typeImports));
 
         expect($importedTypes)
@@ -910,12 +867,10 @@ describe('ModelTransformer nullable relations', function () {
             Image::class,
         ]);
 
-        // Only include Post and Image — but MorphTo should still appear
         config()->set('ts-publish.models.included', [Post::class, Image::class]);
 
         $data = (new ModelTransformer(Image::class))->data();
 
-        // MorphTo relation is present, and only the included target appears in the union
         expect($data->relations)->toHaveKey('imageable')
             ->and($data->relations['imageable']['type'])->toBe('Post');
     });
@@ -928,12 +883,10 @@ describe('ModelTransformer nullable relations', function () {
             Image::class,
         ]);
 
-        // Exclude Product from the morph union
         config()->set('ts-publish.models.excluded', [Product::class]);
 
         $data = (new ModelTransformer(Image::class))->data();
 
-        // Product should not appear in the union
         expect($data->relations['imageable']['type'])->toBe('Post | User');
     });
 
@@ -963,7 +916,6 @@ describe('ModelTransformer nullable relations', function () {
 
         $data = (new ModelTransformer(User::class))->data();
 
-        // HasOne should NOT be nullable when feature is disabled
         expect($data->relations['profile']['type'])->toBe('Profile');
     });
 
@@ -974,7 +926,6 @@ describe('ModelTransformer nullable relations', function () {
 
         $data = (new ModelTransformer(User::class))->data();
 
-        // HasOne overridden to 'never' — should not be nullable
         expect($data->relations['profile']['type'])->toBe('Profile');
     });
 
@@ -985,7 +936,6 @@ describe('ModelTransformer nullable relations', function () {
 
         $data = (new ModelTransformer(Post::class))->data();
 
-        // Even with non-nullable FK, BelongsTo is now always nullable
         expect($data->relations['author']['type'])->toBe('User | null');
     });
 
@@ -1016,16 +966,14 @@ describe('ModelTransformer composite foreign keys', function () {
     test('BelongsTo with composite FK is nullable when any column is nullable', function () {
         $data = (new ModelTransformer(TaskAssignment::class))->data();
 
-        // TaskAssignment.assignee uses composite FK ['team_id', 'category_id']
-        // category_id is nullable, so the relation should be nullable
+        // TaskAssignment.assignee has composite FK ['team_id', 'category_id'] and category_id is nullable.
         expect($data->relations['assignee']['type'])->toBe('TaskOwner | null');
     });
 
     test('BelongsTo with composite FK is not nullable when all columns are non-nullable', function () {
         $data = (new ModelTransformer(StrictTaskAssignment::class))->data();
 
-        // StrictTaskAssignment.assignee uses composite FK ['team_id', 'category_id']
-        // Both columns are NOT NULL, so the relation should not be nullable
+        // StrictTaskAssignment.assignee has composite FK ['team_id', 'category_id'], both NOT NULL.
         expect($data->relations['assignee']['type'])->toBe('TaskOwner');
     });
 });
@@ -1038,9 +986,8 @@ describe('ModelTransformer composite morph foreign keys', function () {
 
         $data = (new ModelTransformer(CompositeComment::class))->data();
 
-        // CompositeComment.commentable uses composite FK ['commentable_id_1', 'commentable_id_2']
-        // commentable_id_2 is nullable, so the relation should be nullable
-        // MorphTo is typed as 'unknown' since the related model is polymorphic
+        // CompositeComment.commentable has composite FK ['commentable_id_1', 'commentable_id_2'] and
+        // commentable_id_2 is nullable; the MorphTo target itself stays 'unknown'.
         expect($data->relations['commentable']['type'])->toBe('unknown | null');
     });
 
@@ -1051,9 +998,8 @@ describe('ModelTransformer composite morph foreign keys', function () {
 
         $data = (new ModelTransformer(StrictCompositeComment::class))->data();
 
-        // StrictCompositeComment.commentable uses composite FK ['commentable_id_1', 'commentable_id_2']
-        // All FK columns and commentable_type are NOT NULL
-        // MorphTo is typed as 'unknown' since the related model is polymorphic
+        // StrictCompositeComment.commentable has composite FK ['commentable_id_1', 'commentable_id_2'],
+        // all NOT NULL alongside commentable_type; the MorphTo target itself stays 'unknown'.
         expect($data->relations['commentable']['type'])->toBe('unknown');
     });
 });
@@ -1238,9 +1184,8 @@ describe('ModelTransformer TsExtends BFS inheritance traversal', function () {
     });
 
     test('BFS visited guard prevents duplicate extends when trait is shared by model and parent', function () {
-        // ChildSharedExtendableModel uses SharedExtendsTrait directly AND extends
-        // BaseSharedExtendableModel which also uses SharedExtendsTrait. The BFS $visited
-        // guard should prevent SharedModelInterface from appearing twice.
+        // ChildSharedExtendableModel uses SharedExtendsTrait directly and also extends
+        // BaseSharedExtendableModel, which uses it too — the trait is reachable by two paths.
         $data = (new ModelTransformer(ChildSharedExtendableModel::class))->data();
 
         expect($data->tsExtends)->toBe(['SharedModelInterface'])
@@ -1255,7 +1200,6 @@ describe('ModelTransformer TsExtends BFS inheritance traversal', function () {
 });
 
 describe('Image model @return Attribute<> docblock accessor resolution', function () {
-    // Already-working coverage
     test('extension resolves string|null from docblock', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1270,7 +1214,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
             ->and($data->mutators['size']['type'])->toBe('number');
     });
 
-    // Multi-part union
     test('flexibleId resolves string|int|null union from docblock', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1278,7 +1221,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
             ->and($data->mutators['flexible_id']['type'])->toBe('string | number | null');
     });
 
-    // Nullable shorthand ?T
     test('optionalLabel resolves ?string to string | null from docblock', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1286,7 +1228,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
             ->and($data->mutators['optional_label']['type'])->toBe('string | null');
     });
 
-    // Enum FQCN
     test('statusFromDocblock resolves enum FQCN to StatusType | null', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1297,7 +1238,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
         expect($data->typeImports['../enums'])->toContain('StatusType');
     });
 
-    // Model FQCN
     test('uploaderFromDocblock resolves model FQCN to User | null', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1308,7 +1248,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
         expect($data->typeImports['.'])->toContain('User');
     });
 
-    // #[TsType] class with import
     test('configFromDocblock resolves #[TsType] class to MenuSettingsType with import', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1319,7 +1258,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
         expect($data->typeImports['@js/types/settings'])->toContain('MenuSettingsType');
     });
 
-    // Arrayable class
     test('dataFromDocblock resolves Arrayable class to unknown[]', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1327,7 +1265,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
             ->and($data->mutators['data_from_docblock']['type'])->toBe('unknown[]');
     });
 
-    // Arrayable class with an array-shape toArray() docblock
     test('priceFromDocblock resolves Arrayable class with a shape docblock to an inline object type', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1335,7 +1272,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
             ->and($data->mutators['price_from_docblock']['type'])->toBe('{ amount: number; currency: string }');
     });
 
-    // __toString class
     test('labelFromDocblock resolves class with __toString to string', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1343,7 +1279,6 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
             ->and($data->mutators['label_from_docblock']['type'])->toBe('string');
     });
 
-    // Edge cases
     test('accessor with no docblock resolves to unknown', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1377,8 +1312,7 @@ describe('ModelTransformer with UntypedColumn model (unknown-type fallback paths
     test('accessor on untyped column falls back via attribute match arm', function () {
         $data = (new ModelTransformer(UntypedColumn::class))->data();
 
-        // accessor_col has Attribute accessor with no type hint on untyped column →
-        // resolver returns unknown → transformer fallback fires
+        // accessor_col's Attribute accessor has no type hint, on a column SQLite reports as untyped.
         expect($data->columns)->toHaveKey('accessor_col')
             ->and($data->columns['accessor_col']['type'])->toBe('unknown | null');
     });
@@ -1386,8 +1320,7 @@ describe('ModelTransformer with UntypedColumn model (unknown-type fallback paths
     test('untyped column with no cast falls back via default match arm', function () {
         $data = (new ModelTransformer(UntypedColumn::class))->data();
 
-        // cast_col has no accessor and no cast on untyped column →
-        // resolver returns unknown → transformer fallback fires
+        // cast_col has neither accessor nor cast, on a column SQLite reports as untyped.
         expect($data->columns)->toHaveKey('cast_col')
             ->and($data->columns['cast_col']['type'])->toBe('unknown | null');
     });
@@ -1395,8 +1328,7 @@ describe('ModelTransformer with UntypedColumn model (unknown-type fallback paths
     test('nullable untyped column appends null to type', function () {
         $data = (new ModelTransformer(UntypedColumn::class))->data();
 
-        // All untyped SQLite columns are nullable; the fallback returns 'unknown'
-        // which doesn't contain 'null', so the transformer appends ' | null'
+        // Untyped SQLite columns are nullable and the fallback's 'unknown' carries no null of its own.
         expect($data->columns['nullable_accessor_col']['type'])->toBe('unknown | null');
     });
 });
