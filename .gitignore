@@ -36,8 +36,6 @@ workbench/database/database.sqlite
 workbench/bootstrap/cache/*.php
 !workbench/bootstrap/cache/.gitkeep
 clover.xml
-AGENTS.md
-CLAUDE.md
 .DS_Store
 
 # AI
