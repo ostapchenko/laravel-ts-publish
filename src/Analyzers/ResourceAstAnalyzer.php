@@ -3489,7 +3489,12 @@ class ResourceAstAnalyzer
             return [...$this->unknownResult(), ...$pluckResult];
         }
 
-        // Analyze the map closure with the element model as context.
+        // Analyze the map closure with the element model as context. The argument must be a
+        // Closure/ArrowFunction — a callable-array (`[$this, 'method']`) or a bare string
+        // callable (`'strtoupper'`) is itself a valid PHP expression (an Array_/String_ node
+        // respectively), so without this guard analyzeValueExpression() would happily resolve
+        // *that expression* — e.g. a bare 'strtoupper' string literal resolves to 'string',
+        // wrongly wrapped here to 'string[]' as if it were the map's return value.
         /** @var MethodCall $mapNode */
         $args = $mapNode->getArgs();
 
@@ -3497,11 +3502,17 @@ class ResourceAstAnalyzer
             return null; // @codeCoverageIgnore
         }
 
+        $mapArg = $args[0]->value;
+
+        if (! $mapArg instanceof ArrowFunction && ! $mapArg instanceof ClosureExpr) {
+            return null;
+        }
+
         $previousContext = $this->closureRelationModelClass;
         $this->closureRelationModelClass = $elementModel;
 
         try {
-            $bodyResult = $this->analyzeValueExpression($args[0]->value);
+            $bodyResult = $this->analyzeValueExpression($mapArg);
         } finally {
             $this->closureRelationModelClass = $previousContext;
         }
@@ -3510,11 +3521,36 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        $elementType = str_contains($bodyResult['type'], '|')
-            ? '('.$bodyResult['type'].')'
-            : $bodyResult['type'];
+        // A map body that is ENTIRELY `EnumResource::make(...)` (no array-literal wrapping)
+        // resolves with a singular 'enumFqcn' key — the contract "this property's whole type
+        // IS this one EnumResource-wrapped enum", which ResourceTransformer's tolki AsEnum
+        // rewrite (rewriteEnumResourceTypes()) reads by property name and uses to
+        // unconditionally overwrite the property's type with a bare, non-array
+        // `AsEnum<typeof X>`. That contract no longer holds once the body is wrapped into an
+        // array here, so re-tag it as 'directEnumFqcn' instead: the FQCN still gets its type
+        // import (ResourceTransformer populates the same enumFqcnMap from directEnumFqcns),
+        // but the property is no longer eligible for the singular-type rewrite. This mirrors
+        // how a plain (non-EnumResource-wrapped) enum access already renders — ResourceTransformer
+        // renders EnumResource::make() as a bare `XType` too whenever tolki is disabled, so a
+        // plain `XType`-based array is already an established, consistent representation.
+        if (isset($bodyResult['enumFqcn']) && ! isset($bodyResult['directEnumFqcn'])) {
+            $bodyResult['directEnumFqcn'] = $bodyResult['enumFqcn'];
+            unset($bodyResult['enumFqcn']);
+        }
 
-        return [...$bodyResult, 'type' => $elementType.'[]', 'optional' => false];
+        return [...$bodyResult, 'type' => $this->arrayWrapType($bodyResult['type']), 'optional' => false];
+    }
+
+    /**
+     * Suffix a resolved element type with `[]`, parenthesizing it first when it is a union
+     * (contains `|`). TypeScript's `[]` binds tighter than `|`, so `string | null[]` parses
+     * as `string | (null[])` — not `(string | null)[]` as intended. Shared by the map and
+     * pluck branches of analyzeRelationCollectionChain() (analyzeVariablePluckCall() reuses
+     * this for its own, independently-reachable `$variable->pluck('nullableCol')` case).
+     */
+    private function arrayWrapType(string $type): string
+    {
+        return str_contains($type, '|') ? '('.$type.')[]' : $type.'[]';
     }
 
     /**
@@ -4282,7 +4318,11 @@ class ResourceAstAnalyzer
             $info = $this->analyzeRelatedModelProperty($fieldName);
 
             if ($info['type'] !== 'unknown') {
-                $info['type'] = $info['type'].'[]';
+                // Parenthesize a union before the '[]' suffix — pluck() on a nullable
+                // column (e.g. 'role' → 'RoleType | null') must render as
+                // '(RoleType | null)[]', not 'RoleType | null[]' (TypeScript parses the
+                // latter as 'RoleType | (null[])', a genuinely different, wrong type).
+                $info['type'] = $this->arrayWrapType($info['type']);
                 $info['optional'] = false;
 
                 return $info;

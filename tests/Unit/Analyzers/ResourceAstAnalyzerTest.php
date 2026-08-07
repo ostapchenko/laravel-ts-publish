@@ -582,6 +582,37 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['member_emails']['optional'])->toBeFalse();
     });
 
+    // Review finding (Important 3): pluck() on a nullable column must parenthesize the
+    // union before appending '[]' — 'RoleType | null[]' is not the same TypeScript type as
+    // '(RoleType | null)[]' (the former parses as RoleType | (null[])).
+    test('pluck() on a nullable column parenthesizes the union before the array suffix', function () {
+        expect($this->props['member_roles']['type'])->toBe('(RoleType | null)[]')
+            ->and($this->props['member_roles']['optional'])->toBeFalse();
+    });
+
+    // Review finding (Important 1): a map() body that is ENTIRELY EnumResource::make(...)
+    // (no array-literal wrapping) resolves with a singular 'enumFqcn' key, which
+    // ResourceTransformer::rewriteEnumResourceTypes() would otherwise unconditionally
+    // rewrite to a bare (non-array) AsEnum<typeof Role> when the tolki package is enabled,
+    // silently dropping the array-ness. The array type must survive, and the FQCN must be
+    // carried as 'directEnumFqcn' (not 'enumFqcn') so the singular-type rewrite never fires.
+    test('map() body that is entirely EnumResource::make() stays an array and is not enumFqcn-tagged', function () {
+        expect($this->props['member_role_resources']['type'])->toBe('RoleType[]')
+            ->and($this->props['member_role_resources']['optional'])->toBeFalse()
+            ->and($this->analysis->directEnumFqcns)->toHaveKey('member_role_resources')
+            ->and($this->analysis->directEnumFqcns['member_role_resources'])->toBe(Role::class)
+            ->and($this->analysis->enumResources)->not->toHaveKey('member_role_resources');
+    });
+
+    // Review finding (Important 2): map()'s argument must be a Closure/ArrowFunction.
+    // A string callable ('strtoupper') or array callable ([$this, 'method']) must not be
+    // analyzed as if it were the closure body — that produced 'string[]' and
+    // 'Record<string, unknown>[]' respectively before the guard, both wrong-but-plausible.
+    test('map() with a non-closure callable argument stays unknown', function () {
+        expect($this->props['member_names_upper']['type'])->toBe('unknown')
+            ->and($this->props['member_formatted']['type'])->toBe('unknown');
+    });
+
     test('an unsupported op in the chain keeps current unknown behavior', function () {
         expect($this->props['first_member']['type'])->toBe('unknown');
     });

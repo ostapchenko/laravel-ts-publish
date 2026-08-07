@@ -13,5 +13,9 @@ export interface RelationChainResource
     member_cards: { id: number; name: string }[];
     member_profiles: ({ id: number; role: RoleType | null; owner: User })[];
     member_emails: string[];
+    member_roles: (RoleType | null)[];
+    member_role_resources: RoleType[];
+    member_names_upper: unknown;
+    member_formatted: unknown;
     first_member: unknown;
 }

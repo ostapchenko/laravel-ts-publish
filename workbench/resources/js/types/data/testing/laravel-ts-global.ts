@@ -1406,6 +1406,10 @@ declare global {
             member_cards: { id: number; name: string }[];
             member_profiles: ({ id: number; role: workbench.app.enums.RoleType | null; owner: workbench.crm.models.User })[];
             member_emails: string[];
+            member_roles: (workbench.app.enums.RoleType | null)[];
+            member_role_resources: workbench.app.enums.RoleType[];
+            member_names_upper: unknown;
+            member_formatted: unknown;
             first_member: unknown;
         }
         /** Resource that delegates to parent with a known model — tests JsonResource base delegation. */

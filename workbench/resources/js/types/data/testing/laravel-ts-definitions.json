@@ -7080,6 +7080,26 @@
                 "optional": false
             },
             {
+                "name": "member_roles",
+                "type": "(RoleType | null)[]",
+                "optional": false
+            },
+            {
+                "name": "member_role_resources",
+                "type": "RoleType[]",
+                "optional": false
+            },
+            {
+                "name": "member_names_upper",
+                "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "member_formatted",
+                "type": "unknown",
+                "optional": false
+            },
+            {
                 "name": "first_member",
                 "type": "unknown",
                 "optional": false
