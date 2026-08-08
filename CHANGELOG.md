@@ -2,6 +2,18 @@
 
 All notable changes to `laravel-ts-publish` will be documented in this file.
 
+## v2.2.0 - 2026-08-08
+
+### What's Changed
+
+- A lot of improvements to type model & resource properties into TypeScript equivalent versions.
+- Testing upgrades
+- General clean up
+
+* Feat/type inference unknowns by @abetwothree in https://github.com/abetwothree/laravel-ts-publish/pull/57
+
+**Full Changelog**: https://github.com/abetwothree/laravel-ts-publish/compare/v2.1.0...v2.2.0
+
 ## v2.1.0 - 2026-07-11
 
 Fix docs & Laravel Boost skill to help AI understand how to create types and how to use them from this package.
