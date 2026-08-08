@@ -59,6 +59,13 @@ jobs:
       - name: Install dependencies
         run: |
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          if [ "${{ matrix.laravel }}" = "12.*" ]; then
+            # Laravel 12 pins symfony/process ^7.2, which orchestra/testbench:10.* inherits and
+            # never lifts (confirmed through v10.14.1). Pest 5 requires symfony/process ^8.1 and
+            # phpunit ^13.2.6, so it can never resolve against Laravel 12. Pest 4 targets phpunit
+            # ^12.5.33, which testbench 10.* does allow.
+            composer require --dev "pestphp/pest:^4.0" "pestphp/pest-plugin-arch:^4.0" "pestphp/pest-plugin-laravel:^4.0" --no-interaction --no-update
+          fi
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
       - name: List Installed Dependencies
