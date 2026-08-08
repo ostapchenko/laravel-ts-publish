@@ -9,8 +9,8 @@ import type { StatusSynced } from './crm/events/StatusSynced';
 import type { TeamMessageSent } from './app/events/TeamMessageSent';
 import type { UserNotification } from './app/events/UserNotification';
 import type { UserRegisteredEvent } from './app/events/UserRegisteredEvent';
-import type { UserSynced as CrmUserSynced } from './crm/events/UserSynced';
 import type { UserSynced as AppUserSynced } from './app/events/UserSynced';
+import type { UserSynced as CrmUserSynced } from './crm/events/UserSynced';
 
 declare module "@laravel/echo" {
     interface Events {
@@ -25,7 +25,7 @@ declare module "@laravel/echo" {
         ".Workbench.App.Events.TeamMessageSent": TeamMessageSent;
         ".Workbench.App.Events.UserNotification": UserNotification;
         ".Workbench.App.Events.UserRegisteredEvent": UserRegisteredEvent;
-        ".Workbench.Crm.Events.UserSynced": CrmUserSynced;
         ".Workbench.App.Events.UserSynced": AppUserSynced;
+        ".Workbench.Crm.Events.UserSynced": CrmUserSynced;
     }
 }

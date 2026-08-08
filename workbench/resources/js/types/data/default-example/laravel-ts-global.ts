@@ -13,7 +13,7 @@ import type { Auditable } from '@/types/audit';
 import type { BaseResource } from '@/types/base';
 import type { BroadcastableEvent } from '@/types/broadcast';
 import type { HasTimestamps } from '@/types/common';
-import type { GeoPoint, GeoBounds } from '@/types/geo';
+import type { GeoBounds, GeoPoint } from '@/types/geo';
 import type { ParentModelInterface } from '@/types/model-parent';
 import type { TraitInterface } from '@/types/model-trait';
 import type { ResourceRoutes } from '@/types/resources';
@@ -25,6 +25,31 @@ import type { Timestamps } from '@/types/util';
 /* prettier-ignore */
 declare global {
     export namespace accounting.models {
+        export interface Invoice {
+            // Columns
+            id: number;
+            user_id: number;
+            number: string;
+            status: accounting.enums.InvoiceStatusType;
+            subtotal: number;
+            tax: number;
+            total: number;
+            due_at: string | null;
+            issued_at: string | null;
+            paid_at: string | null;
+            notes: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Mutators
+            latest_payment: Payment | null;
+            // Relations
+            user: app.models.User;
+            user_count: number;
+            user_exists: boolean;
+            payments: Payment[];
+            payments_count: number;
+            payments_exists: boolean;
+        }
         export interface Payment {
             // Columns
             id: number;
@@ -44,59 +69,69 @@ declare global {
             invoice_count: number;
             invoice_exists: boolean;
         }
-        export interface Invoice {
+    }
+    export namespace app.models {
+        export interface Address {
             // Columns
             id: number;
             user_id: number;
-            number: string;
-            status: accounting.enums.InvoiceStatusType;
-            subtotal: number;
-            tax: number;
-            total: number;
-            due_at: string | null;
-            issued_at: string | null;
-            paid_at: string | null;
-            notes: string | null;
+            label: string | null;
+            line_1: string;
+            line_2: string | null;
+            city: string;
+            state: string | null;
+            postal_code: string;
+            country_code: string;
+            latitude?: number | null;
+            longitude: number | null;
+            is_default: boolean;
             created_at: string | null;
             updated_at: string | null;
             // Mutators
-            latest_payment: Payment | null;
+            /** Whether coordinates are available */
+            has_coordinates: boolean;
+            full_address: string | null;
             // Relations
-            user: crm.models.User;
+            user: User;
             user_count: number;
             user_exists: boolean;
-            payments: Payment[];
-            payments_count: number;
-            payments_exists: boolean;
         }
-    }
-    export namespace app.models {
-        export interface Team {
+        export interface Attachment {
+            // Columns
+            id: number;
+            attachable_type: string;
+            attachable_id: number;
+            filename: string;
+            size_bytes: number;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            /** Polymorphic parent (Post and friends) */
+            attachable: Post;
+            attachable_count: number;
+            attachable_exists: boolean;
+        }
+        export interface BaseExtendableModel extends ParentModelInterface {
+        }
+        export interface BaseSharedExtendableModel extends SharedModelInterface {
             // Columns
             id: number;
             name: string;
-            slug: string;
-            description: string | null;
-            owner_id: number;
-            is_active: boolean;
-            settings: unknown[] | null;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: string | null;
+            remember_token: string | null;
             created_at: string | null;
             updated_at: string | null;
-            deleted_at: string | null;
-            // Mutators
-            /** Whether the team has any members */
-            has_member: boolean;
-            /** Number of members */
-            member_count: number;
-            // Relations
-            /** The user who owns this team */
-            owner: User;
-            owner_count: number;
-            owner_exists: boolean;
-            /** Members of the team (pivot includes role and joined_at) */
-            members: User[];
-            members_count: number;
-            members_exists: boolean;
+            role: string | null;
+            membership_level: string | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: string | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
         }
         export interface Category {
             // Columns
@@ -128,38 +163,51 @@ declare global {
             posts_count: number;
             posts_exists: boolean;
         }
-        export interface TrackingEvent {
+        /**
+         * Child model that uses SharedExtendsTrait directly AND extends a parent that also uses it.
+         * SharedModelInterface should appear only once despite being reachable via two paths.
+         */
+        export interface ChildSharedExtendableModel extends SharedModelInterface {
             // Columns
             id: number;
-            shipment_id: number;
-            status: string;
-            location: string | null;
-            description: string | null;
-            occurred_at: string;
+            name: string;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: string | null;
+            remember_token: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            role: string | null;
+            membership_level: string | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: string | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
+        }
+        export interface Comment {
+            // Columns
+            id: number;
+            content: string;
+            post_id: number;
+            user_id: number;
+            is_flagged: boolean;
+            flagged_at: string | null;
+            metadata: Record<string, unknown>;
             created_at: string | null;
             updated_at: string | null;
             // Mutators
-            changes: { attributes: Record<string, unknown>; old: Record<string, unknown> };
-            diff: unknown[] | Record<string, unknown>;
-        }
-        /**
-         * Exercises the ModelTransformer unknown-type fallback paths
-         * using untyped SQLite columns.
-         */
-        export interface UntypedColumn {
-            // Columns
-            id: number | null;
-            /**
-             * Accessor with no return type on the getter closure — resolves to unknown,
-             * exercises the 'attribute'/'accessor' match arm
-             */
-            accessor_col: unknown | null;
-            cast_col: unknown | null;
-            /**
-             * Accessor with no return type on an untyped nullable column — exercises
-             * the nullable fallback (appends ' | null').
-             */
-            nullable_accessor_col: unknown | null;
+            /** Short preview of the comment */
+            preview: string;
+            // Relations
+            post: Post;
+            post_count: number;
+            post_exists: boolean;
+            user: User;
+            user_count: number;
+            user_exists: boolean;
         }
         export interface CompositeComment {
             // Columns
@@ -198,47 +246,141 @@ declare global {
             featured_image_url: string | null;
             is_pinned: number;
         }
-        export interface Product {
+        /** Model with excluded mutator and relation via #[TsExclude]. */
+        export interface ExcludableModel {
             // Columns
-            id: string;
+            id: number;
             name: string;
-            slug: string;
-            sku: string;
-            description: string | null;
-            price: number;
-            compare_at_price: number | null;
-            cost_price: number | null;
-            quantity: number;
-            weight: number | null;
-            dimensions: { length: number; width: number; height: number; unit: "cm" | "in" };
-            is_active: boolean;
-            is_featured: boolean;
-            published_at: string | null;
-            metadata: ProductMetadata | ProductJsonMetaData | null;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: string | null;
+            remember_token: string | null;
             created_at: string | null;
             updated_at: string | null;
-            deleted_at: string | null;
+            role: string | null;
+            membership_level: string | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: string | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
             // Mutators
-            /** Whether the product is on sale */
-            is_on_sale: boolean;
-            /** Discount percentage (0-100) or null */
-            discount_percentage: number | null;
-            /** Profit margin percentage */
-            profit_margin: number | null;
-            /** Whether the product is in stock */
-            in_stock: boolean;
+            /** Included mutator — should appear in TS output */
+            display_name: string;
             // Relations
-            order_items: OrderItem[];
-            order_items_count: number;
-            order_items_exists: boolean;
-            /** Polymorphic many-to-many with tags */
-            tags: Tag[];
-            tags_count: number;
-            tags_exists: boolean;
-            /** Polymorphic one-to-many with images */
-            images: Image[];
-            images_count: number;
-            images_exists: boolean;
+            /** Included relation — should appear in TS output */
+            posts: Post[];
+            posts_count: number;
+            posts_exists: boolean;
+        }
+        export interface Image {
+            // Columns
+            id: number;
+            imageable_type: string;
+            imageable_id: number;
+            url: string;
+            alt_text: string | null;
+            disk: string;
+            path: string;
+            mime_type: string;
+            size_bytes: number;
+            width: number | null;
+            height: number | null;
+            sort_order: number;
+            metadata: unknown[] | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Mutators
+            /** Human-readable file size */
+            size_for_humans: string;
+            /** Whether the image is landscape orientation */
+            is_landscape: boolean;
+            /** Aspect ratio as a string (e.g. "16:9") or null if dimensions not set */
+            aspect_ratio: string | null;
+            extension: string | null;
+            /** This is the size test to parse from the docblock in the test for accessor type resolution. */
+            size: number;
+            flexible_id: string | number | null;
+            optional_label: string | null;
+            status_from_docblock: app.enums.StatusType | null;
+            uploader_from_docblock: User | null;
+            config_from_docblock: MenuSettingsType;
+            data_from_docblock: unknown[];
+            uploaders_from_docblock: User[] | Record<string, User>;
+            tree_from_docblock: { label: string; child: unknown[] };
+            price_from_docblock: { amount: number; currency: string };
+            label_from_docblock: string;
+            no_docblock_accessor: unknown;
+            wrong_format_docblock: string | null;
+            positive_int_accessor: number;
+            numeric_string_accessor: string;
+            // Relations
+            /** Polymorphic parent (Product, Post, User, etc.) */
+            imageable: Post | Product | User | crm.models.User;
+            imageable_count: number;
+            imageable_exists: boolean;
+        }
+        export interface ModelWithNestedTraitExtends extends TraitInterface {
+            // Columns
+            id: number;
+            name: string;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: string | null;
+            remember_token: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            role: string | null;
+            membership_level: string | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: string | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
+        }
+        export interface ModelWithParentExtends extends ParentModelInterface {
+            // Columns
+            id: number;
+            name: string;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: string | null;
+            remember_token: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            role: string | null;
+            membership_level: string | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: string | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
+        }
+        export interface ModelWithTraitExtends extends TraitInterface {
+            // Columns
+            id: number;
+            name: string;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: string | null;
+            remember_token: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            role: string | null;
+            membership_level: string | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: string | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
         }
         export interface Order {
             // Columns
@@ -288,13 +430,37 @@ declare global {
             items_count: number;
             items_exists: boolean;
         }
+        export interface OrderItem {
+            // Columns
+            id: number;
+            order_id: number;
+            product_id: string;
+            name: string;
+            sku: string;
+            quantity: number;
+            unit_price: number;
+            total_price: number;
+            options: Record<string, string | number | boolean> | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Mutators
+            /** Line item subtotal computed from quantity × unit_price */
+            subtotal: number;
+            // Relations
+            order: Order;
+            order_count: number;
+            order_exists: boolean;
+            product: Product;
+            product_count: number;
+            product_exists: boolean;
+        }
         export interface Post {
             // Columns
             id: number;
             title: string;
             content: string;
             user_id: number;
-            status: crm.enums.StatusType;
+            status: app.enums.StatusType;
             published_at: string | null;
             metadata: Record<string, {title: string, content: string}>;
             rating: number | null;
@@ -340,54 +506,223 @@ declare global {
             attachment_count: number;
             attachment_exists: boolean;
         }
-        /**
-         * Child model that uses SharedExtendsTrait directly AND extends a parent that also uses it.
-         * SharedModelInterface should appear only once despite being reachable via two paths.
-         */
-        export interface ChildSharedExtendableModel extends SharedModelInterface {
+        export interface Product {
             // Columns
-            id: number;
+            id: string;
             name: string;
-            email: string;
-            email_verified_at: string | null;
-            password: string;
-            options: string | null;
-            remember_token: string | null;
+            slug: string;
+            sku: string;
+            description: string | null;
+            price: number;
+            compare_at_price: number | null;
+            cost_price: number | null;
+            quantity: number;
+            weight: number | null;
+            dimensions: { length: number; width: number; height: number; unit: "cm" | "in" };
+            is_active: boolean;
+            is_featured: boolean;
+            published_at: string | null;
+            metadata: ProductMetadata | ProductJsonMetaData | null;
             created_at: string | null;
             updated_at: string | null;
-            role: string | null;
-            membership_level: string | null;
-            phone: string | null;
-            avatar: string | null;
-            bio: string | null;
-            settings: string | null;
-            last_login_at: string | null;
-            last_login_ip: string | null;
+            deleted_at: string | null;
+            // Mutators
+            /** Whether the product is on sale */
+            is_on_sale: boolean;
+            /** Discount percentage (0-100) or null */
+            discount_percentage: number | null;
+            /** Profit margin percentage */
+            profit_margin: number | null;
+            /** Whether the product is in stock */
+            in_stock: boolean;
+            // Relations
+            order_items: OrderItem[];
+            order_items_count: number;
+            order_items_exists: boolean;
+            /** Polymorphic many-to-many with tags */
+            tags: Tag[];
+            tags_count: number;
+            tags_exists: boolean;
+            /** Polymorphic one-to-many with images */
+            images: Image[];
+            images_count: number;
+            images_exists: boolean;
         }
-        export interface Address {
+        export interface Profile {
             // Columns
             id: number;
             user_id: number;
-            label: string | null;
-            line_1: string;
-            line_2: string | null;
-            city: string;
-            state: string | null;
-            postal_code: string;
-            country_code: string;
-            latitude?: number | null;
-            longitude: number | null;
-            is_default: boolean;
+            bio: string | null;
+            avatar_url: string | null;
+            date_of_birth: string | null;
+            website: string | null;
+            phone_number: string | null;
+            social_links: { twitter?: string; github?: string; linkedin?: string; website?: string };
+            settings: { notifications_enabled: boolean; theme: "light" | "dark"; language: string };
+            menu_settings: MenuSettingsType | null;
+            timezone: string;
+            locale: string;
             created_at: string | null;
             updated_at: string | null;
             // Mutators
-            /** Whether coordinates are available */
-            has_coordinates: boolean;
-            full_address: string | null;
+            /** Computed age from date_of_birth */
+            age: number | null;
+            /** Full display name combining user name and bio snippet */
+            display_summary: string;
+            /** Write-only mutator — normalizes phone number on set, no get */
+            normalized_phone: unknown;
+            /** Old-style mutator for avatar URL capitalization */
+            formatted_bio: string;
             // Relations
             user: User;
             user_count: number;
             user_exists: boolean;
+        }
+        /**
+         * Base fixture for ModelAttributeResolver::refineWithPropertyDocblock()'s
+         * parent-class walk. `tags` casts to plain `array` (vague on its own); this
+         * class's own `@property` tag refines it to a typed Record.
+         */
+        export interface PropertyDocblockBase {
+            // Columns
+            id: number;
+            tags: Record<string, string> | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+        }
+        /**
+         * Child of PropertyDocblockBase that redeclares `@property` for the same
+         * `tags` column with a different shape. Proves refineWithPropertyDocblock()
+         * walks the reflection chain child-first — this class's own tag must win
+         * over the parent's, not merely be found alongside it.
+         */
+        export interface PropertyDocblockChild {
+            // Columns
+            id: number;
+            tags: string[] | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+        }
+        /**
+         * Exercises the guardrails of ModelAttributeResolver::refineWithPropertyDocblock():
+         *
+         * - `related_users` has only a `@property-write` tag, which describes a setter
+         * type and must never be used to type a readable property. Its own docblock
+         * line also carries a description mentioning `$related_users` a second time
+         * (see `label` below) — the real tag for `related_users` must still be the
+         * one found, not a description bleeding across from a different tag.
+         * - `meta_info` has no matching tag at all — the `@property $meta` tag below is
+         * a shorter, unrelated name and must not match a longer column name it
+         * happens to prefix.
+         * - `owner_snapshot` has a real `@property-read` tag naming a Model class,
+         * proving the refinement produces a correctly-imported class token — not
+         * just scalars and generic containers — and that `-read` is accepted
+         * alongside the bare `@property` tag.
+         * - `label` is not a real column; its tag exists only so its own description
+         * text ("...the $related_users value") sits next to a *different* tag's
+         * variable name in the same docblock. A type capture that isn't anchored
+         * to stop at `$` could walk straight through `$label`'s own marker and the
+         * whole description, then wrongly claim it as `related_users`'s type.
+         * - `tags` is cast to plain `array` and tagged with an unrecognized generic
+         * container (`LengthAwarePaginator` isn't a Collection/array/list type
+         * resolveGenericContainerType() knows how to unwrap). The resolved type
+         * still contains `<` after name resolution, and must degrade to the
+         * pre-existing vague type rather than fall into toTsType()'s partial
+         * string matching, where the literal "int" inside would otherwise resolve
+         * to `number`.
+         */
+        export interface PropertyDocblockEdge {
+            // Columns
+            id: number;
+            tags: unknown[] | null;
+            related_users: unknown[] | null;
+            meta_info: unknown[] | null;
+            owner_snapshot: User | null;
+            created_at: string | null;
+            updated_at: string | null;
+        }
+        /**
+         * A help-desk ticket linked to a customer Order and optionally assigned to a CRM agent.
+         *
+         * Exercises the inline model FQCN collision scenario: two relations to classes with the
+         * same basename (App\Models\User via order.user and Crm\Models\User via crm_agent) force
+         * import aliasing. The `order_requester` property is an inline object produced by
+         * `$this->order?->only(['user'])`, whose nested model token must be rewritten via
+         * the inlineModelFqcns tracking path.
+         */
+        export interface ServiceDesk {
+            // Columns
+            id: number;
+            title: string;
+            order_id: number;
+            crm_agent_id: number | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            /** The customer order this desk ticket belongs to. */
+            order: Order;
+            order_count: number;
+            order_exists: boolean;
+            /** The CRM user assigned as the support agent (optional). */
+            crm_agent: User | null;
+            crm_agent_count: number;
+            crm_agent_exists: boolean;
+        }
+        export interface SlugPost {
+            // Columns
+            id: number;
+            title: string;
+            content: string;
+            user_id: number;
+            status: number;
+            published_at: string | null;
+            metadata: unknown | null;
+            rating: number | null;
+            category: string;
+            options: string | null;
+            deleted_at: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            category_id: number | null;
+            visibility: string | null;
+            priority: number | null;
+            word_count: number | null;
+            reading_time_minutes: number | null;
+            featured_image_url: string | null;
+            is_pinned: number;
+        }
+        export interface StrictCompositeComment {
+            // Columns
+            id: number;
+            body: string;
+            commentable_type: string;
+            commentable_id_1: number;
+            commentable_id_2: number;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            commentable: unknown | null;
+            commentable_count: number;
+            commentable_exists: boolean;
+        }
+        export interface StrictTaskAssignment {
+            // Columns
+            id: number;
+            title: string;
+            team_id: number;
+            category_id: number;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            assignee: TaskOwner;
+            assignee_count: number;
+            assignee_exists: boolean;
         }
         export interface Tag {
             // Columns
@@ -406,6 +741,19 @@ declare global {
             products: Product[];
             products_count: number;
             products_exists: boolean;
+        }
+        export interface TaskAssignment {
+            // Columns
+            id: number;
+            title: string;
+            team_id: number;
+            category_id: number | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            assignee: TaskOwner | null;
+            assignee_count: number;
+            assignee_exists: boolean;
         }
         export interface TaskOwner {
             // Columns
@@ -431,29 +779,65 @@ declare global {
             task_assignments_count: number;
             task_assignments_exists: boolean;
         }
-        export interface OrderItem {
+        export interface Team {
             // Columns
             id: number;
-            order_id: number;
-            product_id: string;
             name: string;
-            sku: string;
-            quantity: number;
-            unit_price: number;
-            total_price: number;
-            options: Record<string, string | number | boolean> | null;
+            slug: string;
+            description: string | null;
+            owner_id: number;
+            is_active: boolean;
+            settings: unknown[] | null;
+            created_at: string | null;
+            updated_at: string | null;
+            deleted_at: string | null;
+            // Mutators
+            /** Whether the team has any members */
+            has_member: boolean;
+            /** Number of members */
+            member_count: number;
+            // Relations
+            /** The user who owns this team */
+            owner: User;
+            owner_count: number;
+            owner_exists: boolean;
+            /** Members of the team (pivot includes role and joined_at) */
+            members: User[];
+            members_count: number;
+            members_exists: boolean;
+        }
+        export interface TrackingEvent {
+            // Columns
+            id: number;
+            shipment_id: number;
+            status: string;
+            location: string | null;
+            description: string | null;
+            occurred_at: string;
             created_at: string | null;
             updated_at: string | null;
             // Mutators
-            /** Line item subtotal computed from quantity × unit_price */
-            subtotal: number;
-            // Relations
-            order: Order;
-            order_count: number;
-            order_exists: boolean;
-            product: Product;
-            product_count: number;
-            product_exists: boolean;
+            changes: { attributes: Record<string, unknown>; old: Record<string, unknown> };
+            diff: unknown[] | Record<string, unknown>;
+        }
+        /**
+         * Exercises the ModelTransformer unknown-type fallback paths
+         * using untyped SQLite columns.
+         */
+        export interface UntypedColumn {
+            // Columns
+            id: number | null;
+            /**
+             * Accessor with no return type on the getter closure — resolves to unknown,
+             * exercises the 'attribute'/'accessor' match arm
+             */
+            accessor_col: unknown | null;
+            cast_col: unknown | null;
+            /**
+             * Accessor with no return type on an untyped nullable column — exercises
+             * the nullable fallback (appends ' | null').
+             */
+            nullable_accessor_col: unknown | null;
         }
         /** Application user account */
         export interface User {
@@ -512,150 +896,6 @@ declare global {
             notifications_count: number;
             notifications_exists: boolean;
         }
-        export interface ModelWithNestedTraitExtends extends TraitInterface {
-            // Columns
-            id: number;
-            name: string;
-            email: string;
-            email_verified_at: string | null;
-            password: string;
-            options: string | null;
-            remember_token: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            role: string | null;
-            membership_level: string | null;
-            phone: string | null;
-            avatar: string | null;
-            bio: string | null;
-            settings: string | null;
-            last_login_at: string | null;
-            last_login_ip: string | null;
-        }
-        export interface BaseExtendableModel extends ParentModelInterface {
-        }
-        /**
-         * Exercises the guardrails of ModelAttributeResolver::refineWithPropertyDocblock():
-         *
-         * - `related_users` has only a `@property-write` tag, which describes a setter
-         * type and must never be used to type a readable property. Its own docblock
-         * line also carries a description mentioning `$related_users` a second time
-         * (see `label` below) — the real tag for `related_users` must still be the
-         * one found, not a description bleeding across from a different tag.
-         * - `meta_info` has no matching tag at all — the `@property $meta` tag below is
-         * a shorter, unrelated name and must not match a longer column name it
-         * happens to prefix.
-         * - `owner_snapshot` has a real `@property-read` tag naming a Model class,
-         * proving the refinement produces a correctly-imported class token — not
-         * just scalars and generic containers — and that `-read` is accepted
-         * alongside the bare `@property` tag.
-         * - `label` is not a real column; its tag exists only so its own description
-         * text ("...the $related_users value") sits next to a *different* tag's
-         * variable name in the same docblock. A type capture that isn't anchored
-         * to stop at `$` could walk straight through `$label`'s own marker and the
-         * whole description, then wrongly claim it as `related_users`'s type.
-         * - `tags` is cast to plain `array` and tagged with an unrecognized generic
-         * container (`LengthAwarePaginator` isn't a Collection/array/list type
-         * resolveGenericContainerType() knows how to unwrap). The resolved type
-         * still contains `<` after name resolution, and must degrade to the
-         * pre-existing vague type rather than fall into toTsType()'s partial
-         * string matching, where the literal "int" inside would otherwise resolve
-         * to `number`.
-         */
-        export interface PropertyDocblockEdge {
-            // Columns
-            id: number;
-            tags: unknown[] | null;
-            related_users: unknown[] | null;
-            meta_info: unknown[] | null;
-            owner_snapshot: User | null;
-            created_at: string | null;
-            updated_at: string | null;
-        }
-        export interface BaseSharedExtendableModel extends SharedModelInterface {
-            // Columns
-            id: number;
-            name: string;
-            email: string;
-            email_verified_at: string | null;
-            password: string;
-            options: string | null;
-            remember_token: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            role: string | null;
-            membership_level: string | null;
-            phone: string | null;
-            avatar: string | null;
-            bio: string | null;
-            settings: string | null;
-            last_login_at: string | null;
-            last_login_ip: string | null;
-        }
-        export interface TaskAssignment {
-            // Columns
-            id: number;
-            title: string;
-            team_id: number;
-            category_id: number | null;
-            created_at: string | null;
-            updated_at: string | null;
-            // Relations
-            assignee: TaskOwner | null;
-            assignee_count: number;
-            assignee_exists: boolean;
-        }
-        /** Model with excluded mutator and relation via #[TsExclude]. */
-        export interface ExcludableModel {
-            // Columns
-            id: number;
-            name: string;
-            email: string;
-            email_verified_at: string | null;
-            password: string;
-            options: string | null;
-            remember_token: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            role: string | null;
-            membership_level: string | null;
-            phone: string | null;
-            avatar: string | null;
-            bio: string | null;
-            settings: string | null;
-            last_login_at: string | null;
-            last_login_ip: string | null;
-            // Mutators
-            /** Included mutator — should appear in TS output */
-            display_name: string;
-            // Relations
-            /** Included relation — should appear in TS output */
-            posts: Post[];
-            posts_count: number;
-            posts_exists: boolean;
-        }
-        export interface Comment {
-            // Columns
-            id: number;
-            content: string;
-            post_id: number;
-            user_id: number;
-            is_flagged: boolean;
-            flagged_at: string | null;
-            metadata: Record<string, unknown>;
-            created_at: string | null;
-            updated_at: string | null;
-            // Mutators
-            /** Short preview of the comment */
-            preview: string;
-            // Relations
-            post: Post;
-            post_count: number;
-            post_exists: boolean;
-            user: User;
-            user_count: number;
-            user_exists: boolean;
-        }
         export interface UuidPost {
             // Columns
             id: number;
@@ -678,77 +918,6 @@ declare global {
             reading_time_minutes: number | null;
             featured_image_url: string | null;
             is_pinned: number;
-        }
-        export interface Profile {
-            // Columns
-            id: number;
-            user_id: number;
-            bio: string | null;
-            avatar_url: string | null;
-            date_of_birth: string | null;
-            website: string | null;
-            phone_number: string | null;
-            social_links: { twitter?: string; github?: string; linkedin?: string; website?: string };
-            settings: { notifications_enabled: boolean; theme: "light" | "dark"; language: string };
-            menu_settings: MenuSettingsType | null;
-            timezone: string;
-            locale: string;
-            created_at: string | null;
-            updated_at: string | null;
-            // Mutators
-            /** Computed age from date_of_birth */
-            age: number | null;
-            /** Full display name combining user name and bio snippet */
-            display_summary: string;
-            /** Write-only mutator — normalizes phone number on set, no get */
-            normalized_phone: unknown;
-            /** Old-style mutator for avatar URL capitalization */
-            formatted_bio: string;
-            // Relations
-            user: User;
-            user_count: number;
-            user_exists: boolean;
-        }
-        /**
-         * A help-desk ticket linked to a customer Order and optionally assigned to a CRM agent.
-         *
-         * Exercises the inline model FQCN collision scenario: two relations to classes with the
-         * same basename (App\Models\User via order.user and Crm\Models\User via crm_agent) force
-         * import aliasing. The `order_requester` property is an inline object produced by
-         * `$this->order?->only(['user'])`, whose nested model token must be rewritten via
-         * the inlineModelFqcns tracking path.
-         */
-        export interface ServiceDesk {
-            // Columns
-            id: number;
-            title: string;
-            order_id: number;
-            crm_agent_id: number | null;
-            created_at: string | null;
-            updated_at: string | null;
-            // Relations
-            /** The customer order this desk ticket belongs to. */
-            order: Order;
-            order_count: number;
-            order_exists: boolean;
-            /** The CRM user assigned as the support agent (optional). */
-            crm_agent: User | null;
-            crm_agent_count: number;
-            crm_agent_exists: boolean;
-        }
-        export interface StrictCompositeComment {
-            // Columns
-            id: number;
-            body: string;
-            commentable_type: string;
-            commentable_id_1: number;
-            commentable_id_2: number;
-            created_at: string | null;
-            updated_at: string | null;
-            // Relations
-            commentable: unknown | null;
-            commentable_count: number;
-            commentable_exists: boolean;
         }
         export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" | "updated_by"> {
             // Columns
@@ -789,175 +958,6 @@ declare global {
             secondary_contact_count: number;
             secondary_contact_exists: boolean;
         }
-        export interface StrictTaskAssignment {
-            // Columns
-            id: number;
-            title: string;
-            team_id: number;
-            category_id: number;
-            created_at: string | null;
-            updated_at: string | null;
-            // Relations
-            assignee: TaskOwner;
-            assignee_count: number;
-            assignee_exists: boolean;
-        }
-        export interface ModelWithParentExtends extends ParentModelInterface {
-            // Columns
-            id: number;
-            name: string;
-            email: string;
-            email_verified_at: string | null;
-            password: string;
-            options: string | null;
-            remember_token: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            role: string | null;
-            membership_level: string | null;
-            phone: string | null;
-            avatar: string | null;
-            bio: string | null;
-            settings: string | null;
-            last_login_at: string | null;
-            last_login_ip: string | null;
-        }
-        export interface Attachment {
-            // Columns
-            id: number;
-            attachable_type: string;
-            attachable_id: number;
-            filename: string;
-            size_bytes: number;
-            created_at: string | null;
-            updated_at: string | null;
-            // Relations
-            /** Polymorphic parent (Post and friends) */
-            attachable: Post;
-            attachable_count: number;
-            attachable_exists: boolean;
-        }
-        /**
-         * Base fixture for ModelAttributeResolver::refineWithPropertyDocblock()'s
-         * parent-class walk. `tags` casts to plain `array` (vague on its own); this
-         * class's own `@property` tag refines it to a typed Record.
-         */
-        export interface PropertyDocblockBase {
-            // Columns
-            id: number;
-            tags: Record<string, string> | null;
-            related_users: string | null;
-            meta_info: string | null;
-            owner_snapshot: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-        }
-        export interface ModelWithTraitExtends extends TraitInterface {
-            // Columns
-            id: number;
-            name: string;
-            email: string;
-            email_verified_at: string | null;
-            password: string;
-            options: string | null;
-            remember_token: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            role: string | null;
-            membership_level: string | null;
-            phone: string | null;
-            avatar: string | null;
-            bio: string | null;
-            settings: string | null;
-            last_login_at: string | null;
-            last_login_ip: string | null;
-        }
-        export interface SlugPost {
-            // Columns
-            id: number;
-            title: string;
-            content: string;
-            user_id: number;
-            status: number;
-            published_at: string | null;
-            metadata: unknown | null;
-            rating: number | null;
-            category: string;
-            options: string | null;
-            deleted_at: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            category_id: number | null;
-            visibility: string | null;
-            priority: number | null;
-            word_count: number | null;
-            reading_time_minutes: number | null;
-            featured_image_url: string | null;
-            is_pinned: number;
-        }
-        export interface Image {
-            // Columns
-            id: number;
-            imageable_type: string;
-            imageable_id: number;
-            url: string;
-            alt_text: string | null;
-            disk: string;
-            path: string;
-            mime_type: string;
-            size_bytes: number;
-            width: number | null;
-            height: number | null;
-            sort_order: number;
-            metadata: unknown[] | null;
-            created_at: string | null;
-            updated_at: string | null;
-            // Mutators
-            /** Human-readable file size */
-            size_for_humans: string;
-            /** Whether the image is landscape orientation */
-            is_landscape: boolean;
-            /** Aspect ratio as a string (e.g. "16:9") or null if dimensions not set */
-            aspect_ratio: string | null;
-            extension: string | null;
-            /** This is the size test to parse from the docblock in the test for accessor type resolution. */
-            size: number;
-            flexible_id: string | number | null;
-            optional_label: string | null;
-            status_from_docblock: crm.enums.StatusType | null;
-            uploader_from_docblock: User | null;
-            config_from_docblock: MenuSettingsType;
-            data_from_docblock: unknown[];
-            uploaders_from_docblock: User[] | Record<string, User>;
-            tree_from_docblock: { label: string; child: unknown[] };
-            price_from_docblock: { amount: number; currency: string };
-            label_from_docblock: string;
-            no_docblock_accessor: unknown;
-            wrong_format_docblock: string | null;
-            positive_int_accessor: number;
-            numeric_string_accessor: string;
-            // Relations
-            /** Polymorphic parent (Product, Post, User, etc.) */
-            imageable: Post | Product | User | crm.models.User;
-            imageable_count: number;
-            imageable_exists: boolean;
-        }
-        /**
-         * Child of PropertyDocblockBase that redeclares `@property` for the same
-         * `tags` column with a different shape. Proves refineWithPropertyDocblock()
-         * walks the reflection chain child-first — this class's own tag must win
-         * over the parent's, not merely be found alongside it.
-         */
-        export interface PropertyDocblockChild {
-            // Columns
-            id: number;
-            tags: string[] | null;
-            related_users: string | null;
-            meta_info: string | null;
-            owner_snapshot: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-        }
     }
     export namespace app.models.admin {
         export interface Store {
@@ -977,22 +977,6 @@ declare global {
         }
     }
     export namespace blog.models {
-        export interface Reaction {
-            // Columns
-            id: number;
-            article_id: number;
-            user_id: number;
-            emoji: string;
-            created_at: string | null;
-            updated_at: string | null;
-            // Relations
-            article: Article;
-            article_count: number;
-            article_exists: boolean;
-            user: crm.models.User;
-            user_count: number;
-            user_exists: boolean;
-        }
         export interface Article {
             // Columns
             id: number;
@@ -1011,29 +995,31 @@ declare global {
             updated_at: string | null;
             deleted_at: string | null;
             // Relations
-            author: crm.models.User;
+            author: app.models.User;
             author_count: number;
             author_exists: boolean;
             reactions: Reaction[];
             reactions_count: number;
             reactions_exists: boolean;
         }
-    }
-    export namespace crm.models {
-        export interface User {
+        export interface Reaction {
             // Columns
             id: number;
-            name: string;
-            email: string;
-            company: string | null;
-            status: crm.enums.StatusType;
+            article_id: number;
+            user_id: number;
+            emoji: string;
             created_at: string | null;
             updated_at: string | null;
             // Relations
-            images: app.models.Image[];
-            images_count: number;
-            images_exists: boolean;
+            article: Article;
+            article_count: number;
+            article_exists: boolean;
+            user: app.models.User;
+            user_count: number;
+            user_exists: boolean;
         }
+    }
+    export namespace crm.models {
         export interface Deal {
             // Columns
             id: number;
@@ -1055,6 +1041,20 @@ declare global {
             admin_count: number;
             admin_exists: boolean;
         }
+        export interface User {
+            // Columns
+            id: number;
+            name: string;
+            email: string;
+            company: string | null;
+            status: app.enums.StatusType;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            images: app.models.Image[];
+            images_count: number;
+            images_exists: boolean;
+        }
     }
     export namespace illuminate.notifications {
         export interface DatabaseNotification {
@@ -1069,7 +1069,7 @@ declare global {
             updated_at: string | null;
             // Relations
             /** Get the notifiable entity that the notification belongs to. */
-            notifiable: crm.models.User;
+            notifiable: app.models.User;
             notifiable_count: number;
             notifiable_exists: boolean;
         }
@@ -1145,134 +1145,6 @@ declare global {
         export type PaymentStatusKind = 'Pending' | 'Completed' | 'Failed' | 'Refunded';
     }
     export namespace app.enums {
-        /** String-backed enum with no attributes at all — tests the simplest backed enum path. */
-        export interface PaymentMethod
-        {
-            CreditCard: 'credit_card',
-            DebitCard: 'debit_card',
-            PayPal: 'paypal',
-            BankTransfer: 'bank_transfer',
-            CashOnDelivery: 'cash_on_delivery',
-            Crypto: 'crypto',
-            ApplePay: 'apple_pay',
-            GooglePay: 'google_pay',
-        }
-        export type PaymentMethodType = 'credit_card' | 'debit_card' | 'paypal' | 'bank_transfer' | 'cash_on_delivery' | 'crypto' | 'apple_pay' | 'google_pay';
-        export type PaymentMethodKind = 'CreditCard' | 'DebitCard' | 'PayPal' | 'BankTransfer' | 'CashOnDelivery' | 'Crypto' | 'ApplePay' | 'GooglePay';
-
-        /**
-         * Pure unit enum with no attributes and no methods.
-         * Tests the absolute minimal enum path.
-         */
-        export interface MembershipLevel
-        {
-            Free: 'Free',
-            Basic: 'Basic',
-            Premium: 'Premium',
-            Enterprise: 'Enterprise',
-        }
-        export type MembershipLevelType = 'Free' | 'Basic' | 'Premium' | 'Enterprise';
-
-        /**
-         * Enum with methods excluded via #[TsExclude] — tests method-level exclusion
-         * when auto_include is enabled and when explicit attributes are present.
-         */
-        export interface ExcludableEnum
-        {
-            Alpha: 'alpha',
-            Beta: 'beta',
-        }
-        export type ExcludableEnumType = 'alpha' | 'beta';
-        export type ExcludableEnumKind = 'Alpha' | 'Beta';
-
-        /** Int-backed enum with instance methods that return different types per case. */
-        export interface Priority
-        {
-            Low: 0,
-            Medium: 1,
-            High: 2,
-            Critical: 3,
-        }
-        export type PriorityType = 0 | 1 | 2 | 3;
-        export type PriorityKind = 'Low' | 'Medium' | 'High' | 'Critical';
-
-        /** The four seasons of the year */
-        export interface Season
-        {
-            Spring: 'spring',
-            Summer: 'summer',
-            Autumn: 'autumn',
-            Winter: 'winter',
-        }
-        export type SeasonType = 'spring' | 'summer' | 'autumn' | 'winter';
-        export type SeasonKind = 'Spring' | 'Summer' | 'Autumn' | 'Winter';
-
-        /**
-         * Pure unit enum (no backing type) — tests that the publisher handles unit enums
-         * where case names become the values in TypeScript.
-         */
-        export interface Visibility
-        {
-            Public: 'Public',
-            Private: 'Private',
-            Protected: 'Protected',
-            Internal: 'Internal',
-            Draft: 'Draft',
-        }
-        export type VisibilityType = 'Public' | 'Private' | 'Protected' | 'Internal' | 'Draft';
-
-        /** String-backed enum with both instance and static methods. */
-        export interface MediaType
-        {
-            Image: 'image',
-            Video: 'video',
-            Audio: 'audio',
-            Document: 'document',
-            Archive: 'archive',
-        }
-        export type MediaTypeType = 'image' | 'video' | 'audio' | 'document' | 'archive';
-        export type MediaTypeKind = 'Image' | 'Video' | 'Audio' | 'Document' | 'Archive';
-
-        /**
-         * Int-backed enum with TsCase descriptions, instance methods, and static methods.
-         * Exercises the full attribute surface area in combination.
-         */
-        export interface OrderStatus
-        {
-            /** Order has been placed but not yet processed */
-            Pending: 0,
-            /** Order is being prepared */
-            Processing: 1,
-            /** Order has been shipped */
-            Shipped: 2,
-            /** Order has been delivered */
-            Delivered: 3,
-            /** Order was cancelled */
-            Cancelled: 4,
-            /** Order was refunded */
-            Refunded: 5,
-            /** Order is on hold */
-            OnHold: 6,
-        }
-        export type OrderStatusType = 0 | 1 | 2 | 3 | 4 | 5 | 6;
-        export type OrderStatusKind = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'OnHold';
-
-        export interface Role
-        {
-            Admin: 'Admin',
-            User: 'User',
-            Guest: 'Guest',
-        }
-        export type RoleType = 'Admin' | 'User' | 'Guest';
-
-        export interface Status
-        {
-            Draft: 0,
-            Published: 1,
-        }
-        export type StatusType = 0 | 1;
-        export type StatusKind = 'Draft' | 'Published';
-
         /** String-backed enum with TsCase attribute overrides on individual cases. */
         export interface Color
         {
@@ -1301,18 +1173,136 @@ declare global {
         }
         export type CurrencyType = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CAD';
         export type CurrencyKind = 'Usd' | 'Eur' | 'Gbp' | 'Jpy' | 'Cad';
+
+        /**
+         * Enum with methods excluded via #[TsExclude] — tests method-level exclusion
+         * when auto_include is enabled and when explicit attributes are present.
+         */
+        export interface ExcludableEnum
+        {
+            Alpha: 'alpha',
+            Beta: 'beta',
+        }
+        export type ExcludableEnumType = 'alpha' | 'beta';
+        export type ExcludableEnumKind = 'Alpha' | 'Beta';
+
+        /** String-backed enum with both instance and static methods. */
+        export interface MediaType
+        {
+            Image: 'image',
+            Video: 'video',
+            Audio: 'audio',
+            Document: 'document',
+            Archive: 'archive',
+        }
+        export type MediaTypeType = 'image' | 'video' | 'audio' | 'document' | 'archive';
+        export type MediaTypeKind = 'Image' | 'Video' | 'Audio' | 'Document' | 'Archive';
+
+        /**
+         * Pure unit enum with no attributes and no methods.
+         * Tests the absolute minimal enum path.
+         */
+        export interface MembershipLevel
+        {
+            Free: 'Free',
+            Basic: 'Basic',
+            Premium: 'Premium',
+            Enterprise: 'Enterprise',
+        }
+        export type MembershipLevelType = 'Free' | 'Basic' | 'Premium' | 'Enterprise';
+
+        /**
+         * Int-backed enum with TsCase descriptions, instance methods, and static methods.
+         * Exercises the full attribute surface area in combination.
+         */
+        export interface OrderStatus
+        {
+            /** Order has been placed but not yet processed */
+            Pending: 0,
+            /** Order is being prepared */
+            Processing: 1,
+            /** Order has been shipped */
+            Shipped: 2,
+            /** Order has been delivered */
+            Delivered: 3,
+            /** Order was cancelled */
+            Cancelled: 4,
+            /** Order was refunded */
+            Refunded: 5,
+            /** Order is on hold */
+            OnHold: 6,
+        }
+        export type OrderStatusType = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+        export type OrderStatusKind = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'OnHold';
+
+        /** String-backed enum with no attributes at all — tests the simplest backed enum path. */
+        export interface PaymentMethod
+        {
+            CreditCard: 'credit_card',
+            DebitCard: 'debit_card',
+            PayPal: 'paypal',
+            BankTransfer: 'bank_transfer',
+            CashOnDelivery: 'cash_on_delivery',
+            Crypto: 'crypto',
+            ApplePay: 'apple_pay',
+            GooglePay: 'google_pay',
+        }
+        export type PaymentMethodType = 'credit_card' | 'debit_card' | 'paypal' | 'bank_transfer' | 'cash_on_delivery' | 'crypto' | 'apple_pay' | 'google_pay';
+        export type PaymentMethodKind = 'CreditCard' | 'DebitCard' | 'PayPal' | 'BankTransfer' | 'CashOnDelivery' | 'Crypto' | 'ApplePay' | 'GooglePay';
+
+        /** Int-backed enum with instance methods that return different types per case. */
+        export interface Priority
+        {
+            Low: 0,
+            Medium: 1,
+            High: 2,
+            Critical: 3,
+        }
+        export type PriorityType = 0 | 1 | 2 | 3;
+        export type PriorityKind = 'Low' | 'Medium' | 'High' | 'Critical';
+
+        export interface Role
+        {
+            Admin: 'Admin',
+            User: 'User',
+            Guest: 'Guest',
+        }
+        export type RoleType = 'Admin' | 'User' | 'Guest';
+
+        /** The four seasons of the year */
+        export interface Season
+        {
+            Spring: 'spring',
+            Summer: 'summer',
+            Autumn: 'autumn',
+            Winter: 'winter',
+        }
+        export type SeasonType = 'spring' | 'summer' | 'autumn' | 'winter';
+        export type SeasonKind = 'Spring' | 'Summer' | 'Autumn' | 'Winter';
+
+        export interface Status
+        {
+            Draft: 0,
+            Published: 1,
+        }
+        export type StatusType = 0 | 1;
+        export type StatusKind = 'Draft' | 'Published';
+
+        /**
+         * Pure unit enum (no backing type) — tests that the publisher handles unit enums
+         * where case names become the values in TypeScript.
+         */
+        export interface Visibility
+        {
+            Public: 'Public',
+            Private: 'Private',
+            Protected: 'Protected',
+            Internal: 'Internal',
+            Draft: 'Draft',
+        }
+        export type VisibilityType = 'Public' | 'Private' | 'Protected' | 'Internal' | 'Draft';
     }
     export namespace blog.enums {
-        export interface ContentType
-        {
-            Post: 'post',
-            Tutorial: 'tutorial',
-            Review: 'review',
-            News: 'news',
-        }
-        export type ContentTypeType = 'post' | 'tutorial' | 'review' | 'news';
-        export type ContentTypeKind = 'Post' | 'Tutorial' | 'Review' | 'News';
-
         export interface ArticleStatus
         {
             Draft: 'draft',
@@ -1322,6 +1312,16 @@ declare global {
         }
         export type ArticleStatusType = 'draft' | 'in_review' | 'published' | 'archived';
         export type ArticleStatusKind = 'Draft' | 'InReview' | 'Published' | 'Archived';
+
+        export interface ContentType
+        {
+            Post: 'post',
+            Tutorial: 'tutorial',
+            Review: 'review',
+            News: 'news',
+        }
+        export type ContentTypeType = 'post' | 'tutorial' | 'review' | 'news';
+        export type ContentTypeKind = 'Post' | 'Tutorial' | 'Review' | 'News';
     }
     export namespace crm.enums {
         export interface Status
@@ -1374,7 +1374,7 @@ declare global {
             due_at: string | null;
             issued_at?: string | null;
             paid_at?: string | null;
-            user?: crm.models.User;
+            user?: app.models.User;
             payments?: PaymentResource[];
             payments_count?: number;
             notes?: string | null;
@@ -1396,37 +1396,308 @@ declare global {
         }
     }
     export namespace app.http.resources {
-        /** Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape. */
-        export interface PostAttachmentFilterResource {
+        /**
+         * Exercises: reading model from @extends ParentClass<Model> in docblock
+         *
+         * Do not change, it needs to match the AddressMixinResource exactly
+         */
+        export interface AddressExtendsResource {
+            morphValue: string;
             id: number;
-            attachment: { id: number; filename: string; attachable: app.models.Post };
-        }
-        /** Resource for testing that $this->resource->prop on a model-backed resource resolves to the model attribute type. */
-        export interface ModelWrappedPropResource {
-            title: string;
+            full_address: string | null;
+            latitude?: number | null;
+            longitude?: number | null;
+            user?: app.models.User;
         }
         /**
-         * Exercises collection method chains rooted at a many-relation
-         * ($this->members->take(5)->map(...)->values()).
+         * Exercises: reading model from @mixin ModelClass in docblock
+         *
+         * Do not change, it needs to match the AddressExtendsResource exactly
          */
-        export interface RelationChainResource {
-            first_members: crm.models.User[];
-            member_cards: { id: number; name: string }[];
-            member_profiles: ({ id: number; role: app.enums.RoleType | null; owner: crm.models.User })[];
-            member_emails: string[];
-            member_roles: (app.enums.RoleType | null)[];
-            member_role_resources: app.enums.RoleType[];
-            member_names_upper: unknown;
-            member_formatted: unknown;
-            member_mapped_fcc: unknown;
-            member_plucked_fcc: unknown;
-            first_member: unknown;
-            members_sorted: crm.models.User[] | Record<string, crm.models.User>;
-            members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
-            members_tail: crm.models.User[] | Record<string, crm.models.User>;
-            members_sliced_emails: string[] | Record<string, string>;
-            members_keyed_by_id: string[] | Record<string, string>;
-            members_skipped: crm.models.User[];
+        export interface AddressMixinResource {
+            morphValue: string;
+            id: number;
+            full_address: string | null;
+            latitude?: number | null;
+            longitude?: number | null;
+            user?: app.models.User;
+        }
+        /** Mailing address resource */
+        export interface Address {
+            morphValue: string;
+            id: number;
+            label: string | null;
+            line_1: string;
+            line_2?: string | null;
+            city: string;
+            state: string | null;
+            postal_code: string;
+            country_code: string;
+            latitude?: number | null;
+            longitude?: number | null;
+            is_default: boolean;
+            user: { id: number; name: string };
+            coordinates: GeoPoint;
+            bounds: GeoBounds;
+        }
+        export interface ApiPostResource {
+            morphValue: string;
+            id: number;
+            title: string;
+            content: string;
+            status: app.enums.StatusType;
+            status_new: app.enums.StatusType;
+            visibility: app.enums.VisibilityType | null;
+            visibility_new: app.enums.VisibilityType | null;
+            priority: app.enums.PriorityType | null;
+            priority_new: app.enums.PriorityType | null;
+            comments: { id: number; content: string; user: app.models.User }[];
+            published: boolean;
+            rating_display: number;
+            word_count: string;
+            heading_content: unknown[];
+            publishable: boolean;
+            comments_count: number;
+            is_featured: boolean;
+            category_is_first?: boolean | null;
+            category_is_active?: boolean | null;
+            category_breadcrumb?: string | null;
+            comments_resolved?: CommentResource[];
+            post_class_name: string;
+            post_table_name: string;
+            category_class_name?: string;
+            category_table_name?: string;
+        }
+        /** Fixture resource exercising bare function call spreads (without $this->). */
+        export interface BareFuncCallResource {
+            morphValue: string;
+            id: number;
+            computed: string;
+            date_val: string;
+            custom_val: CustomObject;
+            plain: string;
+            basic: string;
+            firstName: string;
+            lastName: string;
+            isActive: boolean;
+            location: GeoPoint;
+            flag?: string | null;
+            extra: Record<string, unknown>;
+        }
+        /** Parent resource that uses SharedExtendsInterface — tests BFS dedup when child also uses the same trait. */
+        export interface BaseSharedResource extends SharedInterface {
+        }
+        /** Exercises comparison and boolean operator expressions. */
+        export interface BooleanExprResource {
+            is_recent: boolean;
+            is_equal: boolean;
+            is_large: boolean;
+            both: boolean;
+            negated: boolean;
+            is_order: boolean;
+            has_notes: boolean;
+            no_notes: boolean;
+            compared: number;
+            price_float: number;
+            user_bio?: string | null;
+        }
+        /**
+         * Exercises: self-referencing Resource::make and Resource::collection,
+         * when conditional, whenCounted, cross-resource PostResource::collection.
+         */
+        export interface CategoryResource {
+            id: number;
+            name: string;
+            slug: string;
+            description?: string | null;
+            sort_order: number;
+            is_active: boolean;
+            parent?: CategoryResource;
+            children?: CategoryResource[];
+            posts?: PostResource[];
+            posts_count?: number;
+            children_self_collection: CategoryResource[];
+            children_self_resource_collection: CategoryResource[];
+            children_self_collection_first_callable: CategoryResource[];
+            children_when_self_collection?: CategoryResource[];
+            children_when_self_resource_collection?: CategoryResource[];
+            children_when_self_collection_first_callable?: CategoryResource[];
+            parent_self: CategoryResource;
+            parent_make_self: CategoryResource;
+            parent_resource_self: CategoryResource;
+            parent_when_self?: CategoryResource;
+            parent_when_resource_self?: CategoryResource;
+        }
+        /**
+         * Child resource that uses SharedExtendsInterface AND extends a parent that also uses it.
+         * SharedExtendsInterface should appear only once in the result despite being reachable via two paths.
+         */
+        export interface ChildSharedResource extends SharedInterface {
+        }
+        /**
+         * Exercises closure control-flow paths in collectReturnExpressions:
+         * elseif, else, switch, try/catch/finally, foreach, and do-while.
+         */
+        export interface ClosureControlFlowResource {
+            id: number;
+            buyer_info?: { role: string; name: string };
+            status_label?: { label: string };
+            safe_total?: { amount: number };
+            tags?: { first_item: string } | { first_item: null };
+            retry_result?: { attempted: boolean };
+        }
+        /** A closure parameter that shadows a top-level local must not resolve through the outer binding. */
+        export interface ClosureParamShadowResource {
+            outer_member: unknown;
+            mapped_members: unknown;
+            loaded_owner?: unknown;
+        }
+        /**
+         * Exercises analyzeClosureUnion metadata propagation (enum, model, resource FQCNs)
+         * and analyzeRelatedModelMethodCall fallback (line 451).
+         */
+        export interface ClosureUnionMetadataResource {
+            id: number;
+            status_or_null?: app.enums.OrderStatusType | null;
+            nested_or_null?: TagResource | null;
+            user_titled?: string;
+            detail_or_null?: { tag: TagResource; name: string } | null;
+            items_or_null?: app.models.OrderItem[] | null;
+        }
+        export interface CommentResource {
+            id: number;
+            content: string;
+            is_flagged: boolean;
+            flagged_at?: string | null;
+            metadata: Record<string, unknown>;
+            author?: UserResource;
+            author_new?: UserResource;
+            author_direct: UserResource;
+            post?: PostResource;
+            post_new?: PostResource;
+            post_direct: PostResource;
+            post_limited: { id: number; title: string };
+            post_extended: { id: number; title: string; content: string; user_id: number; status: app.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: Record<string, string> | null; deleted_at: string | null; category_id: number | null; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: app.models.User; categoryRel: app.models.Category | null; comments: app.models.Comment[]; tags: app.models.Tag[]; images: app.models.Image[]; attachment: app.models.Attachment | null } | null;
+            post_title?: string;
+            post_content?: string | null;
+            post_title_display?: string | null;
+            post_author?: string | null;
+            post_resource_title?: string;
+            post_resource_content?: string | null;
+            post_resource_title_display?: string | null;
+            post_resource_author?: string | null;
+            user_name?: string;
+            user_email?: string;
+            user_email_annotated?: string | null;
+            unresolvable_status?: unknown;
+            resolvable_status?: app.enums.StatusType;
+            user_name_nullable?: string | null;
+            user_email_nullable?: string | null;
+            user_role: app.enums.RoleType | null;
+            user_profile: app.models.Profile | null;
+            user_profile_bio: string | null;
+            user_profile_avatar_url: string | null;
+        }
+        /**
+         * Exercises issue #38: closure parameter passed by the conditional method.
+         * Each field uses a single-param arrow function that returns an inline array literal.
+         *
+         * The bug: the analyzer resolves the return type as `unknown` instead of
+         * inferring the array shape `{ id: number; email: string; name: string }`.
+         */
+        export interface ConditionalParamArrayResource {
+            id: number;
+            user_summary?: { id: number; email: string; name: string };
+            notes_or_default?: string;
+            user_meta?: { profile: { name: string; email: string }; verified: boolean };
+            notes_when_null?: string;
+        }
+        /**
+         * Exercises issue #38: closure parameter passed by the conditional method,
+         * where the return expression wraps an enum in EnumResource::make() or returns it bare.
+         *
+         * The bug: the analyzer resolves the return type as `unknown` instead of
+         * recognising the enum type from the param or the EnumResource wrapper.
+         */
+        export interface ConditionalParamEnumResource {
+            id: number;
+            status_resource?: app.enums.OrderStatusType;
+            status_bare?: app.enums.OrderStatusType;
+            currency_resource?: app.enums.CurrencyType;
+            user_role?: app.enums.RoleType;
+        }
+        /**
+         * Exercises issue #38 using non-arrow (full) closures with a parameter.
+         * Covers primitives, arrays, resources, enums, and guard-clause patterns —
+         * all using `function ($param) { return ...; }` syntax rather than arrow fns.
+         *
+         * The bug: the analyzer resolves the return type of these closures as `unknown`
+         * regardless of the return expression when a parameter is present.
+         */
+        export interface ConditionalParamFullClosureResource {
+            id: number;
+            user_name?: string;
+            user_summary?: { id: number; email: string };
+            items_mapped?: { id: number; name: string; quantity: number }[];
+            user_resource?: UserResource;
+            status_resource?: app.enums.OrderStatusType;
+            shipping_safe?: { name: string; email: string } | null;
+        }
+        /**
+         * Exercises issue #38: closure parameter passed by the conditional method,
+         * where the return expression is a JsonResource make() or collection() call.
+         *
+         * The bug: the analyzer resolves the return type as `unknown` instead of
+         * inferring the resource type (e.g. UserResource or OrderItemResource[]).
+         */
+        export interface ConditionalParamJsonResourceResource {
+            id: number;
+            user?: UserResource;
+            items?: OrderItemResource[];
+            user_when?: UserResource;
+        }
+        /**
+         * Exercises issue #38: the exact bug pattern from the issue report.
+         * A closure receives the loaded relation as a parameter and calls ->map()
+         * with a nested inner closure that returns an array shape.
+         *
+         * The bug: the outer closure param return type resolves to `unknown` instead of
+         * inferring the mapped array shape `{ id: number; name: string; quantity: number }[]`.
+         */
+        export interface ConditionalParamMappedResource {
+            id: number;
+            items_mapped?: { id: number; name: string; quantity: number }[];
+            items_priced?: { id: number; sku: string; unit_price: number; total_price: number }[];
+            item_names?: string[];
+        }
+        /**
+         * Exercises issue #38: closure parameter passed by the conditional method.
+         * Each field uses a single-param arrow function that returns a scalar primitive.
+         *
+         * The bug: the analyzer resolves the return type of these closures as `unknown`
+         * instead of inferring the scalar type from the return expression.
+         */
+        export interface ConditionalParamPrimitiveResource {
+            id: number;
+            user_name?: string;
+            user_id?: number;
+            user_verified?: boolean;
+            notes_upper?: string;
+            notes_length?: number;
+        }
+        /**
+         * Exercises collectDirectReturns elseif, else, and loop branches
+         * in the main toArray() body (not inside closures).
+         */
+        export interface ControlFlowReturnResource {
+            id: number;
+            archived?: boolean;
+            draft?: boolean;
+            total?: number;
+            status?: app.enums.OrderStatusType;
+        }
+        /** Resource that delegates to parent — tests non-array return guard. */
+        export interface DelegatingResource {
         }
         /** Resource that delegates to parent with a known model — tests JsonResource base delegation. */
         export interface DelegatingWithMixinResource {
@@ -1459,6 +1730,89 @@ declare global {
             images: app.models.Image[];
             notifications: illuminate.notifications.DatabaseNotification[];
         }
+        /** Resource with no toArray override — tests guard clause. */
+        export interface EmptyResource {
+        }
+        /** Resource with no toArray override but a known model — tests implicit delegation. */
+        export interface EmptyWithMixinResource {
+            id: number;
+            name: string;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: Record<string, unknown> | null;
+            remember_token: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            role: app.enums.RoleType | null;
+            membership_level: app.enums.MembershipLevelType | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: { theme: "light" | "dark"; notifications: boolean; locale: string } | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
+            initials: string;
+            is_premium: boolean;
+            profile: app.models.Profile | null;
+            posts: app.models.Post[];
+            comments: app.models.Comment[];
+            orders: app.models.Order[];
+            addresses: Address[];
+            teams: app.models.Team[];
+            ownedTeams: app.models.Team[];
+            images: app.models.Image[];
+            notifications: illuminate.notifications.DatabaseNotification[];
+        }
+        /** Resource for testing @var null|Type docblock ordering (null-first convention). */
+        export interface EnumNullFirstResource {
+            value: string;
+        }
+        /**
+         * Resource with non-conventional name — tests #[UseResource] attribute model resolution.
+         *
+         * The backing model (TrackingEvent) uses #[UseResource(EventLogResource::class)]
+         * to point to this resource since it can't be found by naming convention.
+         */
+        export interface EventLogResource {
+            id: number;
+            description: string | null;
+        }
+        /** Exercises: parent spread inheriting customImports from parent trait TsCasts. */
+        export interface ExtendedAddressResource {
+            id: number;
+            computed: string;
+            date_val: string;
+            custom_val: CustomObject;
+            plain: string;
+            basic: string;
+            firstName: string;
+            lastName: string;
+            isActive: boolean;
+            location: GeoPoint;
+            flag?: string | null;
+            extra: Record<string, unknown>;
+            extra_field: string;
+        }
+        /** Resource using FQCN @mixin — tests resolveModelClass FQCN branch. */
+        export interface FqcnMixinResource {
+            id: number;
+            total: number;
+        }
+        /**
+         * Exercises the bug where resolveClosureReturnExpression() picks the first
+         * Return_ statement in a closure — which is the guard-clause `return null`
+         * instead of the actual data array.
+         *
+         * The closure has:
+         * if (! $this->user) { return null; }  ← guard clause (first return)
+         * return [ 'name' => ..., 'email' => ... ];  ← actual data (should be picked)
+         */
+        export interface GuardClauseClosureResource {
+            id: number;
+            total: number;
+            buyer?: { name: string; email: string } | null;
+        }
         /**
          * Exercises userland global-helper reflection (route()), Carbon
          * receiver-method inference on a datetime-cast attribute, and the
@@ -1490,6 +1844,296 @@ declare global {
             to_immutable: string;
             user_key: unknown;
         }
+        /** Same morphTo union, reached through the model-delegated analysis rather than an array literal. */
+        export interface ImageDelegatedResource {
+            id: number;
+            imageable_type: string;
+            imageable_id: number;
+            url: string;
+            alt_text: string | null;
+            disk: string;
+            path: string;
+            mime_type: string;
+            size_bytes: number;
+            width: number | null;
+            height: number | null;
+            sort_order: number;
+            metadata: unknown[] | null;
+            created_at: string | null;
+            updated_at: string | null;
+            size_for_humans: string;
+            is_landscape: boolean;
+            aspect_ratio: string | null;
+            extension: string | null;
+            size: number;
+            flexible_id: string | number | null;
+            optional_label: string | null;
+            status_from_docblock: app.enums.StatusType | null;
+            uploader_from_docblock: app.models.User | null;
+            config_from_docblock: MenuSettingsType;
+            data_from_docblock: unknown[];
+            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
+            tree_from_docblock: { label: string; child: unknown[] };
+            price_from_docblock: { amount: number; currency: string };
+            label_from_docblock: string;
+            no_docblock_accessor: unknown;
+            wrong_format_docblock: string | null;
+            positive_int_accessor: number;
+            numeric_string_accessor: string;
+            imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
+        }
+        /** Exercises a morphTo relation exposed through a resource: the emitted union needs every parent imported. */
+        export interface ImageMorphResource {
+            id: number;
+            imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
+            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
+            imageable_when_loaded?: app.models.Post | app.models.Product | app.models.User | crm.models.User;
+        }
+        /** Exercises: whenNotNull on multiple nullable columns. */
+        export interface ImageResource {
+            id: number;
+            url: string;
+            alt_text: string | null;
+            mime_type: string;
+            size_bytes: number;
+            width?: number | null;
+            height?: number | null;
+        }
+        /**
+         * Exercises analyzeInlineArray embeddedModelFqcns and embeddedResourceFqcns
+         * (lines 1501, 1508-1510) by returning inline arrays that contain
+         * whenLoaded() (model FQCN) and SomeResource::make() (resource FQCN)
+         * inside a closure union.
+         */
+        export interface InlineArrayFqcnResource {
+            id: number;
+            payload?: { address: AddressResource; items_loaded?: app.models.OrderItem[] } | null;
+        }
+        /**
+         * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the
+         * same variable, separated by a guard-clause return, must not resolve either return
+         * branch through a single static binding — which assignment was "last" depends on
+         * which branch actually ran, and this analyzer does not do flow analysis. Both
+         * `early` and `late` must degrade to unknown rather than resolving through
+         * whichever assignment happens to be recorded.
+         */
+        export interface LocalVarGuardClauseResource {
+            early?: unknown;
+            late?: unknown;
+        }
+        /**
+         * Regression fixture (Task 12 review, Important 3): a variable reassigned through a
+         * non-`Assign` form — a `foreach` loop's value variable, a compound assignment
+         * operator, increment, or a by-reference alias — must be excluded from
+         * $localVarBindings just like a plain nested `Assign` would be. Each property here
+         * has exactly one TOP-LEVEL `Assign`, so the naive "only look for a second `Assign`"
+         * check would have missed all four; each must degrade to unknown.
+         *
+         * Deliberately NOT covered here: by-reference function/method arguments (e.g.
+         * `preg_match($pattern, $subject, $matches)`), which would require resolving the
+         * callee's parameter-by-reference signature — not statically knowable in general.
+         * See ResourceAstAnalyzer::collectWrittenVariableNames()'s docblock.
+         */
+        export interface LocalVarReassignResource {
+            via_foreach: unknown;
+            via_concat: unknown;
+            via_increment: unknown;
+            via_ref: unknown;
+        }
+        /**
+         * Regression fixture (Task 12 review, Minor b): mutual (`$a = $b; $b = $a;`) and
+         * self (`$c = $c;`) referential local variable bindings must terminate instead of
+         * hanging the generator, degrading to unknown rather than infinitely recursing. A
+         * regression here manifests as a CI hang, not a test failure, so this is committed
+         * rather than left as a throwaway verification.
+         */
+        export interface LocalVarRecursionResource {
+            mutual: unknown;
+            self: unknown;
+        }
+        /**
+         * Exercises local variable type tracking inside toArray().
+         *
+         * `shadowed` is a Task 12 regression: a variable assigned at the top level AND
+         * reassigned inside nested control flow must not resolve through the (possibly
+         * stale) top-level binding — it degrades to unknown instead.
+         */
+        export interface LocalVarResource {
+            label: string;
+            key: number;
+            shadowed: unknown;
+        }
+        /**
+         * Regression fixture (Task 12 review, Critical 1): $localVarBindings collected for
+         * toArray() must not leak into a DIFFERENT method's analysis when that method is
+         * reached via a `...$this->method()` spread. `extra()`'s own `$data` (a string
+         * literal) is unrelated to toArray()'s `$data` (the order id) even though they share
+         * a name.
+         */
+        export interface LocalVarSpreadResource {
+            y: string;
+            x: number;
+        }
+        /** Exercises collectDirectReturns loop branch in toArray(). */
+        export interface LoopReturnResource {
+            id: number;
+            first_item_name?: unknown;
+            total?: number;
+        }
+        export interface MediaTypeInstanceOfResource {
+            name: string;
+            value: string;
+            meta: { extensions: unknown[]; maxSizeMb: number; sizeUnit: string; icon: string };
+        }
+        /**
+         * Resource using a positive instanceof guard (not negated).
+         * Also includes inline arrays with optional keys and an empty inline array
+         * to exercise additional coverage paths.
+         */
+        export interface MediaTypePositiveInstanceOfResource {
+            name: string;
+            value: string;
+            meta: { label?: string };
+            empty: Record<string, unknown>;
+        }
+        export interface MediaTypeResource {
+            name: string;
+            value: string;
+            meta: { extensions: unknown[]; maxSizeMb: number; sizeUnit: string; icon: string };
+        }
+        export interface MediaTypeUnknownResource {
+            name: unknown;
+            value: unknown;
+            meta: { extensions: unknown; maxSizeMb: unknown; sizeUnit: string; icon: unknown };
+        }
+        /**
+         * Exercises resolveClosureReturnExpression with a Closure passed to merge().
+         * The closure has a guard clause followed by the real array return.
+         */
+        export interface MergeClosureResource {
+            id: number;
+            user_name: string;
+            user_email: string;
+        }
+        /**
+         * Exercises resolveArrayOrClosureToProperties with a multi-return closure
+         * passed to merge(). The closure has multiple branches returning different
+         * array shapes, which should be merged with union semantics.
+         */
+        export interface MergeMultiBranchClosureResource {
+            id: number;
+            archived_at?: string | null;
+            total?: number;
+            currency?: app.enums.CurrencyType;
+        }
+        export interface MiscCollection {
+            data: unknown;
+        }
+        /** Resource for testing that $this->resource->prop on a model-backed resource resolves to the model attribute type. */
+        export interface ModelWrappedPropResource {
+            title: string;
+        }
+        export interface NonArrayReturnResource {
+        }
+        /** Exercises closure / arrow function patterns in value expressions and merge methods. */
+        export interface OrderClosureResource {
+            id: number;
+            status_arrow?: app.enums.OrderStatusType;
+            user_arrow?: UserResource;
+            items_arrow?: OrderItemResource[];
+            notes_closure?: string | null;
+            shipped_at?: string | null;
+            tracking?: string | null;
+            currency_label: app.enums.CurrencyType;
+            total_display: number;
+        }
+        export interface OrderCollection {
+            data: OrderResource[];
+            total_count: unknown;
+        }
+        /**
+         * Exercises withCount()/withExists() virtual attributes and camelCase
+         * attribute access, both resolved via ModelAttributeResolver's fallbacks
+         * rather than a literal attribute match.
+         */
+        export interface OrderCountsResource {
+            items_count: number;
+            items_exists: boolean;
+            formatted_total_camel: string;
+        }
+        /**
+         * Exercises advanced merge patterns: mergeWhen with EnumResource::make,
+         * mergeWhen with Resource::make, whenLoaded with value arg.
+         */
+        export interface OrderDetailResource {
+            id: number;
+            status: app.enums.OrderStatusType;
+            user?: UserResource;
+            payment_status?: app.enums.OrderStatusType;
+            payment_currency?: app.enums.CurrencyType;
+            shipping_user?: UserResource;
+            order_items?: app.models.OrderItem[];
+        }
+        /** Exercises return $this->except([...]) as a direct return. */
+        export interface OrderExceptResource {
+            id: number;
+            ulid: string;
+            user_id: number;
+            status: app.enums.OrderStatusType;
+            payment_method: app.enums.PaymentMethodType | null;
+            currency: app.enums.CurrencyType;
+            subtotal: number;
+            tax: number;
+            discount: number;
+            total: number;
+            shipping_address: { line_1: string; line_2?: string; city: string; state?: string; postal_code: string; country_code: string };
+            billing_address: { line_1: string; line_2?: string; city: string; state?: string; postal_code: string; country_code: string };
+            notes: string | null;
+            placed_at: string | null;
+            paid_at: string | null;
+            shipped_at: string | null;
+            delivered_at: string | null;
+            cancelled_at: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            deleted_at: string | null;
+            item_count: number;
+            is_paid: boolean;
+            formatted_total: string;
+            search_index: unknown;
+            score_map: Record<string, number>;
+            sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
+            listed_items: app.models.OrderItem[];
+            unsorted_items: unknown[] | Record<string, unknown>;
+            user: app.models.User;
+            items: app.models.OrderItem[];
+        }
+        /**
+         * Edge-case resource for $this->only() / $this->except() guard clause coverage.
+         * No @mixin — so buildModelDelegatedAnalysis() returns null.
+         */
+        export interface OrderFilterEdgeResource {
+        }
+        export interface OrderItemCollection {
+            data: OrderItemResource[];
+        }
+        /**
+         * Exercises: whenLoaded with Resource::make, whenLoaded bare (1-arg form),
+         * whenNotNull on nullable JSON column.
+         */
+        export interface OrderItemResource {
+            id: number;
+            name: string;
+            sku: string;
+            quantity: number;
+            unit_price: number;
+            total_price: number;
+            product?: ProductResource;
+            order?: app.models.Order;
+            options?: Record<string, string | number | boolean> | null;
+            order_limited: { id: number; total: number } | null;
+            order_extended: { id: number; ulid: string; user_id: number; status: app.enums.OrderStatusType; payment_method: app.enums.PaymentMethodType | null; currency: app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>; listed_items: app.models.OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: app.models.User; items: app.models.OrderItem[] };
+        }
         /** Exercises ...$this->only([...]) spread with additional manual keys. */
         export interface OrderOnlyResource {
             id: number;
@@ -1499,6 +2143,211 @@ declare global {
             item_count: number;
             items: app.models.OrderItem[];
             user?: UserResource;
+        }
+        export interface OrderResource {
+            id: number;
+            status: app.enums.OrderStatusType;
+            total: number;
+            currency: app.enums.CurrencyType;
+            items?: app.models.OrderItem[];
+            items_count?: number;
+            total_avg?: number;
+            paid_at?: string | null;
+            shipped_at?: string | null;
+            delivered_at?: string | null;
+        }
+        /**
+         * Exercises direct property access for accessors, mutators, and relations
+         * without using whenLoaded or other conditional wrappers.
+         */
+        export interface OrderSummaryResource {
+            id: number;
+            is_paid: boolean;
+            item_count: number;
+            formatted_total: string;
+            user: app.models.User;
+            status: app.enums.OrderStatusType;
+            total: number;
+            notes: string | null;
+            search_index: unknown;
+        }
+        /** Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape. */
+        export interface PostAttachmentFilterResource {
+            id: number;
+            attachment: { id: number; filename: string; attachable: app.models.Post };
+        }
+        export interface PostCollection {
+            data: PostResource[];
+        }
+        /**
+         * A ResourceCollection with $wrap = null so the collection IS the array,
+         * not wrapped in a 'data' key. Uses #[Collects] to identify the singular resource.
+         */
+        export type PostFlatCollection = PostResource[];
+        export interface PostResource {
+            morphValue: string;
+            id: number;
+            title: string;
+            content: string;
+            status: app.enums.StatusType;
+            status_new: app.enums.StatusType;
+            visibility: app.enums.VisibilityType | null;
+            visibility_new: app.enums.VisibilityType | null;
+            priority: app.enums.PriorityType | null;
+            priority_new: app.enums.PriorityType | null;
+            comments: { id: number; content: string; user: app.models.User }[];
+            published: boolean;
+            rating_display: number;
+            word_count: string;
+            heading_content: unknown[];
+            publishable: boolean;
+            comments_count: number;
+            is_featured: boolean;
+            category_is_first?: boolean | null;
+            category_is_active?: boolean | null;
+            category_breadcrumb?: string | null;
+            comments_resolved?: CommentResource[];
+            post_class_name: string;
+            post_table_name: string;
+            category_class_name?: string;
+            category_table_name?: string;
+        }
+        /**
+         * Exercises: multiple whenAggregated (sum/min/max), whenNotNull, when,
+         * whenCounted, two mergeWhen blocks, Resource::collection x2.
+         */
+        export interface ProductResource {
+            id: string;
+            name: string;
+            slug: string;
+            sku: string;
+            description: string | null;
+            price: number;
+            compare_at_price?: number | null;
+            cost_price?: number | null;
+            quantity: number;
+            is_active: boolean;
+            is_featured: boolean;
+            published_at?: string | null;
+            tags?: TagResource[];
+            images?: ImageResource[];
+            orders_count?: number;
+            total_sold?: number;
+            min_unit_price?: number;
+            max_unit_price?: number;
+            weight?: number | null;
+            dimensions?: { length: number; width: number; height: number; unit: "cm" | "in" };
+            metadata?: ProductMetadata | ProductJsonMetaData | null;
+        }
+        /** Exercises: multiple whenHas on different column types, multiple whenNotNull. */
+        export interface ProfileResource {
+            id: number;
+            bio: string | null;
+            avatar_url: string | null;
+            date_of_birth?: string | null;
+            website?: string | null;
+            phone_number?: string | null;
+            social_links?: { twitter?: string; github?: string; linkedin?: string; website?: string };
+            timezone?: string;
+            locale?: string;
+        }
+        /** Exercises a class-typed `@property` tag reaching a resource, where the token still needs its import. */
+        export interface PropertyDocblockEdgeResource {
+            id: number;
+            owner_snapshot: app.models.User | null;
+            meta_info: unknown[] | null;
+            tags: unknown[] | null;
+        }
+        /** Edge-case resource exercising unusual but valid patterns for AST analyzer guard clauses. */
+        export interface QuirkyResource {
+            id: number;
+            flag?: unknown;
+            extra: string;
+            dynamic?: string;
+            normal_merge_key?: number;
+            formatted: unknown;
+            plain_user: UserResource;
+            empty_user: UserResource;
+            empty_enum: unknown;
+            fcc_enum: unknown;
+            not_enum: unknown;
+            uncast_enum: unknown;
+            empty_new_enum: unknown;
+            var_new_enum: unknown;
+            fake_field: unknown;
+            fake_relation?: unknown;
+        }
+        /**
+         * Exercises collection method chains rooted at a many-relation
+         * ($this->members->take(5)->map(...)->values()).
+         */
+        export interface RelationChainResource {
+            first_members: app.models.User[];
+            member_cards: { id: number; name: string }[];
+            member_profiles: ({ id: number; role: app.enums.RoleType | null; owner: app.models.User })[];
+            member_emails: string[];
+            member_roles: (app.enums.RoleType | null)[];
+            member_role_resources: app.enums.RoleType[];
+            member_names_upper: unknown;
+            member_formatted: unknown;
+            member_mapped_fcc: unknown;
+            member_plucked_fcc: unknown;
+            first_member: unknown;
+            members_sorted: app.models.User[] | Record<string, app.models.User>;
+            members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
+            members_tail: app.models.User[] | Record<string, app.models.User>;
+            members_sliced_emails: string[] | Record<string, string>;
+            members_keyed_by_id: string[] | Record<string, string>;
+            members_skipped: app.models.User[];
+        }
+        /**
+         * Exercises issue #43: EnumResource wrapping an enum accessed via `$this->resource->property`
+         * returns `unknown` instead of the correct `AsEnum` utility type.
+         *
+         * Each entry below represents a distinct code pattern where the enum is reached
+         * through the underlying model accessor (`$this->resource->prop`) rather than the
+         * Laravel Resource magic shorthand (`$this->prop`).  All entries should resolve
+         * to the same TypeScript type as their `$this->prop` counterparts.
+         */
+        export interface ResourceWrappedEnumResource {
+            id: number;
+            status_make: app.enums.StatusType;
+            status_new: app.enums.StatusType;
+            visibility_make: app.enums.VisibilityType | null;
+            priority_new: app.enums.PriorityType | null;
+            status_when_make?: app.enums.StatusType;
+            status_when_arrow?: app.enums.StatusType;
+            visibility_when_full?: app.enums.VisibilityType | null;
+            priority_when_not_null_make?: app.enums.PriorityType | null;
+            status_when_not_null_arrow?: app.enums.StatusType;
+            visibility_when_not_null_full?: app.enums.VisibilityType | null;
+            status_ternary_null: app.enums.StatusType | null;
+            status_ternary_both: app.enums.StatusType;
+            status_or_visibility_ternary: app.enums.StatusType | app.enums.VisibilityType | null;
+            enums_array: { status: app.enums.StatusType; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null };
+            mixed_enums_array: { status_type: app.enums.StatusType; visibility_type: app.enums.VisibilityType | null; priority_type: app.enums.PriorityType | null; status_resource_type: app.enums.StatusType; visibility_resource_type: app.enums.VisibilityType | null; priority_resource_type: app.enums.PriorityType | null; status_enum: app.enums.StatusType; visibility_enum: app.enums.VisibilityType | null; priority_enum: app.enums.PriorityType | null };
+            merged_status?: app.enums.StatusType;
+            merged_visibility?: app.enums.VisibilityType | null;
+            deferred_status?: app.enums.StatusType;
+            deferred_priority?: app.enums.PriorityType | null;
+            category_status?: app.enums.StatusType;
+            category_visibility?: app.enums.VisibilityType | null;
+        }
+        export interface RoutableResource extends ResourceRoutes, Pick<Routable, "store" | "update"> {
+        }
+        /**
+         * Exercises the inline model FQCN collision scenario.
+         *
+         * Two relations point to classes with the same basename: Crm\Models\User (direct, via crm_agent)
+         * and App\Models\User (embedded inside the inline object from order->only). The transformer must
+         * alias both and rewrite the token inside the inline object type string via the inlineModelFqcns
+         * tracking path.
+         */
+        export interface ServiceDeskResource {
+            id: number;
+            title: string;
+            crm_agent: crm.models.User | null;
+            order_requester: { user: app.models.User } | null;
         }
         /** Resource spreading parent::toArray() from JsonResource base with extra keys. */
         export interface SpreadJsonBaseResource {
@@ -1531,455 +2380,6 @@ declare global {
             images: app.models.Image[];
             notifications: illuminate.notifications.DatabaseNotification[];
             full_name: string;
-        }
-        /**
-         * Exercises: multiple whenAggregated (sum/min/max), whenNotNull, when,
-         * whenCounted, two mergeWhen blocks, Resource::collection x2.
-         */
-        export interface ProductResource {
-            id: string;
-            name: string;
-            slug: string;
-            sku: string;
-            description: string | null;
-            price: number;
-            compare_at_price?: number | null;
-            cost_price?: number | null;
-            quantity: number;
-            is_active: boolean;
-            is_featured: boolean;
-            published_at?: string | null;
-            tags?: TagResource[];
-            images?: ImageResource[];
-            orders_count?: number;
-            total_sold?: number;
-            min_unit_price?: number;
-            max_unit_price?: number;
-            weight?: number | null;
-            dimensions?: { length: number; width: number; height: number; unit: "cm" | "in" };
-            metadata?: ProductMetadata | ProductJsonMetaData | null;
-        }
-        /** Resource with no toArray override — tests guard clause. */
-        export interface EmptyResource {
-        }
-        export interface CommentResource {
-            id: number;
-            content: string;
-            is_flagged: boolean;
-            flagged_at?: string | null;
-            metadata: Record<string, unknown>;
-            author?: UserResource;
-            author_new?: UserResource;
-            author_direct: UserResource;
-            post?: PostResource;
-            post_new?: PostResource;
-            post_direct: PostResource;
-            post_limited: { id: number; title: string };
-            post_extended: { id: number; title: string; content: string; user_id: number; status: crm.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: Record<string, string> | null; deleted_at: string | null; category_id: number | null; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: crm.models.User; categoryRel: app.models.Category | null; comments: app.models.Comment[]; tags: app.models.Tag[]; images: app.models.Image[]; attachment: app.models.Attachment | null } | null;
-            post_title?: string;
-            post_content?: string | null;
-            post_title_display?: string | null;
-            post_author?: string | null;
-            post_resource_title?: string;
-            post_resource_content?: string | null;
-            post_resource_title_display?: string | null;
-            post_resource_author?: string | null;
-            user_name?: string;
-            user_email?: string;
-            user_email_annotated?: string | null;
-            unresolvable_status?: unknown;
-            resolvable_status?: crm.enums.StatusType;
-            user_name_nullable?: string | null;
-            user_email_nullable?: string | null;
-            user_role: app.enums.RoleType | null;
-            user_profile: app.models.Profile | null;
-            user_profile_bio: string | null;
-            user_profile_avatar_url: string | null;
-        }
-        /**
-         * Child resource that uses SharedExtendsInterface AND extends a parent that also uses it.
-         * SharedExtendsInterface should appear only once in the result despite being reachable via two paths.
-         */
-        export interface ChildSharedResource extends SharedInterface {
-        }
-        /**
-         * Exercises the inline model FQCN collision scenario.
-         *
-         * Two relations point to classes with the same basename: Crm\Models\User (direct, via crm_agent)
-         * and App\Models\User (embedded inside the inline object from order->only). The transformer must
-         * alias both and rewrite the token inside the inline object type string via the inlineModelFqcns
-         * tracking path.
-         */
-        export interface ServiceDeskResource {
-            id: number;
-            title: string;
-            crm_agent: crm.models.User | null;
-            order_requester: { user: app.models.User } | null;
-        }
-        export interface MediaTypeResource {
-            name: string;
-            value: string;
-            meta: { extensions: unknown[]; maxSizeMb: number; sizeUnit: string; icon: string };
-        }
-        /**
-         * Exercises issue #38: closure parameter passed by the conditional method,
-         * where the return expression is a JsonResource make() or collection() call.
-         *
-         * The bug: the analyzer resolves the return type as `unknown` instead of
-         * inferring the resource type (e.g. UserResource or OrderItemResource[]).
-         */
-        export interface ConditionalParamJsonResourceResource {
-            id: number;
-            user?: UserResource;
-            items?: OrderItemResource[];
-            user_when?: UserResource;
-        }
-        /**
-         * Resource with no @mixin or TsResource — tests convention-based model guess.
-         * Also tests multiple TsExtends in parent class, trait, and locally.
-         */
-        export interface WarehouseResource extends BaseResource, ExtendableInterface, Omit<Timestamps, "created_at" | "updated_at">, ResourceRoutes, Pick<Routable, "store" | "update"> {
-            id: number;
-            name: string;
-            color: app.enums.ColorType | null;
-            review_priority: app.enums.StatusType | app.enums.PriorityType | null;
-            review_priority_typed: app.enums.StatusType | app.enums.PriorityType | null;
-            review_priority_typed_short: app.enums.StatusType | app.enums.PriorityType | null;
-            manager: app.models.User | null;
-            primary_contact: crm.models.User | null;
-            secondary_contact: crm.models.User | null;
-            last_user_activity_by: app.models.User | crm.models.User | null;
-            last_user_activity_by_typed: app.models.User | crm.models.User | null;
-            last_user_activity_by_typed_short: app.models.User | crm.models.User | null;
-            last_user_activity_by_partial: { id: number; name: string } | null;
-            last_user_activity_by_mostly: { email: string; company: string | null; status: crm.enums.StatusType; created_at: string | null; updated_at: string | null; images: app.models.Image[] } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: app.models.Profile | null; posts: app.models.Post[]; comments: app.models.Comment[]; orders: app.models.Order[]; addresses: Address[]; teams: app.models.Team[]; ownedTeams: app.models.Team[]; images: app.models.Image[]; notifications: illuminate.notifications.DatabaseNotification[] } | null;
-        }
-        /**
-         * Exercises analyzeInlineArray embeddedModelFqcns and embeddedResourceFqcns
-         * (lines 1501, 1508-1510) by returning inline arrays that contain
-         * whenLoaded() (model FQCN) and SomeResource::make() (resource FQCN)
-         * inside a closure union.
-         */
-        export interface InlineArrayFqcnResource {
-            id: number;
-            payload?: { address: AddressResource; items_loaded?: app.models.OrderItem[] } | null;
-        }
-        /**
-         * Exercises issue #38: closure parameter passed by the conditional method.
-         * Each field uses a single-param arrow function that returns a scalar primitive.
-         *
-         * The bug: the analyzer resolves the return type of these closures as `unknown`
-         * instead of inferring the scalar type from the return expression.
-         */
-        export interface ConditionalParamPrimitiveResource {
-            id: number;
-            user_name?: string;
-            user_id?: number;
-            user_verified?: boolean;
-            notes_upper?: string;
-            notes_length?: number;
-        }
-        /**
-         * Regression fixture (Task 12 review, Critical 1): $localVarBindings collected for
-         * toArray() must not leak into a DIFFERENT method's analysis when that method is
-         * reached via a `...$this->method()` spread. `extra()`'s own `$data` (a string
-         * literal) is unrelated to toArray()'s `$data` (the order id) even though they share
-         * a name.
-         */
-        export interface LocalVarSpreadResource {
-            y: string;
-            x: number;
-        }
-        /** Exercises: multiple whenHas on different column types, multiple whenNotNull. */
-        export interface ProfileResource {
-            id: number;
-            bio: string | null;
-            avatar_url: string | null;
-            date_of_birth?: string | null;
-            website?: string | null;
-            phone_number?: string | null;
-            social_links?: { twitter?: string; github?: string; linkedin?: string; website?: string };
-            timezone?: string;
-            locale?: string;
-        }
-        /**
-         * Exercises issue #38: the exact bug pattern from the issue report.
-         * A closure receives the loaded relation as a parameter and calls ->map()
-         * with a nested inner closure that returns an array shape.
-         *
-         * The bug: the outer closure param return type resolves to `unknown` instead of
-         * inferring the mapped array shape `{ id: number; name: string; quantity: number }[]`.
-         */
-        export interface ConditionalParamMappedResource {
-            id: number;
-            items_mapped?: { id: number; name: string; quantity: number }[];
-            items_priced?: { id: number; sku: string; unit_price: number; total_price: number }[];
-            item_names?: string[];
-        }
-        /**
-         * Exercises issue #38: closure parameter passed by the conditional method.
-         * Each field uses a single-param arrow function that returns an inline array literal.
-         *
-         * The bug: the analyzer resolves the return type as `unknown` instead of
-         * inferring the array shape `{ id: number; email: string; name: string }`.
-         */
-        export interface ConditionalParamArrayResource {
-            id: number;
-            user_summary?: { id: number; email: string; name: string };
-            notes_or_default?: string;
-            user_meta?: { profile: { name: string; email: string }; verified: boolean };
-            notes_when_null?: string;
-        }
-        /**
-         * Exercises: ternary operator in various return-value positions.
-         *
-         * All properties in this resource use the ternary operator (`? :`) or the
-         * Elvis operator (`?:`) as the value expression. The scenarios cover:
-         * - enum resource vs null
-         * - enum resource vs enum resource (same / different enum class)
-         * - named resource vs null
-         * - named resource vs named resource (same / different class)
-         * - resource collection vs null
-         * - scalar vs null (string, integer)
-         * - string literal vs string literal
-         * - Elvis / short-ternary
-         * - ternary nested inside a whenLoaded closure
-         * - ternary with $this->resource accessor
-         */
-        export interface TernaryResource {
-            status_or_null: app.enums.StatusType | null;
-            status_or_status: app.enums.StatusType;
-            status_resource_or_type: app.enums.StatusType | crm.enums.StatusType;
-            status_or_visibility: app.enums.StatusType | app.enums.VisibilityType | null;
-            category_or_null: CategoryResource | null;
-            category_or_category: CategoryResource;
-            category_or_user: CategoryResource | UserResource;
-            image_or_null: ImageResource | null;
-            comments_or_null: CommentResource[] | null;
-            comments_or_comments: CommentResource[];
-            title_or_null: string | null;
-            word_count_or_null: number | null;
-            pin_label: string;
-            title_fallback: string;
-            category_when_loaded_or_null?: CategoryResource | null;
-            category_resource_or_null: CategoryResource | null;
-            nested_ternary_label: string | null;
-        }
-        /**
-         * Exercises collectDirectReturns elseif, else, and loop branches
-         * in the main toArray() body (not inside closures).
-         */
-        export interface ControlFlowReturnResource {
-            id: number;
-            archived?: boolean;
-            draft?: boolean;
-            total?: number;
-            status?: app.enums.OrderStatusType;
-        }
-        /**
-         * Resource using a positive instanceof guard (not negated).
-         * Also includes inline arrays with optional keys and an empty inline array
-         * to exercise additional coverage paths.
-         */
-        export interface MediaTypePositiveInstanceOfResource {
-            name: string;
-            value: string;
-            meta: { label?: string };
-            empty: Record<string, unknown>;
-        }
-        /** Exercises static-call return type reflection and enum static args (Task 10). */
-        export interface StaticCallResource {
-            url: string;
-            status_badge: app.enums.StatusType;
-            status_const: app.enums.StatusType;
-            items: OrderItemResource[];
-            default_status: crm.enums.StatusType;
-            located_order: unknown;
-            new_items: OrderItemResource[];
-            menu_settings: unknown;
-            status_or_priority: unknown;
-            void_return: unknown;
-            never_return: unknown;
-            mixed_return: unknown;
-            order_or_status: unknown;
-        }
-        /**
-         * Exercises: reading model from @mixin ModelClass in docblock
-         *
-         * Do not change, it needs to match the AddressExtendsResource exactly
-         */
-        export interface AddressMixinResource {
-            morphValue: string;
-            id: number;
-            full_address: string | null;
-            latitude?: number | null;
-            longitude?: number | null;
-            user?: crm.models.User;
-        }
-        /** Exercises: whenCounted on two polymorphic relations. */
-        export interface TagResource {
-            id: number;
-            name: string;
-            slug: string;
-            color: string | null;
-            posts_count?: number;
-            products_count?: number;
-            posts?: PostResource[];
-            products?: ProductResource[];
-        }
-        /**
-         * Fixture resource used to test #[TsCasts] placed on the toArray() method
-         * rather than on the class. No class-level annotation is present on purpose so that
-         * method-level behavior is tested in isolation.
-         */
-        export interface ToArrayCastsResource {
-            id: number;
-            name: string;
-            email?: string | null;
-            role: string;
-            injected_field: Record<string, unknown>;
-            coordinates: GeoPoint;
-        }
-        /** User account resource. */
-        export interface UserResource {
-            id: number;
-            name: string;
-            email: string;
-            role: app.enums.RoleType | null;
-            profile?: app.models.Profile | null;
-            posts?: PostResource[];
-            phone?: string | null;
-            avatar?: string | null;
-            posts_count?: number;
-            comments_count?: number;
-        }
-        /**
-         * Regression fixture (Task 12 review, Important 3): a variable reassigned through a
-         * non-`Assign` form — a `foreach` loop's value variable, a compound assignment
-         * operator, increment, or a by-reference alias — must be excluded from
-         * $localVarBindings just like a plain nested `Assign` would be. Each property here
-         * has exactly one TOP-LEVEL `Assign`, so the naive "only look for a second `Assign`"
-         * check would have missed all four; each must degrade to unknown.
-         *
-         * Deliberately NOT covered here: by-reference function/method arguments (e.g.
-         * `preg_match($pattern, $subject, $matches)`), which would require resolving the
-         * callee's parameter-by-reference signature — not statically knowable in general.
-         * See ResourceAstAnalyzer::collectWrittenVariableNames()'s docblock.
-         */
-        export interface LocalVarReassignResource {
-            via_foreach: unknown;
-            via_concat: unknown;
-            via_increment: unknown;
-            via_ref: unknown;
-        }
-        /**
-         * Resource with non-conventional name — tests #[UseResource] attribute model resolution.
-         *
-         * The backing model (TrackingEvent) uses #[UseResource(EventLogResource::class)]
-         * to point to this resource since it can't be found by naming convention.
-         */
-        export interface EventLogResource {
-            id: number;
-            description: string | null;
-        }
-        /** Resource for testing @var null|Type docblock ordering (null-first convention). */
-        export interface EnumNullFirstResource {
-            value: string;
-        }
-        /** Fixture resource exercising variable-return trait method spreads. */
-        export interface VarReturnSpreadResource {
-            id: number;
-            baseKey: string;
-            conditionalKey?: string;
-            always: string;
-            sometimes?: string;
-            ifBranch?: string;
-            elseifBranch?: string;
-            elseBranch?: string;
-            conditionalBaseKey?: string;
-            foundB?: boolean;
-            foreachKey?: string;
-            forKey?: string;
-            whileKey?: string;
-            doWhileKey?: string;
-            status: string;
-        }
-        /** Fixture resource exercising bare function call spreads (without $this->). */
-        export interface BareFuncCallResource {
-            morphValue: string;
-            id: number;
-            computed: string;
-            date_val: string;
-            custom_val: CustomObject;
-            plain: string;
-            basic: string;
-            firstName: string;
-            lastName: string;
-            isActive: boolean;
-            location: GeoPoint;
-            flag?: string | null;
-            extra: Record<string, unknown>;
-        }
-        export interface OrderItemCollection {
-            data: OrderItemResource[];
-        }
-        /** Exercises closure / arrow function patterns in value expressions and merge methods. */
-        export interface OrderClosureResource {
-            id: number;
-            status_arrow?: app.enums.OrderStatusType;
-            user_arrow?: UserResource;
-            items_arrow?: OrderItemResource[];
-            notes_closure?: string | null;
-            shipped_at?: string | null;
-            tracking?: string | null;
-            currency_label: app.enums.CurrencyType;
-            total_display: number;
-        }
-        /** Exercises collectDirectReturns loop branch in toArray(). */
-        export interface LoopReturnResource {
-            id: number;
-            first_item_name?: unknown;
-            total?: number;
-        }
-        /**
-         * Exercises issue #38 using non-arrow (full) closures with a parameter.
-         * Covers primitives, arrays, resources, enums, and guard-clause patterns —
-         * all using `function ($param) { return ...; }` syntax rather than arrow fns.
-         *
-         * The bug: the analyzer resolves the return type of these closures as `unknown`
-         * regardless of the return expression when a parameter is present.
-         */
-        export interface ConditionalParamFullClosureResource {
-            id: number;
-            user_name?: string;
-            user_summary?: { id: number; email: string };
-            items_mapped?: { id: number; name: string; quantity: number }[];
-            user_resource?: UserResource;
-            status_resource?: app.enums.OrderStatusType;
-            shipping_safe?: { name: string; email: string } | null;
-        }
-        /** Mailing address resource */
-        export interface Address {
-            morphValue: string;
-            id: number;
-            label: string | null;
-            line_1: string;
-            line_2?: string | null;
-            city: string;
-            state: string | null;
-            postal_code: string;
-            country_code: string;
-            latitude?: number | null;
-            longitude?: number | null;
-            is_default: boolean;
-            user: { id: number; name: string };
-            coordinates: GeoPoint;
-            bounds: GeoBounds;
-        }
-        /** Resource using FQCN @mixin — tests resolveModelClass FQCN branch. */
-        export interface FqcnMixinResource {
-            id: number;
-            total: number;
         }
         /**
          * Exercises the bug where findBestArrayReturn() selects a nested closure's
@@ -2021,471 +2421,6 @@ declare global {
             images: app.models.Image[];
             notifications: illuminate.notifications.DatabaseNotification[];
             metadata?: { profile_bio: string | null; profile_avatar: unknown; profile_theme: unknown; profile_locale: string };
-        }
-        /** Exercises: whenNotNull on multiple nullable columns. */
-        export interface ImageResource {
-            id: number;
-            url: string;
-            alt_text: string | null;
-            mime_type: string;
-            size_bytes: number;
-            width?: number | null;
-            height?: number | null;
-        }
-        export interface MediaTypeUnknownResource {
-            name: unknown;
-            value: unknown;
-            meta: { extensions: unknown; maxSizeMb: unknown; sizeUnit: string; icon: unknown };
-        }
-        /**
-         * Exercises: self-referencing Resource::make and Resource::collection,
-         * when conditional, whenCounted, cross-resource PostResource::collection.
-         */
-        export interface CategoryResource {
-            id: number;
-            name: string;
-            slug: string;
-            description?: string | null;
-            sort_order: number;
-            is_active: boolean;
-            parent?: CategoryResource;
-            children?: CategoryResource[];
-            posts?: PostResource[];
-            posts_count?: number;
-            children_self_collection: CategoryResource[];
-            children_self_resource_collection: CategoryResource[];
-            children_self_collection_first_callable: CategoryResource[];
-            children_when_self_collection?: CategoryResource[];
-            children_when_self_resource_collection?: CategoryResource[];
-            children_when_self_collection_first_callable?: CategoryResource[];
-            parent_self: CategoryResource;
-            parent_make_self: CategoryResource;
-            parent_resource_self: CategoryResource;
-            parent_when_self?: CategoryResource;
-            parent_when_resource_self?: CategoryResource;
-        }
-        /** Exercises: parent spread inheriting customImports from parent trait TsCasts. */
-        export interface ExtendedAddressResource {
-            id: number;
-            computed: string;
-            date_val: string;
-            custom_val: CustomObject;
-            plain: string;
-            basic: string;
-            firstName: string;
-            lastName: string;
-            isActive: boolean;
-            location: GeoPoint;
-            flag?: string | null;
-            extra: Record<string, unknown>;
-            extra_field: string;
-        }
-        export interface NonArrayReturnResource {
-        }
-        export interface OrderCollection {
-            data: OrderResource[];
-            total_count: unknown;
-        }
-        /**
-         * Exercises direct property access for accessors, mutators, and relations
-         * without using whenLoaded or other conditional wrappers.
-         */
-        export interface OrderSummaryResource {
-            id: number;
-            is_paid: boolean;
-            item_count: number;
-            formatted_total: string;
-            user: crm.models.User;
-            status: app.enums.OrderStatusType;
-            total: number;
-            notes: string | null;
-            search_index: unknown;
-        }
-        /**
-         * Edge-case resource for $this->only() / $this->except() guard clause coverage.
-         * No @mixin — so buildModelDelegatedAnalysis() returns null.
-         */
-        export interface OrderFilterEdgeResource {
-        }
-        /**
-         * Resource wrapping a unit enum (no backing type) to test the ->value fallback.
-         * Also accesses an unknown property to test the unknown enum property path.
-         */
-        export interface UnitEnumResource {
-            name: string;
-            value: string | number;
-            custom: unknown;
-        }
-        /**
-         * Exercises withCount()/withExists() virtual attributes and camelCase
-         * attribute access, both resolved via ModelAttributeResolver's fallbacks
-         * rather than a literal attribute match.
-         */
-        export interface OrderCountsResource {
-            items_count: number;
-            items_exists: boolean;
-            formatted_total_camel: string;
-        }
-        /** Exercises comparison and boolean operator expressions. */
-        export interface BooleanExprResource {
-            is_recent: boolean;
-            is_equal: boolean;
-            is_large: boolean;
-            both: boolean;
-            negated: boolean;
-            is_order: boolean;
-            has_notes: boolean;
-            no_notes: boolean;
-            compared: number;
-            price_float: number;
-            user_bio?: string | null;
-        }
-        export interface PostCollection {
-            data: PostResource[];
-        }
-        export interface ApiPostResource {
-            morphValue: string;
-            id: number;
-            title: string;
-            content: string;
-            status: crm.enums.StatusType;
-            status_new: app.enums.StatusType;
-            visibility: app.enums.VisibilityType | null;
-            visibility_new: app.enums.VisibilityType | null;
-            priority: app.enums.PriorityType | null;
-            priority_new: app.enums.PriorityType | null;
-            comments: { id: number; content: string; user: crm.models.User }[];
-            published: boolean;
-            rating_display: number;
-            word_count: string;
-            heading_content: unknown[];
-            publishable: boolean;
-            comments_count: number;
-            is_featured: boolean;
-            category_is_first?: boolean | null;
-            category_is_active?: boolean | null;
-            category_breadcrumb?: string | null;
-            comments_resolved?: CommentResource[];
-            post_class_name: string;
-            post_table_name: string;
-            category_class_name?: string;
-            category_table_name?: string;
-        }
-        export interface RoutableResource extends ResourceRoutes, Pick<Routable, "store" | "update"> {
-        }
-        export interface TraitSpreadCoverageResource {
-            id: number;
-            computed: string;
-            date_val: string;
-            custom_val: CustomObject;
-            plain: string;
-            basic: string;
-            firstName: string;
-            lastName: string;
-            isActive: boolean;
-            location: GeoPoint;
-            flag?: string | null;
-            extra: Record<string, unknown>;
-        }
-        export interface PostResource {
-            morphValue: string;
-            id: number;
-            title: string;
-            content: string;
-            status: app.enums.StatusType;
-            status_new: app.enums.StatusType;
-            visibility: app.enums.VisibilityType | null;
-            visibility_new: app.enums.VisibilityType | null;
-            priority: app.enums.PriorityType | null;
-            priority_new: app.enums.PriorityType | null;
-            comments: { id: number; content: string; user: crm.models.User }[];
-            published: boolean;
-            rating_display: number;
-            word_count: string;
-            heading_content: unknown[];
-            publishable: boolean;
-            comments_count: number;
-            is_featured: boolean;
-            category_is_first?: boolean | null;
-            category_is_active?: boolean | null;
-            category_breadcrumb?: string | null;
-            comments_resolved?: CommentResource[];
-            post_class_name: string;
-            post_table_name: string;
-            category_class_name?: string;
-            category_table_name?: string;
-        }
-        /** Resource that delegates to parent — tests non-array return guard. */
-        export interface DelegatingResource {
-        }
-        /**
-         * A ResourceCollection with $wrap = null so the collection IS the array,
-         * not wrapped in a 'data' key. Uses #[Collects] to identify the singular resource.
-         */
-        export type PostFlatCollection = PostResource[];
-        /**
-         * Exercises: when, whenLoaded + Resource::make, Resource::collection,
-         * whenCounted, mergeWhen.
-         */
-        export interface TeamResource {
-            id: number;
-            name: string;
-            slug: string;
-            description?: string | null;
-            is_active: boolean;
-            owner?: UserResource;
-            members?: TeamMemberResource[];
-            members_count?: number;
-            settings?: unknown[] | null;
-        }
-        /**
-         * Exercises: reading model from @extends ParentClass<Model> in docblock
-         *
-         * Do not change, it needs to match the AddressMixinResource exactly
-         */
-        export interface AddressExtendsResource {
-            morphValue: string;
-            id: number;
-            full_address: string | null;
-            latitude?: number | null;
-            longitude?: number | null;
-            user?: crm.models.User;
-        }
-        export interface MiscCollection {
-            data: unknown;
-        }
-        export interface OrderResource {
-            id: number;
-            status: app.enums.OrderStatusType;
-            total: number;
-            currency: app.enums.CurrencyType;
-            items?: app.models.OrderItem[];
-            items_count?: number;
-            total_avg?: number;
-            paid_at?: string | null;
-            shipped_at?: string | null;
-            delivered_at?: string | null;
-        }
-        /**
-         * Exercises resolveArrayOrClosureToProperties with a multi-return closure
-         * passed to merge(). The closure has multiple branches returning different
-         * array shapes, which should be merged with union semantics.
-         */
-        export interface MergeMultiBranchClosureResource {
-            id: number;
-            archived_at?: string | null;
-            total?: number;
-            currency?: app.enums.CurrencyType;
-        }
-        /**
-         * Exercises local variable type tracking inside toArray().
-         *
-         * `shadowed` is a Task 12 regression: a variable assigned at the top level AND
-         * reassigned inside nested control flow must not resolve through the (possibly
-         * stale) top-level binding — it degrades to unknown instead.
-         */
-        export interface LocalVarResource {
-            label: string;
-            key: number;
-            shadowed: unknown;
-        }
-        export interface UserCollection {
-            data: UserResource[];
-            has_admin: boolean;
-        }
-        /**
-         * Exercises the bug where resolveClosureReturnExpression() picks the first
-         * Return_ statement in a closure — which is the guard-clause `return null`
-         * instead of the actual data array.
-         *
-         * The closure has:
-         * if (! $this->user) { return null; }  ← guard clause (first return)
-         * return [ 'name' => ..., 'email' => ... ];  ← actual data (should be picked)
-         */
-        export interface GuardClauseClosureResource {
-            id: number;
-            total: number;
-            buyer?: { name: string; email: string } | null;
-        }
-        /**
-         * Exercises: whenLoaded with Resource::make, whenLoaded bare (1-arg form),
-         * whenNotNull on nullable JSON column.
-         */
-        export interface OrderItemResource {
-            id: number;
-            name: string;
-            sku: string;
-            quantity: number;
-            unit_price: number;
-            total_price: number;
-            product?: ProductResource;
-            order?: app.models.Order;
-            options?: Record<string, string | number | boolean> | null;
-            order_limited: { id: number; total: number } | null;
-            order_extended: { id: number; ulid: string; user_id: number; status: app.enums.OrderStatusType; payment_method: app.enums.PaymentMethodType | null; currency: app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>; listed_items: app.models.OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: crm.models.User; items: app.models.OrderItem[] };
-        }
-        /**
-         * Exercises resolveClosureReturnExpression with a Closure passed to merge().
-         * The closure has a guard clause followed by the real array return.
-         */
-        export interface MergeClosureResource {
-            id: number;
-            user_name: string;
-            user_email: string;
-        }
-        export interface MediaTypeInstanceOfResource {
-            name: string;
-            value: string;
-            meta: { extensions: unknown[]; maxSizeMb: number; sizeUnit: string; icon: string };
-        }
-        /** Exercises a morphTo relation exposed through a resource: the emitted union needs every parent imported. */
-        export interface ImageMorphResource {
-            id: number;
-            imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
-            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
-            imageable_when_loaded?: app.models.Post | app.models.Product | app.models.User | crm.models.User;
-        }
-        /**
-         * Regression fixture (Task 12 review, Minor b): mutual (`$a = $b; $b = $a;`) and
-         * self (`$c = $c;`) referential local variable bindings must terminate instead of
-         * hanging the generator, degrading to unknown rather than infinitely recursing. A
-         * regression here manifests as a CI hang, not a test failure, so this is committed
-         * rather than left as a throwaway verification.
-         */
-        export interface LocalVarRecursionResource {
-            mutual: unknown;
-            self: unknown;
-        }
-        /** Same morphTo union, reached through the model-delegated analysis rather than an array literal. */
-        export interface ImageDelegatedResource {
-            id: number;
-            imageable_type: string;
-            imageable_id: number;
-            url: string;
-            alt_text: string | null;
-            disk: string;
-            path: string;
-            mime_type: string;
-            size_bytes: number;
-            width: number | null;
-            height: number | null;
-            sort_order: number;
-            metadata: unknown[] | null;
-            created_at: string | null;
-            updated_at: string | null;
-            size_for_humans: string;
-            is_landscape: boolean;
-            aspect_ratio: string | null;
-            extension: string | null;
-            size: number;
-            flexible_id: string | number | null;
-            optional_label: string | null;
-            status_from_docblock: crm.enums.StatusType | null;
-            uploader_from_docblock: app.models.User | null;
-            config_from_docblock: MenuSettingsType;
-            data_from_docblock: unknown[];
-            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
-            tree_from_docblock: { label: string; child: unknown[] };
-            price_from_docblock: { amount: number; currency: string };
-            label_from_docblock: string;
-            no_docblock_accessor: unknown;
-            wrong_format_docblock: string | null;
-            positive_int_accessor: number;
-            numeric_string_accessor: string;
-            imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
-        }
-        /**
-         * Represents a user loaded through a team's belongsToMany pivot.
-         *
-         * Exercises: whenPivotLoaded, whenPivotLoadedAs, whenHas on enum attributes.
-         */
-        export interface TeamMemberResource {
-            id: number;
-            name: string;
-            email: string;
-            role?: app.enums.RoleType | null;
-            membership_level?: app.enums.MembershipLevelType | null;
-            avatar?: string | null;
-            team_role?: unknown;
-            joined_at?: unknown;
-            subscription_role?: unknown;
-        }
-        /**
-         * Exercises analyzeClosureUnion metadata propagation (enum, model, resource FQCNs)
-         * and analyzeRelatedModelMethodCall fallback (line 451).
-         */
-        export interface ClosureUnionMetadataResource {
-            id: number;
-            status_or_null?: app.enums.OrderStatusType | null;
-            nested_or_null?: TagResource | null;
-            user_titled?: string;
-            detail_or_null?: { tag: TagResource; name: string } | null;
-            items_or_null?: app.models.OrderItem[] | null;
-        }
-        /** Exercises return $this->except([...]) as a direct return. */
-        export interface OrderExceptResource {
-            id: number;
-            ulid: string;
-            user_id: number;
-            status: app.enums.OrderStatusType;
-            payment_method: app.enums.PaymentMethodType | null;
-            currency: app.enums.CurrencyType;
-            subtotal: number;
-            tax: number;
-            discount: number;
-            total: number;
-            shipping_address: { line_1: string; line_2?: string; city: string; state?: string; postal_code: string; country_code: string };
-            billing_address: { line_1: string; line_2?: string; city: string; state?: string; postal_code: string; country_code: string };
-            notes: string | null;
-            placed_at: string | null;
-            paid_at: string | null;
-            shipped_at: string | null;
-            delivered_at: string | null;
-            cancelled_at: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            deleted_at: string | null;
-            item_count: number;
-            is_paid: boolean;
-            formatted_total: string;
-            search_index: unknown;
-            score_map: Record<string, number>;
-            sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
-            listed_items: app.models.OrderItem[];
-            unsorted_items: unknown[] | Record<string, unknown>;
-            user: crm.models.User;
-            items: app.models.OrderItem[];
-        }
-        /** Resource with no toArray override but a known model — tests implicit delegation. */
-        export interface EmptyWithMixinResource {
-            id: number;
-            name: string;
-            email: string;
-            email_verified_at: string | null;
-            password: string;
-            options: Record<string, unknown> | null;
-            remember_token: string | null;
-            created_at: string | null;
-            updated_at: string | null;
-            role: app.enums.RoleType | null;
-            membership_level: app.enums.MembershipLevelType | null;
-            phone: string | null;
-            avatar: string | null;
-            bio: string | null;
-            settings: { theme: "light" | "dark"; notifications: boolean; locale: string } | null;
-            last_login_at: string | null;
-            last_login_ip: string | null;
-            initials: string;
-            is_premium: boolean;
-            profile: app.models.Profile | null;
-            posts: app.models.Post[];
-            comments: app.models.Comment[];
-            orders: app.models.Order[];
-            addresses: Address[];
-            teams: app.models.Team[];
-            ownedTeams: app.models.Team[];
-            images: app.models.Image[];
-            notifications: illuminate.notifications.DatabaseNotification[];
         }
         /**
          * Exercises both bugs simultaneously — the exact pattern from the original
@@ -2531,89 +2466,9 @@ declare global {
             sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
-            user: crm.models.User;
+            user: app.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
-        }
-        /** Parent resource that uses SharedExtendsInterface — tests BFS dedup when child also uses the same trait. */
-        export interface BaseSharedResource extends SharedInterface {
-        }
-        /** Edge-case resource exercising unusual but valid patterns for AST analyzer guard clauses. */
-        export interface QuirkyResource {
-            id: number;
-            flag?: unknown;
-            extra: string;
-            dynamic?: string;
-            normal_merge_key?: number;
-            formatted: unknown;
-            plain_user: UserResource;
-            empty_user: UserResource;
-            empty_enum: unknown;
-            fcc_enum: unknown;
-            not_enum: unknown;
-            uncast_enum: unknown;
-            empty_new_enum: unknown;
-            var_new_enum: unknown;
-            fake_field: unknown;
-            fake_relation?: unknown;
-        }
-        /** Exercises a class-typed `@property` tag reaching a resource, where the token still needs its import. */
-        export interface PropertyDocblockEdgeResource {
-            id: number;
-            owner_snapshot: crm.models.User | null;
-            meta_info: unknown[] | null;
-            tags: unknown[] | null;
-        }
-        /**
-         * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the
-         * same variable, separated by a guard-clause return, must not resolve either return
-         * branch through a single static binding — which assignment was "last" depends on
-         * which branch actually ran, and this analyzer does not do flow analysis. Both
-         * `early` and `late` must degrade to unknown rather than resolving through
-         * whichever assignment happens to be recorded.
-         */
-        export interface LocalVarGuardClauseResource {
-            early?: unknown;
-            late?: unknown;
-        }
-        /**
-         * Exercises advanced merge patterns: mergeWhen with EnumResource::make,
-         * mergeWhen with Resource::make, whenLoaded with value arg.
-         */
-        export interface OrderDetailResource {
-            id: number;
-            status: app.enums.OrderStatusType;
-            user?: UserResource;
-            payment_status?: app.enums.OrderStatusType;
-            payment_currency?: app.enums.CurrencyType;
-            shipping_user?: UserResource;
-            order_items?: app.models.OrderItem[];
-        }
-        /**
-         * Exercises closure control-flow paths in collectReturnExpressions:
-         * elseif, else, switch, try/catch/finally, foreach, and do-while.
-         */
-        export interface ClosureControlFlowResource {
-            id: number;
-            buyer_info?: { role: string; name: string };
-            status_label?: { label: string };
-            safe_total?: { amount: number };
-            tags?: { first_item: string } | { first_item: null };
-            retry_result?: { attempted: boolean };
-        }
-        /**
-         * Exercises issue #38: closure parameter passed by the conditional method,
-         * where the return expression wraps an enum in EnumResource::make() or returns it bare.
-         *
-         * The bug: the analyzer resolves the return type as `unknown` instead of
-         * recognising the enum type from the param or the EnumResource wrapper.
-         */
-        export interface ConditionalParamEnumResource {
-            id: number;
-            status_resource?: app.enums.OrderStatusType;
-            status_bare?: app.enums.OrderStatusType;
-            currency_resource?: app.enums.CurrencyType;
-            user_role?: app.enums.RoleType;
         }
         export interface SpreadWithGuardDoubleClosureReturnResource {
             id: number;
@@ -2647,48 +2502,193 @@ declare global {
             sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
-            user: crm.models.User;
+            user: app.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
         }
-        /** A closure parameter that shadows a top-level local must not resolve through the outer binding. */
-        export interface ClosureParamShadowResource {
-            outer_member: unknown;
-            mapped_members: unknown;
-            loaded_owner?: unknown;
+        /** Exercises static-call return type reflection and enum static args (Task 10). */
+        export interface StaticCallResource {
+            url: string;
+            status_badge: app.enums.StatusType;
+            status_const: app.enums.StatusType;
+            items: OrderItemResource[];
+            default_status: app.enums.StatusType;
+            located_order: unknown;
+            new_items: OrderItemResource[];
+            menu_settings: unknown;
+            status_or_priority: unknown;
+            void_return: unknown;
+            never_return: unknown;
+            mixed_return: unknown;
+            order_or_status: unknown;
+        }
+        /** Exercises: whenCounted on two polymorphic relations. */
+        export interface TagResource {
+            id: number;
+            name: string;
+            slug: string;
+            color: string | null;
+            posts_count?: number;
+            products_count?: number;
+            posts?: PostResource[];
+            products?: ProductResource[];
         }
         /**
-         * Exercises issue #43: EnumResource wrapping an enum accessed via `$this->resource->property`
-         * returns `unknown` instead of the correct `AsEnum` utility type.
+         * Represents a user loaded through a team's belongsToMany pivot.
          *
-         * Each entry below represents a distinct code pattern where the enum is reached
-         * through the underlying model accessor (`$this->resource->prop`) rather than the
-         * Laravel Resource magic shorthand (`$this->prop`).  All entries should resolve
-         * to the same TypeScript type as their `$this->prop` counterparts.
+         * Exercises: whenPivotLoaded, whenPivotLoadedAs, whenHas on enum attributes.
          */
-        export interface ResourceWrappedEnumResource {
+        export interface TeamMemberResource {
             id: number;
-            status_make: app.enums.StatusType;
-            status_new: app.enums.StatusType;
-            visibility_make: app.enums.VisibilityType | null;
-            priority_new: app.enums.PriorityType | null;
-            status_when_make?: app.enums.StatusType;
-            status_when_arrow?: app.enums.StatusType;
-            visibility_when_full?: app.enums.VisibilityType | null;
-            priority_when_not_null_make?: app.enums.PriorityType | null;
-            status_when_not_null_arrow?: app.enums.StatusType;
-            visibility_when_not_null_full?: app.enums.VisibilityType | null;
-            status_ternary_null: app.enums.StatusType | null;
-            status_ternary_both: app.enums.StatusType;
-            status_or_visibility_ternary: app.enums.StatusType | app.enums.VisibilityType | null;
-            enums_array: { status: app.enums.StatusType; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null };
-            mixed_enums_array: { status_type: crm.enums.StatusType; visibility_type: app.enums.VisibilityType | null; priority_type: app.enums.PriorityType | null; status_resource_type: crm.enums.StatusType; visibility_resource_type: app.enums.VisibilityType | null; priority_resource_type: app.enums.PriorityType | null; status_enum: app.enums.StatusType; visibility_enum: app.enums.VisibilityType | null; priority_enum: app.enums.PriorityType | null };
-            merged_status?: app.enums.StatusType;
-            merged_visibility?: app.enums.VisibilityType | null;
-            deferred_status?: app.enums.StatusType;
-            deferred_priority?: app.enums.PriorityType | null;
-            category_status?: app.enums.StatusType;
-            category_visibility?: app.enums.VisibilityType | null;
+            name: string;
+            email: string;
+            role?: app.enums.RoleType | null;
+            membership_level?: app.enums.MembershipLevelType | null;
+            avatar?: string | null;
+            team_role?: unknown;
+            joined_at?: unknown;
+            subscription_role?: unknown;
+        }
+        /**
+         * Exercises: when, whenLoaded + Resource::make, Resource::collection,
+         * whenCounted, mergeWhen.
+         */
+        export interface TeamResource {
+            id: number;
+            name: string;
+            slug: string;
+            description?: string | null;
+            is_active: boolean;
+            owner?: UserResource;
+            members?: TeamMemberResource[];
+            members_count?: number;
+            settings?: unknown[] | null;
+        }
+        /**
+         * Exercises: ternary operator in various return-value positions.
+         *
+         * All properties in this resource use the ternary operator (`? :`) or the
+         * Elvis operator (`?:`) as the value expression. The scenarios cover:
+         * - enum resource vs null
+         * - enum resource vs enum resource (same / different enum class)
+         * - named resource vs null
+         * - named resource vs named resource (same / different class)
+         * - resource collection vs null
+         * - scalar vs null (string, integer)
+         * - string literal vs string literal
+         * - Elvis / short-ternary
+         * - ternary nested inside a whenLoaded closure
+         * - ternary with $this->resource accessor
+         */
+        export interface TernaryResource {
+            status_or_null: app.enums.StatusType | null;
+            status_or_status: app.enums.StatusType;
+            status_resource_or_type: app.enums.StatusType | app.enums.StatusType;
+            status_or_visibility: app.enums.StatusType | app.enums.VisibilityType | null;
+            category_or_null: CategoryResource | null;
+            category_or_category: CategoryResource;
+            category_or_user: CategoryResource | UserResource;
+            image_or_null: ImageResource | null;
+            comments_or_null: CommentResource[] | null;
+            comments_or_comments: CommentResource[];
+            title_or_null: string | null;
+            word_count_or_null: number | null;
+            pin_label: string;
+            title_fallback: string;
+            category_when_loaded_or_null?: CategoryResource | null;
+            category_resource_or_null: CategoryResource | null;
+            nested_ternary_label: string | null;
+        }
+        /**
+         * Fixture resource used to test #[TsCasts] placed on the toArray() method
+         * rather than on the class. No class-level annotation is present on purpose so that
+         * method-level behavior is tested in isolation.
+         */
+        export interface ToArrayCastsResource {
+            id: number;
+            name: string;
+            email?: string | null;
+            role: string;
+            injected_field: Record<string, unknown>;
+            coordinates: GeoPoint;
+        }
+        export interface TraitSpreadCoverageResource {
+            id: number;
+            computed: string;
+            date_val: string;
+            custom_val: CustomObject;
+            plain: string;
+            basic: string;
+            firstName: string;
+            lastName: string;
+            isActive: boolean;
+            location: GeoPoint;
+            flag?: string | null;
+            extra: Record<string, unknown>;
+        }
+        /**
+         * Resource wrapping a unit enum (no backing type) to test the ->value fallback.
+         * Also accesses an unknown property to test the unknown enum property path.
+         */
+        export interface UnitEnumResource {
+            name: string;
+            value: string | number;
+            custom: unknown;
+        }
+        export interface UserCollection {
+            data: UserResource[];
+            has_admin: boolean;
+        }
+        /** User account resource. */
+        export interface UserResource {
+            id: number;
+            name: string;
+            email: string;
+            role: app.enums.RoleType | null;
+            profile?: app.models.Profile | null;
+            posts?: PostResource[];
+            phone?: string | null;
+            avatar?: string | null;
+            posts_count?: number;
+            comments_count?: number;
+        }
+        /** Fixture resource exercising variable-return trait method spreads. */
+        export interface VarReturnSpreadResource {
+            id: number;
+            baseKey: string;
+            conditionalKey?: string;
+            always: string;
+            sometimes?: string;
+            ifBranch?: string;
+            elseifBranch?: string;
+            elseBranch?: string;
+            conditionalBaseKey?: string;
+            foundB?: boolean;
+            foreachKey?: string;
+            forKey?: string;
+            whileKey?: string;
+            doWhileKey?: string;
+            status: string;
+        }
+        /**
+         * Resource with no @mixin or TsResource — tests convention-based model guess.
+         * Also tests multiple TsExtends in parent class, trait, and locally.
+         */
+        export interface WarehouseResource extends BaseResource, ExtendableInterface, Omit<Timestamps, "created_at" | "updated_at">, ResourceRoutes, Pick<Routable, "store" | "update"> {
+            id: number;
+            name: string;
+            color: app.enums.ColorType | null;
+            review_priority: app.enums.StatusType | app.enums.PriorityType | null;
+            review_priority_typed: app.enums.StatusType | app.enums.PriorityType | null;
+            review_priority_typed_short: app.enums.StatusType | app.enums.PriorityType | null;
+            manager: app.models.User | null;
+            primary_contact: crm.models.User | null;
+            secondary_contact: crm.models.User | null;
+            last_user_activity_by: app.models.User | crm.models.User | null;
+            last_user_activity_by_typed: app.models.User | crm.models.User | null;
+            last_user_activity_by_typed_short: app.models.User | crm.models.User | null;
+            last_user_activity_by_partial: { id: number; name: string } | null;
+            last_user_activity_by_mostly: { email: string; company: string | null; status: crm.enums.StatusType; created_at: string | null; updated_at: string | null; images: app.models.Image[] } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: app.models.Profile | null; posts: app.models.Post[]; comments: app.models.Comment[]; orders: app.models.Order[]; addresses: Address[]; teams: app.models.Team[]; ownedTeams: app.models.Team[]; images: app.models.Image[]; notifications: illuminate.notifications.DatabaseNotification[] } | null;
         }
     }
     export namespace app.http.resources.admin {
@@ -2719,17 +2719,7 @@ declare global {
             status: blog.enums.ArticleStatusType;
             content_type: blog.enums.ContentTypeType;
             is_featured: boolean;
-            author?: crm.models.User;
-        }
-        /**
-         * Exercises: multiple whenLoaded bare — both same-module (Article)
-         * and cross-module (App\User) model type resolution.
-         */
-        export interface ReactionResource {
-            id: number;
-            emoji: string;
-            article?: blog.models.Article;
-            user?: crm.models.User;
+            author?: app.models.User;
         }
         /**
          * Exercises: multiple EnumResource::make, when(cond, Resource::collection),
@@ -2748,20 +2738,23 @@ declare global {
             featured_image?: string | null;
             meta_description?: string | null;
             published_at?: string | null;
-            author?: crm.models.User;
+            author?: app.models.User;
             reactions?: ReactionResource[];
             reactions_count?: number;
             reactions_avg?: number;
         }
+        /**
+         * Exercises: multiple whenLoaded bare — both same-module (Article)
+         * and cross-module (App\User) model type resolution.
+         */
+        export interface ReactionResource {
+            id: number;
+            emoji: string;
+            article?: blog.models.Article;
+            user?: app.models.User;
+        }
     }
     export namespace crm.http.resources {
-        export interface UserResource {
-            id: number;
-            name: string;
-            email: string;
-            company: string | null;
-            status: crm.enums.StatusType;
-        }
         /**
          * Exercises: dual enum conflict — $this->status (App\Enums\Status direct access)
          * vs EnumResource::make($this->crm_status) (Crm\Enums\Status), whenLoaded bare
@@ -2782,20 +2775,15 @@ declare global {
             admin_resource?: app.http.resources.UserResource;
             closed_at?: string | null;
         }
+        export interface UserResource {
+            id: number;
+            name: string;
+            email: string;
+            company: string | null;
+            status: app.enums.StatusType;
+        }
     }
     export namespace shipping.http.resources {
-        /**
-         * Exercises: direct enum property access ($this->status),
-         * whenLoaded bare on same-module relation (Shipment).
-         */
-        export interface TrackingEventResource {
-            id: number;
-            status: shipping.enums.ShipmentStatusType;
-            location: string | null;
-            description: string | null;
-            occurred_at: string;
-            shipment?: shipping.models.Shipment;
-        }
         /**
          * Exercises: EnumResource::make on two enums (Carrier, Status), when, whenNotNull,
          * whenLoaded bare cross-module (App\Order), Resource::collection,
@@ -2816,6 +2804,18 @@ declare global {
             events_total?: number;
             transit_time?: unknown;
         }
+        /**
+         * Exercises: direct enum property access ($this->status),
+         * whenLoaded bare on same-module relation (Shipment).
+         */
+        export interface TrackingEventResource {
+            id: number;
+            status: shipping.enums.ShipmentStatusType;
+            location: string | null;
+            description: string | null;
+            occurred_at: string;
+            shipment?: shipping.models.Shipment;
+        }
     }
     export namespace accounting.http.requests {
         export interface VerifyTwoFactorRequest {
@@ -2823,6 +2823,145 @@ declare global {
         }
     }
     export namespace app.http.requests {
+        export interface ArrayRulesRequest {
+            tags?: string[];
+            "tags.*"?: string;
+            selected_ids: number[];
+            "selected_ids.*"?: number;
+            roles: string[];
+            "roles.*"?: string;
+            allowed_roles: string[];
+            "allowed_roles.*"?: string;
+            sku_codes: string[];
+            "sku_codes.*"?: string;
+            airports: string[];
+            "airports.*"?: string;
+            primary_airport: string;
+            config: unknown[];
+            ordered_items: string[];
+            "ordered_items.*"?: string;
+            limited_choices?: string[] | null;
+            "limited_choices.*"?: string | null;
+            required_answers: string[];
+            "required_answers.*"?: string;
+            coordinates: number[];
+            "coordinates.*"?: number;
+            products: unknown[];
+            "products.*.name"?: string;
+            "products.*.price"?: number;
+            "products.*.quantity"?: number;
+            "products.*.categories"?: string[];
+            "products.*.categories.*"?: string;
+            "products.*.is_available"?: boolean;
+            order: unknown[];
+            "order.id"?: string;
+            "order.items"?: unknown[];
+            "order.items.*.product_id"?: number;
+            "order.items.*.quantity"?: number;
+        }
+        export interface BooleanRulesRequest {
+            terms_accepted?: boolean;
+            newsletter_accepted?: boolean;
+            is_active?: boolean;
+            is_archived?: boolean | null;
+            is_featured?: boolean;
+            marketing_declined?: boolean;
+            privacy_declined?: boolean;
+        }
+        export interface DatabaseRulesRequest {
+            state: string;
+            category_id: number;
+            country_code: string;
+            email: string;
+            username: string;
+            phone?: string | null;
+            parent_id?: number | null;
+        }
+        export interface DateRulesRequest {
+            event_date: string;
+            start_date: string;
+            registration_deadline: string;
+            birth_date: string;
+            end_date: string;
+            release_date: string;
+            formatted_date: string;
+            flexible_date: string;
+            follow_up_date: string;
+            cancelled_at?: string | null;
+            user_timezone: string;
+            us_timezone?: string | null;
+        }
+        export type DynamicRequest = Record<string, unknown>;
+        export interface FileRulesRequest {
+            document: File;
+            avatar: File;
+            small_attachment: File;
+            banner: File;
+            thumbnail: File;
+            photo: File;
+            csv_import: File;
+            large_video?: File | null;
+            video?: File | null;
+            report: File;
+            exact_size_file?: File | null;
+        }
+        export interface NumberRulesRequest {
+            score: number;
+            price: number;
+            exchange_rate: number;
+            sale_price: number;
+            pin: number;
+            verification_code: number;
+            max_price: number;
+            discounted_price: number;
+            quantity: number;
+            item_count: number;
+            min_age: number;
+            min_age_inclusive: number;
+            max_age: number;
+            retry_count: number;
+            account_number: number;
+            page: number;
+            tracking_code: number;
+            batch_size: number;
+            amount: number;
+            strict_amount: number;
+            confirm_quantity: number;
+            team_size: number;
+        }
+        export interface RuleClassRequest {
+            start_date: string;
+            end_date?: string | null;
+            username: string;
+            roles: unknown[];
+            invalid_roles: unknown[];
+            avatar: File;
+            email: string;
+            order_status?: 0;
+            membership_level?: string;
+            visibility?: string;
+            role_id?: unknown;
+            team_id?: unknown;
+            state?: unknown;
+            zones: 'first-zone' | 'second-zone';
+            "airports.*"?: 'NYC' | 'LIT';
+            toppings: string;
+            role_id_prohibited?: unknown;
+            role_id_callback?: unknown;
+            role_id_prohibited_unless?: unknown;
+            role_id_prohibited_unless_callback?: unknown;
+            role_id_required_if: unknown;
+            role_id_required_if_callback: unknown;
+            role_id_required_unless: unknown;
+            role_id_required_unless_callback: unknown;
+            title: string;
+            email_unique: unknown;
+            "addresses.*.id"?: unknown;
+            photo: File;
+            quantity: number;
+            accent_color?: 'red' | 'blue';
+            forbidden_color?: 'green' | 'blue' | 'amber' | 'gray' | 'purple';
+        }
         export interface StorePostRequest {
             title: string;
             body: string;
@@ -2868,118 +3007,12 @@ declare global {
             external_id?: string | null;
             request_id?: string | null;
         }
-        export interface NumberRulesRequest {
-            score: number;
-            price: number;
-            exchange_rate: number;
-            sale_price: number;
-            pin: number;
-            verification_code: number;
-            max_price: number;
-            discounted_price: number;
-            quantity: number;
-            item_count: number;
-            min_age: number;
-            min_age_inclusive: number;
-            max_age: number;
-            retry_count: number;
-            account_number: number;
-            page: number;
-            tracking_code: number;
-            batch_size: number;
-            amount: number;
-            strict_amount: number;
-            confirm_quantity: number;
-            team_size: number;
-        }
-        export interface FileRulesRequest {
-            document: File;
-            avatar: File;
-            small_attachment: File;
-            banner: File;
-            thumbnail: File;
-            photo: File;
-            csv_import: File;
-            large_video?: File | null;
-            video?: File | null;
-            report: File;
-            exact_size_file?: File | null;
-        }
         export interface UpdatePostRequest {
             title?: string;
             status: 'draft' | 'published' | 'archived';
             category_id: number;
             priority?: number | null;
             attributes?: PostAttributes;
-        }
-        export interface ArrayRulesRequest {
-            tags?: string[];
-            "tags.*"?: string;
-            selected_ids: number[];
-            "selected_ids.*"?: number;
-            roles: string[];
-            "roles.*"?: string;
-            allowed_roles: string[];
-            "allowed_roles.*"?: string;
-            sku_codes: string[];
-            "sku_codes.*"?: string;
-            airports: string[];
-            "airports.*"?: string;
-            primary_airport: string;
-            config: unknown[];
-            ordered_items: string[];
-            "ordered_items.*"?: string;
-            limited_choices?: string[] | null;
-            "limited_choices.*"?: string | null;
-            required_answers: string[];
-            "required_answers.*"?: string;
-            coordinates: number[];
-            "coordinates.*"?: number;
-            products: unknown[];
-            "products.*.name"?: string;
-            "products.*.price"?: number;
-            "products.*.quantity"?: number;
-            "products.*.categories"?: string[];
-            "products.*.categories.*"?: string;
-            "products.*.is_available"?: boolean;
-            order: unknown[];
-            "order.id"?: string;
-            "order.items"?: unknown[];
-            "order.items.*.product_id"?: number;
-            "order.items.*.quantity"?: number;
-        }
-        export interface RuleClassRequest {
-            start_date: string;
-            end_date?: string | null;
-            username: string;
-            roles: unknown[];
-            invalid_roles: unknown[];
-            avatar: File;
-            email: string;
-            order_status?: 0;
-            membership_level?: string;
-            visibility?: string;
-            role_id?: unknown;
-            team_id?: unknown;
-            state?: unknown;
-            zones: 'first-zone' | 'second-zone';
-            "airports.*"?: 'NYC' | 'LIT';
-            toppings: string;
-            role_id_prohibited?: unknown;
-            role_id_callback?: unknown;
-            role_id_prohibited_unless?: unknown;
-            role_id_prohibited_unless_callback?: unknown;
-            role_id_required_if: unknown;
-            role_id_required_if_callback: unknown;
-            role_id_required_unless: unknown;
-            role_id_required_unless_callback: unknown;
-            title: string;
-            email_unique: unknown;
-            "addresses.*.id"?: unknown;
-            photo: File;
-            quantity: number;
-            accent_color?: 'red' | 'blue';
-            forbidden_color?: 'green' | 'blue' | 'amber' | 'gray' | 'purple';
         }
         export interface UtilityRulesRequest {
             contact: string;
@@ -3043,66 +3076,20 @@ declare global {
             email?: string | null;
             mobile_optional?: string | null;
         }
-        export interface BooleanRulesRequest {
-            terms_accepted?: boolean;
-            newsletter_accepted?: boolean;
-            is_active?: boolean;
-            is_archived?: boolean | null;
-            is_featured?: boolean;
-            marketing_declined?: boolean;
-            privacy_declined?: boolean;
-        }
-        export interface DateRulesRequest {
-            event_date: string;
-            start_date: string;
-            registration_deadline: string;
-            birth_date: string;
-            end_date: string;
-            release_date: string;
-            formatted_date: string;
-            flexible_date: string;
-            follow_up_date: string;
-            cancelled_at?: string | null;
-            user_timezone: string;
-            us_timezone?: string | null;
-        }
-        export interface DatabaseRulesRequest {
-            state: string;
-            category_id: number;
-            country_code: string;
-            email: string;
-            username: string;
-            phone?: string | null;
-            parent_id?: number | null;
-        }
-        export type DynamicRequest = Record<string, unknown>;
     }
     export namespace app.events {
-        export interface PostPublishedEvent {
-            post: Partial<app.models.Post>;
-            message: string;
-        }
-        export interface UserRegisteredEvent {
-            user: Partial<app.models.User>;
-            userId: number;
-        }
-        export interface PureEnumEvent {
-            role: app.enums.RoleType;
-            visibility: app.enums.VisibilityType;
-            action: string;
-        }
         export interface EnumBroadcastEvent {
             status: app.enums.StatusType;
             color: app.enums.ColorType;
         }
-        export interface UserNotification {
-            userId: number;
-            title: string;
+        export interface MixedTypesEvent {
+            post: PostSnapshot;
+            status: app.enums.StatusType;
             message: string;
         }
-        export interface ServerCreated {
-            serverId: number;
-            serverName: string;
+        export interface MultiModelEvent {
+            post: Partial<app.models.Post>;
+            user: Partial<app.models.User>;
         }
         export interface OrderShipped {
             orderId: number;
@@ -3110,22 +3097,35 @@ declare global {
             carrier: string;
             metadata?: Record<string, unknown>;
         }
+        export interface PostPublishedEvent {
+            post: Partial<app.models.Post>;
+            message: string;
+        }
+        export interface PureEnumEvent {
+            role: app.enums.RoleType;
+            visibility: app.enums.VisibilityType;
+            action: string;
+        }
+        export interface ServerCreated {
+            serverId: number;
+            serverName: string;
+        }
         export interface TeamMessageSent {
             teamId: number;
             content: string;
         }
-        export interface MultiModelEvent {
-            post: Partial<app.models.Post>;
+        export interface UserNotification {
+            userId: number;
+            title: string;
+            message: string;
+        }
+        export interface UserRegisteredEvent {
             user: Partial<app.models.User>;
+            userId: number;
         }
         export interface UserSynced {
             userId: string;
             action: string;
-        }
-        export interface MixedTypesEvent {
-            post: PostSnapshot;
-            status: app.enums.StatusType;
-            message: string;
         }
     }
     export namespace crm.events {
