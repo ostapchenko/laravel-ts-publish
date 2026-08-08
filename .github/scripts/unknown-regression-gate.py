@@ -18,7 +18,7 @@ import sys
 
 ROOT = "workbench/resources/js/types/data"
 PROP = re.compile(r"^\s*([A-Za-z_$][\w$]*)\??:\s*(.+?);\s*$")
-BLOCK = re.compile(r"^\s*(?:export\s+)?(?:declare\s+)?(interface|namespace|module)\s+([\w$.]+)")
+BLOCK = re.compile(r"^\s*(?:export\s+)?(?:declare\s+)?(interface|namespace|module)\s+([^\s{]+)")
 
 
 def git(*args: str) -> str:
