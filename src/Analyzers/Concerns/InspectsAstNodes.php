@@ -39,8 +39,7 @@ trait InspectsAstNodes
     ];
 
     /**
-     * Check if a static call's first argument is a conditional expression
-     * (e.g. $this->whenLoaded('relation'), $this->when(...), etc.).
+     * Check if a static call's first argument is a conditional expression such as `$this->whenLoaded(...)`.
      */
     protected function hasConditionalArgument(StaticCall $call): bool
     {
@@ -146,13 +145,7 @@ trait InspectsAstNodes
     }
 
     /**
-     * Collect ALL return expressions from a closure or arrow function, producing
-     * one entry per distinct return path. Used to build union types when a closure
-     * has multiple return branches (e.g. guard clause + data array).
-     *
-     * - ArrowFunction: single-element list with the expression body.
-     * - Closure: collects every top-level Return_ with a non-null expression,
-     *   recursing into if/else and switch blocks but NOT into nested closures.
+     * Collect one expression per return path of a closure or arrow function, for building union types.
      *
      * @return list<Expr>
      */
@@ -170,9 +163,7 @@ trait InspectsAstNodes
     }
 
     /**
-     * Recursively collect Return_ expressions from a list of statements,
-     * descending into control-flow blocks (if/else, switch, try/catch, foreach,
-     * for, while, do-while) but NOT into nested closures or arrow functions.
+     * Recursively collect Return_ expressions, descending into control-flow blocks but not nested closures.
      *
      * @param  array<Stmt>  $stmts
      * @return list<Expr>
@@ -189,7 +180,6 @@ trait InspectsAstNodes
                 continue;
             }
 
-            // Descend into control-flow blocks
             if ($stmt instanceof If_) {
                 $returns = [...$returns, ...$this->collectReturnExpressions($stmt->stmts)];
 
@@ -226,7 +216,6 @@ trait InspectsAstNodes
                 continue;
             }
 
-            // Loop blocks (foreach, for, while, do-while)
             if ($stmt instanceof Foreach_
                 || $stmt instanceof For_
                 || $stmt instanceof While_) {

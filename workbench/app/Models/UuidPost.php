@@ -11,4 +11,8 @@ class UuidPost extends Model
     protected $table = 'posts';
 
     protected $primaryKey = 'uuid';
+
+    protected $keyType = 'string';
+
+    public $incrementing = false;
 }

@@ -91,3 +91,9 @@ test('date types resolve to Date when timestamps_as_date is true', function () {
         ->and(($map['datetime'])())->toBe('Date')
         ->and(($map['timestamp'])())->toBe('Date');
 });
+
+test('maps network column types to string', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('string');
+})->with(['inet', 'cidr', 'macaddr', 'macaddr8']);

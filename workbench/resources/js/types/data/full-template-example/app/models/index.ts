@@ -1,4 +1,5 @@
 export * from './address';
+export * from './attachment';
 export * from './base-extendable-model';
 export * from './base-shared-extendable-model';
 export * from './category';
@@ -16,6 +17,9 @@ export * from './order-item';
 export * from './post';
 export * from './product';
 export * from './profile';
+export * from './property-docblock-base';
+export * from './property-docblock-child';
+export * from './property-docblock-edge';
 export * from './service-desk';
 export * from './slug-post';
 export * from './strict-composite-comment';

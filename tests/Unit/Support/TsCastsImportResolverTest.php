@@ -157,10 +157,8 @@ describe('resolve', function () {
     });
 
     test('falls back to numeric suffix when paths are identical after extension stripping at every depth', function () {
-        // '@types/auth.ts' and '@types/auth.d.ts' both resolve to 'auth' at depth 1
-        // and 'TypesAuth' at depth 2 (max depth), so the for-loop never returns early.
-        // The numeric-suffix fallback then produces 'TypesAuth1' and 'TypesAuth2'
-        // to guarantee unique, valid TypeScript identifiers.
+        // '@types/auth.ts' and '@types/auth.d.ts' collide at every depth: 'auth' at 1, 'TypesAuth' at 2 (max),
+        // so no depth disambiguates and the numeric-suffix fallback has to guarantee unique TS identifiers.
         $resolver = new TsCastsImportResolver;
 
         $result = $resolver->resolve([

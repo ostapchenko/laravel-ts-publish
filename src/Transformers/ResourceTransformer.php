@@ -212,16 +212,12 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Resolve the backing model class from
-     * 1. #[TsResource(model:)] attribute
-     * 2. @mixin docblock or @extends SomeParentClass<Model>
-     * 3. $resource class type or @var docblock on $resource property (for resources with a typed $resource )
-     * 4. Convention-based guess (reverse of Laravel's TransformsToResource)
-     * 5. #[UseResource] attribute scan on collected models (Laravel 12+)
+     * Resolve the backing model class.
+     *
+     * Precedence: #[TsResource(model:)], @mixin/@extends, typed $resource, naming convention, #[UseResource].
      */
     protected function resolveModelClass(): self
     {
-        // Priority 1: explicit #[TsResource(model:)] attribute
         $tsResourceAttrs = $this->reflectionResource->getAttributes(TsResource::class);
 
         if ($tsResourceAttrs) {
@@ -234,8 +230,7 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        // Priority 2: @mixin in docblock or @extends SomeParentClass<Model>
-        // Make sure @mixin or @extends follow "* " comment line pattern to avoid false positives from inline mentions in descriptions
+        // The "* " lookbehind keeps prose mentions of the tags mid-description from matching.
         $docComment = $this->reflectionResource->getDocComment();
         if ($docComment !== false) {
             $resolved = null;
@@ -254,7 +249,6 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        // Priority 3: @var on $resource property (for wrapped resources)
         $wrappedClass = $this->resolveClassOnProperty($this->reflectionResource);
         if ($wrappedClass !== null && class_exists($wrappedClass) && is_a($wrappedClass, Model::class, true)) {
             $this->modelClass = $wrappedClass;
@@ -262,7 +256,6 @@ class ResourceTransformer extends CoreTransformer
             return $this;
         }
 
-        // Priority 4: convention-based guess (reverse of Laravel's TransformsToResource)
         $guessed = $this->guessModelFromConvention();
 
         if ($guessed !== null) {
@@ -271,7 +264,6 @@ class ResourceTransformer extends CoreTransformer
             return $this;
         }
 
-        // Priority 5: scan models for #[UseResource] attribute pointing to this resource
         $useResourceModel = $this->guessModelFromUseResourceAttribute();
 
         if ($useResourceModel !== null) {
@@ -414,8 +406,7 @@ class ResourceTransformer extends CoreTransformer
         $analyzer = new ResourceAstAnalyzer($this->reflectionResource, $this->modelClass);
         $analysis = $analyzer->analyze();
 
-        // Handle flat type alias (e.g. `export type PostCollection = PostResource[]`)
-        // for ResourceCollection subclasses with $wrap = null.
+        // ResourceCollection subclasses with $wrap = null emit an alias, not an interface.
         if ($analysis->flatTypeAlias !== null) {
             $this->typeAlias = $analysis->flatTypeAlias;
 
@@ -426,7 +417,6 @@ class ResourceTransformer extends CoreTransformer
             return $this;
         }
 
-        // Convert ResourcePropertyInfo list into PropertiesList map
         foreach ($analysis->properties as $prop) {
             $this->properties[$prop['name']] = [
                 'type' => $prop['type'],
@@ -435,7 +425,6 @@ class ResourceTransformer extends CoreTransformer
             ];
         }
 
-        // Populate enum tracking maps from EnumResource::make() properties
         foreach ($analysis->enumResources as $propName => $fqcn) {
             $tsInfo = LaravelTsPublish::toTsType($fqcn);
             $this->enumFqcnMap[$fqcn] = $tsInfo['enumTypes'][0] ?? class_basename($fqcn).'Type';
@@ -445,7 +434,6 @@ class ResourceTransformer extends CoreTransformer
             $this->propertyEnumFqcns[$propName] = $fqcn;
         }
 
-        // Populate enum tracking maps from direct $this->prop enum access
         foreach ($analysis->directEnumFqcns as $propName => $fqcn) {
             if (! isset($this->enumFqcnMap[$fqcn])) {
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
@@ -456,7 +444,6 @@ class ResourceTransformer extends CoreTransformer
             $this->directEnumProperties[$propName] = $fqcn;
         }
 
-        // Populate nested resource tracking map (skip self-references)
         foreach ($analysis->nestedResources as $propName => $fqcn) {
             if ($fqcn !== $this->findable) {
                 $this->resourceFqcnMap[$fqcn] = class_basename($fqcn);
@@ -464,24 +451,19 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        // Populate model tracking map from bare whenLoaded relations
         foreach ($analysis->modelFqcns as $propName => $fqcn) {
             $this->modelFqcnMap[$fqcn] = class_basename($fqcn);
             $this->propertyModelFqcns[$propName] = $fqcn;
         }
 
-        // Populate inline enum FQCN map from embedded enum types in inline object type strings
         foreach ($analysis->inlineEnumFqcns as $propName => $fqcns) {
             $this->propertyInlineEnumFqcns[$propName] = $fqcns;
         }
 
-        // Populate inline model FQCN map from embedded model types in inline object type strings
         foreach ($analysis->inlineModelFqcns as $propName => $fqcns) {
             $this->propertyInlineModelFqcns[$propName] = $fqcns;
         }
 
-        // Populate inline enum resource FQCN map for value-import generation
-        // (enum FQCNs used via EnumResource inside inline object type strings)
         foreach ($analysis->inlineEnumResourceFqcns as $propName => $fqcns) {
             foreach ($fqcns as $fqcn) {
                 if (! isset($this->enumConstMap[$fqcn])) {
@@ -492,7 +474,6 @@ class ResourceTransformer extends CoreTransformer
             $this->propertyInlineEnumResourceFqcns[$propName] = $fqcns;
         }
 
-        // Populate multi-FQCN enum tracking for ternary with multiple different EnumResource branches
         foreach ($analysis->multiEnumResourceFqcns as $propName => $fqcns) {
             foreach ($fqcns as $fqcn) {
                 if (! isset($this->enumFqcnMap[$fqcn])) {
@@ -504,7 +485,6 @@ class ResourceTransformer extends CoreTransformer
             $this->multiEnumResourceProperties[$propName] = $fqcns;
         }
 
-        // Merge custom imports from trait method #[TsCasts] attributes
         foreach ($analysis->customImports as $importPath => $types) {
             $this->customImports[$importPath] = [...($this->customImports[$importPath] ?? []), ...$types];
         }
@@ -517,7 +497,6 @@ class ResourceTransformer extends CoreTransformer
      */
     protected function applyOverrides(): self
     {
-        // Apply model TsCasts overrides (only for properties already in toArray, not overridden by resource TsCasts)
         foreach ($this->modelTsCastsOverrides as $property => $type) {
             if (isset($this->properties[$property]) && ! isset($this->tsTypeOverrides[$property])) {
                 $this->properties[$property]['type'] = $type;
@@ -534,12 +513,10 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        // Apply resource TsCasts overrides (highest priority, can add new properties)
         foreach ($this->tsTypeOverrides as $property => $type) {
             if (isset($this->properties[$property])) {
                 $this->properties[$property]['type'] = $type;
             } else {
-                // Override adds a property not found in AST
                 $this->properties[$property] = [
                     'type' => $type,
                     'optional' => false,
@@ -585,8 +562,7 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Rewrite EnumResource::make() property types to AsEnum<typeof Const> when tolki package is enabled.
-     * When disabled, leave types as StatusType (they get type imports instead).
+     * Rewrite EnumResource::make() property types to AsEnum<typeof Const> when the tolki package is enabled.
      */
     protected function rewriteEnumResourceTypes(): self
     {
@@ -594,7 +570,6 @@ class ResourceTransformer extends CoreTransformer
             return $this;
         }
 
-        // Single FQCN per property (or mixed EnumResource + direct access)
         foreach ($this->enumResourceProperties as $propName => $info) {
             if (! isset($this->properties[$propName])) {
                 continue; // @codeCoverageIgnore
@@ -602,8 +577,7 @@ class ResourceTransformer extends CoreTransformer
 
             $constName = $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']];
 
-            // Mixed ternary: one branch used EnumResource::make(), the other accessed $this->prop
-            // directly (same enum FQCN). Produce AsEnum<typeof X> | XType to represent both.
+            // Mixed ternary: one branch wraps the enum, the other reads it directly — emit both forms.
             if (isset($this->directEnumProperties[$propName])) {
                 $enumTypeName = $this->enumFqcnMap[$info['fqcn']];
                 $type = 'AsEnum<typeof '.$constName.'> | '.$enumTypeName;
@@ -620,13 +594,10 @@ class ResourceTransformer extends CoreTransformer
                 'type' => $type,
             ];
 
-            // Remove from type import map unless this FQCN is also used for direct property access.
-            // For mixed ternary properties, the direct-access branch still needs the type import.
+            // The type import survives only if some property still reads this enum directly.
             $usedForDirectAccess = isset($this->directEnumProperties[$propName]);
 
             if (! $usedForDirectAccess) {
-                // Another property in enumResourceProperties for the same FQCN may be a mixed-access
-                // ternary (EnumResource branch + direct-access branch), which still needs the type import.
                 foreach ($this->directEnumProperties as $prop => $propFqcn) {
                     if ($propFqcn === $info['fqcn']) {
                         $usedForDirectAccess = true;
@@ -651,8 +622,7 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        // Multi-FQCN: all non-null branches are EnumResource calls with different FQCNs.
-        // Positionally replace each non-null type token with AsEnum<typeof X>.
+        // Ternaries whose non-null branches each wrap a different enum: replace tokens positionally.
         foreach ($this->multiEnumResourceProperties as $propName => $fqcns) {
             if (! isset($this->properties[$propName])) {
                 continue; // @codeCoverageIgnore
@@ -670,8 +640,7 @@ class ResourceTransformer extends CoreTransformer
                     $constName = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn];
                     $rewritten[] = 'AsEnum<typeof '.$constName.'>';
 
-                    // Only remove from type import map if this FQCN is not still needed
-                    // by another property (e.g. a mixed ternary that produces XType in the union).
+                    // A mixed ternary elsewhere may still emit XType, which needs the type import.
                     $stillNeeded = false;
 
                     foreach ($this->directEnumProperties as $propFqcn) {
@@ -710,11 +679,7 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Discover model accessor properties that return a union of multiple enum classes
-     * and register their FQCNs so that resolveImportConflicts() can alias them.
-     *
-     * This supplements the single-FQCN tracking in runAstAnalysis() for accessors typed as
-     * Attribute<EnumA|EnumB, never> where both enums need imports and aliasing.
+     * Register both enum FQCNs of accessors typed Attribute<EnumA|EnumB, never> so they can be aliased.
      */
     protected function resolveMultiEnumAccessorFqcns(): self
     {
@@ -725,7 +690,6 @@ class ResourceTransformer extends CoreTransformer
         $resolver = resolve(ModelAttributeResolver::class);
 
         foreach (array_keys($this->properties) as $propName) {
-            // Skip properties already processed as multi-enum
             if (isset($this->propertyEnumFqcnsList[$propName])) {
                 continue; // @codeCoverageIgnore
             }
@@ -751,11 +715,8 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Discover model accessor properties that return a union of multiple model classes
-     * and register their FQCNs so that resolveImportConflicts() can alias them.
-     *
-     * This supplements the single-FQCN tracking in runAstAnalysis() for accessors typed as
-     * Attribute<ClassA|ClassB, never> where both classes need imports and aliasing.
+     * Register both class FQCNs of accessors typed Attribute<ClassA|ClassB, never> so they can be aliased,
+     * and the #[TsType(import:)] paths of model attributes, which no analysis path carries into a resource.
      */
     protected function resolveMultiClassAccessorFqcns(): self
     {
@@ -764,14 +725,16 @@ class ResourceTransformer extends CoreTransformer
         }
 
         $resolver = resolve(ModelAttributeResolver::class);
+        $modelClass = $this->modelClass;
 
         foreach (array_keys($this->properties) as $propName) {
-            // Skip properties already fully tracked via the single-FQCN map (e.g. relations)
             if (isset($this->propertyModelFqcns[$propName])) {
                 continue;
             }
 
-            $tsInfo = $resolver->resolveAttribute($this->modelClass, $propName);
+            $tsInfo = $resolver->resolveAttribute($modelClass, $propName);
+
+            $this->registerModelAttributeCustomImports($propName, $tsInfo['customImports']);
 
             if ($tsInfo['classFqcns'] === []) {
                 continue;
@@ -788,6 +751,24 @@ class ResourceTransformer extends CoreTransformer
         }
 
         return $this;
+    }
+
+    /**
+     * Import a model attribute's #[TsType(import:)] names, but only those the emitted property still uses.
+     *
+     * A resource may override the model's type, and an unused import is a tsc error under noUnusedLocals.
+     *
+     * @param  array<string, list<string>>  $imports
+     */
+    protected function registerModelAttributeCustomImports(string $propName, array $imports): void
+    {
+        foreach ($imports as $path => $names) {
+            foreach ($names as $name) {
+                if (str_contains($this->properties[$propName]['type'] ?? '', $name)) {
+                    $this->customImports[$path][] = $name;
+                }
+            }
+        }
     }
 
     /**
@@ -811,7 +792,6 @@ class ResourceTransformer extends CoreTransformer
         }
 
         foreach ($reverseMap as $typeName => $entries) {
-            // Also conflict if the type name matches this resource's own name
             $needsAlias = count($entries) > 1 || $typeName === $this->resourceName;
 
             if (! $needsAlias) {
@@ -850,93 +830,72 @@ class ResourceTransformer extends CoreTransformer
      */
     protected function rewriteTypeReferences(): void
     {
+        $nameMap = $this->enumFqcnMap + $this->resourceFqcnMap + $this->modelFqcnMap;
+        $propertyFqcns = $this->mergePropertyFqcnMaps();
+
         foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $this->enumFqcnMap[$fqcn]
-                ?? $this->resourceFqcnMap[$fqcn]
-                ?? $this->modelFqcnMap[$fqcn]
-                ?? null;
+            $originalName = $nameMap[$fqcn] ?? null;
 
             if ($originalName === null || $originalName === $alias) {
                 continue; // @codeCoverageIgnore
             }
 
-            $pattern = '/(?<![A-Za-z0-9_$])'.preg_quote($originalName, '/').'(?![A-Za-z0-9_$])/';
-
-            // Use property→FQCN tracking maps for precise replacement
-            $targetProperties = [];
-
-            foreach ($this->propertyEnumFqcns as $propName => $propFqcn) {
-                if ($propFqcn === $fqcn) {
-                    $targetProperties[] = $propName;
+            foreach ($propertyFqcns as $propName => $propFqcns) {
+                if (! in_array($fqcn, $propFqcns, true) || ! isset($this->properties[$propName])) {
+                    continue;
                 }
-            }
 
-            foreach ($this->propertyResourceFqcns as $propName => $propFqcn) {
-                if ($propFqcn === $fqcn) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            foreach ($this->propertyModelFqcns as $propName => $propFqcn) {
-                if ($propFqcn === $fqcn) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            // Multi-FQCN property tracking — for union accessor types like Attribute<ClassA|ClassB, never>.
-            // Uses limit=1 so each alias pass replaces only the first remaining unaliased token,
-            // preserving duplicate base-names (e.g. 'User | User | null' → 'CrmUser | User | null'
-            // on the first pass, then 'CrmUser | WorkbenchUser | null' on the second).
-            foreach ($this->propertyModelFqcnsList as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            // Multi-FQCN enum accessor types (e.g. Attribute<EnumA|EnumB, never>)
-            foreach ($this->propertyEnumFqcnsList as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            // Inline embedded enum FQCNs from ->only()/->except() inline object type strings
-            foreach ($this->propertyInlineEnumFqcns as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            // Inline embedded model FQCNs from ->only()/->except() inline object type strings
-            foreach ($this->propertyInlineModelFqcns as $propName => $propFqcns) {
-                if (in_array($fqcn, $propFqcns, true)) {
-                    $targetProperties[] = $propName;
-                }
-            }
-
-            $targetProperties = array_unique($targetProperties);
-
-            foreach ($targetProperties as $propName) {
-                if (! isset($this->properties[$propName])) {
-                    continue; // @codeCoverageIgnore
-                }
-                $this->properties[$propName]['type'] = preg_replace(
-                    $pattern,
-                    $alias,
+                $this->properties[$propName]['type'] = LaravelTsPublish::aliasTypeName(
                     $this->properties[$propName]['type'],
-                    1, // Replace only first occurrence per pass to handle duplicate type tokens
-                ) ?? $this->properties[$propName]['type'];
+                    $originalName,
+                    $alias,
+                    $propFqcns,
+                    $nameMap,
+                );
             }
         }
     }
 
     /**
+     * Merge every per-property FQCN map — singular and list — into one property => FQCN list.
+     *
+     * Named apart from BroadcastEventTransformer::collectPropertyFqcns(), whose signature differs.
+     *
+     * @return array<string, list<class-string>>
+     */
+    protected function mergePropertyFqcnMaps(): array
+    {
+        /** @var array<string, list<class-string>> $merged */
+        $merged = [];
+
+        foreach ([$this->propertyEnumFqcns, $this->propertyResourceFqcns, $this->propertyModelFqcns] as $map) {
+            foreach ($map as $propName => $propFqcn) {
+                $merged[$propName][] = $propFqcn;
+            }
+        }
+
+        foreach ([
+            $this->propertyModelFqcnsList,
+            $this->propertyEnumFqcnsList,
+            $this->propertyInlineEnumFqcns,
+            $this->propertyInlineModelFqcns,
+        ] as $map) {
+            foreach ($map as $propName => $propFqcns) {
+                $merged[$propName] = [...($merged[$propName] ?? []), ...$propFqcns];
+            }
+        }
+
+        return array_map(
+            fn (array $propFqcns): array => array_values(array_unique($propFqcns)),
+            $merged,
+        );
+    }
+
+    /**
      * Build a map of per-file enum const aliases → namespace-qualified type names.
      *
-     * Used by the globals blade to rewrite `AsEnum<typeof ConstAlias>` to the equivalent
-     * type alias before rendering resource properties in `declare global {}`.
-     * Called per-transformer (not merged globally) because two resources may share the
-     * same unaliased const name pointing to different namespaces.
+     * Kept per-transformer rather than merged: two resources can use the same unaliased
+     * const name for enums in different namespaces.
      *
      * @return array<string, string> constAlias => 'namespace.TypeName'
      */
@@ -948,8 +907,7 @@ class ResourceTransformer extends CoreTransformer
             $fqcn = $info['fqcn'];
             $constAlias = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn] ?? null;
 
-            // enumFqcnMap may have been cleared by rewriteEnumResourceTypes(); derive the type name
-            // from enumConstMap (which is never cleared) using the established XType convention.
+            // rewriteEnumResourceTypes() may have cleared enumFqcnMap; enumConstMap is never cleared.
             $originalConstName = $this->enumConstMap[$fqcn] ?? null;
 
             if ($constAlias === null || $originalConstName === null) {
@@ -962,7 +920,6 @@ class ResourceTransformer extends CoreTransformer
             $map[$constAlias] = $ns.'.'.$typeName;
         }
 
-        // Also include FQCNs from multi-FQCN EnumResource properties (ternary with different enums)
         foreach ($this->multiEnumResourceProperties as $fqcns) {
             foreach ($fqcns as $fqcn) {
                 $constAlias = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn] ?? null;
@@ -984,9 +941,6 @@ class ResourceTransformer extends CoreTransformer
 
     /**
      * Build a map of per-file import aliases → namespace-qualified global names.
-     *
-     * Used by GlobalsWriter to resolve aliases back to their correct globally-qualified
-     * names before the normal `qualifyGlobalType()` pass.
      *
      * @return array<string, string> alias => 'namespace.OriginalName'
      */
@@ -1023,11 +977,7 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Whether to generate HasEnums value imports.
-     *
-     * Extends the base trait implementation to also return `true` when inline
-     * object properties contain EnumResource-wrapped FQCNs (and tolki is enabled),
-     * since those also need value imports for `AsEnum<typeof X>` usage.
+     * Whether to generate HasEnums value imports, also counting enums wrapped inside inline object types.
      */
     protected function shouldGenerateHasEnums(): bool
     {
@@ -1039,12 +989,7 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Return unique enum FQCNs for value-import generation.
-     *
-     * Extends the base implementation to include FQCNs from multi-FQCN EnumResource
-     * ternary properties (e.g. `status_or_visibility` where each branch wraps a different
-     * enum via EnumResource). These FQCNs are stored in `$this->multiEnumResourceProperties`
-     * rather than `enumResourceProperties`, so the base `enumPropertyFqcns()` misses them.
+     * Return unique enum FQCNs for value-import generation, including multi-enum and inline ones.
      *
      * @return list<string>
      */

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\Transformers\ResourceTransformer;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\App\Http\Resources\AddressExtendsResource;
@@ -17,6 +18,8 @@ use Workbench\App\Http\Resources\EmptyResource;
 use Workbench\App\Http\Resources\EmptyWithMixinResource;
 use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\FqcnMixinResource;
+use Workbench\App\Http\Resources\ImageDelegatedResource;
+use Workbench\App\Http\Resources\ImageMorphResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
 use Workbench\App\Http\Resources\MediaTypeUnknownResource;
@@ -35,8 +38,10 @@ use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Address;
 use Workbench\App\Models\Admin\Store as AdminStore;
 use Workbench\App\Models\Comment;
+use Workbench\App\Models\Image;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\Post;
+use Workbench\App\Models\Product;
 use Workbench\App\Models\TrackingEvent;
 use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
@@ -350,8 +355,7 @@ describe('ResourceTransformer with CommentResource', function () {
     });
 
     test('annotation fallback fires when body is a FuncCall — user_email_annotated is string|null', function () {
-        // `fn (): ?string => json_decode(...)` — json_decode() returns mixed (resolves to unknown) so the body stays unknown;
-        // ?string annotation kicks in.
+        // json_decode() returns mixed, so the body stays unknown and the ?string annotation has to carry it.
         $data = (new ResourceTransformer(CommentResource::class))->data();
 
         expect($data->properties['user_email_annotated']['type'])->toBe('string | null');
@@ -359,8 +363,7 @@ describe('ResourceTransformer with CommentResource', function () {
     });
 
     test('no annotation and unresolvable body — unresolvable_status is unknown', function () {
-        // `fn () => json_decode(...)` — json_decode() returns mixed (resolves to unknown) so the body stays unknown;
-        // no return type annotation → unknown.
+        // json_decode() returns mixed and there is no return type annotation to fall back on.
         $data = (new ResourceTransformer(CommentResource::class))->data();
 
         expect($data->properties['unresolvable_status']['type'])->toBe('unknown');
@@ -368,8 +371,7 @@ describe('ResourceTransformer with CommentResource', function () {
     });
 
     test('enum annotation fallback resolves type — resolvable_status is StatusType', function () {
-        // `fn (): Status => json_decode(...)` — body unresolvable (json_decode returns mixed → unknown);
-        // Status annotation resolves to StatusType with FQCN tracking via the annotation fallback.
+        // json_decode() returns mixed, so the Status annotation is what supplies both type and FQCN.
         $data = (new ResourceTransformer(CommentResource::class))->data();
 
         expect($data->properties['resolvable_status']['type'])->toBe('StatusType');
@@ -749,7 +751,6 @@ describe('ResourceTransformer modular imports', function () {
 
         $data = (new ResourceTransformer(PostResource::class))->data();
 
-        // Should have relative path imports instead of ../enums
         expect($data->valueImports)->not->toHaveKey('../enums');
 
         $hasEnumValueImport = false;
@@ -830,8 +831,7 @@ describe('ResourceTransformer TsCasts waterfall from model', function () {
     test('AddressResource inherits model TsCasts overrides for latitude and longitude', function () {
         $data = (new ResourceTransformer(AddressResource::class))->data();
 
-        // Address model has #[TsCasts(['latitude' => 'number | null', 'longitude' => 'number | null'])]
-        // These should flow through to the resource instead of the inferred 'string' (from decimal:7 cast)
+        // The Address model's #[TsCasts] must win over the 'string' inferred from its decimal:7 cast.
         expect($data->properties['latitude']['type'])->toBe('number | null');
         expect($data->properties['longitude']['type'])->toBe('number | null');
     });
@@ -846,9 +846,7 @@ describe('ResourceTransformer TsCasts waterfall from model', function () {
     test('TsCasts overrides model TsCasts for same property', function () {
         $data = (new ResourceTransformer(CommentResource::class))->data();
 
-        // Comment model has #[TsCasts(['metadata' => 'Record<string, unknown>'])] on casts() method
-        // CommentResource has #[TsCasts(['metadata' => 'Record<string, unknown>'])]
-        // TsCasts should take priority (same value here, but pipeline precedence is verified)
+        // Model and resource declare the same #[TsCasts] value, so this pins precedence, not the result.
         expect($data->properties['metadata']['type'])->toBe('Record<string, unknown>');
     });
 
@@ -929,8 +927,7 @@ describe('ResourceTransformer self-referencing resources', function () {
     test('self-referencing resource does not import itself', function () {
         $data = (new ResourceTransformer(CategoryResource::class))->data();
 
-        // CategoryResource references CategoryResource::make() and ::collection()
-        // It should NOT appear in its own type imports
+        // CategoryResource references CategoryResource::make() and ::collection().
         foreach ($data->typeImports as $types) {
             expect($types)->not->toContain('CategoryResource');
         }
@@ -1237,19 +1234,15 @@ describe('ResourceTransformer import collision deconfliction', function () {
 
         $allTypeImports = array_merge(...array_values($data->typeImports));
 
-        // Enum type imports should be aliased
         expect($allTypeImports)->toContain('StatusType as AppStatusType')
             ->toContain('StatusType as CrmStatusType');
 
-        // Model type imports should be aliased
         expect($allTypeImports)->toContain('User as AppUser')
             ->toContain('User as CrmUser');
 
-        // Resource type imports should be aliased
         expect($allTypeImports)->toContain('UserResource as AppUserResource')
             ->toContain('UserResource as CrmUserResource');
 
-        // Property types should be rewritten
         expect($data->properties['status']['type'])->toBe('AppStatusType');
         expect($data->properties['status_enum']['type'])->toBe('AppStatusType');
         expect($data->properties['crm_status']['type'])->toBe('CrmStatusType');
@@ -1269,31 +1262,24 @@ describe('ResourceTransformer import collision deconfliction', function () {
         $allTypeImports = array_merge(...array_values($data->typeImports));
         $allValueImports = array_merge(...array_values($data->valueImports));
 
-        // Models should be aliased
         expect($allTypeImports)->toContain('User as AppUser')
             ->toContain('User as CrmUser');
 
-        // Resources should be aliased
         expect($allTypeImports)->toContain('UserResource as AppUserResource')
             ->toContain('UserResource as CrmUserResource');
 
-        // Enum type imports should be aliased (kept for direct access properties)
         expect($allTypeImports)->toContain('StatusType as AppStatusType')
             ->toContain('StatusType as CrmStatusType');
 
-        // Enum value imports should be aliased (for EnumResource::make tolki rewrite)
         expect($allValueImports)->toContain('Status as AppStatus')
             ->toContain('Status as CrmStatus');
 
-        // Direct access properties use aliased type names
         expect($data->properties['status']['type'])->toBe('AppStatusType');
         expect($data->properties['crm_status']['type'])->toBe('CrmStatusType');
 
-        // EnumResource::make properties use aliased const names in AsEnum
         expect($data->properties['status_enum']['type'])->toBe('AsEnum<typeof AppStatus>');
         expect($data->properties['crm_enum']['type'])->toBe('AsEnum<typeof CrmStatus>');
 
-        // Model and resource properties use aliased names
         expect($data->properties['customer']['type'])->toBe('CrmUser');
         expect($data->properties['admin']['type'])->toBe('AppUser');
         expect($data->properties['customer_resource']['type'])->toBe('CrmUserResource');
@@ -1362,8 +1348,7 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->toHaveKey('last_user_activity_by_typed')
             ->toHaveKey('last_user_activity_by_typed_short');
 
-        // lastUserActivityBy is Attribute<CrmUser|User|null, never> on the backing Warehouse model.
-        // Both classes have class_basename = 'User', so they must be aliased.
+        // Warehouse::lastUserActivityBy is Attribute<CrmUser|User|null, never>; both share basename 'User'.
         expect($data->properties['last_user_activity_by']['type'])
             ->toBe('WorkbenchUser | CrmUser | null');
         expect($data->properties['last_user_activity_by_typed']['type'])
@@ -1394,9 +1379,8 @@ describe('ResourceTransformer with union model accessor types', function () {
 
         $type = $data->properties['last_user_activity_by_mostly']['type'];
 
-        // The result is a union of two per-model inline objects followed by | null.
-        // CrmUser (Workbench\Crm\Models\User) has: email, company, status, created_at, updated_at — NOT id or name.
-        // The CrmStatus enum is aliased to CrmStatusType to avoid conflict with WorkbenchStatusType.
+        // Workbench\Crm\Models\User has email, company, status, created_at, updated_at — no id or name —
+        // so each model contributes its own inline object to the union.
         expect($type)
             ->not->toBe('unknown')
             ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null; images: Image[] }')
@@ -1412,8 +1396,7 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->toHaveKey('review_priority_typed')
             ->toHaveKey('review_priority_typed_short');
 
-        // Workbench\App\Enums\Status is aliased to WorkbenchStatusType (conflicts with CrmStatus);
-        // Workbench\App\Enums\Priority has no conflict so stays as PriorityType.
+        // Workbench\App\Enums\Status collides with CrmStatus; Priority has no conflict.
         expect($data->properties['review_priority']['type'])
             ->toBe('WorkbenchStatusType | PriorityType | null');
         expect($data->properties['review_priority_typed']['type'])
@@ -1440,8 +1423,7 @@ describe('ResourceTransformer with union model accessor types', function () {
 
         $type = $data->properties['last_user_activity_by_mostly']['type'];
 
-        // The CrmUser inline shape has a 'status' property typed as CrmStatus enum.
-        // That StatusType should be aliased to CrmStatusType to avoid conflict with WorkbenchStatusType.
+        // The CrmUser inline shape carries a 'status' property cast to the CrmStatus enum.
         expect($type)->toContain('status: CrmStatusType');
     });
 });
@@ -1450,22 +1432,15 @@ describe('ResourceTransformer inline model FQCN collision via ->only() filter', 
     test('model nested in ->only() inline object is aliased when it conflicts with another model', function () {
         $data = (new ResourceTransformer(ServiceDeskResource::class))->data();
 
-        // ServiceDeskResource has:
-        //   'crm_agent'       => $this->crmAgent   (Workbench\Crm\Models\User → CrmUser)
-        //   'order_requester' => $this->order?->only(['user'])
-        //
-        // Order.user() is a BelongsTo to Workbench\App\Models\User.
-        // Both User classes share class_basename "User" → conflict → WorkbenchUser / CrmUser aliases.
-        //
-        // The inlineModelFqcns fix ensures the "User" token *inside* the inline object is rewritten.
+        // 'order_requester' is $this->order?->only(['user']), and Order.user() is a BelongsTo to
+        // Workbench\App\Models\User — the aliased token has to be rewritten inside the inline object too.
         expect($data->properties['order_requester']['type'])->toBe('{ user: WorkbenchUser } | null');
     });
 
     test('direct model reference alongside inline embedded model both receive aliases', function () {
         $data = (new ResourceTransformer(ServiceDeskResource::class))->data();
 
-        // crm_agent is a nullable BelongsTo to Workbench\Crm\Models\User.
-        // FK crm_agent_id is nullable in the DB → type is CrmUser | null.
+        // crm_agent is a BelongsTo to Workbench\Crm\Models\User whose FK crm_agent_id is nullable.
         expect($data->properties['crm_agent']['type'])->toBe('CrmUser | null');
     });
 
@@ -1615,9 +1590,8 @@ describe('ResourceTransformer TsExtends deduplication and conflict resolution', 
 
 describe('ResourceTransformer TsExtends BFS trait deduplication', function () {
     test('trait shared by both child and parent is only processed once', function () {
-        // ChildSharedResource uses SharedExtendsInterface directly AND extends BaseSharedResource
-        // which also uses SharedExtendsInterface. The BFS $visited guard should prevent
-        // SharedInterface from appearing twice in the extends list.
+        // ChildSharedResource uses SharedExtendsInterface directly and also extends BaseSharedResource,
+        // which uses it too — the interface is reachable by two paths.
         $data = (new ResourceTransformer(ChildSharedResource::class))->data();
 
         expect($data->tsExtends)->toBe(['SharedInterface'])
@@ -1629,8 +1603,8 @@ describe('ResourceTransformer with InvoiceResource', function () {
     test('has enum imports from accessor model filter', function () {
         $data = (new ResourceTransformer(InvoiceResource::class))->data();
 
-        // latest_payment_only = $this->latest_payment?->only(...) — accessor returns ?Payment
-        // PaymentStatus is in accounting/enums, PaymentMethod + Currency are in app/enums
+        // The latest_payment accessor returns ?Payment, whose PaymentStatus lives in accounting/enums
+        // while PaymentMethod and Currency live in app/enums.
         expect($data->typeImports)->toHaveKey('../../enums');
         expect($data->typeImports['../../enums'])->toContain('PaymentStatusType');
         expect($data->typeImports)->toHaveKey('../../../app/enums');
@@ -1767,8 +1741,7 @@ describe('ResourceTransformer ternary operator support', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(TernaryResource::class))->data();
 
-        // The | null originates from the Post model's `visibility` column being nullable in the DB,
-        // not from an explicit null branch in TernaryResource — both ternary branches are EnumResource calls.
+        // The | null comes from Post.visibility being nullable in the DB, not from a null ternary branch.
         expect($data->properties['status_or_visibility']['type'])->toBe('AsEnum<typeof Status> | AsEnum<typeof Visibility> | null');
         expect($data->properties['status_or_visibility']['optional'])->toBeFalse();
     });
@@ -1964,4 +1937,58 @@ describe('ResourceTransformer with PostFlatCollection (typeAlias)', function () 
 
         expect($transformer->typeAlias)->toBe('PostResource[]');
     })->skip(fn () => ! version_compare(app()->version(), '13', '>='));
+})->group('transformer');
+
+describe('ResourceTransformer with morphTo-backed resources', function () {
+    beforeEach(function () {
+        // The publish command builds this map up front; a bare transformer test has to seed it.
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            Post::class, Product::class, User::class, CrmUser::class, Image::class,
+        ]);
+    });
+
+    // The union names every morph parent, so every parent needs an import: resolveRelation()'s
+    // singular modelFqcn is null for a MorphTo and could never carry them.
+    test('a morphTo property imports and aliases every parent model', function () {
+        $data = (new ResourceTransformer(ImageMorphResource::class))->data();
+
+        $allTypeImports = array_merge(...array_values($data->typeImports));
+
+        expect($data->properties['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser')
+            ->and($data->properties['imageable_when_loaded']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser')
+            ->and($allTypeImports)->toContain('Post', 'Product', 'User as WorkbenchUser', 'User as CrmUser');
+    });
+
+    test('the model-delegated analysis imports the morph parents too', function () {
+        $data = (new ResourceTransformer(ImageDelegatedResource::class))->data();
+
+        $allTypeImports = array_merge(...array_values($data->typeImports));
+
+        expect($data->properties['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser')
+            ->and($allTypeImports)->toContain('Post', 'Product', 'User as WorkbenchUser', 'User as CrmUser');
+    });
+
+    // A widened container names its element in both arms; aliasing only the first left the second bare.
+    test('an aliased element is replaced in every arm of a widened collection type', function () {
+        $data = (new ResourceTransformer(ImageMorphResource::class))->data();
+
+        expect($data->properties['uploaders_from_docblock']['type'])
+            ->toBe('WorkbenchUser[] | Record<string, WorkbenchUser>');
+    });
+
+    // The same pass must still take exactly one occurrence when two FQCNs share the basename.
+    test('a same-basename union still gets one replacement per aliasing pass', function () {
+        $data = (new ResourceTransformer(ImageMorphResource::class))->data();
+
+        expect($data->properties['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser');
+    });
+
+    // #[TsType(['type' => ..., 'import' => ...])] on a cast: no analysis path carried the author's
+    // import into a resource, so the token was emitted alone.
+    test('a #[TsType(import:)] cast reaching a resource brings its import', function () {
+        $data = (new ResourceTransformer(ImageDelegatedResource::class))->data();
+
+        expect($data->properties['config_from_docblock']['type'])->toBe('MenuSettingsType')
+            ->and($data->typeImports['@js/types/settings'] ?? [])->toContain('MenuSettingsType');
+    });
 })->group('transformer');

@@ -12,9 +12,12 @@ use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Carbon\Carbon as BaseCarbon;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
@@ -22,6 +25,8 @@ use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrayDimFetch;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\AssignOp;
+use PhpParser\Node\Expr\AssignRef;
 use PhpParser\Node\Expr\BinaryOp;
 use PhpParser\Node\Expr\BooleanNot;
 use PhpParser\Node\Expr\Cast\Array_ as CastArray_;
@@ -29,14 +34,21 @@ use PhpParser\Node\Expr\Cast\Bool_ as CastBool;
 use PhpParser\Node\Expr\Cast\Double as CastDouble;
 use PhpParser\Node\Expr\Cast\Int_ as CastInt;
 use PhpParser\Node\Expr\Cast\String_ as CastString;
+use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\ConstFetch;
+use PhpParser\Node\Expr\Empty_;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
+use PhpParser\Node\Expr\Isset_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
+use PhpParser\Node\Expr\PostDec;
+use PhpParser\Node\Expr\PostInc;
+use PhpParser\Node\Expr\PreDec;
+use PhpParser\Node\Expr\PreInc;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Ternary;
@@ -62,10 +74,10 @@ use PhpParser\NodeFinder;
 use ReflectionClass;
 use ReflectionEnum;
 use ReflectionMethod;
+use ReflectionNamedType;
 
 /**
- * Analyzes a JsonResource's toArray() method body to extract property names,
- * types, and conditional (optional) markers using AST parsing.
+ * Analyzes a JsonResource's toArray() body to extract property names, types, and optional markers via AST.
  *
  * @phpstan-import-type ResourcePropertyInfoList from ResourceAnalysis
  * @phpstan-import-type ClassMapType from ResourceAnalysis
@@ -73,6 +85,7 @@ use ReflectionMethod;
  * @phpstan-import-type InlineEnumFqcnsMap from ResourceAnalysis
  * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
  * @phpstan-import-type MultiEnumFqcnsMap from ResourceAnalysis
+ * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
  *
  * @phpstan-type ValueExpressionResult = array{
  *      type: string,
@@ -101,34 +114,47 @@ class ResourceAstAnalyzer
     use ResolvesModelTypes;
 
     /**
-     * Wrapped class discovered from an `instanceof` guard clause in toArray().
-     * Used as a fallback when resolveClassOnProperty() returns null.
+     * Wrapped class from an `instanceof` guard in toArray(); fallback when resolveClassOnProperty() returns null.
      *
      * @var class-string|null
      */
     protected ?string $instanceOfWrappedClass = null;
 
     /**
-     * Related model class temporarily set when analyzing a whenLoaded closure.
-     * Enables type resolution for `$variable->property`, `$variable->method()`,
-     * and `$variable::staticMethod()` expressions within the closure body.
+     * Related model set while analyzing a whenLoaded closure, so `$variable->prop`/`->method()` inside it resolve.
      *
      * @var class-string<Model>|null
      */
     protected ?string $closureRelationModelClass = null;
 
     /**
-     * Maps closure parameter variable names to bound expressions extracted from the
-     * surrounding `when()` condition. For example, `$this->when($this->status !== null,
-     * function ($status) { ... })` binds `'status'` → the `$this->status` PropertyFetch
-     * node, so that `EnumResource::make($status)` inside the closure can be resolved
-     * to the same type as `EnumResource::make($this->status)`.
+     * Closure parameter names bound to the `$this->prop` expression found in the surrounding `when()`
+     * condition, so `EnumResource::make($status)` resolves like `EnumResource::make($this->status)`.
      *
      * @var array<string, Expr>
      */
     protected array $closureParamExprBindings = [];
 
     /**
+     * Top-level `$var = expr;` bindings for the method last analyzed, so a bare `Variable` value
+     * expression resolves through its bound expression instead of degrading to unknown. Only variables
+     * written exactly once are recorded; analyzeThisMethodSpread() saves and restores this per method.
+     *
+     * @var array<string, Expr>
+     */
+    protected array $localVarBindings = [];
+
+    /**
+     * Re-entrancy guard: variable names currently mid-resolution, so a self- or mutually-referential
+     * binding (e.g. `$a = $b; $b = $a;`) resolves as unknown instead of recursing forever.
+     *
+     * @var array<string, true>
+     */
+    protected array $resolvingLocalVars = [];
+
+    /**
+     * Create an analyzer for a resource class and its optional backing model.
+     *
      * @param  ReflectionClass<JsonResource>  $resourceReflection
      * @param  class-string<Model>|null  $modelClass
      */
@@ -141,6 +167,9 @@ class ResourceAstAnalyzer
         }
     }
 
+    /**
+     * Analyze the resource's toArray() and return the resulting property/type analysis.
+     */
     public function analyze(): ResourceAnalysis
     {
         if ($this->modelClass !== null) {
@@ -165,13 +194,10 @@ class ResourceAstAnalyzer
             return $this->buildModelDelegatedAnalysis() ?? new ResourceAnalysis;
         }
 
-        // Extract instanceof type hint from guard clauses before selecting the return statement.
-        // e.g. `if (!$this->resource instanceof MediaType) { return []; }`
         $this->instanceOfWrappedClass = $this->resolveInstanceOfType($toArrayMethod, $finder);
 
-        // Analyze all direct Return_ statements that yield non-empty array literals.
-        // If multiple exist (e.g. if/elseif/else branches), their properties are merged
-        // with union semantics (branch-specific properties become optional).
+        $this->collectLocalVarBindings($toArrayMethod->stmts);
+
         $branchAnalysis = $this->analyzeAllReturnBranches($toArrayMethod->stmts);
 
         if ($branchAnalysis !== null) {
@@ -203,6 +229,122 @@ class ResourceAstAnalyzer
         return new ResourceAnalysis;
     }
 
+    /**
+     * Record top-level `$var = expr;` statements so property values referencing those variables resolve.
+     *
+     * A variable written more than once anywhere in the method is skipped: this flat statement list has no
+     * notion of which write is live at a given return branch (analyzeAllReturnBranches() analyzes each
+     * branch independently), so binding one of them risks a wrong-but-plausible type rather than unknown.
+     *
+     * @param  array<Node\Stmt>  $stmts
+     */
+    protected function collectLocalVarBindings(array $stmts): void
+    {
+        /** @var array<string, int> $writeCounts */
+        $writeCounts = [];
+
+        foreach ($this->collectWrittenVariableNames($stmts) as $name) {
+            $writeCounts[$name] = ($writeCounts[$name] ?? 0) + 1;
+        }
+
+        foreach ($stmts as $stmt) {
+            if ($stmt instanceof ExpressionStmt
+                && $stmt->expr instanceof Assign
+                && $stmt->expr->var instanceof Variable
+                && is_string($stmt->expr->var->name)
+                && ($writeCounts[$stmt->expr->var->name] ?? 0) === 1
+            ) {
+                $this->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
+            }
+        }
+    }
+
+    /**
+     * Collect every local variable name written anywhere in a statement tree, via any assignment or
+     * mutation form, including `foreach` key/value targets and destructuring leaves. `AssignRef` counts
+     * both sides, since `$alias = &$x;` makes any later write to `$alias` mutate `$x` too. By-reference
+     * call arguments (e.g. `preg_match(..., $matches)`) are a known gap — detecting them needs the
+     * callee's signature, which is not statically knowable for dynamic callables.
+     *
+     * Closure and arrow-function parameters count too: they rebind the name, so an outer local of the
+     * same name would otherwise leak into the closure body. A by-value `use ($x)` is not a write — it
+     * carries the outer value in — while `use (&$x)` aliases it, exactly like AssignRef.
+     *
+     * @param  array<Node>  $stmts
+     * @return list<string>
+     */
+    protected function collectWrittenVariableNames(array $stmts): array
+    {
+        $finder = new NodeFinder;
+
+        $writeNodes = $finder->find(
+            $stmts,
+            fn (Node $node): bool => $node instanceof Assign
+                || $node instanceof AssignRef
+                || $node instanceof AssignOp
+                || $node instanceof PreInc
+                || $node instanceof PostInc
+                || $node instanceof PreDec
+                || $node instanceof PostDec
+                || $node instanceof Foreach_
+                || $node instanceof ClosureExpr
+                || $node instanceof ArrowFunction,
+        );
+
+        /** @var list<string> $names */
+        $names = [];
+
+        foreach ($writeNodes as $node) {
+            /** @var list<Expr> $targets */
+            $targets = [];
+
+            if ($node instanceof AssignRef) {
+                $targets[] = $node->var;
+                $targets[] = $node->expr;
+            } elseif ($node instanceof Assign || $node instanceof AssignOp
+                || $node instanceof PreInc || $node instanceof PostInc
+                || $node instanceof PreDec || $node instanceof PostDec) {
+                $targets[] = $node->var;
+            } elseif ($node instanceof Foreach_) {
+                $targets[] = $node->valueVar;
+
+                if ($node->keyVar !== null) {
+                    $targets[] = $node->keyVar;
+                }
+            } elseif ($node instanceof ClosureExpr || $node instanceof ArrowFunction) {
+                foreach ($node->params as $param) {
+                    $targets[] = $param->var;
+                }
+
+                if ($node instanceof ClosureExpr) {
+                    foreach ($node->uses as $use) {
+                        if ($use->byRef) {
+                            $targets[] = $use->var;
+                        }
+                    }
+                }
+            }
+
+            foreach ($targets as $target) {
+                $vars = $finder->find(
+                    $target,
+                    fn (Node $n): bool => $n instanceof Variable && is_string($n->name),
+                );
+
+                foreach ($vars as $var) {
+                    if ($var instanceof Variable && is_string($var->name)) {
+                        $names[] = $var->name;
+                    }
+                }
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * Analyze a returned array literal into properties, spreads, and FQCN tracking maps.
+     */
     protected function analyzeReturnArray(Array_ $array): ResourceAnalysis
     {
         /** @var ResourcePropertyInfoList $properties */
@@ -446,8 +588,7 @@ class ResourceAstAnalyzer
             return $result; // @codeCoverageIgnore
         }
 
-        // PHP cast operators — type is determined entirely by the cast, not the inner expression.
-        // (bool), (int), (float)/(double), (string), (array) → map directly to TS primitives.
+        // PHP cast operators — the cast alone determines the type, not the inner expression.
         if ($expr instanceof CastBool) {
             return ['type' => 'boolean', 'optional' => false];
         }
@@ -464,8 +605,6 @@ class ResourceAstAnalyzer
             return ['type' => 'unknown[]', 'optional' => false];
         }
 
-        // Scalar literals — String_, Int_, Float_ nodes appear as ternary branch values,
-        // array items, and other inline expressions.
         if ($expr instanceof String_ || $expr instanceof InterpolatedString) {
             return ['type' => 'string', 'optional' => false];
         }
@@ -474,14 +613,11 @@ class ResourceAstAnalyzer
             return ['type' => 'number', 'optional' => false];
         }
 
-        // Unary numeric operators (-x, +x) always produce a numeric result in PHP.
-        // Non-literal operands (e.g. -$variable) are handled optimistically as `number`
-        // because the analyzer does not track variable types at this stage.
+        // Unary +/- always yield a number; non-literal operands are assumed numeric (variable types aren't tracked).
         if ($expr instanceof UnaryMinus || $expr instanceof UnaryPlus) {
             return ['type' => 'number', 'optional' => false];
         }
 
-        // true / false constants resolve to boolean; null resolves to null.
         if ($expr instanceof ConstFetch) {
             $constName = $expr->name->toLowerString();
             if ($constName === 'null') {
@@ -492,10 +628,8 @@ class ResourceAstAnalyzer
             }
         }
 
-        // Arithmetic binary operations always produce a numeric result.
-        // This handles cases like `(int) round(...) / 2` where PHP's operator
-        // precedence causes the cast to bind tighter than the division, making
-        // the outer AST node a BinaryOp\Div rather than a Cast.
+        // Arithmetic always yields a number. Also catches `(int) round(...) / 2`: PHP precedence binds the
+        // cast tighter than the division, so the outer node is a BinaryOp\Div rather than a Cast.
         if ($expr instanceof BinaryOp\Plus
             || $expr instanceof BinaryOp\Minus
             || $expr instanceof BinaryOp\Mul
@@ -506,20 +640,42 @@ class ResourceAstAnalyzer
             return ['type' => 'number', 'optional' => false];
         }
 
-        // String concatenation always produces a string result.
         if ($expr instanceof BinaryOp\Concat) {
             return ['type' => 'string', 'optional' => false];
         }
 
-        // Null coalescing operator ($left ?? $right) — returns left if non-null, right otherwise.
-        // Resolve both sides and return the dominant type; if they match return that type,
-        // otherwise build a union of the two distinct types.
+        // Comparison, logical, and type-test operators always produce a boolean. PHP's &&/|| return bool,
+        // unlike JS — even as a null-guard (`$this->x && $this->x->y`), no false|T union is needed.
+        if ($expr instanceof BinaryOp\Identical
+            || $expr instanceof BinaryOp\NotIdentical
+            || $expr instanceof BinaryOp\Equal
+            || $expr instanceof BinaryOp\NotEqual
+            || $expr instanceof BinaryOp\Greater
+            || $expr instanceof BinaryOp\GreaterOrEqual
+            || $expr instanceof BinaryOp\Smaller
+            || $expr instanceof BinaryOp\SmallerOrEqual
+            || $expr instanceof BinaryOp\BooleanAnd
+            || $expr instanceof BinaryOp\BooleanOr
+            || $expr instanceof BinaryOp\LogicalAnd
+            || $expr instanceof BinaryOp\LogicalOr
+            || $expr instanceof BinaryOp\LogicalXor
+            || $expr instanceof BooleanNot
+            || $expr instanceof Instanceof_
+            || $expr instanceof Isset_
+            || $expr instanceof Empty_
+        ) {
+            return ['type' => 'boolean', 'optional' => false];
+        }
+
+        // Spaceship comparison produces -1|0|1.
+        if ($expr instanceof BinaryOp\Spaceship) {
+            return ['type' => 'number', 'optional' => false];
+        }
+
         if ($expr instanceof BinaryOp\Coalesce) {
             return $this->analyzeCoalesce($expr);
         }
 
-        // Known PHP built-in function calls — resolve return type from function name.
-        // e.g. strtolower() → string, strlen() → number, is_null() → boolean.
         if ($expr instanceof FuncCall && $expr->name instanceof Name) {
             $tsType = $this->resolveKnownFunctionCallType($expr->name->getLast());
 
@@ -528,8 +684,7 @@ class ResourceAstAnalyzer
             }
         }
 
-        // Closures / arrow functions — analyze the body first. If that returns unknown,
-        // fall back to the return type annotation (e.g. `fn (): ?string => ...` → `string | null`).
+        // Closures / arrow functions — body analysis first, return-type annotation as the fallback.
         $closureReturns = $this->resolveClosureReturnExpressions($expr);
 
         if ($closureReturns !== []) {
@@ -541,7 +696,6 @@ class ResourceAstAnalyzer
                 return $bodyResult;
             }
 
-            // Body is unknown — try the return type annotation as a fallback
             $annotationResult = $this->resolveClosureAstReturnType($expr);
 
             if ($annotationResult !== null) {
@@ -551,53 +705,45 @@ class ResourceAstAnalyzer
             return $bodyResult;
         }
 
-        // $this->when(condition, value) or $this->when(condition, value, default)
         if ($this->isThisMethodCall($expr, 'when')) {
             /** @var MethodCall $expr */
             return $this->analyzeWhen($expr);
         }
 
-        // $this->whenHas('attribute')
         if ($this->isThisMethodCall($expr, 'whenHas')) {
             /** @var MethodCall $expr */
             return $this->analyzeWhenHas($expr);
         }
 
-        // $this->whenNotNull($this->value)
         if ($this->isThisMethodCall($expr, 'whenNotNull')) {
             /** @var MethodCall $expr */
             return $this->analyzeWhenNotNull($expr);
         }
 
-        // $this->whenNull($this->value, $callback)
         if ($this->isThisMethodCall($expr, 'whenNull')) {
             /** @var MethodCall $expr */
             return $this->analyzeWhenNull($expr);
         }
 
-        // $this->whenLoaded('relation') or $this->whenLoaded('relation', value)
         if ($this->isThisMethodCall($expr, 'whenLoaded')) {
             /** @var MethodCall $expr */
             return $this->analyzeWhenLoaded($expr);
         }
 
-        // $this->whenCounted('relation')
         if ($this->isThisMethodCall($expr, 'whenCounted')) {
             return ['type' => 'number', 'optional' => true];
         }
 
-        // $this->whenAggregated('relation', 'column', 'function')
         if ($this->isThisMethodCall($expr, 'whenAggregated')) {
             return ['type' => 'number', 'optional' => true];
         }
 
-        // $this->whenPivotLoaded('table', fn) or $this->whenPivotLoadedAs(...)
         if ($this->isThisMethodCall($expr, 'whenPivotLoaded') || $this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
             return ['type' => 'unknown', 'optional' => true];
         }
 
-        // $variable::staticMethod() — resolve against the related model in a whenLoaded closure context
-        // Must come before the general StaticCall handler which only handles class-name static calls.
+        // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
+        // handler, which only matches class-name receivers.
         if ($this->closureRelationModelClass !== null
             && $expr instanceof StaticCall
             && $expr->class instanceof Variable
@@ -608,8 +754,7 @@ class ResourceAstAnalyzer
             return $this->analyzeRelatedModelMethodCall($expr->name->toString());
         }
 
-        // SomeResource::collection(...)->resolve() — strip the trailing ->resolve() and
-        // delegate to analyzeStaticCall so the resource type is still inferred correctly.
+        // SomeResource::collection(...)->resolve() — strip the trailing ->resolve() and delegate.
         if ($expr instanceof MethodCall
             && $expr->name instanceof Identifier
             && $expr->name->toString() === 'resolve'
@@ -618,8 +763,7 @@ class ResourceAstAnalyzer
             return $this->analyzeStaticCall($expr->var);
         }
 
-        // $this::staticMethod() — the resource itself is the receiver.
-        // Reuse analyzeThisMethodCall which checks: resource methods → wrapped class → @mixin model.
+        // `$this::staticMethod()` — the resource itself is the receiver.
         if ($expr instanceof StaticCall
             && $expr->class instanceof Variable
             && $expr->class->name === 'this'
@@ -628,8 +772,7 @@ class ResourceAstAnalyzer
             return $this->analyzeThisMethodCall($expr->name->toString());
         }
 
-        // $this->resource::staticMethod() — delegate to the wrapped/model class.
-        // Must come before the closure-context PropertyFetch handler below.
+        // `$this->resource::staticMethod()`. Must precede the closure-context PropertyFetch handler below.
         if ($expr instanceof StaticCall
             && $expr->class instanceof PropertyFetch
             && $expr->class->var instanceof Variable
@@ -641,8 +784,7 @@ class ResourceAstAnalyzer
             return $this->analyzeStaticMethodOnResource($expr->name->toString());
         }
 
-        // $this->relation::staticMethod() or $this->resource->relation::staticMethod()
-        // inside a whenLoaded closure — delegate to the related model's method resolver.
+        // `$this->relation::staticMethod()` inside a whenLoaded closure — use the related model.
         if ($expr instanceof StaticCall
             && $expr->class instanceof PropertyFetch
             && $expr->name instanceof Identifier
@@ -660,12 +802,10 @@ class ResourceAstAnalyzer
             return $this->analyzeStaticCall($expr);
         }
 
-        // new SomeResource($this->prop)
         if ($expr instanceof New_) {
             return $this->analyzeNewResource($expr);
         }
 
-        // $this->property
         if ($this->isThisPropertyFetch($expr)) {
             return $this->analyzeThisProperty($expr);
         }
@@ -681,19 +821,14 @@ class ResourceAstAnalyzer
             return $this->analyzeRelationFilter($expr);
         }
 
-        // Inline array literal → recursively build inline object type { key: type; ... }
         if ($expr instanceof Array_) {
             return $this->analyzeInlineArray($expr);
         }
 
-        // $this->anyProp?->method() or $this->resource->anyProp?->method() — nullsafe method chain.
-        // e.g. $this->categoryRel?->isFirst(), $this->resource->categoryRel?->isActive()
         if ($expr instanceof NullsafeMethodCall) {
             return $this->analyzeMethodChain($expr);
         }
 
-        // $this->anyProp?->subProp or $this->resource->anyProp?->subProp — nullsafe property chain
-        // e.g. $this->user?->role, $this->user?->profile?->bio, $this->resource->user?->profile
         if ($expr instanceof NullsafePropertyFetch) {
             return $this->analyzePropertyChain($expr);
         }
@@ -706,15 +841,10 @@ class ResourceAstAnalyzer
                 $info = $this->analyzeWrappedModelResourceProperty($expr);
             }
 
-            // When inside a whenLoaded closure and the wrapped-class resolution returned unknown,
-            // try resolving the inner property against the related model (e.g. $this->user->name
-            // where 'user' is the loaded relation).
             if ($info['type'] === 'unknown' && $this->closureRelationModelClass !== null && $expr->name instanceof Identifier) {
                 $info = $this->analyzeRelatedModelProperty($expr->name->toString());
             }
 
-            // Final fallback: general chain traversal (e.g. $this->resource->name when the
-            // specific enum/model-wrapped handlers cannot resolve it).
             if ($info['type'] === 'unknown') {
                 $info = $this->analyzePropertyChain($expr);
             }
@@ -722,15 +852,24 @@ class ResourceAstAnalyzer
             return $info;
         }
 
-        // $this->anyProp->subProp->deepProp — plain (non-nullsafe) PropertyFetch chains of
-        // 3 or more levels rooted at $this (e.g. `$this->resource->user->role` inside a
-        // whenLoaded closure). The 2-deep handler above is skipped because $expr->var is not
-        // a direct $this->prop, so we fall through to the general chain traversal here.
+        // Plain 3+-deep chains rooted at `$this` (e.g. `$this->resource->user->role`): the 2-deep handler
+        // above doesn't match, because `$expr->var` is not a direct `$this->prop`.
         if ($expr instanceof PropertyFetch) {
             $info = $this->analyzePropertyChain($expr);
 
             if ($info['type'] !== 'unknown') {
                 return $info;
+            }
+        }
+
+        // Collection chains rooted at `$this->{manyRelation}` (e.g. `->take(5)->map(...)->values()`).
+        // Must precede the `$this->anyProp->method()` branch below: a 1-deep `$this->items->count()`
+        // matches both, and this returns null for it so knownMethodRule()'s count()/exists() rule wins.
+        if ($expr instanceof MethodCall) {
+            $chainResult = $this->analyzeRelationCollectionChain($expr);
+
+            if ($chainResult !== null) {
+                return $chainResult;
             }
         }
 
@@ -741,8 +880,6 @@ class ResourceAstAnalyzer
         ) {
             $info = $this->analyzeWrappedResourceMethodCall($expr);
 
-            // When inside a whenLoaded closure and the wrapped-class resolution returned unknown,
-            // try resolving the method against the related model (e.g. $this->user->nameTitled()).
             /** @var class-string<Model>|null $closureModelClass */
             $closureModelClass = $this->closureRelationModelClass;
 
@@ -753,8 +890,7 @@ class ResourceAstAnalyzer
             return $info;
         }
 
-        // Generic $this->method() — infer from the method's declared return type via reflection.
-        // Only reached for methods NOT already handled by the isThisMethodCall() guards above.
+        // Generic `$this->method()` — reflect the declared return type; the helper guards above ran first.
         if ($expr instanceof MethodCall
             && $expr->var instanceof Variable
             && $expr->var->name === 'this'
@@ -777,9 +913,8 @@ class ResourceAstAnalyzer
             return $this->analyzeRelatedModelProperty($expr->name->toString());
         }
 
-        // $variable->map(fn (TypedClass $item) => [...]) — resolve using the inner closure's
-        // typed first parameter. Does not require a pre-existing closureRelationModelClass
-        // because the element type is read directly from the closure's type hint.
+        // `$variable->map(fn (TypedClass $item) => [...])` — no closureRelationModelClass is required
+        // here, since the element type comes from the closure's own type hint.
         if ($expr instanceof MethodCall
             && $expr->var instanceof Variable
             && is_string($expr->var->name)
@@ -818,20 +953,37 @@ class ResourceAstAnalyzer
             return $this->analyzeRelatedModelMethodCall($expr->name->toString());
         }
 
-        // Ternary / Elvis operator: $cond ? $if : $else  or  $cond ?: $else
         if ($expr instanceof Ternary) {
             return $this->analyzeTernary($expr);
         }
 
-        // Bare closure-parameter variable bound via bindClosureParamsFromCondition().
-        // E.g. `$this->when($this->status, fn ($status) => $status)` — the closure body
-        // returns just `$status`, which is bound to `$this->status`, so we resolve the
-        // bound expression to get the correct type (e.g. `OrderStatusType`).
+        // Bare variable bound either to a closure parameter (bindClosureParamsFromCondition) or to a
+        // top-level local assignment (collectLocalVarBindings). Closure-param bindings win, being the
+        // narrower scope; the re-entrancy guard makes a cyclic binding resolve as unknown.
         if ($expr instanceof Variable && is_string($expr->name)) {
-            $boundExpr = $this->closureParamExprBindings[$expr->name] ?? null;
+            $boundExpr = $this->closureParamExprBindings[$expr->name]
+                ?? $this->localVarBindings[$expr->name]
+                ?? null;
 
-            if ($boundExpr !== null) {
-                return $this->analyzeValueExpression($boundExpr);
+            if ($boundExpr !== null && ! isset($this->resolvingLocalVars[$expr->name])) {
+                $this->resolvingLocalVars[$expr->name] = true;
+
+                try {
+                    return $this->analyzeValueExpression($boundExpr);
+                } finally {
+                    unset($this->resolvingLocalVars[$expr->name]);
+                }
+            }
+        }
+
+        // Late known-method rules for receivers not matched above (e.g. `$request->user()->can(...)`,
+        // whose receiver is itself a MethodCall). Only MethodCall reaches here — every
+        // NullsafeMethodCall already returned via analyzeMethodChain().
+        if ($expr instanceof MethodCall) {
+            $known = $this->knownMethodRule($expr);
+
+            if ($known !== null) {
+                return $known;
             }
         }
 
@@ -839,10 +991,7 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve a PHP built-in function name to its TypeScript return type using reflection.
-     *
-     * Returns null when the function is unknown, has no declared return type, returns a
-     * class/interface type, or when the resolved TS type is unknown.
+     * Resolve a PHP built-in function name to its TypeScript return type, or null when unresolvable.
      */
     private function resolveKnownFunctionCallType(string $name): ?string
     {
@@ -854,11 +1003,8 @@ class ResourceAstAnalyzer
     /**
      * Analyze a null-coalescing expression (`$left ?? $right`).
      *
-     * Resolves both operands and returns the dominant type. When both sides resolve to
-     * the same type the result is that type (e.g. `string ?? string` → `string`). When
-     * they differ, a union of the two distinct types is returned (e.g. `string ?? number`
-     * → `string | number`). A `null` type on the left is treated as unknown because the
-     * coalesce operator guarantees the fallback is used instead.
+     * Both operands are resolved and unioned when they differ; a `null` left type is treated as
+     * unknown, because the coalesce operator guarantees the fallback is used instead.
      *
      * @return ValueExpressionResult
      */
@@ -870,8 +1016,7 @@ class ResourceAstAnalyzer
         $leftType = $leftResult['type'];
         $rightType = $rightResult['type'];
 
-        // Strip a `| null` suffix from the left side — the right side acts as the fallback,
-        // so null is never the final result when a non-null fallback is provided.
+        // Strip `| null` from the left: with a non-null fallback, null is never the final result.
         $leftType = trim(str_replace('| null', '', $leftType));
         $leftType = trim(str_replace('null |', '', $leftType));
 
@@ -891,25 +1036,18 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze a ternary or Elvis expression.
+     * Analyze a ternary or Elvis expression, unioning both branches.
      *
-     * Regular ternary (`$cond ? $if : $else`): both branches are analyzed and their
-     * types are merged with union semantics via analyzeClosureUnion. If one branch is
-     * a null literal, the resulting type string includes `| null` (e.g. `StatusType | null`).
-     *
-     * Elvis (`$cond ?: $else`, where `$if === null`): the truthy value is `$cond` itself,
-     * and `$else` is the non-null fallback. Both sides are analyzed and unioned.
+     * In Elvis (`$cond ?: $else`) the parser leaves `if` null, so the truthy value is `$cond` itself.
      *
      * @return ValueExpressionResult
      */
     protected function analyzeTernary(Ternary $expr): array
     {
-        // Elvis: $cond ?: $else — the truthy branch IS the condition expression
         if ($expr->if === null) {
             return $this->analyzeClosureUnion([$expr->cond, $expr->else]);
         }
 
-        // Regular ternary: $cond ? $if : $else
         return $this->analyzeClosureUnion([$expr->if, $expr->else]);
     }
 
@@ -926,13 +1064,9 @@ class ResourceAstAnalyzer
         if (count($args) >= 2) {
             $valueExpr = $args[1]->value;
 
-            // When the condition contains $this->propName, bind the closure's first
-            // parameter to that expression so that `EnumResource::make($param)` and
-            // similar calls inside the closure can be resolved correctly.
             $previousBindings = $this->closureParamExprBindings;
             $this->bindClosureParamsFromCondition($args[0]->value, $valueExpr);
 
-            // Resolve the type from the value expression
             $inner = $this->analyzeValueExpression($valueExpr);
             $inner['optional'] = true;
 
@@ -972,10 +1106,6 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->whenNotNull($this->value, $callback) — resolve the callback expression type.
      *
-     * whenNotNull passes the non-null value of $args[0] to the callback $args[1].
-     * We analyze the callback (args[1]) for the TypeScript type, and bind the
-     * closure param to the condition expression (args[0]) so inner calls resolve correctly.
-     *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenNotNull(MethodCall $call): array
@@ -986,10 +1116,6 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->whenNull($this->value, $callback) — resolve the callback expression type.
      *
-     * whenNull passes null to the callback when the value is null. We analyze args[1] (the
-     * callback) for the TypeScript type. No closure param binding is needed because null
-     * is passed — there is no meaningful expression to bind the param to.
-     *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenNull(MethodCall $call): array
@@ -998,7 +1124,7 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze $this->whenNotNull(...) or $this->whenNull(...) — shared logic for analyzing the callback and binding the closure param.
+     * Shared logic for whenNotNull()/whenNull(): analyze the callback and bind its closure param.
      *
      * @return ValueExpressionResult
      */
@@ -1040,10 +1166,8 @@ class ResourceAstAnalyzer
         $result = $this->unknownResult();
         $args = $call->getArgs();
 
-        // $this->whenLoaded('relation', value) — use value for type
         if (count($args) >= 2) {
-            // Resolve the related model from the relation name so property/method
-            // accesses on local variables inside the closure can be typed.
+            // Resolve the related model so accesses on local variables inside the closure can be typed.
             $previousRelationModel = $this->closureRelationModelClass;
 
             if ($args[0]->value instanceof String_) {
@@ -1062,7 +1186,6 @@ class ResourceAstAnalyzer
             return $inner;
         }
 
-        // $this->whenLoaded('relation') — resolve relation type from model
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $relationName = $args[0]->value->value;
             $info = $this->resolveModelRelationTypeInfo($relationName);
@@ -1070,6 +1193,10 @@ class ResourceAstAnalyzer
 
             if ($info['modelFqcn'] !== null) {
                 $result['modelFqcn'] = $info['modelFqcn'];
+            }
+
+            if ($info['morphFqcns'] !== []) {
+                $result['embeddedModelFqcns'] = $info['morphFqcns'];
             }
 
             return $result;
@@ -1081,8 +1208,7 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->merge([...]) or $this->mergeWhen(condition, [...]) — extract properties from the array arg.
      *
-     * merge(array): unconditional — properties are NOT optional.
-     * mergeWhen(condition, array): conditional — properties ARE optional.
+     * merge() properties are required; mergeWhen() properties are optional.
      */
     protected function analyzeMergeExpression(MethodCall $call): ResourceAnalysis
     {
@@ -1099,12 +1225,10 @@ class ResourceAstAnalyzer
 
         $args = $call->getArgs();
 
-        // merge(array) — 1 arg, not optional
         if ($isMerge && count($args) >= 1) {
             return $this->resolveArrayOrClosureToProperties($args[0]->value, optional: false);
         }
 
-        // mergeWhen(condition, array) — 2 args, optional
         if ($isMergeWhen && count($args) >= 2) {
             return $this->resolveArrayOrClosureToProperties($args[1]->value, optional: true);
         }
@@ -1136,7 +1260,6 @@ class ResourceAstAnalyzer
             return $this->extractPropertiesFromArray($arrays[0], $optional);
         }
 
-        // Multiple array branches — merge with union semantics
         $analyses = array_map(fn (Array_ $a) => $this->extractPropertiesFromArray($a, $optional), $arrays);
 
         return $this->mergeReturnBranches($analyses);
@@ -1157,9 +1280,7 @@ class ResourceAstAnalyzer
             return $result; // @codeCoverageIgnore
         }
 
-        // Resolve `self` and `static` to the resource's own FQCN so that
-        // self::make(), self::collection(), and static::*() calls are treated
-        // identically to ClassName::make() / ClassName::collection() calls.
+        // Resolve `self`/`static` so those calls are treated identically to ClassName::*() calls.
         if ($className === 'self' || $className === 'static') {
             $className = $this->resourceReflection->getName();
         }
@@ -1167,6 +1288,22 @@ class ResourceAstAnalyzer
         // EnumResource::make($this->prop)
         if ($this->isEnumResourceClass($className) && $methodName === 'make') {
             return $this->analyzeEnumResourceMake($call);
+        }
+
+        // SomeCollection::make()/::collection() on a ResourceCollection subclass. Must precede the generic
+        // checks below: ResourceCollection extends JsonResource, so isResourceClass() matches it too and
+        // would yield the unsuffixed collection name instead of 'OrderItemResource[]'.
+        if (is_a($className, ResourceCollection::class, true) && in_array($methodName, ['make', 'collection'], true)) {
+            $collected = $this->collectedResourceClass($className);
+
+            if ($collected !== null) {
+                return [
+                    ...$result,
+                    'type' => class_basename($collected).'[]',
+                    'optional' => $this->hasConditionalArgument($call),
+                    'resourceFqcn' => $collected,
+                ];
+            }
         }
 
         // SomeResource::make($this->prop) — nested resource
@@ -1197,7 +1334,109 @@ class ResourceAstAnalyzer
             ];
         }
 
+        // Any other existing class — reflect the static method's return type. Accepted only when it
+        // cannot break generated imports; see acceptReflectedTypeInfo().
+        if (class_exists($className)) {
+            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($className), $methodName);
+
+            return $this->acceptReflectedTypeInfo($tsInfo) ?? $result;
+        }
+
         return $result;
+    }
+
+    /**
+     * Resolve the resource class a ResourceCollection collects, from the #[Collects] attribute, the
+     * $collects property default, or the FooCollection → FooResource naming convention.
+     *
+     * @param  class-string  $collectionFqcn
+     * @return class-string<JsonResource>|null
+     */
+    protected function collectedResourceClass(string $collectionFqcn): ?string
+    {
+        $reflection = new ReflectionClass($collectionFqcn);
+
+        $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
+        if (class_exists($collectsAttribute)) {
+            // Priority 1: #[Collects] attribute (Laravel 12+)
+            $collectsAttrs = $reflection->getAttributes($collectsAttribute);
+
+            if ($collectsAttrs !== []) {
+                $collectsClass = $collectsAttrs[0]->newInstance()->class;
+
+                if (class_exists($collectsClass) && is_a($collectsClass, JsonResource::class, true)) {
+                    return $collectsClass;
+                }
+            }
+        }
+
+        // Priority 2: explicit $collects property default value
+        /** @var array<string, mixed> $defaults */
+        $defaults = $reflection->getDefaultProperties();
+        $collects = $defaults['collects'] ?? null;
+
+        if (is_string($collects) && class_exists($collects) && is_a($collects, JsonResource::class, true)) {
+            return $collects;
+        }
+
+        // Priority 3: naming convention — FooCollection → FooResource
+        $className = $reflection->getShortName();
+        $namespace = $reflection->getNamespaceName();
+
+        if (str_ends_with($className, 'Collection')) {
+            $base = substr($className, 0, -10);
+
+            $candidate = $namespace.'\\'.$base.'Resource';
+
+            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
+                return $candidate;
+            }
+
+            $candidate = $namespace.'\\'.$base; // @codeCoverageIgnoreStart
+
+            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
+                return $candidate;
+            } // @codeCoverageIgnoreEnd
+        }
+
+        return null;
+    }
+
+    /**
+     * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult only when it cannot break
+     * generated imports: primitives/unions pass verbatim, a lone enum passes with its FQCN.
+     *
+     * All rejections share one guard, because an enum result and a class result are not mutually
+     * exclusive on a single TypeScriptTypeInfo (`Order|Status` populates both). Rejected: any
+     * classFqcns or customImports entry, since this branch has no dispatch path for their imports;
+     * multi-enum unions, since directEnumFqcn is a single slot; and 'void'/'never'/the 'unknown | null'
+     * that `mixed` always reflects as (ReflectionNamedType::allowsNull() is always true for mixed).
+     *
+     * @param  TypeScriptTypeInfo  $tsInfo
+     * @return ValueExpressionResult|null
+     */
+    protected function acceptReflectedTypeInfo(array $tsInfo): ?array
+    {
+        $isUnimportableOrMeaningless = in_array($tsInfo['type'], ['unknown', 'unknown | null', 'void', 'never', ''], true)
+            || $tsInfo['customImports'] !== []
+            || $tsInfo['classFqcns'] !== []
+            || count($tsInfo['enumFqcns']) > 1;
+
+        if ($isUnimportableOrMeaningless) {
+            return null;
+        }
+
+        // Exactly one enum, guaranteed by the guard above — plumb the FQCN so its import is generated.
+        if ($tsInfo['enumFqcns'] !== []) {
+            return [
+                ...$this->unknownResult(),
+                'type' => $tsInfo['type'],
+                'optional' => false,
+                'directEnumFqcn' => $tsInfo['enumFqcns'][0],
+            ];
+        }
+
+        return [...$this->unknownResult(), 'type' => $tsInfo['type'], 'optional' => false];
     }
 
     /**
@@ -1215,8 +1454,7 @@ class ResourceAstAnalyzer
 
         $className = $expr->class->toString();
 
-        // Resolve `self` and `static` to the resource's own FQCN so that
-        // `new self(...)` is treated identically to `new ClassName(...)`.
+        // Resolve `self`/`static` so `new self(...)` is treated identically to `new ClassName(...)`.
         if ($className === 'self' || $className === 'static') {
             $className = $this->resourceReflection->getName();
         }
@@ -1230,6 +1468,21 @@ class ResourceAstAnalyzer
             }
 
             return $result;
+        }
+
+        // new SomeCollection($this->items) — resolve the collected element type. Must precede the
+        // generic isResourceClass() branch below, for the same reason as in analyzeStaticCall().
+        if (is_a($className, ResourceCollection::class, true)) {
+            $collected = $this->collectedResourceClass($className);
+
+            if ($collected !== null) {
+                return [
+                    ...$result,
+                    'type' => class_basename($collected).'[]',
+                    'optional' => $this->hasConditionalNewArgument($expr),
+                    'resourceFqcn' => $collected,
+                ];
+            }
         }
 
         if (! $this->isResourceClass($className)) {
@@ -1273,10 +1526,8 @@ class ResourceAstAnalyzer
     /**
      * Resolve an enum type from a property-fetch expression (shared by EnumResource::make and new EnumResource).
      *
-     * Handles two forms:
-     * - `$this->property` — resolved against the resource's own backing model.
-     * - `$variable->property` — resolved against `$closureRelationModelClass` when inside a
-     *   whenLoaded() closure (e.g. `fn ($user) => EnumResource::make($user->role)`).
+     * Handles `$this->property` against the resource's own model, and `$variable->property` against
+     * `$closureRelationModelClass` inside a whenLoaded() closure.
      *
      * @return ValueExpressionResult|null
      */
@@ -1285,9 +1536,7 @@ class ResourceAstAnalyzer
         $result = $this->unknownResult();
 
         if (! $this->isThisPropertyFetch($argExpr)) {
-            // Handle bare $variable that is a closure parameter bound to $this->prop
-            // via a when() condition (e.g. `EnumResource::make($status)` where
-            // `$status` was bound to `$this->status` from the condition).
+            // A bare $variable may be a closure parameter bound to $this->prop by a when() condition.
             if ($argExpr instanceof Variable && is_string($argExpr->name)) {
                 $boundExpr = $this->closureParamExprBindings[$argExpr->name] ?? null;
 
@@ -1313,9 +1562,8 @@ class ResourceAstAnalyzer
                     return null;
                 }
 
-                // Use toTsType on the enum FQCN directly so we get the
-                // pure enum TS type ('RoleType') without any nullable suffix that
-                // appendNullable may have appended based on the DB column definition.
+                // toTsType() on the FQCN directly yields the pure enum type, without the nullable
+                // suffix appendNullable() adds from the DB column definition.
                 $enumTsInfo = LaravelTsPublish::toTsType($enumFqcn);
 
                 return [
@@ -1325,10 +1573,8 @@ class ResourceAstAnalyzer
                 ];
             }
 
-            // Handle $this->resource->property — semantically equivalent to $this->property.
-            // In a Laravel Resource, $this->resource is the underlying model instance,
-            // so `$this->resource->status` accesses the same attribute as `$this->status`.
-            // AST shape: PropertyFetch(var: PropertyFetch(var: Variable('this'), name: 'resource'), name: 'propName')
+            // `$this->resource->property` is equivalent to `$this->property`, since $this->resource
+            // is the underlying model instance.
             if (
                 $argExpr instanceof PropertyFetch
                 && $argExpr->var instanceof PropertyFetch
@@ -1348,6 +1594,26 @@ class ResourceAstAnalyzer
                     ...$result,
                     'type' => $info['type'],
                     'enumFqcn' => $info['enumFqcn'],
+                ];
+            }
+
+            // Enum::staticMethod(...) or Enum::Case — resolved from the class name alone. parseAndResolveAst()
+            // runs a NameResolver, so ->class is already the FQCN.
+            $enumClassName = null;
+
+            if ($argExpr instanceof StaticCall && $argExpr->class instanceof Name) {
+                $enumClassName = $argExpr->class->toString();
+            } elseif ($argExpr instanceof ClassConstFetch && $argExpr->class instanceof Name) {
+                $enumClassName = $argExpr->class->toString();
+            }
+
+            if ($enumClassName !== null && enum_exists($enumClassName)) {
+                $enumTsInfo = LaravelTsPublish::toTsType($enumClassName);
+
+                return [
+                    ...$result,
+                    'type' => $enumTsInfo['type'],
+                    'enumFqcn' => $enumClassName,
                 ];
             }
 
@@ -1375,11 +1641,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze $this->property — resolve the type from the backing model.
-     *
-     * Resolution order (matches Laravel's Model::__get):
-     * 1. Model attributes (DB columns, accessors, mutators)
-     * 2. Model relations
+     * Analyze $this->property — resolve the type from the backing model, attributes before relations
+     * (matching Laravel's Model::__get).
      *
      * @return ValueExpressionResult
      */
@@ -1394,12 +1657,10 @@ class ResourceAstAnalyzer
             return $result; // @codeCoverageIgnore
         }
 
-        // 0. Handle $this->collection in ResourceCollection subclasses
         if ($propName === 'collection' && $this->isResourceCollection()) {
             return $this->analyzeCollectionProperty();
         }
 
-        // 1. Try model attributes (DB columns, accessors, mutators)
         $info = $this->resolveModelAttributeTypeInfo($propName);
 
         if ($info['type'] !== 'unknown') {
@@ -1415,7 +1676,6 @@ class ResourceAstAnalyzer
             return $result;
         }
 
-        // 2. Fall back to model relations
         $relationInfo = $this->resolveModelRelationTypeInfo($propName);
 
         if ($relationInfo['type'] !== 'unknown') {
@@ -1426,6 +1686,10 @@ class ResourceAstAnalyzer
 
             if ($relationInfo['modelFqcn'] !== null) {
                 $result['modelFqcn'] = $relationInfo['modelFqcn'];
+            }
+
+            if ($relationInfo['morphFqcns'] !== []) {
+                $result['embeddedModelFqcns'] = $relationInfo['morphFqcns'];
             }
 
             return $result;
@@ -1531,6 +1795,10 @@ class ResourceAstAnalyzer
 
     /**
      * Resolve and analyze a $this->method() spread from a trait or the class itself.
+     *
+     * $localVarBindings/$resolvingLocalVars are scoped to a single method's statement list, so they are
+     * saved, cleared, re-collected for the target method, and restored via `finally` — a caller's `$data`
+     * and a same-named `$data` here are different variables, and the caller may still be mid-analysis.
      */
     protected function analyzeThisMethodSpread(string $methodName): ?ResourceAnalysis
     {
@@ -1557,20 +1825,30 @@ class ResourceAstAnalyzer
             return null; // @codeCoverageIgnore
         }
 
-        $returnStmt = $finder->findFirst($targetMethod->stmts, function (Node $node): bool {
-            return $node instanceof Return_;
-        });
+        $previousLocalVarBindings = $this->localVarBindings;
+        $previousResolvingLocalVars = $this->resolvingLocalVars;
+        $this->localVarBindings = [];
+        $this->resolvingLocalVars = [];
+        $this->collectLocalVarBindings($targetMethod->stmts);
 
-        if ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Array_) {
-            $analysis = $this->analyzeReturnArray($returnStmt->expr);
-        } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Variable
-            && is_string($returnStmt->expr->name)) {
-            $analysis = $this->resolveVariableReturnAnalysis($targetMethod->stmts, $returnStmt->expr->name);
-        } else {
-            $analysis = new ResourceAnalysis;
+        try {
+            $returnStmt = $finder->findFirst($targetMethod->stmts, function (Node $node): bool {
+                return $node instanceof Return_;
+            });
+
+            if ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Array_) {
+                $analysis = $this->analyzeReturnArray($returnStmt->expr);
+            } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Variable
+                && is_string($returnStmt->expr->name)) {
+                $analysis = $this->resolveVariableReturnAnalysis($targetMethod->stmts, $returnStmt->expr->name);
+            } else {
+                $analysis = new ResourceAnalysis;
+            }
+        } finally {
+            $this->localVarBindings = $previousLocalVarBindings;
+            $this->resolvingLocalVars = $previousResolvingLocalVars;
         }
 
-        // Apply PHPDoc @return array shape types to resolve unknown property types
         $docTypes = $this->parseReturnArrayShape($method);
 
         if ($docTypes !== []) {
@@ -1587,21 +1865,14 @@ class ResourceAstAnalyzer
             unset($prop);
         }
 
-        // Apply #[TsCasts] attribute overrides from the method
         $this->applyTsCastsFromMethod($method, $analysis);
 
         return $analysis;
     }
 
     /**
-     * Decompose a property-fetch expression rooted at `$this` into an ordered chain of
-     * `{name: string, nullable: bool}` steps. Returns null if the root is not `$this`.
-     *
-     * `nullable` is true when the access operator for that step is `?->` (NullsafePropertyFetch)
-     * meaning the chain returns null if the receiver is null.
-     *
-     * Example: `$this->resource->user?->profile?->bio`
-     *   → [{name:'resource',nullable:false},{name:'user',nullable:false},{name:'profile',nullable:true},{name:'bio',nullable:true}]
+     * Decompose a property-fetch expression rooted at `$this` into ordered `{name, nullable}` steps,
+     * where `nullable` marks a `?->` access. Returns null if the root is not `$this`.
      *
      * @return list<array{name: string, nullable: bool}>|null
      */
@@ -1624,7 +1895,6 @@ class ResourceAstAnalyzer
             $current = $current->var;
         }
 
-        // Root must be $this
         if (! $current instanceof Variable || $current->name !== 'this') {
             return null;
         }
@@ -1633,20 +1903,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze a property-fetch chain rooted at `$this` by traversing each relation and
-     * attribute step until the final property is resolved.
+     * Analyze a property-fetch chain rooted at `$this`, traversing relation steps until the final
+     * property resolves. Handles `->` and `?->` in any mix; any `?->` step appends `| null`.
      *
-     * Handles both plain `->` and nullsafe `?->` operators, or any mix of the two.
-     * If any step in the chain uses `?->`, `| null` is appended to the resolved type.
-     *
-     * Entry points:
-     * - NullsafePropertyFetch chains (e.g. `$this->user?->role`)
-     * - Plain PropertyFetch chains of any depth (e.g. `$this->resource->user->role`)
-     * - 2-deep chains like `$this->resource->name` as a final fallback after the specific
-     *   enum/model-wrapped handlers
-     *
-     * The starting model is `$this->closureRelationModelClass` when inside a whenLoaded
-     * closure, or `$this->modelClass` otherwise.
+     * The starting model is $closureRelationModelClass inside a whenLoaded closure, else $modelClass.
      *
      * @return ValueExpressionResult
      */
@@ -1680,15 +1940,12 @@ class ResourceAstAnalyzer
             return $this->unknownResult();
         }
 
-        // Whether any step in the chain uses ?-> (making the whole expression nullable)
         $hasNullable = array_any($chain, fn (array $step): bool => $step['nullable']);
 
-        // Traverse all intermediate steps, updating $currentModel to the related model at each step
         $count = count($chain);
 
-        // When inside a whenLoaded closure, the first chain step may be the resource's proxy to the
-        // already-loaded relation model (e.g. `$this->user` in `whenLoaded('user', fn() => $this->user?->name)`).
-        // If it doesn't resolve as a relation on closureRelationModelClass, skip it.
+        // Inside a whenLoaded closure the first step may be the resource's proxy to the already-loaded
+        // relation model (`$this->user` in `whenLoaded('user', fn() => $this->user?->name)`) — skip it.
         $startIndex = 0;
 
         if ($this->closureRelationModelClass !== null && $count >= 2) {
@@ -1709,12 +1966,11 @@ class ResourceAstAnalyzer
             $currentModel = $relationInfo['modelFqcn'];
         }
 
-        // Resolve the final step as an attribute first, then fall back to relation
         $lastStep = $chain[$count - 1];
         $tsInfo = $resolver->resolveAttribute($currentModel, $lastStep['name']);
 
         if ($tsInfo['type'] === 'unknown') {
-            // Fallback: the final step might itself be a relation (e.g. $this->user?->profile)
+            // The final step may itself be a relation (e.g. $this->user?->profile).
             $relationInfo = $resolver->resolveRelation($currentModel, $lastStep['name']);
 
             if ($relationInfo['type'] === 'unknown') {
@@ -1730,6 +1986,10 @@ class ResourceAstAnalyzer
 
             if ($relationInfo['modelFqcn'] !== null) {
                 $result['modelFqcn'] = $relationInfo['modelFqcn'];
+            }
+
+            if ($relationInfo['morphFqcns'] !== []) {
+                $result['embeddedModelFqcns'] = $relationInfo['morphFqcns'];
             }
 
             return $result;
@@ -1753,15 +2013,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze a nullsafe method-call chain rooted at `$this`, traversing relations to
-     * find the terminal model and resolving the method's return type on it.
-     *
-     * Handles patterns like:
-     * - `$this->categoryRel?->isFirst()` inside a `whenLoaded('categoryRel', ...)` closure
-     * - `$this->resource->categoryRel?->isActive()` (resource wrapper stripped)
-     * - `$this->user?->profile?->someMethod()` outside a closure
-     *
-     * Because the operator is `?->`, the result is always made nullable.
+     * Analyze a nullsafe method-call chain rooted at `$this`, traversing relations to the terminal
+     * model and resolving the method's return type on it. The `?->` operator makes the result nullable.
      *
      * @return ValueExpressionResult
      */
@@ -1803,10 +2056,8 @@ class ResourceAstAnalyzer
 
         $count = count($chain);
 
-        // When inside a whenLoaded closure, the first chain step may be the resource's proxy to the
-        // already-loaded relation model (e.g. `$this->categoryRel` in
-        // `whenLoaded('categoryRel', fn() => $this->categoryRel?->isFirst())`).
-        // If it doesn't resolve as a relation on closureRelationModelClass, skip it.
+        // Inside a whenLoaded closure the first step may be the resource's proxy to the already-loaded
+        // relation model (`$this->categoryRel` in `whenLoaded('categoryRel', ...)`) — skip it.
         $startIndex = 0;
 
         if ($this->closureRelationModelClass !== null) {
@@ -1817,7 +2068,6 @@ class ResourceAstAnalyzer
             }
         }
 
-        // Traverse all intermediate relation steps, updating $currentModel at each step
         for ($i = $startIndex; $i < $count - 1; $i++) {
             $relationInfo = $resolver->resolveRelation($currentModel, $chain[$i]['name']);
 
@@ -1830,9 +2080,6 @@ class ResourceAstAnalyzer
             $currentModel = $relatedModel;
         }
 
-        // The last chain step is the relation whose methods we are calling on
-        // (e.g., `$this->categoryRel` in `$this->categoryRel?->isFirst()`).
-        // Traverse it as a relation to get the terminal model — unless it was the skipped proxy.
         if ($startIndex <= $count - 1) {
             $lastStep = $chain[$count - 1];
             $relationInfo = $resolver->resolveRelation($currentModel, $lastStep['name']);
@@ -1847,10 +2094,14 @@ class ResourceAstAnalyzer
         $tsInfo = $resolver->resolveMethodReturnType($currentModel, $methodName);
 
         if ($tsInfo['type'] === '' || $tsInfo['type'] === 'unknown') {
+            // Same convention rules analyzeWrappedResourceMethodCall() uses for the non-nullsafe chain.
+            $tsInfo = $this->knownMethodRule($call) ?? $this->unknownResult();
+        }
+
+        if ($tsInfo['type'] === 'unknown') {
             return $this->unknownResult();
         }
 
-        // NullsafeMethodCall always produces a nullable result
         $type = str_ends_with($tsInfo['type'], ' | null')
             ? $tsInfo['type']
             : $tsInfo['type'].' | null';
@@ -1859,14 +2110,9 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * If an arrow function or closure has a return type annotation, resolve it to a
-     * ClosureAnnotationResult (type string + optional FQCN metadata). Returns null if the
-     * annotation is absent, is a complex union/intersection type, or maps to a non-useful
-     * type (void, mixed, never) or an unresolvable class.
-     *
-     * Used by analyzeValueExpression() as a fallback when body analysis returns unknown,
-     * e.g. for `fn (): ?string => someUnresolvableExpression()` or
-     * `fn (): Status => someUnresolvableExpression()`.
+     * Resolve an arrow function's or closure's return type annotation to a ClosureAnnotationResult.
+     * Returns null when the annotation is absent, is a union/intersection, or maps to void/mixed/never
+     * or an unresolvable class.
      *
      * @return ClosureAnnotationResult|null
      */
@@ -1886,17 +2132,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Convert a PHP-Parser return-type AST node to a ClosureAnnotationResult (type +
-     * optional FQCN metadata). Returns null for union/intersection types, void, never,
-     * mixed, or unresolvable class names.
+     * Convert a PHP-Parser return-type AST node to a ClosureAnnotationResult (type + optional FQCN).
      *
-     * For Name nodes, enumFqcns[0] is mapped to directEnumFqcn and classFqcns[0] to
-     * modelFqcn so the caller can track the FQCN alongside the type string. Types with
-     * customImports (e.g. #[TsType] classes with import paths) return null because that
-     * metadata cannot be represented in ValueExpressionResult.
-     *
-     * For NullableType, metadata from the inner node is preserved while '| null' is
-     * appended to the type string.
+     * Returns null for union/intersection types, void/never/mixed, unresolvable classes, and types
+     * carrying customImports — that import metadata cannot be represented in ValueExpressionResult.
      *
      * @return ClosureAnnotationResult|null
      */
@@ -1932,9 +2171,6 @@ class ResourceAstAnalyzer
                 return null;
             }
 
-            // Types with customImports cannot be represented in ValueExpressionResult —
-            // return null so the caller falls back to 'unknown' rather than emitting a
-            // type that is missing its import registration.
             if ($tsInfo['customImports'] !== []) {
                 return null;
             }
@@ -1956,12 +2192,9 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Apply #[TsCasts] attribute overrides declared on a reflection method to
-     * the given ResourceAnalysis, updating or injecting property types as directed.
+     * Apply #[TsCasts] overrides declared on a reflection method, updating or injecting properties.
      *
-     * Used both by analyzeThisMethodSpread() for trait/helper methods and by analyze()
-     * for the toArray() method itself, allowing #[TsCasts] to be placed directly
-     * on toArray() as a lightweight override mechanism.
+     * Accepted on trait/helper methods and on toArray() itself, as a lightweight override mechanism.
      */
     private function applyTsCastsFromMethod(ReflectionMethod $method, ResourceAnalysis $analysis): void
     {
@@ -2186,7 +2419,6 @@ class ResourceAstAnalyzer
                 continue;
             }
 
-            // if/elseif/else — recurse with isConditional = true
             if ($stmt instanceof If_) {
                 $this->collectVariableArrayAssignments(
                     $stmt->stmts, $varName, true,
@@ -2214,7 +2446,7 @@ class ResourceAstAnalyzer
                 }
             }
 
-            // Loop bodies — recurse with isConditional = true (loops may execute 0 times)
+            // Loop bodies are conditional: a loop may execute zero times.
             if ($stmt instanceof Foreach_ || $stmt instanceof For_
                 || $stmt instanceof While_ || $stmt instanceof Do_) {
                 $this->collectVariableArrayAssignments(
@@ -2290,74 +2522,33 @@ class ResourceAstAnalyzer
         return implode(' | ', array_unique($resolved));
     }
 
+    /**
+     * Determine whether the analyzed resource is a ResourceCollection subclass.
+     */
     protected function isResourceCollection(): bool
     {
         return $this->resourceReflection->isSubclassOf(ResourceCollection::class);
     }
 
     /**
-     * Resolve the singular resource FQCN for a ResourceCollection.
-     *
-     * Resolution order:
-     * 1. #[Collects] PHP attribute on the class (Laravel 12+)
-     * 2. Explicit $collects property default value
-     * 3. Naming convention: XCollection → XResource
+     * Resolve the singular resource FQCN this ResourceCollection collects.
+     * See collectedResourceClass() for the resolution order.
      *
      * @return class-string<JsonResource>|null
      */
     protected function resolveSingularResourceClass(): ?string
     {
-        $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
-        if (class_exists($collectsAttribute)) {
-            // Priority 1: #[Collects] attribute (Laravel 12+)
-            $collectsAttrs = $this->resourceReflection->getAttributes($collectsAttribute);
+        /** @var class-string $ownFqcn */
+        $ownFqcn = $this->resourceReflection->getName();
 
-            if ($collectsAttrs !== []) {
-                $collectsClass = $collectsAttrs[0]->newInstance()->class;
-
-                if (class_exists($collectsClass) && is_a($collectsClass, JsonResource::class, true)) {
-                    return $collectsClass;
-                }
-            }
-        }
-
-        // Priority 2: explicit $collects property default value
-        /** @var array<string, mixed> $defaults */
-        $defaults = $this->resourceReflection->getDefaultProperties();
-        $collects = $defaults['collects'] ?? null;
-
-        if (is_string($collects) && class_exists($collects) && is_a($collects, JsonResource::class, true)) {
-            return $collects;
-        }
-
-        $className = $this->resourceReflection->getShortName();
-        $namespace = $this->resourceReflection->getNamespaceName();
-
-        if (str_ends_with($className, 'Collection')) {
-            $base = substr($className, 0, -10);
-
-            $candidate = $namespace.'\\'.$base.'Resource';
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            }
-
-            $candidate = $namespace.'\\'.$base; // @codeCoverageIgnoreStart
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            } // @codeCoverageIgnoreEnd
-        }
-
-        return null;
+        return $this->collectedResourceClass($ownFqcn);
     }
 
     /**
      * Build a ResourceAnalysis for a ResourceCollection subclass that has no toArray() method.
      *
-     * Reads the $wrap key to determine the property name (default: 'data').
-     * - If $wrap is a non-empty string: generates `{ data: SingularResource[] }` interface shape
-     * - If $wrap is null: sets flatTypeAlias so the writer emits `export type X = SingularResource[]`
+     * A non-empty $wrap key produces a `{ data: SingularResource[] }` shape; a null $wrap sets
+     * flatTypeAlias so the writer emits `export type X = SingularResource[]`.
      */
     protected function buildCollectionDelegatedAnalysis(): ResourceAnalysis
     {
@@ -2367,8 +2558,7 @@ class ResourceAstAnalyzer
             return new ResourceAnalysis;
         }
 
-        // Read the declared $wrap value from this class only (not inherited).
-        // $wrap is a static property on JsonResource (default: 'data').
+        // Read $wrap declared on this class only — inherited, JsonResource's static default is 'data'.
         $wrapKey = 'data';
 
         if ($this->resourceReflection->hasProperty('wrap')) {
@@ -2423,10 +2613,6 @@ class ResourceAstAnalyzer
 
     /**
      * Analyze `$this->relation->only([...])` or `$this->relation?->only([...])`.
-     *
-     * Resolves the relation's model class, filters it to the specified keys,
-     * and returns an inline TypeScript type like `{ id: number; name: string }`.
-     * Nullable chaining (`?->`) appends `| null` to the type.
      *
      * @return ValueExpressionResult
      */
@@ -2607,8 +2793,8 @@ class ResourceAstAnalyzer
 
             $type = $prop['type'];
 
-            // When Tolki is enabled, rewrite the type for EnumResource-wrapped properties
-            // to `AsEnum<typeof X>` to match the top-level enum resource transformer behaviour.
+            // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
+            // top-level enum resource transformer.
             if ($useTolki && isset($analysis->enumResources[$prop['name']])) {
                 $fqcn = $analysis->enumResources[$prop['name']];
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
@@ -2624,12 +2810,9 @@ class ResourceAstAnalyzer
 
         $result = ['type' => '{ '.implode('; ', $parts).' }', 'optional' => false];
 
-        // Propagate import metadata from the inner analysis so that enum, model,
-        // and resource FQCNs referenced inside the inline object reach the outer
-        // ResourceAnalysis and generate the correct import statements.
-
-        // When Tolki is enabled, enum resources need value imports (const), not type imports.
-        // Direct enum accesses always need type imports.
+        // Propagate import metadata so FQCNs referenced inside the inline object reach the outer analysis.
+        // With Tolki enabled, enum resources need value imports (const) rather than type imports; direct
+        // enum accesses always need type imports.
         if ($useTolki) {
             $nestedInlineEnumFqcns = $analysis->inlineEnumFqcns === []
                  ? []
@@ -2676,9 +2859,7 @@ class ResourceAstAnalyzer
             $result['embeddedModelFqcns'] = $embeddedModelFqcns;
         }
 
-        // Nested resources (e.g. SomeResource::make() inside the inline array)
-        // are tracked separately so they can be merged into the outer analysis'
-        // resource imports rather than model imports.
+        // Nested resources are tracked separately so they merge into resource imports, not model imports.
         if ($analysis->nestedResources !== []) {
             $result['embeddedResourceFqcns'] = array_values(array_unique(
                 array_values($analysis->nestedResources),
@@ -2691,9 +2872,7 @@ class ResourceAstAnalyzer
     /**
      * Analyze `$this->anyProp->subProp` — a property fetch on one of `$this`'s properties.
      *
-     * Handles PHP enum universal properties:
-     *   - `->name`  is always `string` (every PHP enum has it)
-     *   - `->value` type depends on the enum's backing type (string or int)
+     * PHP enum universals: `->name` is always string, `->value` follows the enum's backing type.
      *
      * @return ValueExpressionResult
      */
@@ -2706,9 +2885,8 @@ class ResourceAstAnalyzer
             return $result; // @codeCoverageIgnore
         }
 
-        // Only apply enum-specific logic when the wrapped type is actually a PHP enum.
-        // Without this guard, model-backed resources that use $this->resource->column
-        // would silently receive 'string' instead of the correct column type or 'unknown'.
+        // Guarded on the wrapped type actually being an enum: without it, a model-backed
+        // `$this->resource->column` would silently receive 'string' instead of its column type.
         $wrappedClass = $this->resolveWrappedClass();
 
         if ($wrappedClass === null || ! enum_exists($wrappedClass)) {
@@ -2753,7 +2931,6 @@ class ResourceAstAnalyzer
             return $result;
         }
 
-        // Try to resolve as a model attribute (DB column, accessor, mutator)
         $info = $this->resolveModelAttributeTypeInfo($innerProp);
 
         if ($info['type'] !== 'unknown') {
@@ -2770,8 +2947,11 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze `$this->anyProp->method()` by resolving the method on the wrapped class
-     * (e.g. `$this->resource->extensions()` on an enum-backed resource).
+     * Analyze `$this->anyProp->method()` by resolving the method on the wrapped class.
+     *
+     * When neither the wrapped class nor the @mixin model declares it, two fallbacks run: a date-cast
+     * receiver reflects the method on Carbon (guarded by carbonMethodReturnsUnimportableStringable()),
+     * then knownMethodRule() covers can()/getKey()/count()/exists().
      *
      * @return ValueExpressionResult
      */
@@ -2786,39 +2966,392 @@ class ResourceAstAnalyzer
 
         $wrappedClass = $this->resolveWrappedClass();
 
-        if ($wrappedClass === null || ! method_exists($wrappedClass, $methodName)) {
-            // Fall back to modelClass for `$this->resource->method()` calls on @mixin-style resources
-            // (e.g. `$this->resource->commentsCount()` where commentsCount() lives on the model).
-            if ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
-                /** @var class-string $modelClass */
-                $modelClass = $this->modelClass;
-                $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
+        if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
+            /** @var class-string $wrappedClass */
+            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
 
-                if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                    return [...$tsInfo, 'optional' => false];
+            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
+                return [...$tsInfo, 'optional' => false];
+            }
+        } elseif ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
+            // @mixin-style resources: `$this->resource->commentsCount()` lives on the model.
+            /** @var class-string $modelClass */
+            $modelClass = $this->modelClass;
+            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
+
+            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
+                return [...$tsInfo, 'optional' => false];
+            }
+        }
+
+        // On a date-cast receiver (e.g. `created_at`) the method is a Carbon instance method reached
+        // through the cast, not declared on the model — reflect it on Carbon/CarbonImmutable instead.
+        if ($expr->var instanceof PropertyFetch && $expr->var->name instanceof Identifier) {
+            $receiverAttr = $this->modelClass !== null
+                ? resolve(ModelAttributeResolver::class)->getAttributes($this->modelClass)
+                    ?->firstWhere('name', $expr->var->name->toString())
+                : null;
+
+            $cast = $receiverAttr['cast'] ?? null;
+
+            if (is_string($cast) && $this->isDateFamilyCast($cast)) {
+                $carbonClass = str_starts_with($cast, 'immutable_')
+                    ? CarbonImmutable::class
+                    : Carbon::class;
+
+                if (! $this->carbonMethodReturnsUnimportableStringable($carbonClass, $methodName)) {
+                    $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(
+                        new ReflectionClass($carbonClass),
+                        $methodName,
+                    );
+
+                    $accepted = $this->acceptReflectedTypeInfo($tsInfo);
+
+                    if ($accepted !== null) {
+                        return $accepted;
+                    }
                 }
             }
-
-            return $result;
         }
 
-        /** @var class-string $wrappedClass */
-        $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
+        // Known-method rules — authorization checks and relation counts/existence.
+        $known = $this->knownMethodRule($expr);
 
-        if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-            return [...$tsInfo, 'optional' => false];
+        if ($known !== null) {
+            return $known;
         }
 
-        return $result; // @codeCoverageIgnore
+        return $result;
     }
 
     /**
-     * Analyze a static method call on the resource's wrapped class or backing model,
-     * originating from a `$this->resource::staticMethod()` expression.
+     * Determine whether a Carbon(Immutable) method's declared return type is a concrete class that merely
+     * implements `__toString()` (e.g. `diff()` → CarbonInterval) rather than a genuine `: string` return.
      *
-     * Mirrors the logic of analyzeWrappedResourceMethodCall: tries the wrapped class first,
-     * then falls back to the @mixin model class. PHP reflection handles static methods
-     * identically to instance methods, so no special casing is required here.
+     * LaravelTsPublish::toTsType()'s step 5b maps any non-Model Stringable class to a bare `string` with
+     * no FQCN attached, so acceptReflectedTypeInfo() cannot tell it from a real string; this inspects the
+     * raw reflected type first, mirroring that step's own condition. Carbon and CarbonImmutable are
+     * allow-listed: their `__toString()` IS the canonical datetime string, unlike CarbonInterval's
+     * human-readable formatting convenience.
+     */
+    protected function carbonMethodReturnsUnimportableStringable(string $carbonClass, string $methodName): bool
+    {
+        if (! method_exists($carbonClass, $methodName)) {
+            return false;
+        }
+
+        $returnType = new ReflectionMethod($carbonClass, $methodName)->getReturnType();
+
+        if (! $returnType instanceof ReflectionNamedType) {
+            return false;
+        }
+
+        $name = $returnType->getName();
+
+        if (in_array($name, [BaseCarbon::class, CarbonImmutable::class], true)) {
+            return false;
+        }
+
+        return class_exists($name)
+            && ! is_a($name, Model::class, true)
+            && method_exists($name, '__toString');
+    }
+
+    /**
+     * Determine whether a resolved model cast belongs to the date/datetime family, including
+     * immutable_* variants and the `:format` suffix on custom_datetime casts.
+     */
+    protected function isDateFamilyCast(string $cast): bool
+    {
+        return in_array(explode(':', $cast)[0], [
+            'date', 'datetime', 'custom_datetime', 'timestamp',
+            'immutable_date', 'immutable_datetime', 'immutable_custom_datetime',
+        ], true);
+    }
+
+    /**
+     * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
+     * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
+     *
+     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
+     */
+    protected function resolveModelRelationTypeInfo(string $name): array
+    {
+        if ($this->modelClass === null) {
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
+        }
+
+        return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $name);
+    }
+
+    /**
+     * Analyze a method-call chain rooted at `$this->{manyRelation}` made of identity-preserving collection
+     * ops (take, skip, filter, values, sortBy, ...) plus at most one `map()` or `pluck()`. A `map()` body
+     * is analyzed with the relation's element model bound as $closureRelationModelClass.
+     *
+     * Returns null — deferring to the caller's unknown fallthrough — for any other op, a second map/pluck,
+     * or an unresolvable body. That is why `$this->items->count()` still reaches knownMethodRule().
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeRelationCollectionChain(MethodCall $call): ?array
+    {
+        $identityOps = [
+            'take', 'skip', 'filter', 'reject', 'values', 'unique',
+            'sortBy', 'sortByDesc', 'slice', 'reverse', 'where', 'whereNotNull',
+        ];
+
+        // Walk down the chain collecting op names until we reach $this->prop.
+        /** @var list<array{name: string, node: MethodCall}> $ops */
+        $ops = [];
+        $node = $call;
+
+        while ($node instanceof MethodCall) {
+            if (! $node->name instanceof Identifier) {
+                return null;
+            }
+
+            $ops[] = ['name' => $node->name->toString(), 'node' => $node];
+            $node = $node->var;
+        }
+
+        if (! $node instanceof PropertyFetch || ! $this->isThisPropertyFetch($node) || ! $node->name instanceof Identifier) {
+            return null;
+        }
+
+        $relationInfo = $this->resolveModelRelationTypeInfo($node->name->toString());
+
+        if (! str_ends_with($relationInfo['type'], '[]') || $relationInfo['modelFqcn'] === null) {
+            return null;
+        }
+
+        $elementModel = $relationInfo['modelFqcn'];
+        $mapNode = null;
+        $pluckNode = null;
+
+        // A relation collection starts keyed 0..n-1; each op below says whether that still holds.
+        $sequentialKeys = true;
+
+        foreach (array_reverse($ops) as $op) {
+            if (in_array($op['name'], $identityOps, true)) {
+                $sequentialKeys = match ($op['name']) {
+                    'values' => true,
+                    'take' => $sequentialKeys && $this->isFrontAnchoredTake($op['node']),
+                    default => false,
+                };
+
+                continue;
+            }
+
+            if ($op['name'] === 'map' && $mapNode === null && $pluckNode === null) {
+                // map() preserves the receiver's keys, so it neither breaks nor restores sequentiality.
+                $mapNode = $op['node'];
+
+                continue;
+            }
+
+            if ($op['name'] === 'pluck' && $pluckNode === null && $mapNode === null) {
+                $pluckNode = $op['node'];
+                $sequentialKeys = $op['node']->isFirstClassCallable() || count($op['node']->getArgs()) < 2;
+
+                continue;
+            }
+
+            // Unsupported op, including a 2nd map()/pluck() or map()+pluck() combined.
+            return null;
+        }
+
+        if ($mapNode === null && $pluckNode === null) {
+            return [
+                ...$this->unknownResult(),
+                'type' => $sequentialKeys ? $relationInfo['type'] : $this->keyedObjectArm($relationInfo['type']),
+                'optional' => false,
+                'modelFqcn' => $elementModel,
+            ];
+        }
+
+        if ($pluckNode !== null) {
+            // First-class callable syntax (`->pluck(...)`) has no args: CallLike::getArgs() asserts
+            // !isFirstClassCallable() and throws AssertionError under zend.assertions=1 (PHP's dev
+            // default), and analyzeVariablePluckCall() calls getArgs() unconditionally.
+            if ($pluckNode->isFirstClassCallable()) {
+                return null;
+            }
+
+            $previousContext = $this->closureRelationModelClass;
+            $this->closureRelationModelClass = $elementModel;
+
+            try {
+                $pluckResult = $this->analyzeVariablePluckCall($pluckNode);
+            } finally {
+                $this->closureRelationModelClass = $previousContext;
+            }
+
+            // analyzeVariablePluckCall() degrades an unresolved field to 'unknown[]'; normalize to null
+            // so the caller's fallthrough produces plain 'unknown' like every other unrecognized chain.
+            if ($pluckResult['type'] === 'unknown[]') {
+                return null;
+            }
+
+            if (! $sequentialKeys) {
+                $pluckResult['type'] = $this->keyedObjectArm($pluckResult['type']);
+            }
+
+            return [...$this->unknownResult(), ...$pluckResult];
+        }
+
+        // The map argument must be a Closure/ArrowFunction: a callable-array (`[$this, 'method']`) or a
+        // bare string callable (`'strtoupper'`) is itself a valid expression node, so analyzeValueExpression()
+        // would resolve *that* — 'strtoupper' → 'string', wrongly wrapped here to 'string[]'.
+        /** @var MethodCall $mapNode */
+        // First-class callable syntax (`->map(...)`) has no args: getArgs() throws AssertionError under
+        // zend.assertions=1 rather than returning [].
+        if ($mapNode->isFirstClassCallable()) {
+            return null;
+        }
+
+        $args = $mapNode->getArgs();
+
+        if ($args === []) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $mapArg = $args[0]->value;
+
+        if (! $mapArg instanceof ArrowFunction && ! $mapArg instanceof ClosureExpr) {
+            return null;
+        }
+
+        $previousContext = $this->closureRelationModelClass;
+        $this->closureRelationModelClass = $elementModel;
+
+        try {
+            $bodyResult = $this->analyzeValueExpression($mapArg);
+        } finally {
+            $this->closureRelationModelClass = $previousContext;
+        }
+
+        if ($bodyResult['type'] === 'unknown') {
+            return null;
+        }
+
+        // A map body that is entirely `EnumResource::make(...)` returns a singular 'enumFqcn', the contract
+        // ResourceTransformer::rewriteEnumResourceTypes() reads to overwrite the property with a bare,
+        // non-array `AsEnum<typeof X>`. Array-wrapping breaks that, so re-tag it as 'directEnumFqcn':
+        // still imported, no longer eligible for the singular-type rewrite.
+        if (isset($bodyResult['enumFqcn']) && ! isset($bodyResult['directEnumFqcn'])) {
+            $bodyResult['directEnumFqcn'] = $bodyResult['enumFqcn'];
+            unset($bodyResult['enumFqcn']);
+        }
+
+        $mapped = $this->arrayWrapType($bodyResult['type']);
+
+        return [
+            ...$bodyResult,
+            'type' => $sequentialKeys ? $mapped : $this->keyedObjectArm($mapped),
+            'optional' => false,
+        ];
+    }
+
+    /**
+     * Whether a `take()` call slices from the front, where a sequentially keyed receiver stays sequential.
+     *
+     * A negative count takes from the tail and a non-literal count could be either, so both are rejected.
+     */
+    private function isFrontAnchoredTake(MethodCall $call): bool
+    {
+        if ($call->isFirstClassCallable()) {
+            return false;
+        }
+
+        $args = $call->getArgs();
+
+        return count($args) === 1 && $args[0]->value instanceof Int_;
+    }
+
+    /**
+     * Add the object arm that json_encode emits for a gapped or reordered collection: `X[]` → `X[] | Record<string, X>`.
+     */
+    private function keyedObjectArm(string $arrayType): string
+    {
+        return $arrayType.' | Record<string, '.substr($arrayType, 0, -2).'>';
+    }
+
+    /**
+     * Suffix a type with `[]`, parenthesizing a union first: TypeScript binds `[]` tighter than `|`,
+     * so `string | null[]` parses as `string | (null[])`, not `(string | null)[]`.
+     */
+    private function arrayWrapType(string $type): string
+    {
+        return str_contains($type, '|') ? '('.$type.')[]' : $type.'[]';
+    }
+
+    /**
+     * Late-stage rules for methods whose return type is fixed by Laravel convention: can()/cannot()/canAny()
+     * → boolean, and count()/exists() → number/boolean on a `$this->{manyRelation}` receiver. Applied last,
+     * after every more specific resolution path has had a chance to produce a real type.
+     *
+     * can() matches by name alone — every plausible receiver (an Authorizable user, the Gate facade, a
+     * policy-backed model) returns bool. count()/exists() and getKey() are receiver-gated instead: those
+     * names are commonly overloaded, and getKey()'s type depends on the receiver model's key type, so it
+     * is limited to `$this->resource->getKey()`, which always means the outer resource's own model.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function knownMethodRule(MethodCall|NullsafeMethodCall $expr): ?array
+    {
+        if (! $expr->name instanceof Identifier) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $method = $expr->name->toString();
+
+        if (in_array($method, ['can', 'cannot', 'canAny'], true)) {
+            return [...$this->unknownResult(), 'type' => 'boolean', 'optional' => false];
+        }
+
+        if ($method === 'getKey') {
+            $isResourceReceiver = $expr->var instanceof PropertyFetch
+                && $this->isThisPropertyFetch($expr->var)
+                && $expr->var->name instanceof Identifier
+                && $expr->var->name->toString() === 'resource';
+
+            if (! $isResourceReceiver || $this->modelClass === null) {
+                return null;
+            }
+
+            $instance = resolve(ModelAttributeResolver::class)->getInstance($this->modelClass);
+
+            $type = $instance?->getKeyType() === 'int' ? 'number' : 'string';
+
+            return [...$this->unknownResult(), 'type' => $type, 'optional' => false];
+        }
+
+        if (! in_array($method, ['count', 'exists'], true)) {
+            return null;
+        }
+
+        // Receiver must be $this->{manyRelation}
+        if ($expr->var instanceof PropertyFetch
+            && $this->isThisPropertyFetch($expr->var)
+            && $expr->var->name instanceof Identifier
+        ) {
+            $relation = $this->resolveModelRelationTypeInfo($expr->var->name->toString());
+
+            if (str_ends_with($relation['type'], '[]')) {
+                return [
+                    ...$this->unknownResult(),
+                    'type' => $method === 'count' ? 'number' : 'boolean',
+                    'optional' => false,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Analyze a `$this->resource::staticMethod()` call against the wrapped class, then the @mixin model.
      *
      * @return ValueExpressionResult
      */
@@ -2883,9 +3416,6 @@ class ResourceAstAnalyzer
     /**
      * Resolve a method call (instance or static) on a related model within a whenLoaded closure.
      *
-     * Uses `LaravelTsPublish::methodOrDocblockReturnTypes()` to resolve from the method's
-     * declared return type hint.
-     *
      * @return ValueExpressionResult
      */
     protected function analyzeRelatedModelMethodCall(string $methodName): array
@@ -2904,9 +3434,7 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Determine the TypeScript type for a backed enum's `->value` property by inspecting
-     * the `@var` docblock on the resource's `$resource` property and resolving any short
-     * class name via the file's use-statement map.
+     * Determine the TypeScript type for a backed enum's `->value` property from its backing type.
      */
     protected function resolveEnumValueBackingType(): string
     {
@@ -2925,20 +3453,15 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze a generic `$this->method()` call by reflecting on the method's declared
-     * return type and mapping it to a TypeScript type.
+     * Analyze a generic `$this->method()` by reflecting its declared return type.
      *
-     * Checks the resource's own methods first, then falls back to the wrapped class
-     * (e.g. the backing enum) for calls that are delegated via `__call`.
-     *
-     * Used as a fallback for resource instance methods that are not one of Laravel's
-     * conditional helpers (`when`, `whenLoaded`, etc.).
+     * Checks the resource's own methods, then the wrapped class, then the backing model — covering
+     * calls delegated via `__call` or `@mixin`.
      *
      * @return ValueExpressionResult
      */
     protected function analyzeThisMethodCall(string $methodName): array
     {
-        // 1. Check the resource's own methods
         if ($this->resourceReflection->hasMethod($methodName)) {
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes($this->resourceReflection, $methodName);
 
@@ -2950,7 +3473,6 @@ class ResourceAstAnalyzer
             }
         }
 
-        // 2. Fall back to the wrapped class (e.g. backing enum) for delegated calls
         $wrappedClass = $this->resolveWrappedClass();
 
         if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
@@ -2965,8 +3487,6 @@ class ResourceAstAnalyzer
             }
         }
 
-        // 3. Fall back to the resource's backing model class (covers @mixin-delegated calls
-        //    like `$this->publishable()` on a resource with `@mixin Post`).
         if ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
             /** @var class-string $modelClass */
             $modelClass = $this->modelClass;
@@ -2984,13 +3504,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze all direct Return_ statements that yield Array_ literals and merge
-     * their properties with union semantics.
-     *
-     * Empty array returns (guard clauses like `return []`) are filtered out.
-     * If only one non-empty return exists, it is analyzed directly (unchanged behavior).
-     * If multiple exist, each is analyzed separately and the results are merged:
-     * properties present in ALL branches stay required; properties in only SOME become optional.
+     * Analyze all direct Return_ statements yielding non-empty Array_ literals, merging multiple
+     * branches with union semantics: properties present in only some branches become optional.
      *
      * @param  array<Node\Stmt>  $stmts
      */
@@ -3010,7 +3525,6 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        // Single branch — analyze directly (unchanged behavior)
         if (count($candidates) === 1) {
             /** @var Array_ $expr */
             $expr = $candidates[0]->expr;
@@ -3018,7 +3532,6 @@ class ResourceAstAnalyzer
             return $this->analyzeReturnArray($expr);
         }
 
-        // Multiple branches — analyze each, then merge with union semantics
         $analyses = array_map(function (Return_ $r) {
             /** @var Array_ $expr */
             $expr = $r->expr;
@@ -3030,11 +3543,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Merge multiple ResourceAnalysis objects from different return branches.
-     *
-     * Properties present in ALL branches remain required (unless already optional).
-     * Properties present in only SOME branches become optional.
-     * Properties with different types across branches get their types unioned.
+     * Merge ResourceAnalysis objects from different return branches: a property missing from any
+     * branch becomes optional, and differing types across branches are unioned.
      *
      * @param  list<ResourceAnalysis>  $analyses
      */
@@ -3042,7 +3552,6 @@ class ResourceAstAnalyzer
     {
         $branchCount = count($analyses);
 
-        // Collect property info per name across all branches
         /** @var array<string, list<array{type: string, optional: bool, description: string}>> */
         $propertyMap = [];
 
@@ -3073,16 +3582,13 @@ class ResourceAstAnalyzer
             } // @codeCoverageIgnoreEnd
         }
 
-        // Build merged property list
         /** @var list<array{name: string, type: string, optional: bool, description: string}> */
         $properties = [];
 
         foreach ($propertyMap as $name => $entries) {
-            // Union distinct types
             $types = array_values(array_unique(array_column($entries, 'type')));
             $type = count($types) === 1 ? $types[0] : implode(' | ', $types);
 
-            // Optional if not present in ALL branches, or if any branch marks it optional
             $presentInAll = count($entries) === $branchCount;
             $anyOptional = (bool) array_filter($entries, fn (array $e) => $e['optional']);
             $optional = ! $presentInAll || $anyOptional;
@@ -3134,7 +3640,6 @@ class ResourceAstAnalyzer
                 continue;
             }
 
-            // Descend into control-flow blocks (if/elseif/else, foreach, for, while, do-while)
             if ($stmt instanceof If_) {
                 $this->collectDirectReturns($stmt->stmts, $candidates);
 
@@ -3158,12 +3663,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Extract an instanceof type hint from guard clauses in toArray().
-     *
-     * Supports patterns like:
-     *   if (!$this->resource instanceof ClassName) { return []; }
-     *
-     * Falls back to resolving the short class name via the file's use-statement map.
+     * Extract an instanceof type hint from a guard clause in toArray(), positive or negated —
+     * e.g. `if (! $this->resource instanceof ClassName) { return []; }`.
      *
      * @return class-string|null
      */
@@ -3212,8 +3713,7 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve the wrapped class for this resource, checking resolveClassOnProperty() first,
-     * then falling back to the instanceof guard clause type hint.
+     * Resolve the wrapped class for this resource, falling back to the instanceof guard clause hint.
      *
      * @return class-string|null
      */
@@ -3223,14 +3723,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Merge multiple closure return expressions into a single ValueExpressionResult
-     * with a union type. Each return branch is analyzed independently and their types
-     * are joined with ` | `.
+     * Merge multiple closure return expressions into a single union-typed ValueExpressionResult.
      *
-     * Null returns (guard clauses) contribute `null` to the union instead of a full object shape.
-     * Duplicate type strings are removed.
-     *
-     * Import metadata (enum/model FQCNs) is collected from all branches.
+     * Null returns (guard clauses) contribute `null` to the union instead of a full object shape;
+     * duplicate types are removed and import metadata is collected from all branches.
      *
      * @param  list<Expr>  $returns
      * @return ValueExpressionResult
@@ -3252,11 +3748,8 @@ class ResourceAstAnalyzer
         $hasNull = false;
 
         foreach ($returns as $returnExpr) {
-            // Guard-clause null (e.g. `return null;` at the top level of a closure branch)
-            // is intercepted here before reaching analyzeValueExpression, so the standalone
-            // `null` union member is tracked separately from object-shape branches. Null that
-            // appears as an *array value* (e.g. `return ['key' => null]`) is handled inside
-            // analyzeValueExpression via the ConstFetch 'null' branch and never reaches here.
+            // A guard-clause `return null;` is intercepted here so the standalone `null` union member is
+            // tracked apart from object-shape branches; null as an *array value* goes through ConstFetch.
             if ($returnExpr instanceof ConstFetch
                 && $returnExpr->name->toLowerString() === 'null') {
                 $hasNull = true;
@@ -3270,11 +3763,10 @@ class ResourceAstAnalyzer
                 continue; // @codeCoverageIgnore
             }
 
-            // Collect the type string
             $types[] = $inner['type'];
 
-            // Merge import metadata — track EnumResource branches separately from direct-access
-            // branches so the result can propagate the correct FQCN metadata.
+            // EnumResource branches are tracked apart from direct-access ones, so the result can
+            // propagate the correct FQCN metadata.
             if (isset($inner['enumFqcn'])) {
                 $enumResourceFqcns[] = $inner['enumFqcn'];
             }
@@ -3308,16 +3800,11 @@ class ResourceAstAnalyzer
             $types[] = 'null';
         }
 
-        // Deduplicate types while preserving order
         $types = array_values(array_unique($types));
 
-        // Remove a standalone 'null' entry when another type already contains null
-        // as a top-level union member (e.g. 'number | null' from a nullable column).
-        // This prevents 'number | null | null' when a nullable property is one branch
-        // of a ternary and a null literal is the other branch.
-        // Heuristic: split each type string by ' | ' and check if 'null' appears as an
-        // exact token — this is safe for inline object types because the trailing `}`
-        // prevents 'null }' from matching 'null'.
+        // Drop a standalone 'null' when another member already carries null (e.g. 'number | null' from a
+        // nullable column), which would otherwise render 'number | null | null'. Splitting on ' | ' is
+        // safe for inline object types, since their trailing `}` prevents 'null }' from matching.
         $explicitNullIndex = array_search('null', $types, true);
 
         if ($explicitNullIndex !== false && count($types) > 1) {
@@ -3350,12 +3837,6 @@ class ResourceAstAnalyzer
         $embeddedModelFqcns = array_values(array_unique($embeddedModelFqcns));
         $embeddedResourceFqcns = array_values(array_unique($embeddedResourceFqcns));
 
-        // Determine how to propagate enum FQCN metadata based on which branch sources are present.
-        // - Pure EnumResource branches (single FQCN): propagate `enumFqcn` so the transformer
-        //   rewrites the type to AsEnum<typeof X> when the tolki package is enabled.
-        // - Mixed branches (same FQCN from both EnumResource and direct access): propagate both
-        //   `enumFqcn` and `directEnumFqcn` so the transformer produces AsEnum<typeof X> | XType.
-        // - Multiple different FQCNs or other complex combinations: fall back to embedded imports.
         if ($enumResourceFqcns !== []) {
             $allBranchFqcns = array_values(array_unique([...$enumResourceFqcns, ...$enumDirectFqcns]));
 
@@ -3398,17 +3879,11 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze a `$variable->map(fn (TypedClass $item) => [...])` call by resolving the
-     * inner closure's typed first parameter class, then analyzing the closure body.
+     * Analyze `$variable->map(fn (TypedClass $item) => [...])` using the closure's typed first parameter
+     * as the element model, wrapping the body result as `elementType[]`.
      *
-     * When the inner closure has a typed first parameter (e.g. `fn (OrderItem $item) => [...]`),
-     * its FQCN (already resolved by NameResolver) is temporarily set as the closure relation
-     * model class, and the closure body is analyzed against that class. The result is wrapped
-     * as `elementType[]`.
-     *
-     * Returns null when the inner closure has no typed class parameter, the class is not a
-     * Model subclass, or the body analysis resolves to unknown — allowing the caller to fall
-     * through to the generic method handler.
+     * Returns null when there is no typed Model parameter or the body resolves to unknown, so the
+     * caller falls through to the generic method handler.
      *
      * @return ValueExpressionResult|null
      */
@@ -3474,9 +3949,8 @@ class ResourceAstAnalyzer
     /**
      * Analyze a `$variable->pluck('field')` call within a whenLoaded closure context.
      *
-     * Resolves the named field's TypeScript type from the related model class and returns
-     * it as an array type. Returns `unknown[]` when the field type cannot be determined,
-     * which satisfies callers that only need a non-`unknown` result.
+     * Returns `unknown[]`, not `unknown`, when the field type cannot be determined — callers that
+     * only test for a non-`unknown` result rely on that.
      *
      * @return ValueExpressionResult
      */
@@ -3489,7 +3963,7 @@ class ResourceAstAnalyzer
             $info = $this->analyzeRelatedModelProperty($fieldName);
 
             if ($info['type'] !== 'unknown') {
-                $info['type'] = $info['type'].'[]';
+                $info['type'] = $this->arrayWrapType($info['type']);
                 $info['optional'] = false;
 
                 return $info;
@@ -3500,12 +3974,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * When a `when()` condition contains a `$this->propName` expression, bind the first
-     * parameter of the closure/arrow-function value to that PropertyFetch expression.
-     *
-     * This allows expressions like `EnumResource::make($status)` inside a closure passed
-     * to `$this->when($this->status !== null, function ($status) { ... })` to be resolved
-     * as if they were `EnumResource::make($this->status)`.
+     * Bind a closure's first parameter to the `$this->propName` expression found in a `when()` condition,
+     * so `EnumResource::make($status)` resolves as if it were `EnumResource::make($this->status)`.
      */
     private function bindClosureParamsFromCondition(Expr $condition, Expr $valueExpr): void
     {
@@ -3533,21 +4003,15 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Extract a `$this->propName` PropertyFetch expression from a boolean condition.
-     *
-     * Handles the following patterns:
-     * - `$this->prop` — bare property access used as a truthy condition.
-     * - `$this->prop !== null` / `null !== $this->prop`
-     * - `$this->prop === null` / `null === $this->prop`
+     * Extract a `$this->propName` PropertyFetch from a boolean condition, whether used bare as a
+     * truthy test or compared identically against null in either operand order.
      */
     private function extractThisPropertyFromCondition(Expr $condition): ?Expr
     {
-        // bare $this->propName
         if ($this->isThisPropertyFetch($condition)) {
             return $condition;
         }
 
-        // $this->propName !== null  or  null !== $this->propName
         if ($condition instanceof BinaryOp\NotIdentical) {
             if ($this->isThisPropertyFetch($condition->left) && $this->isNullConstFetch($condition->right)) {
                 return $condition->left;
@@ -3558,7 +4022,6 @@ class ResourceAstAnalyzer
             }
         }
 
-        // $this->propName === null  or  null === $this->propName
         if ($condition instanceof BinaryOp\Identical) {
             if ($this->isThisPropertyFetch($condition->left) && $this->isNullConstFetch($condition->right)) {
                 return $condition->left;

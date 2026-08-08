@@ -26,6 +26,16 @@ enum Status: int
     case Draft = 0;
     case Published = 1;
 
+    /**
+     * Exercises resolveEnumFromPropertyArg()'s StaticCall branch (Task 10):
+     * EnumResource::make(Status::defaultCase()) should resolve to StatusType
+     * from the class name alone, without evaluating the call.
+     */
+    public static function defaultCase(): self
+    {
+        return self::Draft;
+    }
+
     #[TsEnumMethod(description: 'Get the icon name for the status')]
     public function icon(): string
     {

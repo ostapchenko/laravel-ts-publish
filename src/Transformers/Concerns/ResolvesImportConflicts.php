@@ -9,9 +9,6 @@ use Illuminate\Support\Str;
 
 /**
  * Shared import conflict resolution helpers for transformers.
- *
- * Provides alias formatting, const import formatting, and namespace prefix
- * computation used by both ModelTransformer and ResourceTransformer.
  */
 trait ResolvesImportConflicts
 {
@@ -53,10 +50,6 @@ trait ResolvesImportConflicts
     /**
      * Compute a distinguishing namespace prefix for alias generation.
      *
-     * Strips the configured namespace prefix, removes the class name, walks
-     * backwards skipping common segments, and returns the StudlyCase of the
-     * first meaningful segment.
-     *
      * @param  list<string>  $skip  Namespace segments to skip (e.g. ['Models', 'Enums', 'App'])
      */
     protected function computeNamespacePrefix(string $fqcn, array $skip = ['Models', 'Enums', 'App']): string
@@ -71,14 +64,12 @@ trait ResolvesImportConflicts
 
         $segments = array_filter(explode('\\', $namespace));
 
-        // Walk backwards to find the first meaningful segment
         foreach (array_reverse($segments) as $segment) {
             if (! in_array($segment, $skip, true)) {
                 return Str::studly($segment);
             }
         }
 
-        // Fallback: use the first available segment
         $first = reset($segments);
 
         return $first !== false ? Str::studly($first) : '';

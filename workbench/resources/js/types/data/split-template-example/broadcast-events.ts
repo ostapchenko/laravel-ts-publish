@@ -9,8 +9,8 @@ import type { StatusSynced } from './crm/events/StatusSynced';
 import type { TeamMessageSent } from './app/events/TeamMessageSent';
 import type { UserNotification } from './app/events/UserNotification';
 import type { UserRegisteredEvent } from './app/events/UserRegisteredEvent';
-import type { UserSynced as CrmUserSynced } from './crm/events/UserSynced';
 import type { UserSynced as AppUserSynced } from './app/events/UserSynced';
+import type { UserSynced as CrmUserSynced } from './crm/events/UserSynced';
 
 export type BroadcastEvent =
     | '.Workbench.App.Events.EnumBroadcastEvent'
@@ -24,8 +24,8 @@ export type BroadcastEvent =
     | '.Workbench.App.Events.TeamMessageSent'
     | '.Workbench.App.Events.UserNotification'
     | '.Workbench.App.Events.UserRegisteredEvent'
-    | '.Workbench.Crm.Events.UserSynced'
-    | '.Workbench.App.Events.UserSynced';
+    | '.Workbench.App.Events.UserSynced'
+    | '.Workbench.Crm.Events.UserSynced';
 
 export const BroadcastEvents = Object.freeze({
     EnumBroadcastEvent: '.Workbench.App.Events.EnumBroadcastEvent',
@@ -39,8 +39,8 @@ export const BroadcastEvents = Object.freeze({
     TeamMessageSent: '.Workbench.App.Events.TeamMessageSent',
     UserNotification: '.Workbench.App.Events.UserNotification',
     UserRegisteredEvent: '.Workbench.App.Events.UserRegisteredEvent',
-    CrmUserSynced: '.Workbench.Crm.Events.UserSynced',
     AppUserSynced: '.Workbench.App.Events.UserSynced',
+    CrmUserSynced: '.Workbench.Crm.Events.UserSynced',
 } as const);
 
 export type {
@@ -55,6 +55,6 @@ export type {
     TeamMessageSent,
     UserNotification,
     UserRegisteredEvent,
-    CrmUserSynced,
-    AppUserSynced
+    AppUserSynced,
+    CrmUserSynced
 };

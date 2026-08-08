@@ -30,6 +30,10 @@ Implementing features related to figuring out types and publishing them to TypeS
 - Even if tests pass, if the outputted types do not match what we expected them to be, then the code is incorrect.
 - If the tests pass but the output is incorrect, after updating the source code, update the test to properly test the expected TypeScript output.
 
+Two CI gates check the generated output programmatically — one for properties that regressed to
+`unknown`, one for type tokens emitted without their import. See [Type inference gates](./docs/testing/type-inference-gates.md);
+note both read the **committed** type trees, so commit the regenerated output before running them.
+
 ## Use AI tools
 
 When working on this project, make sure to use the available MCP servers and skills as reference and helpers to ensure the code is of the highest quality possible. Use the TypeScript Expert skill to help with TypeScript-specific questions and best practices and ensure they meet the project's standards.

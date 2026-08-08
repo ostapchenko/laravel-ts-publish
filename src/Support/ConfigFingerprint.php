@@ -10,9 +10,9 @@ use Throwable;
 class ConfigFingerprint
 {
     /**
-     * Hash the output-affecting `ts-publish` config so the cache busts when
-     * templates, directories, enabled flags, type maps, etc. change. The
-     * `cache` sub-array is excluded: toggling the cache must not bust outputs.
+     * Hash the output-affecting `ts-publish` config so the cache busts when it changes.
+     *
+     * The `cache` sub-array is excluded: toggling the cache must not bust outputs.
      */
     public static function compute(): string
     {
@@ -26,17 +26,14 @@ class ConfigFingerprint
         try {
             return hash('xxh128', serialize($config));
         } catch (Throwable) {
-            // The config holds a non-serializable value (e.g. a closure). The
-            // cache must never crash generation, so fall back to a per-run unique
-            // token: the manifest header will never match a stored one, forcing a
-            // safe full rebuild this run instead of risking stale output.
+            // A non-serializable config value (e.g. a closure) must not crash generation. A per-run
+            // token can never match a stored manifest header, forcing a full rebuild over stale output.
             return 'unfingerprintable-'.bin2hex(random_bytes(16));
         }
     }
 
     /**
-     * Recursively sort an array by key so the fingerprint is independent of the
-     * declaration order of config entries.
+     * Recursively sort an array by key so the fingerprint ignores config declaration order.
      *
      * @param  array<array-key, mixed>  $array
      */

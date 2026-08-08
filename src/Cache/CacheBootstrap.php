@@ -38,8 +38,7 @@ class CacheBootstrap
     }
 
     /**
-     * Load a manifest stamped with the current package version and config hash,
-     * busting the cache automatically when either has changed.
+     * Load a manifest stamped with the package version and config hash, so either changing busts the cache.
      */
     public static function manifest(?CacheRepository $repository = null): GenerationManifest
     {
@@ -51,13 +50,9 @@ class CacheBootstrap
     }
 
     /**
-     * Resolve the HMAC signing key for the generation cache, used by BOTH the
-     * file and store backends. Prefers an explicit `ts-publish.cache.key`;
-     * otherwise falls back to the application key so the cache's serialized
-     * payloads are signed by default. The file backend verifies the signature
-     * before unserializing with classes disabled; the store backend's protection
-     * is bounded by the cache store's own deserialization (see the caveat on
-     * StoreCacheRepository). Returns null only when neither key is available.
+     * Resolve the HMAC signing key for both cache backends, preferring `ts-publish.cache.key` over `app.key`.
+     *
+     * Returns null only when neither is set, which leaves payloads unsigned.
      */
     protected static function signingKey(): ?string
     {

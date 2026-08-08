@@ -9,9 +9,7 @@ use Throwable;
 trait SignsCachePayloads
 {
     /**
-     * Serialize a cache payload, prepending an HMAC-SHA256 signature when a
-     * signing key is configured. The result is an opaque string suitable for
-     * writing to disk or a Laravel cache store.
+     * Serialize a cache payload, prepending an HMAC-SHA256 signature when a signing key is configured.
      *
      * @param  array<string, mixed>  $value
      */
@@ -27,11 +25,9 @@ trait SignsCachePayloads
     }
 
     /**
-     * Verify a payload's HMAC (when a key is configured) and unserialize it with
-     * objects disabled, returning the plain string-keyed array — or null when the
-     * signature is missing/invalid, the payload is corrupt, or it is not a
-     * string-keyed array. Never instantiates objects, closing the
-     * object-injection surface on untrusted cache backends.
+     * Verify a payload's HMAC and unserialize it into a string-keyed array, or null when any check fails.
+     *
+     * allowed_classes: false closes the object-injection surface on an untrusted cache backend.
      *
      * @return array<string, mixed>|null
      */
@@ -67,9 +63,7 @@ trait SignsCachePayloads
     }
 
     /**
-     * Verify and strip the HMAC signature, returning the raw serialized payload,
-     * or null when the signature is missing or does not match. Unsigned payloads
-     * (no configured key) are returned as-is.
+     * Verify and strip the HMAC signature; unsigned payloads pass through, a bad or missing one yields null.
      */
     private function verifySignature(string $content, ?string $key): ?string
     {

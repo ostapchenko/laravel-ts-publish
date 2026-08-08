@@ -14,8 +14,10 @@ use Workbench\App\Enums\Visibility;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
+use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
+use Workbench\App\Http\Resources\ClosureParamShadowResource;
 use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\CommonResource;
@@ -32,7 +34,13 @@ use Workbench\App\Http\Resources\EmptyWithMixinResource;
 use Workbench\App\Http\Resources\EnumNullFirstResource;
 use Workbench\App\Http\Resources\ExtendedAddressResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
+use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
+use Workbench\App\Http\Resources\LocalVarGuardClauseResource;
+use Workbench\App\Http\Resources\LocalVarReassignResource;
+use Workbench\App\Http\Resources\LocalVarRecursionResource;
+use Workbench\App\Http\Resources\LocalVarResource;
+use Workbench\App\Http\Resources\LocalVarSpreadResource;
 use Workbench\App\Http\Resources\LoopReturnResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypePositiveInstanceOfResource;
@@ -45,6 +53,7 @@ use Workbench\App\Http\Resources\ModelWrappedPropResource;
 use Workbench\App\Http\Resources\NonArrayReturnResource;
 use Workbench\App\Http\Resources\OrderClosureResource;
 use Workbench\App\Http\Resources\OrderCollection;
+use Workbench\App\Http\Resources\OrderCountsResource;
 use Workbench\App\Http\Resources\OrderDetailResource;
 use Workbench\App\Http\Resources\OrderExceptResource;
 use Workbench\App\Http\Resources\OrderFilterEdgeResource;
@@ -57,11 +66,13 @@ use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\QuirkyResource;
+use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\SpreadJsonBaseResource;
 use Workbench\App\Http\Resources\SpreadWithClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardDoubleClosureReturnResource;
+use Workbench\App\Http\Resources\StaticCallResource;
 use Workbench\App\Http\Resources\TagResource;
 use Workbench\App\Http\Resources\TeamMemberResource;
 use Workbench\App\Http\Resources\TeamResource;
@@ -83,6 +94,7 @@ use Workbench\App\Models\Profile;
 use Workbench\App\Models\Tag;
 use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
+use Workbench\App\Models\UuidPost;
 use Workbench\Blog\Enums\ArticleStatus;
 use Workbench\Blog\Enums\ContentType;
 use Workbench\Blog\Http\Resources\ApiArticleResource;
@@ -533,6 +545,88 @@ describe('ResourceAstAnalyzer with TeamResource', function () {
 
         expect($settings)->not->toBeNull()
             ->and($settings['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collection chains)', function () {
+    beforeEach(function () {
+        $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(RelationChainResource::class), Team::class))
+            ->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('identity-only chain preserves the relation element type', function () {
+        expect($this->props['first_members']['type'])->toBe('User[]')
+            ->and($this->props['first_members']['optional'])->toBeFalse()
+            ->and($this->analysis->modelFqcns)->toHaveKey('first_members')
+            ->and($this->analysis->modelFqcns['first_members'])->toBe(User::class);
+    });
+
+    test('map() closure with an inline array body produces an inline object array', function () {
+        expect($this->props['member_cards']['type'])->toBe('{ id: number; name: string }[]')
+            ->and($this->props['member_cards']['optional'])->toBeFalse();
+    });
+
+    test('map() closure body embeds both an enum-cast column and a model-backed property, and both propagate', function () {
+        // role is a nullable column, so the body type is a union and gets parenthesized before '[]'.
+        expect($this->props['member_profiles']['type'])->toBe('({ id: number; role: RoleType | null; owner: User })[]')
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_profiles')
+            ->and($this->analysis->inlineEnumFqcns['member_profiles'])->toContain(Role::class)
+            ->and($this->analysis->inlineModelFqcns)->toHaveKey('member_profiles')
+            ->and($this->analysis->inlineModelFqcns['member_profiles'])->toContain(User::class);
+    });
+
+    test('pluck() after the relation root resolves to the column type, array-wrapped', function () {
+        expect($this->props['member_emails']['type'])->toBe('string[]')
+            ->and($this->props['member_emails']['optional'])->toBeFalse();
+    });
+
+    // TypeScript parses 'RoleType | null[]' as RoleType | (null[]), so the union must be parenthesized.
+    test('pluck() on a nullable column parenthesizes the union before the array suffix', function () {
+        expect($this->props['member_roles']['type'])->toBe('(RoleType | null)[]')
+            ->and($this->props['member_roles']['optional'])->toBeFalse();
+    });
+
+    // A map() body that is entirely EnumResource::make() must carry 'directEnumFqcn', not 'enumFqcn':
+    // ResourceTransformer::rewriteEnumResourceTypes() rewrites 'enumFqcn' keys to a bare AsEnum<...>.
+    test('map() body that is entirely EnumResource::make() stays an array and is not enumFqcn-tagged', function () {
+        expect($this->props['member_role_resources']['type'])->toBe('RoleType[]')
+            ->and($this->props['member_role_resources']['optional'])->toBeFalse()
+            ->and($this->analysis->directEnumFqcns)->toHaveKey('member_role_resources')
+            ->and($this->analysis->directEnumFqcns['member_role_resources'])->toBe(Role::class)
+            ->and($this->analysis->enumResources)->not->toHaveKey('member_role_resources');
+    });
+
+    // A string ('strtoupper') or array ([$this, 'method']) callable has no closure body to analyze.
+    test('map() with a non-closure callable argument stays unknown', function () {
+        expect($this->props['member_names_upper']['type'])->toBe('unknown')
+            ->and($this->props['member_formatted']['type'])->toBe('unknown');
+    });
+
+    // PHP-Parser's CallLike::getArgs() asserts !isFirstClassCallable(), so under zend.assertions=1
+    // it throws AssertionError instead of returning []; `->map(...)` must be detected before that.
+    test('map()/pluck() as a first-class callable degrades to unknown instead of throwing', function () {
+        expect($this->props['member_mapped_fcc']['type'])->toBe('unknown')
+            ->and($this->props['member_plucked_fcc']['type'])->toBe('unknown');
+    });
+
+    test('an unsupported op in the chain keeps current unknown behavior', function () {
+        expect($this->props['first_member']['type'])->toBe('unknown');
+    });
+
+    // A Collection whose keys are gapped or reordered json_encodes to an object, not an array.
+    test('a key-preserving chain with no values() carries the object arm', function () {
+        expect($this->props['members_sorted']['type'])->toBe('User[] | Record<string, User>')
+            ->and($this->props['members_filtered_cards']['type'])
+            ->toBe('{ id: number }[] | Record<string, { id: number }>')
+            ->and($this->props['members_tail']['type'])->toBe('User[] | Record<string, User>')
+            ->and($this->props['members_sliced_emails']['type'])->toBe('string[] | Record<string, string>')
+            ->and($this->props['members_keyed_by_id']['type'])->toBe('string[] | Record<string, string>');
+    });
+
+    test('values() at the end of a key-preserving chain restores the plain array type', function () {
+        expect($this->props['members_skipped']['type'])->toBe('User[]')
+            ->and($this->analysis->modelFqcns['members_skipped'])->toBe(User::class);
     });
 });
 
@@ -1348,8 +1442,7 @@ describe('ResourceAstAnalyzer with parent::toArray spread', function () {
         $analyzer = new ResourceAstAnalyzer($reflection, Post::class);
         $analysis = $analyzer->analyze();
 
-        // Parent PostResource has: id, title, content, status, visibility, priority
-        // ApiPostResource adds: status, visibility, priority (overrides parent's EnumResource versions)
+        // Parent PostResource supplies id/title/content; ApiPostResource re-declares the three enum keys.
         $names = array_column($analysis->properties, 'name');
 
         expect($names)->toContain('id')
@@ -1366,7 +1459,6 @@ describe('ResourceAstAnalyzer with parent::toArray spread', function () {
         $idIndex = array_search('id', $names, true);
         $statusIndex = array_search('status', $names, true);
 
-        // 'id' from parent should appear before the child's 'status'
         expect($idIndex)->toBeLessThan($statusIndex);
     });
 
@@ -1375,9 +1467,7 @@ describe('ResourceAstAnalyzer with parent::toArray spread', function () {
         $analyzer = new ResourceAstAnalyzer($reflection, Post::class);
         $analysis = $analyzer->analyze();
 
-        // Parent PostResource uses EnumResource::make() for status, visibility, priority
-        // Child overrides those keys with plain $this->prop, clearing the parent's enum resource tracking
-        // But _new variants from parent are NOT overridden, so they remain as enum resources
+        // The child overrides status/visibility/priority with plain props; the _new variants stay untouched.
         expect($analysis->enumResources)
             ->not->toHaveKey('status')
             ->not->toHaveKey('visibility')
@@ -1621,6 +1711,37 @@ describe('ResourceAstAnalyzer with OrderSummaryResource', function () {
     });
 });
 
+describe('ResourceAstAnalyzer with OrderCountsResource', function () {
+    beforeEach(function () {
+        $reflection = new ReflectionClass(OrderCountsResource::class);
+        $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
+    });
+
+    test('resolves items_count virtual attribute (withCount) to number', function () {
+        $itemsCount = collect($this->analysis->properties)->firstWhere('name', 'items_count');
+
+        expect($itemsCount)->not->toBeNull()
+            ->and($itemsCount['type'])->toBe('number')
+            ->and($itemsCount['optional'])->toBeFalse();
+    });
+
+    test('resolves items_exists virtual attribute (withExists) to boolean', function () {
+        $itemsExists = collect($this->analysis->properties)->firstWhere('name', 'items_exists');
+
+        expect($itemsExists)->not->toBeNull()
+            ->and($itemsExists['type'])->toBe('boolean')
+            ->and($itemsExists['optional'])->toBeFalse();
+    });
+
+    test('resolves camelCase access to the formatted_total accessor', function () {
+        $formattedTotalCamel = collect($this->analysis->properties)->firstWhere('name', 'formatted_total_camel');
+
+        expect($formattedTotalCamel)->not->toBeNull()
+            ->and($formattedTotalCamel['type'])->toBe('string')
+            ->and($formattedTotalCamel['optional'])->toBeFalse();
+    });
+});
+
 describe('ResourceAstAnalyzer with OrderOnlyResource (spread only)', function () {
     beforeEach(function () {
         $reflection = new ReflectionClass(OrderOnlyResource::class);
@@ -1715,7 +1836,6 @@ describe('ResourceAstAnalyzer with OrderFilterEdgeResource (edge cases)', functi
 
     test('valid keys with no model returns empty analysis', function () {
         // ...$this->only(['id', 'name']) has valid keys but no model — buildModelDelegatedAnalysis returns null
-        // All three spreads return null, so the analysis is empty
         expect($this->analysis->properties)->toBeEmpty()
             ->and($this->analysis->directEnumFqcns)->toBeEmpty();
     });
@@ -2027,8 +2147,7 @@ describe('ResourceAstAnalyzer with variable-return trait method spreads', functi
         $analyzer = new ResourceAstAnalyzer($reflection, User::class);
         $analysis = $analyzer->analyze();
 
-        // includeFromMethodCall returns $this->includeNonAnalyzable() — not an array literal
-        // or variable, so the else fallback produces no properties for that spread
+        // includeFromMethodCall() returns a method call, not an array literal or variable.
         $names = array_column($analysis->properties, 'name');
 
         expect($names)->not->toContain('dynamic');
@@ -2109,10 +2228,8 @@ describe('ResourceAstAnalyzer with variable-return trait method spreads', functi
 
         $statusProps = collect($analysis->properties)->where('name', 'status');
 
-        // Should appear exactly once (de-duplicated)
         expect($statusProps)->toHaveCount(1);
 
-        // Unconditional assignment exists, so optional must be false
         expect($statusProps->first()['optional'])->toBeFalse();
     });
 
@@ -2237,8 +2354,7 @@ describe('ResourceAstAnalyzer with ApiArticleResource (abstract parent + only + 
         $analyzer = new ResourceAstAnalyzer($reflection, Article::class);
         $analysis = $analyzer->analyze();
 
-        // Parent CommonResource trait has 'id' from includeTypedExtras (type: string via PHPDoc)
-        // Child $this->only(['id', ...]) resolves 'id' against Article model (type: number)
+        // CommonResource's trait 'id' is string via PHPDoc; the child's only(['id']) resolves it on Article.
         $id = collect($analysis->properties)->firstWhere('name', 'id');
 
         expect($id['type'])->toBe('number');
@@ -2296,7 +2412,7 @@ describe('ResourceAstAnalyzer with MediaTypeResource (model-less enum resource)'
 
         $meta = collect($analysis->properties)->firstWhere('name', 'meta');
 
-        // maxSizeMb(): int → number, icon(): string → string (verified via reflection)
+        // maxSizeMb(): int → number, icon(): string → string
         expect($meta['type'])->toContain('maxSizeMb: number')
             ->toContain('icon: string');
     });
@@ -2481,7 +2597,6 @@ describe('ResourceAstAnalyzer with SpreadWithClosureResource (Bug 1: findBestArr
     test('selects the outer toArray return, not the nested closure return', function () {
         $names = array_column($this->analysis->properties, 'name');
 
-        // The closure's inner properties should NOT appear as top-level properties
         expect($names)->not->toContain('profile_bio')
             ->and($names)->not->toContain('profile_avatar')
             ->and($names)->not->toContain('profile_theme')
@@ -2571,7 +2686,6 @@ describe('ResourceAstAnalyzer with SpreadWithGuardClauseClosureResource (Bug 1 +
     test('selects the outer toArray return, not the nested closure return', function () {
         $names = array_column($this->analysis->properties, 'name');
 
-        // The closure's inner properties should NOT be top-level
         expect($names)->not->toContain('phone')
             ->and($names)->not->toContain('avatar')
             ->and($names)->not->toContain('role');
@@ -2653,8 +2767,7 @@ describe('ResourceAstAnalyzer with SpreadWithGuardClauseClosureResource (Bug 1 +
     });
 
     test('enum FQCNs from inside inline object are propagated to directEnumFqcns', function () {
-        // $user->role is cast to Role::class — the FQCN should appear in directEnumFqcns
-        // even though it's inside the nested inline object for the customer property
+        // $user->role is cast to Role::class inside the nested inline object for customer.
         expect($this->analysis->directEnumFqcns)->toContain(Role::class);
     });
 });
@@ -2831,8 +2944,6 @@ describe('ResourceAstAnalyzer with ControlFlowReturnResource (union multiple ret
     test('resolved types default to unknown at AST level', function () {
         $props = collect($this->analysis->properties);
 
-        // Plain $this->property and literal values resolve to 'unknown' at the AST level;
-        // the transformer resolves actual types using model metadata downstream
         expect($props->firstWhere('name', 'id')['type'])->toBe('number')
             ->and($props->firstWhere('name', 'archived')['type'])->toBe('boolean')
             ->and($props->firstWhere('name', 'draft')['type'])->toBe('boolean')
@@ -2981,8 +3092,7 @@ describe('ResourceAstAnalyzer with CommentResource — nullsafe chains and closu
     });
 
     test('non-nullsafe chain traversal — user_email resolves to string via body', function () {
-        // `fn (): ?string => $this->resource->user->email` — 3-deep non-nullsafe chain;
-        // body now resolved by analyzePropertyChain, winning over the ?string annotation.
+        // `fn (): ?string => $this->resource->user->email` — the chain body wins over the ?string annotation.
         $prop = collect($this->analysis->properties)->firstWhere('name', 'user_email');
 
         expect($prop)->not->toBeNull()
@@ -2991,8 +3101,7 @@ describe('ResourceAstAnalyzer with CommentResource — nullsafe chains and closu
     });
 
     test('annotation fallback fires when body is a FuncCall — user_email_annotated is string|null', function () {
-        // `fn (): ?string => json_decode(...)` — json_decode() returns mixed (resolves to unknown) so the body stays unknown;
-        // ?string annotation kicks in → string|null.
+        // `fn (): ?string => json_decode(...)` — json_decode() returns mixed, so the ?string annotation applies.
         $prop = collect($this->analysis->properties)->firstWhere('name', 'user_email_annotated');
 
         expect($prop)->not->toBeNull()
@@ -3001,8 +3110,7 @@ describe('ResourceAstAnalyzer with CommentResource — nullsafe chains and closu
     });
 
     test('no annotation and unresolvable body — unresolvable_status is unknown', function () {
-        // `fn () => json_decode(...)` — json_decode() returns mixed (resolves to unknown) so the body stays unknown;
-        // no return type annotation → unknown.
+        // `fn () => json_decode(...)` — json_decode() returns mixed and there is no return annotation.
         $prop = collect($this->analysis->properties)->firstWhere('name', 'unresolvable_status');
 
         expect($prop)->not->toBeNull()
@@ -3011,8 +3119,7 @@ describe('ResourceAstAnalyzer with CommentResource — nullsafe chains and closu
     });
 
     test('enum annotation fallback resolves type and FQCN — resolvable_status is StatusType', function () {
-        // `fn (): Status => json_decode(...)` — body is unresolvable (json_decode returns mixed → unknown);
-        // Status annotation resolves to StatusType with directEnumFqcn tracking.
+        // `fn (): Status => json_decode(...)` — the unresolvable body falls back to the Status annotation.
         $prop = collect($this->analysis->properties)->firstWhere('name', 'resolvable_status');
 
         expect($prop)->not->toBeNull()
@@ -3092,8 +3199,7 @@ describe('ResourceAstAnalyzer with CommentResource — nullsafe chains and closu
     // plain and nullsafe chain traversal inside whenLoaded — $this->post —————————
 
     test('plain chain in whenLoaded closure — post_title resolves to string', function () {
-        // `fn () => $this->post->title` — proxy step $this->post skipped via closureRelationModelClass;
-        // plain -> traversal resolves title on Post
+        // `fn () => $this->post->title` — the proxy step $this->post is skipped via closureRelationModelClass.
         $prop = collect($this->analysis->properties)->firstWhere('name', 'post_title');
 
         expect($prop)->not->toBeNull()
@@ -3475,8 +3581,7 @@ describe('ResourceAstAnalyzer with ConditionalParamEnumResource — issue #38 en
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // Bug D: $this->when($this->status, fn ($status) => EnumResource::make($status))
-    // $status is bound to $this->status (OrderStatus enum); EnumResource wraps it.
+    // $this->when($this->status, fn ($status) => ...) — $status binds to $this->status, an OrderStatus enum.
     test('when() param → EnumResource::make($status) resolves to OrderStatusType not unknown', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
@@ -3485,8 +3590,7 @@ describe('ResourceAstAnalyzer with ConditionalParamEnumResource — issue #38 en
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // Bug D: $this->when($this->status, fn ($status) => $status)
-    // $status is the OrderStatus enum passed bare.
+    // $this->when($this->status, fn ($status) => $status) — the enum is returned bare.
     test('when() param → bare $status return resolves to OrderStatusType not unknown', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_bare');
 
@@ -3495,8 +3599,7 @@ describe('ResourceAstAnalyzer with ConditionalParamEnumResource — issue #38 en
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // Bug D: $this->when($this->currency, fn ($currency) => EnumResource::make($currency))
-    // $currency is the Currency enum on Order.
+    // $this->when($this->currency, fn ($currency) => ...) — $currency is the Currency enum on Order.
     test('when() param → EnumResource::make($currency) resolves to CurrencyType not unknown', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'currency_resource');
 
@@ -3505,8 +3608,7 @@ describe('ResourceAstAnalyzer with ConditionalParamEnumResource — issue #38 en
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // Bug A: $this->whenLoaded('user', fn ($user) => EnumResource::make($user->role))
-    // $user is the User relation; $user->role is the Role enum.
+    // $this->whenLoaded('user', fn ($user) => ...) — $user is the User relation; $user->role is the Role enum.
     test('whenLoaded() param → EnumResource::make($user->role) resolves to RoleType not unknown', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'user_role');
 
@@ -3522,8 +3624,7 @@ describe('ResourceAstAnalyzer with ConditionalParamMappedResource — issue #38 
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // Bug B: $this->whenLoaded('items', fn ($items) => $items->map(fn (OrderItem $item) => [...]))
-    // Outer param $items → collection; inner typed param $item → array shape.
+    // Outer param $items binds to the items collection; the inner typed param $item to OrderItem.
     test('whenLoaded() param → items->map() with typed inner closure resolves to array shape not unknown', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'items_mapped');
 
@@ -3555,8 +3656,7 @@ describe('ResourceAstAnalyzer with ConditionalParamArrayResource — issue #38 c
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // Bug C: fn () => $this->notes ?? 'none'
-    // $this->notes is string|null; ?? 'none' strips the null → should be string.
+    // fn () => $this->notes ?? 'none' — notes is string|null and ?? strips the null.
     test('when() with coalesce (??) resolves to string not unknown', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_or_default');
 
@@ -3581,7 +3681,7 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // Bug B (full closure variant): function ($items) { return $items->map(function (OrderItem $item) { ... }); }
+    // function ($items) { return $items->map(function (OrderItem $item) { ... }); }
     test('full closure param → items->map() with typed inner closure resolves to array shape not unknown', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'items_mapped');
 
@@ -3590,8 +3690,7 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // Full closure: function ($status) { return EnumResource::make($status); }
-    // (condition is $this->status !== null — a boolean expression, so $status param = true)
+    // The condition is `$this->status !== null` — a boolean expression, so the $status param binds to true.
     test('full closure param → EnumResource::make resolves to non-unknown type', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
@@ -3873,5 +3972,254 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('VisibilityType | null')
             ->and($prop['optional'])->toBeTrue();
+    });
+});
+
+describe('boolean expression inference', function () {
+    // PHP's &&/|| return a real bool, unlike JS — even as a null-guard (`$this->x && $this->x->y`),
+    // so `boolean` is right for every use and no false|T union is needed.
+    test('comparison and logical operators resolve to boolean', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        foreach (['is_recent', 'is_equal', 'is_large', 'both', 'negated', 'is_order', 'has_notes', 'no_notes'] as $name) {
+            expect($props[$name]['type'])->toBe('boolean', "property {$name}");
+            expect($props[$name]['optional'])->toBeFalse("property {$name}");
+        }
+    });
+
+    test('spaceship comparison resolves to number', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['compared']['type'])->toBe('number')
+            ->and($props['compared']['optional'])->toBeFalse();
+    });
+});
+
+describe('TsCasts-removability regressions', function () {
+    test('(float) cast resolves to number', function () {
+        // Guards against a #[TsCasts] annotation being reintroduced for a plain (float) cast.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['price_float']['type'])->toBe('number')
+            ->and($props['price_float']['optional'])->toBeFalse();
+    });
+
+    test('whenLoaded closure over nullsafe relation property resolves to string | null optional', function () {
+        // Guards against a #[TsCasts] annotation being reintroduced for a whenLoaded closure: the `?string`
+        // annotation is inert — the type comes from resolving `$this->user?->email` on the loaded relation.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(BooleanExprResource::class), Order::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['user_bio']['type'])->toBe('string | null')
+            ->and($props['user_bio']['optional'])->toBeTrue();
+    });
+});
+
+describe('static call inference', function () {
+    beforeEach(function () {
+        $this->props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(StaticCallResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+    });
+
+    test('service static call resolves declared return type', function () {
+        expect($this->props['url']['type'])->toBe('string');
+    });
+
+    test('EnumResource::make with enum static method arg resolves enum type', function () {
+        expect($this->props['status_badge']['type'])->toContain('Status');
+    });
+
+    test('EnumResource::make with enum const arg resolves enum type', function () {
+        expect($this->props['status_const']['type'])->toContain('Status');
+    });
+
+    test('ResourceCollection::make resolves to collected resource array', function () {
+        expect($this->props['items']['type'])->toBe('OrderItemResource[]');
+    });
+
+    test('static call declared to return an enum resolves via directEnumFqcn', function () {
+        // Covers acceptReflectedTypeInfo()'s general-reflection branch plumbing enumFqcns[0] as directEnumFqcn.
+        expect($this->props['default_status']['type'])->toContain('Status');
+    });
+
+    test('static call declared to return a non-enum class degrades to unknown', function () {
+        // A return type backed by an arbitrary class has no FQCN dispatch path out of analyzeStaticCall's
+        // general-reflection branch, so accepting its token would emit an import-less TS reference.
+        expect($this->props['located_order']['type'])->toBe('unknown');
+    });
+
+    test('new ResourceCollection(...) resolves to collected resource array', function () {
+        expect($this->props['new_items']['type'])->toBe('OrderItemResource[]');
+    });
+
+    test('static call declared to return a #[TsType]-annotated class degrades to unknown', function () {
+        // #[TsType] classes register only in customImports, which this branch cannot dispatch into imports.
+        expect($this->props['menu_settings']['type'])->toBe('unknown');
+    });
+
+    test('static call declared to return a multi-enum union degrades to unknown', function () {
+        // directEnumFqcn carries a single FQCN, so a Status|Priority union would drop the second import.
+        expect($this->props['status_or_priority']['type'])->toBe('unknown');
+    });
+
+    test('static call declared void/never/mixed degrades to unknown', function () {
+        foreach (['void_return', 'never_return', 'mixed_return'] as $name) {
+            expect($this->props[$name]['type'])->toBe('unknown', "property {$name}");
+        }
+    });
+
+    test('static call declared to return an enum-plus-class union degrades to unknown', function () {
+        // classFqcns and enumFqcns can both be non-empty for one TypeScriptTypeInfo (Order|Status), so the
+        // classFqcns guard must fire first or the enum branch accepts and drops the Order import.
+        expect($this->props['order_or_status']['type'])->toBe('unknown');
+    });
+});
+
+describe('helper and receiver method inference', function () {
+    beforeEach(function () {
+        $this->props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(HelperCallResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+    });
+
+    test('route() helper resolves to string', function () {
+        expect($this->props['route_url']['type'])->toBe('string')
+            ->and($this->props['route_url']['optional'])->toBeFalse();
+    });
+
+    test('Carbon method on datetime attribute resolves to string', function () {
+        expect($this->props['ship_date']['type'])->toBe('string')
+            ->and($this->props['ship_date']['optional'])->toBeFalse();
+    });
+
+    test('can() resolves to boolean', function () {
+        expect($this->props['can_edit']['type'])->toBe('boolean')
+            ->and($this->props['can_edit']['optional'])->toBeFalse();
+    });
+
+    test('count() on a many relation resolves to number', function () {
+        expect($this->props['item_total']['type'])->toBe('number')
+            ->and($this->props['item_total']['optional'])->toBeFalse();
+    });
+
+    // CarbonInterval/CarbonPeriod are Stringable but not strings — toTsType()'s __toString fallback must not fire.
+    test('Carbon diff() returning CarbonInterval degrades to unknown, not string', function () {
+        expect($this->props['diff_result']['type'])->toBe('unknown');
+    });
+
+    test('Carbon toPeriod() returning CarbonPeriod degrades to unknown, not string', function () {
+        expect($this->props['period_result']['type'])->toBe('unknown');
+    });
+
+    // Carbon/CarbonImmutable's __toString() IS their canonical form, so the Stringable guard must skip them.
+    test('Carbon toMutable() returning Carbon resolves to string, not unknown', function () {
+        expect($this->props['to_mutable']['type'])->toBe('string');
+    });
+
+    test('Carbon toImmutable() returning CarbonImmutable resolves to string, not unknown', function () {
+        expect($this->props['to_immutable']['type'])->toBe('string');
+    });
+
+    // getKey()'s type is receiver-dependent, unlike can()/cannot(), so it may fire only on $this->resource.
+    test('getKey() on a non-$this->resource receiver stays unknown', function () {
+        expect($this->props['user_key']['type'])->toBe('unknown');
+    });
+});
+
+describe('local variable bindings', function () {
+    beforeEach(function () {
+        $this->props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+    });
+
+    test('assigned locals resolve through their bound expressions', function () {
+        expect($this->props['label']['type'])->toBe('string')
+            ->and($this->props['key']['type'])->toBe('number');
+    });
+
+    // A variable also written inside nested control flow is dropped from $localVarBindings entirely.
+    test('a variable reassigned in nested control flow degrades to unknown, not the stale top-level type', function () {
+        expect($this->props['shadowed']['type'])->toBe('unknown');
+    });
+
+    // A closure parameter rebinds the name, so a same-named top-level local must not resolve inside it.
+    test('a closure or arrow-function parameter shadowing an outer local drops the binding', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(ClosureParamShadowResource::class), Team::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['mapped_members']['type'])->toBe('unknown')
+            ->and($props['loaded_owner']['type'])->toBe('unknown')
+            ->and($props['outer_member']['type'])->toBe('unknown');
+    });
+
+    // Order has the default int key; UuidPost covers getKey()'s string-keyed branch.
+    test('getKey() resolves to string for a string-keyed model', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarResource::class), UuidPost::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['key']['type'])->toBe('string');
+    });
+});
+
+describe('local variable bindings — review follow-up regressions', function () {
+    // $localVarBindings from toArray() must not leak into a method reached via a `...$this->method()` spread.
+    test('a spread method\'s own local var bindings do not leak from or into toArray()', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarSpreadResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['x']['type'])->toBe('number')
+            ->and($props['y']['type'])->toBe('string');
+    });
+
+    // Which of two top-level assignments is live depends on the return branch taken — no last-assignment-wins.
+    test('two top-level assignments to the same var across return branches both degrade to unknown', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarGuardClauseResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['early']['type'])->toBe('unknown')
+            ->and($props['late']['type'])->toBe('unknown');
+    });
+
+    // A foreach binding, compound assignment, increment and by-ref alias are writes too, not just Assign.
+    test('non-Assign reassignment forms are recognized and degrade to unknown', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarReassignResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['via_foreach']['type'])->toBe('unknown')
+            ->and($props['via_concat']['type'])->toBe('unknown')
+            ->and($props['via_increment']['type'])->toBe('unknown')
+            ->and($props['via_ref']['type'])->toBe('unknown');
+    });
+
+    // A regression here hangs CI rather than failing an assertion, so the wall-clock bound is the real check.
+    test('mutual and self-referential local var bindings terminate instead of hanging', function () {
+        $start = microtime(true);
+
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(LocalVarRecursionResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect(microtime(true) - $start)->toBeLessThan(5.0)
+            ->and($props['mutual']['type'])->toBe('unknown')
+            ->and($props['self']['type'])->toBe('unknown');
     });
 });

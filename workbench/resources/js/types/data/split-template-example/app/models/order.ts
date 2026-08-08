@@ -50,6 +50,11 @@ export interface OrderMutators
     formatted_total: string;
     /** Write-only mutator (no getter) for a non-DB column */
     search_index: unknown;
+    score_map: Record<string, number>;
+    sorted_items: OrderItem[] | Record<string, OrderItem>;
+    listed_items: OrderItem[];
+    /** All items on the order, in their natural database order. */
+    unsorted_items: unknown[] | Record<string, unknown>;
 }
 
 export interface OrderRelations

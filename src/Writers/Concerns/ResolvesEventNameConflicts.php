@@ -8,24 +8,14 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 /**
- * Shared logic for detecting and resolving event-name conflicts in broadcast event writers.
- *
- * When two events from different namespaces share the same PHP short class name,
- * `resolveEventNameConflicts()` assigns each a namespace-prefix alias so that
- * TypeScript identifiers, import bindings, and export names remain unique.
- *
- * The `extraConflictFields()` hook lets each writer inject additional fields
- * (such as `constKey`) into the aliased event data without modifying this trait.
+ * Aliases broadcast events whose PHP short class names collide, keeping TypeScript identifiers unique.
  */
 trait ResolvesEventNameConflicts
 {
     /**
      * Resolve conflicts when two events share the same short class name.
      *
-     * Each element in $events must have at minimum an `eventName` and `namespacePath`
-     * key. Non-conflicting events are returned unchanged with `importedAs` and
-     * `exportedName` set to the original `eventName`. Conflicting events receive
-     * namespace-prefix aliases (e.g. 'AppUserSynced', 'CrmUserSynced').
+     * Each event must carry at least an `eventName` and a `namespacePath` key.
      *
      * @param  Collection<int, array<string, mixed>>  $events
      * @return Collection<int, array<string, mixed>>
@@ -64,9 +54,6 @@ trait ResolvesEventNameConflicts
     /**
      * Return extra array fields to include when an event name conflict is resolved.
      *
-     * Override in the using class to inject writer-specific fields.
-     * For example, BroadcastEventsIndexWriter returns ['constKey' => $this->quoteKey($alias)].
-     *
      * @param  array<string, mixed>  $event
      * @return array<string, mixed>
      */
@@ -78,8 +65,7 @@ trait ResolvesEventNameConflicts
     /**
      * Compute a unique alias for an event using its namespace path as a discriminator.
      *
-     * For namespace path 'crm/events' and event 'UserSynced' returns 'CrmUserSynced'.
-     * Walks backwards through the non-leaf path segments to find a meaningful prefix.
+     * Namespace 'crm/events' and event 'UserSynced' give 'CrmUserSynced'.
      */
     private function computeEventAlias(string $namespacePath, string $eventName): string
     {

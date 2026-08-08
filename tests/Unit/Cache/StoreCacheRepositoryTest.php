@@ -52,7 +52,6 @@ it('persists the index on commit so a fresh instance can flush it', function () 
     $this->repo->put('b', ['x' => 2]);
     $this->repo->commit();
 
-    // A brand-new instance (empty in-memory index) must still flush prior keys.
     $fresh = new StoreCacheRepository(Cache::store('array'), 'ts-publish');
     $fresh->flush();
 
@@ -63,9 +62,7 @@ it('persists the index on commit so a fresh instance can flush it', function () 
 it('rejects an unsigned attacker-written store entry', function () {
     $repo = new StoreCacheRepository(Cache::store('array'), 'ts-publish', 'signing-secret');
 
-    // The UNHARDENED repository stored/accepted a raw array. An attacker able to
-    // write the store could plant a malicious manifest entry that way; with
-    // signing, get() must refuse a payload that is not a valid signed string.
+    // An attacker with write access to the store plants a raw array, the shape the unsigned repo accepted.
     Cache::store('array')->forever('ts-publish:evil', ['snapshot' => 'attacker-controlled']);
 
     expect($repo->get('evil'))->toBeNull();
@@ -89,10 +86,8 @@ it('rejects a store entry whose signature does not match', function () {
 });
 
 it('round-trips a signed payload through a serializing cache store', function () {
-    // The `array` store used by the other tests keeps values in memory without
-    // (de)serializing. A FileStore actually serialize()s on write and
-    // unserialize()s on read, so this exercises the real serializing-store path
-    // and proves the signed string payload survives it intact.
+    // The `array` store used elsewhere keeps values in memory untouched; FileStore really
+    // serialize()s on write and unserialize()s on read, so only it exercises that path.
     $dir = sys_get_temp_dir().'/ts-publish-store-fs-'.uniqid();
     $store = new Repository(new FileStore(new Filesystem, $dir));
     $repo = new StoreCacheRepository($store, 'ts-publish', 'signing-secret');

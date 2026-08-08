@@ -309,6 +309,23 @@ Key capabilities:
 - **Enum-typed columns** also generate a matching `{Model}Resource` interface using `AsEnum<>`, for when you've resolved a raw enum column to a full enum instance (e.g. via `Status.from(user.status)`).
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and resources.
 
+### Typing `array` casts with `@property`
+
+A column cast to `'array'` (or any other cast the accessor → cast → DB waterfall can't type more precisely) generates as `unknown[]`. Rather than reaching for `#[TsCasts]`, add a class-level `@property`/`@property-read` docblock tag naming the real shape — the same convention PHPStan/Larastan already read — and it wins wherever the resolved type would otherwise stay vague:
+
+```php
+/**
+ * @property array<int, string>|null $to
+ * @property array<string, string>|null $headers
+ */
+class Message extends Model { ... }
+```
+
+`$to` and `$headers` now generate as `string[] | null` and `Record<string, string> | null` instead of `unknown[] | null` — and it types the same property for PHPStan/Larastan too. The tag only takes effect when the waterfall's own result is vague, so it never overrides a type already resolved specifically (an accessor's return type, an enum cast, a custom `CastsAttributes` class, etc.), and a subclass's own tag wins over one declared on a parent.
+
+> [!TIP]
+> Before reaching for `#[TsCasts]`, check whether the generator can already infer the type on its own: a `@return`/`@phpstan-return` docblock on an accessor (generics included, e.g. `Collection<int, LineItem>`), or a class-level `@property` tag as above, is often enough. Both are read by PHPStan/Larastan too, so they're checked by static analysis in a way a package-specific attribute isn't. `#[TsCasts]` is still the right tool when a shape is genuinely dynamic (keys built at runtime) or the type is owned by the frontend and needs its own import.
+
 For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
 ## API Resources

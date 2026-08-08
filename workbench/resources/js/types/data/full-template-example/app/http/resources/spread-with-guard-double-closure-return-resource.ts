@@ -31,6 +31,10 @@ export interface SpreadWithGuardDoubleClosureReturnResource
     is_paid: boolean;
     formatted_total: string;
     search_index: unknown;
+    score_map: Record<string, number>;
+    sorted_items: OrderItem[] | Record<string, OrderItem>;
+    listed_items: OrderItem[];
+    unsorted_items: unknown[] | Record<string, unknown>;
     user: User;
     items: OrderItem[];
     customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;

@@ -25,7 +25,11 @@ use function Orchestra\Testbench\workbench_path;
 use Workbench\App\Casts\MenuSettings;
 use Workbench\App\Enums\Role;
 use Workbench\App\Enums\Status;
+use Workbench\App\Models\Order;
+use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\User;
+use Workbench\App\ValueObjects\ArrayableData;
+use Workbench\App\ValueObjects\Money;
 use Workbench\Shipping\Enums\Status as ShippingStatus;
 
 beforeEach(function () {
@@ -196,7 +200,6 @@ describe('toTsType', function () {
     });
 
     test('toTsType resolves partial map matches', function () {
-        // "varchar(255)" contains "varchar" → string
         expect($this->service->toTsType('varchar(255)')['type'])->toBe('string');
     });
 
@@ -204,7 +207,6 @@ describe('toTsType', function () {
         expect($this->service->toTsType('some_completely_fake_type')['type'])->toBe('unknown');
     });
 
-    // Nullable shorthand ?T
     test('toTsType resolves ?string to string | null', function () {
         $result = $this->service->toTsType('?string');
 
@@ -224,7 +226,6 @@ describe('toTsType', function () {
             ->and($result['enumFqcns'])->toContain(Status::class);
     });
 
-    // Arrayable (step 5a)
     test('toTsType resolves Arrayable class to unknown[]', function () {
         $result = $this->service->toTsType(ArrayableValueObject::class);
 
@@ -233,7 +234,6 @@ describe('toTsType', function () {
             ->and($result['classFqcns'])->toBeEmpty();
     });
 
-    // __toString (step 5b)
     test('toTsType resolves class with __toString to string', function () {
         $result = $this->service->toTsType(StringableValueObject::class);
 
@@ -242,7 +242,6 @@ describe('toTsType', function () {
             ->and($result['classFqcns'])->toBeEmpty();
     });
 
-    // PHPStan primitives
     test('toTsType resolves numeric-string to string via exact map', function () {
         expect($this->service->toTsType('numeric-string')['type'])->toBe('string');
     });
@@ -265,6 +264,154 @@ describe('toTsType', function () {
 
     test('toTsType resolves void to void', function () {
         expect($this->service->toTsType('void')['type'])->toBe('void');
+    });
+});
+
+describe('toTsType substring fallback restriction', function () {
+    test('class-ish names degrade to unknown instead of partial-matching', function (string $name) {
+        expect($this->service->toTsType($name)['type'])->toBe('unknown');
+    })->with([
+        'Point', 'Constraint', 'Blueprint', 'Endpoint', 'Waypoint', 'Realm',
+        'Print', 'Integration', 'Maintenance', 'Interface',
+        'Update', 'Candidate', 'Runtime', 'Chart',
+        'DateTimeInterface', 'App\\Casts\\NotARealCast', '\\Foo\\Bar',
+    ]);
+
+    test('a class name that case-insensitively equals a literal DB type keyword is caught earlier, at the exact-match step, not here', function () {
+        // 'Character' lowercases to 'character', a literal typesMap key, so step 1's exact match beats step 7's gate.
+        expect($this->service->toTsType('Character')['type'])->toBe('string');
+    });
+
+    test('a leading delimiter must not defeat the class-ish gate', function (string $name) {
+        // A leading '(', ':' or space makes looksLikeClassName()'s head empty; PREG_SPLIT_NO_EMPTY drops it.
+        expect($this->service->toTsType($name)['type'])->toBe('unknown');
+    })->with([
+        ' Point', ':Point', '(Point)',
+    ]);
+
+    test('real DB and cast type strings still resolve through the fallback', function (string $input, string $expected) {
+        expect($this->service->toTsType($input)['type'])->toBe($expected);
+    })->with([
+        // Known-wrong: 'tinyint(1)' contains 'int', and TypeScriptMap orders 'int' => 'number' before
+        // 'tinyint' => 'boolean', so step 7 matches 'int' first. Flip to 'boolean' when that ordering is fixed.
+        ['tinyint(1)', 'number'],
+        ['varchar(255)', 'string'],
+        ['numeric(10,2)', 'number'],
+        ['decimal:2', 'number'],
+        ['date:Y-m-d', 'string'],
+        ['datetime:Y-m-d H:i:s', 'string'],
+        ['immutable_datetime:Y-m-d', 'string'],
+        ['timestamp without time zone', 'string'],
+        ['character varying(255)', 'string'],
+        ['int unsigned', 'number'],
+        ['bigint unsigned', 'number'],
+        ['double precision', 'number'],
+    ]);
+});
+
+describe('Arrayable DTO shape inference', function () {
+    test('Arrayable with array-shape toArray docblock resolves to inline object type', function () {
+        $result = $this->service->toTsType(Money::class);
+
+        expect($result['type'])->toBe('{ amount: number; currency: string }')
+            ->and($result['classes'])->toBeEmpty()
+            ->and($result['classFqcns'])->toBeEmpty();
+    });
+
+    test('Arrayable without docblock shape still resolves to unknown[]', function () {
+        $result = $this->service->toTsType(ArrayableData::class);
+
+        expect($result['type'])->toBe('unknown[]');
+    });
+
+    test('Arrayable shape value that resolves to a class-backed token degrades that property to unknown', function () {
+        // parseDocblockReturnArrayShape() carries type strings but not FQCNs, so a class token here is unimportable.
+        $result = $this->service->toTsType(ArrayableWithClassValueObject::class);
+
+        expect($result['type'])->toBe('{ owner: unknown }');
+    });
+
+    test('a class-backed value hidden inside Record<string, X> or a nested array{...} shape also degrades to unknown', function () {
+        // extractImportableTypes() skips anything containing '<' or starting with '{', so Record<string, User> and
+        // nested array{owner: User} leak the bare token; shapeValueHasUnimportableToken() tokenizes the whole string.
+        $result = $this->service->toTsType(ArrayableWithHiddenClassValueObject::class);
+
+        expect($result['type'])->toBe('{ recordOfUsers: unknown; nestedOwner: unknown }');
+    });
+
+    test('class-backed array shape values keep degrading to unknown after the tokenizer rewrite', function () {
+        // array<int, X>, X[] and Collection<int, X> all resolve to 'X[]', caught by the bracket strip.
+        $result = $this->service->toTsType(ArrayableWithClassArrayValueObject::class);
+
+        expect($result['type'])->toBe('{ listViaGeneric: unknown; listViaShorthand: unknown; listViaCollection: unknown }');
+    });
+
+    test('a nested primitive-only shape is not over-degraded by the key-stripping step', function () {
+        // 'owner' is stripped as a property key, not mistaken for a value-side identifier.
+        $result = $this->service->toTsType(ArrayableWithNestedPrimitiveValueObject::class);
+
+        expect($result['type'])->toBe('{ meta: { owner: string } }');
+    });
+
+    test('subclass inheriting toArray() resolves the shape from the declaring base class docblock', function () {
+        // method_exists() is true for inherited methods; getDeclaringClass() points at the class defining toArray().
+        $result = $this->service->toTsType(ArrayableShapeSubclassValueObject::class);
+
+        expect($result['type'])->toBe('{ id: number }');
+    });
+
+    test('a self-referential shape terminates instead of exhausting memory', function () {
+        $result = $this->service->toTsType(ArrayableSelfReferentialValueObject::class);
+
+        expect($result['type'])->toBe('{ id: number; child: unknown[] }');
+    });
+
+    test('a self-reference reached through a container also terminates', function () {
+        $result = $this->service->toTsType(ArrayableSelfReferentialListValueObject::class);
+
+        expect($result['type'])->toBe('{ children: unknown[][] }');
+    });
+
+    test('a mutual A to B to A shape cycle terminates', function () {
+        $result = $this->service->toTsType(ArrayableMutualAValueObject::class);
+
+        expect($result['type'])->toBe('{ b: { a: unknown[] } }');
+    });
+
+    test('the cycle guard is released, so the same DTO resolves fully on a later call', function () {
+        $this->service->toTsType(ArrayableMutualAValueObject::class);
+
+        expect($this->service->toTsType(ArrayableMutualBValueObject::class)['type'])
+            ->toBe('{ a: { b: unknown[] } }');
+    });
+
+    test('Arrayable precedence wins over __toString for a DTO implementing both', function () {
+        // Matches Laravel's own serialization order (Arrayable before Stringable).
+        $result = $this->service->toTsType(ArrayableAndStringableValueObject::class);
+
+        expect($result['type'])->toBe('{ value: string }');
+    });
+
+    test('Arrayable precedence wins over JsonSerializable for a DTO implementing both', function () {
+        $result = $this->service->toTsType(ArrayableAndJsonSerializableValueObject::class);
+
+        expect($result['type'])->toBe('{ fromArray: string }');
+    });
+});
+
+describe('JsonSerializable DTO shape inference', function () {
+    test('JsonSerializable with array-shape jsonSerialize docblock resolves to inline object type', function () {
+        $result = $this->service->toTsType(JsonSerializableShapeValueObject::class);
+
+        expect($result['type'])->toBe('{ id: number; label: string }');
+    });
+
+    test('JsonSerializable without docblock shape falls through to later toTsType steps', function () {
+        // A bare JsonSerializable isn't guaranteed array-shaped, so it falls through instead of forcing unknown[].
+        $result = $this->service->toTsType(JsonSerializablePlainValueObject::class);
+
+        expect($result['type'])->toBe('JsonSerializablePlainValueObject')
+            ->and($result['classFqcns'])->toBe([JsonSerializablePlainValueObject::class]);
     });
 });
 
@@ -349,6 +496,35 @@ describe('methodOrDocblockReturnTypes', function () {
     });
 });
 
+describe('nativePhpFunctionReturnedTypes', function () {
+    test('userland function with scalar return type reflects', function () {
+        // route() is a userland global from illuminate/foundation's helpers.php, not a PHP-internal function.
+        expect(app(LaravelTsPublish::class)->nativePhpFunctionReturnedTypes('route')['type'])
+            ->toBe('string');
+    });
+
+    test('a still-internal builtin keeps resolving', function () {
+        expect($this->service->nativePhpFunctionReturnedTypes('strtolower')['type'])
+            ->toBe('string');
+    });
+
+    test('userland function returning a non-builtin class stays excluded', function () {
+        // url() returns `UrlGenerator|string` — a union with a non-builtin member the guard must reject.
+        expect($this->service->nativePhpFunctionReturnedTypes('url')['type'])
+            ->toBe('unknown');
+    });
+
+    test('collect() remains excluded because it returns a Collection', function () {
+        expect($this->service->nativePhpFunctionReturnedTypes('collect')['type'])
+            ->toBe('unknown');
+    });
+
+    test('unknown function name resolves to unknown', function () {
+        expect($this->service->nativePhpFunctionReturnedTypes('thisFunctionDoesNotExist')['type'])
+            ->toBe('unknown');
+    });
+});
+
 describe('docblockReturnTypes', function () {
     test('docblockReturnTypes resolves simple @return type', function () {
         $method = new ReflectionMethod(DocblockReturnClass::class, 'simpleString');
@@ -382,9 +558,7 @@ describe('docblockReturnTypes', function () {
         $method = new ReflectionMethod(DocblockReturnClass::class, 'multilineArrayShape');
         $result = $this->service->docblockReturnTypes($method);
 
-        // docblockReturnTypes passes the whole type through toTsType() which
-        // partial-matches 'array' to unknown[] — use parseDocblockReturnArrayShape
-        // for per-key type resolution instead
+        // toTsType() partial-matches 'array' here; parseDocblockReturnArrayShape() gives per-key types.
         expect($result['type'])->toBe('unknown[]');
     });
 
@@ -393,6 +567,23 @@ describe('docblockReturnTypes', function () {
         $result = $this->service->docblockReturnTypes($method);
 
         expect($result['type'])->toBe('unknown[]');
+    });
+
+    test('docblockReturnTypes degrades an unrecognized outer generic instead of guessing a partial-match type', function () {
+        // docblockReturnTypes() does not unwrap Attribute<Get, Set> like attributeDocblockReturnTypes() does, so the
+        // unrecognized generic must degrade rather than let toTsType() partial-match the 'int' inside it.
+        $method = new ReflectionMethod(Order::class, 'sortedItems');
+        $result = $this->service->docblockReturnTypes($method);
+
+        expect($result['type'])->toBe('unknown');
+    });
+
+    test('docblockReturnTypes preserves array decoration through a nullable union', function () {
+        $method = new ReflectionMethod(DocblockReturnClass::class, 'nullableGenericCollection');
+        $result = $this->service->docblockReturnTypes($method);
+
+        expect($result['type'])->toBe('OrderItem[] | Record<string, OrderItem> | null')
+            ->and($result['classFqcns'])->toBe([OrderItem::class]);
     });
 });
 
@@ -493,6 +684,108 @@ describe('extractReturnTypeFromDocblock', function () {
     });
 });
 
+describe('phpstan-return docblock support', function () {
+    test('extractReturnTypeFromDocblock falls back to @phpstan-return', function () {
+        $doc = "/**\n * @phpstan-return string|null\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('string|null');
+    });
+
+    test('@return wins over @phpstan-return', function () {
+        $doc = "/**\n * @phpstan-return int\n * @return string\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('string');
+    });
+});
+
+describe('psalm-return and nested generic docblock support', function () {
+    test('extractReturnTypeFromDocblock falls back to @psalm-return', function () {
+        $doc = "/**\n * @psalm-return string|null\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('string|null');
+    });
+
+    test('extractReturnTypeFromDocblock brace-walk captures a full nested generic string', function () {
+        $doc = "/**\n * @return Collection<int, array<string, int>>\n */";
+
+        expect(app(LaravelTsPublish::class)->extractReturnTypeFromDocblock($doc))
+            ->toBe('Collection<int, array<string, int>>');
+    });
+});
+
+describe('generic container docblock types', function () {
+    test('Collection<int, Model> keeps the object arm because int keys need not be sequential', function () {
+        $method = new ReflectionMethod(Order::class, 'sortedItems');
+        $info = app(LaravelTsPublish::class)->attributeDocblockReturnTypes($method);
+
+        expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>')
+            ->and($info['classFqcns'])->toBe([OrderItem::class]);
+    });
+
+    test('list<Model> resolves to the bare array, since list<> does guarantee sequential keys', function () {
+        $method = new ReflectionMethod(Order::class, 'listedItems');
+        $info = app(LaravelTsPublish::class)->attributeDocblockReturnTypes($method);
+
+        expect($info['type'])->toBe('OrderItem[]')
+            ->and($info['classFqcns'])->toBe([OrderItem::class]);
+    });
+
+    test('array<string, int> resolves to Record<string, number>', function () {
+        $method = new ReflectionMethod(Order::class, 'scoreMap');
+        $info = app(LaravelTsPublish::class)->attributeDocblockReturnTypes($method);
+
+        expect($info['type'])->toBe('Record<string, number>');
+    });
+
+    test('list<string> resolves to string[]', function () {
+        $ts = app(LaravelTsPublish::class)->resolvePhpDocTypeToTs('list<string>', [], '');
+
+        expect($ts)->toBe('string[]');
+    });
+});
+
+describe('aliasTypeName', function () {
+    $nameMap = ['App\\Models\\User' => 'User', 'Crm\\Models\\User' => 'User', 'App\\Models\\Post' => 'Post'];
+
+    test('replaces every occurrence when the item has one FQCN of that name', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User[] | Record<string, User>', 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        ))->toBe('AppUser[] | Record<string, AppUser>');
+    });
+
+    test('replaces one occurrence when two FQCNs on the item share the name', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User | User', 'User', 'AppUser', ['App\\Models\\User', 'Crm\\Models\\User'], $nameMap,
+        ))->toBe('AppUser | User');
+    });
+
+    // A repeated FQCN would otherwise read as a collision and silently restore single replacement.
+    test('a duplicated FQCN is not mistaken for a name collision', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User[] | Record<string, User>',
+            'User',
+            'AppUser',
+            ['App\\Models\\User', 'App\\Models\\User'],
+            $nameMap,
+        ))->toBe('AppUser[] | Record<string, AppUser>');
+    });
+
+    test('a non-colliding sibling FQCN does not restrict the replacement', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User[] | Record<string, User>', 'User', 'AppUser', ['App\\Models\\User', 'App\\Models\\Post'], $nameMap,
+        ))->toBe('AppUser[] | Record<string, AppUser>');
+    });
+
+    test('word boundaries keep longer identifiers intact', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            'User | UserProfile | Users', 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        ))->toBe('AppUser | UserProfile | Users');
+    });
+});
+
 describe('splitPhpDocUnionType', function () {
     test('splits simple union', function () {
         expect($this->service->splitPhpDocUnionType('string|null'))
@@ -573,23 +866,32 @@ describe('resolvePhpDocTypeToTs', function () {
     });
 
     test('returns Record<string, unknown> for empty array shape', function () {
-        // Covers the `return 'Record<string, unknown>'` fallback when
-        // parseArrayShapeToTsTypes returns [] for an empty array{}.
         $result = $this->service->resolvePhpDocTypeToTs('array{}', [], '');
 
         expect($result)->toBe('Record<string, unknown>');
+    });
+
+    test('degrades an unrecognized generic instead of guessing a partial-match type', function () {
+        // 'SomeGeneric' is not a recognized container, so degrade — toTsType() would partial-match the inner 'int'.
+        $result = $this->service->resolvePhpDocTypeToTs('SomeGeneric<int, Foo>', [], '');
+
+        expect($result)->toBe('unknown');
     });
 });
 
 describe('parseArrayShapeToTsTypes', function () {
     test('returns empty array when shape does not start with array{', function () {
-        // Covers the guard `! str_starts_with($shape, 'array{') || ! str_ends_with($shape, '}')` branch.
         expect($this->service->parseArrayShapeToTsTypes('string', [], ''))->toBe([]);
     });
 
     test('returns empty array for empty array shape array{}', function () {
-        // Covers the `if ($inner === '') { return []; }` branch.
         expect($this->service->parseArrayShapeToTsTypes('array{}', [], ''))->toBe([]);
+    });
+
+    test('array shape value containing an unrecognized generic degrades to unknown instead of partial-matching', function () {
+        $result = $this->service->parseArrayShapeToTsTypes('array{x: SomeGeneric<int, Foo>}', [], '');
+
+        expect($result)->toBe(['x' => 'unknown']);
     });
 });
 
@@ -627,6 +929,15 @@ describe('attributeDocblockReturnTypes', function () {
         $result = $this->service->attributeDocblockReturnTypes($method);
 
         expect($result['type'])->toBe('string');
+    });
+
+    test('attributeDocblockReturnTypes degrades a bare Attribute docblock instead of leaking the Attribute class', function () {
+        // Without generic args the fallback parser would resolve the word "Attribute" to the Eloquent Attribute class.
+        $method = new ReflectionMethod(AttributeDocblockClass::class, 'withBareAttribute');
+        $result = $this->service->attributeDocblockReturnTypes($method);
+
+        expect($result['type'])->toBe('unknown')
+            ->and($result['classFqcns'])->toBe([]);
     });
 });
 
@@ -826,7 +1137,6 @@ describe('extractImportableTypes', function () {
 
 describe('resolveReflectionType with DNF union types', function () {
     test('resolveReflectionType handles DNF union with intersection member', function () {
-        // (Countable&Iterator)|string is a DNF type — the intersection becomes 'unknown'
         $closure = fn (): (\Countable&\Iterator)|string => 'hello';
         $returnType = (new ReflectionFunction($closure))->getReturnType();
 
@@ -911,6 +1221,38 @@ describe('mergeTypeScriptInfos', function () {
         $result = $this->service->mergeTypeScriptInfos([$infoA, $infoB, $infoNull]);
 
         expect($result['type'])->toBe('string | null');
+    });
+
+    test('preserves array-container decoration on a class-backed type merged with null', function () {
+        // Decomposing a container-decorated info to its bare class name would silently drop the '[]'.
+        $infoArray = [...$this->service->emptyTypeScriptInfo(), 'type' => 'OrderItem[]', 'classes' => ['OrderItem'], 'classFqcns' => [OrderItem::class]];
+        $infoNull = [...$this->service->emptyTypeScriptInfo(), 'type' => 'null'];
+
+        $result = $this->service->mergeTypeScriptInfos([$infoArray, $infoNull]);
+
+        expect($result['type'])->toBe('OrderItem[] | null')
+            ->and($result['classes'])->toBe(['OrderItem'])
+            ->and($result['classFqcns'])->toBe([OrderItem::class]);
+    });
+
+    test('preserves Record-container decoration on a class-backed type merged with null', function () {
+        $infoRecord = [...$this->service->emptyTypeScriptInfo(), 'type' => 'Record<string, OrderItem>', 'classes' => ['OrderItem'], 'classFqcns' => [OrderItem::class]];
+        $infoNull = [...$this->service->emptyTypeScriptInfo(), 'type' => 'null'];
+
+        $result = $this->service->mergeTypeScriptInfos([$infoRecord, $infoNull]);
+
+        expect($result['type'])->toBe('Record<string, OrderItem> | null');
+    });
+
+    test('keeps distinct decorated tokens for two different container-decorated classes', function () {
+        $infoA = [...$this->service->emptyTypeScriptInfo(), 'type' => 'A[]', 'classes' => ['A'], 'classFqcns' => ['App\\Models\\A']];
+        $infoB = [...$this->service->emptyTypeScriptInfo(), 'type' => 'B[]', 'classes' => ['B'], 'classFqcns' => ['App\\Models\\B']];
+
+        $result = $this->service->mergeTypeScriptInfos([$infoA, $infoB]);
+
+        expect($result['type'])->toBe('A[] | B[]')
+            ->and($result['classes'])->toBe(['A', 'B'])
+            ->and($result['classFqcns'])->toBe(['App\\Models\\A', 'App\\Models\\B']);
     });
 });
 
@@ -1272,13 +1614,11 @@ DOC;
 
 describe('callCommandUsing and callCommandWith', function () {
     afterEach(function () {
-        // Reset static state to prevent leaking across tests
         $prop = (new ReflectionClass(LaravelTsPublish::class))->getProperty('callCommandWith');
         $prop->setValue(null, null);
     });
 
     test('callCommandWith does nothing when no closure is registered', function () {
-        // Should not throw — just a no-op
         $this->service->callCommandWith();
 
         expect(true)->toBeTrue();
@@ -1391,7 +1731,6 @@ describe('qualifyGlobalType', function () {
     });
 
     test('uses bare name when alias target is in the skip namespace (Pass 1)', function () {
-        // In crm.models context, crm.models.User collapses to just User
         $result = $this->service->qualifyGlobalType(
             'CrmUser | null',
             ['crm.models' => ['User']],
@@ -1423,7 +1762,6 @@ describe('qualifyGlobalType', function () {
     });
 
     test('matches longer names first to prevent partial replacement', function () {
-        // 'StatusType' must be matched before 'Status' to avoid replacing inside 'StatusType'
         $result = $this->service->qualifyGlobalType(
             'StatusType | Status',
             ['enums' => ['Status', 'StatusType']],
@@ -1434,7 +1772,6 @@ describe('qualifyGlobalType', function () {
     });
 
     test('does not re-qualify already-qualified types', function () {
-        // The negative lookbehind on '.' prevents a second qualification
         $result = $this->service->qualifyGlobalType(
             'crm.models.User | null',
             ['app.models' => ['User']],
@@ -1445,8 +1782,7 @@ describe('qualifyGlobalType', function () {
     });
 
     test('does not re-qualify bare names that belong to the skip namespace', function () {
-        // Image is in app.models — after Pass 1, AppUser becomes bare 'User'
-        // Pass 2 must NOT re-qualify that bare User with crm.models
+        // After Pass 1, AppUser becomes bare 'User'; Pass 2 must not re-qualify it with crm.models.
         $result = $this->service->qualifyGlobalType(
             'Post | Product | AppUser | CrmUser',
             ['app.models' => ['User', 'Post', 'Product'], 'crm.models' => ['User']],
@@ -1560,8 +1896,7 @@ class UnknownReturnCast implements CastsAttributes
 }
 
 /**
- * A class with a method returning a DNF type (PHP 8.2+) for testing
- * ReflectionIntersectionType inside a union.
+ * A class with a method returning a DNF type (PHP 8.2+), for a ReflectionIntersectionType inside a union.
  */
 class DnfReturnClass
 {
@@ -1592,6 +1927,210 @@ class StringableValueObject
     public function __toString(): string
     {
         return 'value';
+    }
+}
+
+/**
+ * A value object implementing Arrayable whose toArray() shape references a class-backed value type.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithClassValueObject implements Arrayable
+{
+    /** @return array{owner: User} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object whose toArray() shape hides class tokens inside array<string, X> and a nested array{...}.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithHiddenClassValueObject implements Arrayable
+{
+    /**
+     * @return array{
+     *     recordOfUsers: array<string, User>,
+     *     nestedOwner: array{owner: User}
+     * }
+     */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object whose toArray() shape uses the three class-backed array forms that all resolve to 'X[]'.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithClassArrayValueObject implements Arrayable
+{
+    /**
+     * @return array{
+     *     listViaGeneric: array<int, User>,
+     *     listViaShorthand: User[],
+     *     listViaCollection: Collection<int, User>
+     * }
+     */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object whose toArray() shape nests a primitive-only array{...} under a non-primitive key name.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithNestedPrimitiveValueObject implements Arrayable
+{
+    /** @return array{meta: array{owner: string}} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * A value object whose toArray() shape names itself, so shape expansion would recurse forever.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableSelfReferentialValueObject implements Arrayable
+{
+    /** @return array{id: int, child: ArrayableSelfReferentialValueObject} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * The same cycle reached through a container rather than a bare class name.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableSelfReferentialListValueObject implements Arrayable
+{
+    /** @return array{children: ArrayableSelfReferentialListValueObject[]} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * Half of a mutual A -> B -> A shape cycle.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableMutualAValueObject implements Arrayable
+{
+    /** @return array{b: ArrayableMutualBValueObject} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * The other half of the mutual A -> B -> A shape cycle.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableMutualBValueObject implements Arrayable
+{
+    /** @return array{a: ArrayableMutualAValueObject} */
+    public function toArray(): array
+    {
+        return [];
+    }
+}
+
+/**
+ * An Arrayable base class carrying the shape docblock its subclass inherits rather than overrides.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableShapeBaseValueObject implements Arrayable
+{
+    /** @return array{id: int} */
+    public function toArray(): array
+    {
+        return ['id' => 1];
+    }
+}
+
+/**
+ * Inherits toArray() from ArrayableShapeBaseValueObject without overriding it.
+ */
+class ArrayableShapeSubclassValueObject extends ArrayableShapeBaseValueObject {}
+
+/**
+ * A value object implementing both Arrayable (with a shape docblock) and Stringable.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableAndStringableValueObject implements Arrayable, Stringable
+{
+    /** @return array{value: string} */
+    public function toArray(): array
+    {
+        return ['value' => 'hello'];
+    }
+
+    public function __toString(): string
+    {
+        return 'hello';
+    }
+}
+
+/**
+ * A value object implementing Arrayable and JsonSerializable with a different shape docblock on each.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableAndJsonSerializableValueObject implements Arrayable, JsonSerializable
+{
+    /** @return array{fromArray: string} */
+    public function toArray(): array
+    {
+        return ['fromArray' => 'value'];
+    }
+
+    /** @return array{fromJson: string} */
+    public function jsonSerialize(): array
+    {
+        return ['fromJson' => 'value'];
+    }
+}
+
+/**
+ * A value object implementing JsonSerializable (not Arrayable) with an array-shape jsonSerialize() docblock.
+ */
+class JsonSerializableShapeValueObject implements JsonSerializable
+{
+    /** @return array{id: int, label: string} */
+    public function jsonSerialize(): array
+    {
+        return ['id' => 1, 'label' => 'value'];
+    }
+}
+
+/**
+ * A value object implementing JsonSerializable with no array-shape docblock.
+ */
+class JsonSerializablePlainValueObject implements JsonSerializable
+{
+    public function jsonSerialize(): mixed
+    {
+        return null;
     }
 }
 
@@ -1671,6 +2210,14 @@ class DocblockReturnClass
     {
         return [];
     }
+
+    /**
+     * @return Collection<int, OrderItem>|null
+     */
+    public function nullableGenericCollection()
+    {
+        return null;
+    }
 }
 
 class AttributeDocblockClass
@@ -1697,5 +2244,11 @@ class AttributeDocblockClass
     public function withAttributeAndComment()
     {
         return '';
+    }
+
+    /** @return Attribute */
+    public function withBareAttribute()
+    {
+        return null;
     }
 }

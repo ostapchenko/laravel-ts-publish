@@ -107,6 +107,12 @@ class TypeScriptMap
             'timetz' => 'string',
             'timestamptz' => 'string',
 
+            // Network address types (Postgres inet/cidr/macaddr, MySQL equivalents)
+            'inet' => 'string',
+            'cidr' => 'string',
+            'macaddr' => 'string',
+            'macaddr8' => 'string',
+
             'null' => 'null',
             'mixed' => 'unknown',
 

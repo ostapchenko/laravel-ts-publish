@@ -1,3 +1,7 @@
+import { type AsEnum } from '@tolki/ts';
+
+import { ShipmentStatus } from '../enums';
+import type { ShipmentStatusType } from '../enums';
 import type { Shipment } from '.';
 
 /** @see Workbench\Shipping\Models\TrackingEvent */
@@ -6,7 +10,7 @@ export interface TrackingEvent
     // Columns
     id: number;
     shipment_id: number;
-    status: string;
+    status: ShipmentStatusType;
     location: string | null;
     description: string | null;
     occurred_at: string;
@@ -18,4 +22,9 @@ export interface TrackingEvent
     shipment_count: number;
     // Exists
     shipment_exists: boolean;
+}
+
+export interface TrackingEventResource extends Omit<TrackingEvent, 'status'>
+{
+    status: AsEnum<typeof ShipmentStatus>;
 }

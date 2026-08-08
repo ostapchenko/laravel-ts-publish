@@ -11,8 +11,6 @@ use Attribute;
  *
  * Can be applied on model or resource classes, their parent classes, or traits used by them.
  *
- * Repeatable — use multiple attributes for multiple extends.
- *
  * ```php
  * #[TsExtends('HasTimestamps', '@/types/common')]
  * #[TsExtends('Pick<Auditable, "created_by">', '@/types/audit', ['Auditable'])]

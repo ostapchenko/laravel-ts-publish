@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Fixture for attributeDocblockReturnTypes()'s FQCN-anchor coverage.
+ *
+ * This is a `.php.stub` file rather than `.php` on purpose: Pint's
+ * fully_qualified_strict_types fixer rewrites any literal fully-qualified
+ * class name it finds in a docblock — even inside a custom tag, even with no
+ * matching `use` import to begin with (it adds one) — down to its short,
+ * auto-imported form. Pint's finder only matches `*.php`, so a `.stub` file
+ * is never touched by it, and the literal FQCN text below survives
+ * byte-for-byte for the test to reflect on.
+ */
+class FqcnAttributeDocblockFixture
+{
+    /** @return \Illuminate\Database\Eloquent\Casts\Attribute<array<int, string>, never> */
+    public function sortedByFqcnDocblock()
+    {
+        return null;
+    }
+}

@@ -16,10 +16,7 @@ use Illuminate\Support\Facades\Config;
 /**
  * Writes an echo-broadcast-events.d.ts module augmentation file for Laravel Echo.
  *
- * Augments the Echo 'Events' interface with all broadcast event types so that
- * channel listeners (Echo.listen(), useEcho()) are type-safe.
- *
- * Returns an empty string when echo_augmentation is disabled or no events are provided.
+ * Augments Echo's 'Events' interface so channel listeners (Echo.listen(), useEcho()) are type-safe.
  *
  * @phpstan-type RawEchoEvent = array{eventName: string, broadcastName: string, importPath: string, namespacePath: string}
  * @phpstan-type EchoEvent = array{eventName: string, broadcastName: string, importPath: string, namespacePath: string, importedAs: string, exportedName: string}
@@ -36,9 +33,6 @@ class BroadcastEventsEchoWriter
 
     /**
      * Render and optionally write the Echo module augmentation file.
-     *
-     * Returns an empty string when Echo augmentation is disabled in config
-     * or when no generators are provided.
      *
      * @param  Collection<int, BroadcastEventGenerator>  $generators
      */
@@ -102,11 +96,6 @@ class BroadcastEventsEchoWriter
 
     /**
      * Resolve the Echo npm package name for the declare module statement.
-     *
-     * Uses the configured echo_package value when set. If null, auto-detects
-     * from the project's package.json. Defaults to '@laravel/echo'.
-     *
-     * Priority: config value → package.json detection → '@laravel/echo'
      */
     protected function resolveEchoPackage(): string
     {
@@ -137,8 +126,6 @@ class BroadcastEventsEchoWriter
 
     /**
      * Resolve the output directory for the Echo augmentation file.
-     *
-     * Falls back: echo_augmentation.output_path → broadcast_events.output_path → output_directory.
      */
     protected function resolveOutputPath(): string
     {

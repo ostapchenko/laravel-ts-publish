@@ -4,11 +4,15 @@ on:
   push:
     paths:
       - '**.php'
+      - '**.ts'
       - '.github/workflows/run-tests.yml'
+      - '.github/scripts/**'
       - 'phpunit.xml.dist'
       - 'composer.json'
       - 'composer.lock'
+      - 'package-lock.json'
       - 'testbench.yaml'
+      - 'tsconfig.json'
 
 permissions:
   contents: write
@@ -55,6 +59,13 @@ jobs:
       - name: Install dependencies
         run: |
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          if [ "${{ matrix.laravel }}" = "12.*" ]; then
+            # Laravel 12 pins symfony/process ^7.2, which orchestra/testbench:10.* inherits and
+            # never lifts (confirmed through v10.14.1). Pest 5 requires symfony/process ^8.1 and
+            # phpunit ^13.2.6, so it can never resolve against Laravel 12. Pest 4 targets phpunit
+            # ^12.5.33, which testbench 10.* does allow.
+            composer require --dev "pestphp/pest:^4.0" "pestphp/pest-plugin-arch:^4.0" "pestphp/pest-plugin-laravel:^4.0" --no-interaction --no-update
+          fi
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 
       - name: List Installed Dependencies
@@ -75,3 +86,55 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           coverage_badge_path: assets/coverage.svg
           push_badge: true
+
+  type-inference-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: type inference gates
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+          ini-values: memory_limit=1024M
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          composer update --prefer-dist --no-interaction
+          npm ci
+
+      - name: Regenerate the workbench type trees
+        run: vendor/bin/pest --ci
+
+      - name: Fail if the committed type trees are stale
+        run: |
+          if ! git diff --quiet -- workbench/resources/js/types/data; then
+            echo "The generated TypeScript is out of date - run the test suite and commit the result."
+            git diff --stat -- workbench/resources/js/types/data
+            exit 1
+          fi
+
+      - name: Gate - no type token emitted without its import
+        run: .github/scripts/unimportable-token-gate.sh 14
+
+      - name: Gate - no property regressed to unknown
+        run: |
+          base=$(git merge-base origin/main HEAD 2>/dev/null || true)
+          if [ -z "$base" ] || [ "$base" = "$(git rev-parse HEAD)" ]; then
+            base=$(git rev-parse HEAD~1)
+          fi
+          echo "Comparing $base..HEAD"
+          python3 .github/scripts/unknown-regression-gate.py "$base" HEAD

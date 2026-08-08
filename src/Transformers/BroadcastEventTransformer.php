@@ -27,8 +27,7 @@ use ReflectionClass;
 use UnitEnum;
 
 /**
- * Transforms a broadcast event class into a TsBroadcastEventDto ready for
- * TypeScript type generation.
+ * Transforms a broadcast event class into a TsBroadcastEventDto.
  *
  * @phpstan-import-type TypesImportMap from Datable
  * @phpstan-import-type PropertyInfo from TsBroadcastEventDto
@@ -46,10 +45,7 @@ class BroadcastEventTransformer extends CoreTransformer
     /** Short PHP class name, e.g. 'OrderShipped'. */
     public protected(set) string $eventName;
 
-    /**
-     * The Echo event string: '.Namespace.ClassName' for default events,
-     * or the literal broadcastAs() return value for custom names.
-     */
+    /** Echo event string: '.Namespace.ClassName' by default, or the broadcastAs() return value. */
     public protected(set) string $broadcastName;
 
     /** Absolute path to the PHP source file. */
@@ -94,9 +90,7 @@ class BroadcastEventTransformer extends CoreTransformer
     protected array $propertyFqcns = [];
 
     /**
-     * Stub — broadcast events do not use enum const value imports.
-     *
-     * Required to satisfy the ResolvesImportConflicts trait's formatConstImportName() method.
+     * Always empty — only present because ResolvesImportConflicts::formatConstImportName() reads it.
      *
      * @var array<class-string, string>
      */
@@ -140,7 +134,6 @@ class BroadcastEventTransformer extends CoreTransformer
     /** Surveyor class analysis result used across transformation steps. */
     protected ClassResult $analyzed;
 
-    /** Reflection of the event class, shared across transformation steps. */
     /** @var ReflectionClass<ShouldBroadcast> */
     protected ReflectionClass $reflection;
 
@@ -273,10 +266,6 @@ class BroadcastEventTransformer extends CoreTransformer
 
     /**
      * Resolve the Echo broadcast event string.
-     *
-     * Uses the literal return value of broadcastAs() when the method is present
-     * and Surveyor can statically infer a string literal, otherwise falls back
-     * to '.FQCN.With.Dots' (leading dot, backslashes → dots).
      */
     protected function resolveBroadcastName(ClassResult $analyzed): string
     {
@@ -294,8 +283,6 @@ class BroadcastEventTransformer extends CoreTransformer
     /**
      * Resolve the payload properties from broadcastWith() or public constructor props.
      *
-     * TsCasts overrides take priority over Surveyor-inferred types.
-     *
      * @return PropertiesList
      */
     protected function resolveProperties(ClassResult $analyzed): array
@@ -312,7 +299,6 @@ class BroadcastEventTransformer extends CoreTransformer
 
             $propName = (string) $name;
 
-            // TsCasts override takes priority over Surveyor-inferred type
             if (isset($this->tsTypeOverrides[$propName])) {
                 $result[$propName] = [
                     'type' => $this->tsTypeOverrides[$propName],
@@ -334,12 +320,7 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Recursively collect all enum and model FQCNs referenced by a type.
-     *
-     * Walks the full type tree (union, intersection, array) so that every
-     * property records all FQCNs it references — including FQCNs already seen
-     * in earlier properties. This ensures rewriteTypeReferences() correctly
-     * rewrites all properties when an import alias is introduced.
+     * Recursively collect enum and model FQCNs from a type tree, keeping FQCNs already seen on other properties.
      *
      * @return list<class-string>
      */
@@ -383,9 +364,6 @@ class BroadcastEventTransformer extends CoreTransformer
 
     /**
      * Get an ArrayType representing the event payload.
-     *
-     * Uses broadcastWith() return type when the method exists and returns an
-     * ArrayType, otherwise collects all public properties from the class.
      */
     protected function resolveArrayType(ClassResult $analyzed): ArrayType
     {
@@ -405,14 +383,7 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Convert a Surveyor type to a TypeScript string, detecting PHP enums and
-     * Eloquent models for tracking and proper TS type generation.
-     *
-     * - Backed PHP enums (int/string) → '{Name}Type', tracked in $enumFqcnMap
-     * - Pure PHP enums → '{Name}Type', tracked in $enumFqcnMap
-     * - Eloquent models → 'Partial<{Name}>', tracked in $modelFqcnMap
-     * - Union/Intersection types → recurse into members
-     * - All other types → delegate to SurveyorTypeMapper
+     * Convert a Surveyor type to a TypeScript string, tracking any enums and models it references.
      */
     protected function convertType(Type $type): string
     {
@@ -446,11 +417,7 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Convert a ClassType, intercepting PHP enums and Eloquent models.
-     *
-     * PHP enums become '{NameType}' (importing from the enum module).
-     * Eloquent models become 'Partial<Name>' (importing the model interface).
-     * Other known classes fall through to SurveyorTypeMapper.
+     * Convert a ClassType, mapping PHP enums to '{Name}Type' and Eloquent models to 'Partial<Name>'.
      */
     protected function convertClassType(ClassType $type): string
     {
@@ -477,11 +444,7 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Detect conflicting import names and generate namespace-prefix aliases.
-     *
-     * When two models or enums with the same short name appear as property types,
-     * both are aliased using their namespace prefix
-     * (e.g. App\Models\User → AppUser, Crm\Models\User → CrmUser).
+     * Detect conflicting import names and alias them by namespace prefix (App\Models\User → AppUser).
      */
     protected function resolveImportConflicts(): self
     {
@@ -521,40 +484,38 @@ class BroadcastEventTransformer extends CoreTransformer
 
     /**
      * Rewrite property type references to use aliases.
-     *
-     * Uses per-property FQCN tracking so only the property that actually
-     * references a given FQCN is rewritten, preventing incorrect substitutions
-     * when multiple properties share the same original type name.
      */
     protected function rewriteTypeReferences(): void
     {
+        $nameMap = $this->enumFqcnMap + $this->modelFqcnMap;
+
         foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
+            $originalName = $nameMap[$fqcn] ?? null;
 
             if ($originalName === null || $originalName === $alias) {
                 continue;
             }
 
-            $pattern = '/(?<![A-Za-z0-9_$])'.preg_quote($originalName, '/').'(?![A-Za-z0-9_$])/';
-
             foreach ($this->properties as $key => $entry) {
-                if (! in_array($fqcn, $this->propertyFqcns[$key] ?? [], true)) {
+                $entryFqcns = $this->propertyFqcns[$key] ?? [];
+
+                if (! in_array($fqcn, $entryFqcns, true)) {
                     continue;
                 }
 
-                $this->properties[$key]['type'] =
-                    preg_replace($pattern, $alias, $entry['type'], 1) ?? $entry['type'];
+                $this->properties[$key]['type'] = LaravelTsPublish::aliasTypeName(
+                    $entry['type'],
+                    $originalName,
+                    $alias,
+                    $entryFqcns,
+                    $nameMap,
+                );
             }
         }
     }
 
     /**
-     * Build the TypeScript type import map from tracked model and enum FQCNs
-     * and store the result in $this->typeImports.
-     *
-     * Uses LaravelTsPublish::namespaceToPath() and relativeImportPath() to compute
-     * the correct relative path from this event's namespace to each dependency.
-     * Also includes any import paths declared via TsCasts overrides.
+     * Build the TypeScript type import map from tracked model and enum FQCNs.
      */
     protected function buildTypeImports(): self
     {
@@ -573,7 +534,6 @@ class BroadcastEventTransformer extends CoreTransformer
             $imports[$importPath][] = $this->formatImportName($fqcn, $typeName);
         }
 
-        // Include import paths declared via TsCasts overrides
         foreach ($this->tsCastsImportPaths as $property => $importPath) {
             $type = $this->tsTypeOverrides[$property] ?? null;
 
@@ -584,7 +544,6 @@ class BroadcastEventTransformer extends CoreTransformer
             }
         }
 
-        // Include import paths declared via TsExtends attributes and config
         foreach ($this->tsExtendsImports as $importPath => $typeNames) {
             foreach ($typeNames as $typeName) {
                 $imports[$importPath][] = $typeName;
@@ -604,9 +563,6 @@ class BroadcastEventTransformer extends CoreTransformer
 
     /**
      * Build a map of import aliases to their globally-qualified names.
-     *
-     * Used by GlobalsWriter to resolve aliased type references (e.g. `AppUser`, `CrmStatusType`)
-     * back to the correct globally-namespaced names before the `qualifyGlobalType()` pass.
      *
      * @return array<string, string> alias => 'dot.separated.namespace.TypeName'
      */
@@ -628,19 +584,10 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Build a deterministic per-event map of every referenced type name to its
-     * globally-qualified name.
+     * Map every type token appearing in this event's properties to its globally-qualified name.
      *
-     * Unlike globalAliasMap(), this includes non-conflicting (un-aliased) model and
-     * enum references, keyed by the exact token that appears in each property's TS type
-     * (the import alias when one exists, otherwise the bare short name). Because conflicts
-     * within a single event are always resolved into unique aliases, the short names that
-     * remain are unambiguous, so keys never collide within one event.
-     *
-     * GlobalsWriter passes this map to qualifyGlobalType() so each event's property types
-     * resolve to the exact namespace the event imports — instead of relying on name-based
-     * qualification, which is non-deterministic when the same short name exists in multiple
-     * namespaces (e.g. App\Models\User vs Crm\Models\User).
+     * Name-based qualification alone is ambiguous when one short name exists in several namespaces
+     * (App\Models\User vs Crm\Models\User), so GlobalsWriter resolves through this map instead.
      *
      * @return array<string, string> typeName|alias => 'dot.separated.namespace.TypeName'
      */

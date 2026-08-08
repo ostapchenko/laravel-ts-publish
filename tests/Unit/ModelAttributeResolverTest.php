@@ -3,12 +3,18 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Workbench\App\Models\Attachment;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
 use Workbench\App\Models\Order;
+use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
+use Workbench\App\Models\PropertyDocblockBase;
+use Workbench\App\Models\PropertyDocblockChild;
+use Workbench\App\Models\PropertyDocblockEdge;
 use Workbench\App\Models\User;
 
 test('resolveAttribute returns empty info for non-existent model class', function () {
@@ -33,7 +39,7 @@ test('resolveRelation returns unknown for non-existent model class', function ()
 
     $result = $resolver->resolveRelation('App\\Models\\NonExistent', 'posts');
 
-    expect($result)->toBe(['type' => 'unknown', 'modelFqcn' => null]);
+    expect($result)->toBe(['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []]);
 });
 
 test('resolveMethodReturnType returns empty info for non-existent method', function () {
@@ -63,7 +69,6 @@ test('resolveAccessorModelFqcn returns null for non-existent model class', funct
 test('resolveAccessorModelFqcn returns null for non-accessor attribute', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // 'name' is a regular string column, not an accessor
     $result = $resolver->resolveAccessorModelFqcn(User::class, 'name');
 
     expect($result)->toBeNull();
@@ -72,7 +77,6 @@ test('resolveAccessorModelFqcn returns null for non-accessor attribute', functio
 test('resolveAccessorModelFqcn returns null when accessor does not return a Model', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // 'initials' is an accessor that returns string, not a Model
     $result = $resolver->resolveAccessorModelFqcn(User::class, 'initials');
 
     expect($result)->toBeNull();
@@ -133,21 +137,18 @@ test('getMorphToTargets returns empty array when no inverse relations exist', fu
         Image::class,
     ]);
 
-    // CompositeComment has no inverse MorphOne/MorphMany relations in the scanned models
     expect($resolver->getMorphToTargets(CompositeComment::class))->toBe([]);
 });
 
 test('getMorphToTargets returns empty array when map is not built', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // No buildMorphTargetMap() call — default empty map
     expect($resolver->getMorphToTargets(Image::class))->toBe([]);
 });
 
 test('buildMorphTargetMap skips non-existent model classes', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // Should not throw, just skip the non-existent class
     $resolver->buildMorphTargetMap([
         'App\\Models\\NonExistent',
         User::class,
@@ -172,13 +173,13 @@ test('resolveRelation returns union type for MorphTo when targets exist', functi
     $result = $resolver->resolveRelation(Image::class, 'imageable');
 
     expect($result['type'])->toBe('Post | Product | User')
-        ->and($result['modelFqcn'])->toBeNull();
+        ->and($result['modelFqcn'])->toBeNull()
+        ->and($result['morphFqcns'])->toBe([Post::class, Product::class, User::class]);
 });
 
 test('resolveRelation returns unknown for MorphTo when no targets exist', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // Build map with only Image — no inverse relations for CompositeComment
     $resolver->buildMorphTargetMap([Image::class]);
 
     $result = $resolver->resolveRelation(CompositeComment::class, 'commentable');
@@ -186,4 +187,190 @@ test('resolveRelation returns unknown for MorphTo when no targets exist', functi
     // CompositeComment has nullable FK columns, so it gets ' | null' appended
     expect($result['type'])->toBe('unknown | null')
         ->and($result['modelFqcn'])->toBeNull();
+});
+
+test('morph target map includes parents declaring custom MorphOne subclasses', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+    $resolver->buildMorphTargetMap([Post::class, Attachment::class]);
+
+    $info = $resolver->resolveRelation(Attachment::class, 'attachable');
+
+    expect($info['type'])->toContain('Post');
+});
+
+test('attributeDocblockReturnTypes captures nested generic getter type', function () {
+    $method = new ReflectionMethod(Order::class, 'sortedItems');
+    $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
+
+    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>')
+        ->and($info['classFqcns'])->toBe([OrderItem::class]);
+});
+
+test('accessor with vague closure type is refined by Attribute docblock generics', function () {
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'sorted_items');
+
+    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>');
+});
+
+test('accessor with @phpstan-return docblock resolves through docblock', function () {
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'score_map');
+
+    expect($info['type'])->toBe('Record<string, number>');
+});
+
+test('bare @return Attribute docblock does not override a usable closure signature type', function () {
+    // 'unsortedItems' pairs a bare `@return Attribute` with a vague `: Collection` closure signature;
+    // the @return parser must not resolve the bare word to Eloquent's own Attribute class.
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'unsorted_items');
+
+    expect($info['type'])->not->toBe('Attribute')
+        ->and($info['type'])->toBe('unknown[] | Record<string, unknown>')
+        ->and($info['classFqcns'])->toBe([]);
+});
+
+test('attributeDocblockReturnTypes resolves Attribute<> written as a fully-qualified class name', function () {
+    // A `.php.stub` fixture because Pint's fully_qualified_strict_types fixer would rewrite the
+    // literal FQCN in the docblock down to a short auto-imported name; its finder only sees `*.php`.
+    require_once __DIR__.'/../Fixtures/FqcnAttributeDocblockFixture.php.stub';
+
+    $method = new ReflectionMethod(FqcnAttributeDocblockFixture::class, 'sortedByFqcnDocblock');
+    $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
+
+    expect($info['type'])->toBe('string[]');
+});
+
+describe('@property docblock refinement', function () {
+    test('refines an array cast to a typed record using an existing column', function () {
+        // Post's 'options' casts to plain 'array' and is refined only by the class-level @property tag.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Post::class, 'options');
+
+        expect($info['type'])->toBe('Record<string, string> | null');
+    });
+
+    test('columns without a @property tag are unaffected by the refinement', function () {
+        // Post's 'metadata' carries no @property tag.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Post::class, 'metadata');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a child class @property tag wins over the parent class tag for the same column', function () {
+        // Both fixtures tag 'tags', with different shapes.
+        $childInfo = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockChild::class, 'tags');
+
+        $parentInfo = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockBase::class, 'tags');
+
+        expect($childInfo['type'])->toBe('string[] | null')
+            ->and($parentInfo['type'])->toBe('Record<string, string> | null');
+    });
+
+    test('a @property-write tag is never used to type a readable property', function () {
+        // 'related_users' carries only a @property-write tag.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a shorter @property tag does not match a column name it merely prefixes', function () {
+        // The fixture tags `$meta`; the column under test is the longer 'meta_info'.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'meta_info');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a @property-read tag naming a Model class refines to an importable class token', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'owner_snapshot');
+
+        expect($info['type'])->toBe('User | null')
+            ->and($info['classFqcns'])->toBe([User::class]);
+    });
+
+    test('an unrecognized generic container degrades to the pre-existing vague type instead of partial-matching', function () {
+        // 'tags' is tagged `@property LengthAwarePaginator<int, OrderItem>|null`, a container shape that
+        // stays unwrapped; left un-degraded, toTsType()'s partial matching reads the inner "int" as 'number'.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'tags');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a different tag\'s description mentioning another column\'s $variable does not bleed into that column\'s type', function () {
+        // The fixture's `label` tag reads "@property string $label Falls back to the $related_users value",
+        // so a type capture that doesn't stop at '$' claims "string $label Falls back to the" for related_users.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
+
+        expect($info['type'])->toBe('unknown[] | null');
+    });
+});
+
+describe('attribute-lookup fallbacks', function () {
+    test('resolves {relation}_count virtual attribute (withCount) to number', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'items_count');
+
+        expect($info['type'])->toBe('number');
+    });
+
+    test('resolves {relation}_exists virtual attribute (withExists) to boolean', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'items_exists');
+
+        expect($info['type'])->toBe('boolean');
+    });
+
+    test('resolves camelCase access to a snake_case accessor', function () {
+        // Eloquent's __get() resolves $this->formattedTotal to the 'formatted_total' accessor at runtime.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'formattedTotal');
+
+        expect($info['type'])->toBe('string');
+    });
+
+    test('a real column ending in _count resolves through the normal waterfall, not the suffix fallback', function () {
+        // Post::word_count is a real nullable integer column, not a withCount() virtual attribute.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Post::class, 'word_count');
+
+        expect($info['type'])->toBe('number | null');
+    });
+
+    test('{relation}_count fallback does not fire when no matching relation exists', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'bogus_count');
+
+        expect($info['type'])->toBe('unknown');
+    });
+
+    test('{relation}_exists fallback does not fire when no matching relation exists', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'bogus_exists');
+
+        expect($info['type'])->toBe('unknown');
+    });
+
+    test('camelCase access to a plain column stays unknown, matching its null runtime value', function () {
+        // Eloquent camel-cases the key only when hunting for a mutator; $order->placedAt is always null.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'placedAt');
+
+        expect($info['type'])->toBe('unknown');
+    });
+
+    test('camelCase fallback does not fire when no matching snake_case attribute exists', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'totallyMadeUpAttribute');
+
+        expect($info['type'])->toBe('unknown');
+    });
 });

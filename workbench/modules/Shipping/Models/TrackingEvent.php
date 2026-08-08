@@ -6,7 +6,7 @@ namespace Workbench\Shipping\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Workbench\Shipping\Enums\ShipmentStatus;
+use Workbench\Shipping\Enums\Status;
 
 class TrackingEvent extends Model
 {
@@ -21,7 +21,7 @@ class TrackingEvent extends Model
     protected function casts(): array
     {
         return [
-            'status' => ShipmentStatus::class,
+            'status' => Status::class,
             'occurred_at' => 'datetime',
         ];
     }

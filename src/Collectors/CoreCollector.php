@@ -59,6 +59,7 @@ abstract class CoreCollector
             ->when(is_dir($defaultDir), fn (Collection $dirs) => $dirs->add($defaultDir))
             ->unique()
             ->flatMap(ClassMapGenerator::createMap(...))
+            ->sortKeys()
             ->flip()
             ->merge($additionalClasses) // @phpstan-ignore argument.type
             ->filter(function (string $class) {
@@ -85,8 +86,7 @@ abstract class CoreCollector
     }
 
     /**
-     * Resolve a mixed list of fully-qualified class names and directory paths
-     * into a flat list of class names.
+     * Resolve a mixed list of class names and directory paths into a flat list of class names.
      *
      * @param  list<string>  $entries
      * @return array<int, string>

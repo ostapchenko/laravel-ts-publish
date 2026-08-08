@@ -56,11 +56,8 @@ it('tolerates concurrent writers racing to create the same output directory', fu
         test()->markTestSkipped('pcntl extension is not available.');
     }
 
-    // Regression test for a `mkdir(): File exists` crash: parallel Vite
-    // builds (e.g. ems:build/customer:build) can each shell out to
-    // ts:publish at once, and every concrete Writer shares the same output
-    // tree. Fork several children and release them at the same instant via
-    // a barrier file to maximize the chance of a real collision.
+    // Parallel Vite builds each shell out to ts:publish, and every Writer shares one output tree,
+    // so mkdir() can lose the race. The barrier file releases all children at the same instant.
     $barrier = $this->dir.'.barrier';
     $pids = [];
 

@@ -151,8 +151,7 @@ class Runner extends BaseRunner
     /**
      * Generate the inertia module augmentation file.
      *
-     * Runs before route generation so Inertia.SharedData is defined
-     * before page types reference it.
+     * Runs before route generation so Inertia.SharedData is defined before page types reference it.
      */
     protected function generateInertiaConfig(): void
     {
@@ -241,11 +240,7 @@ class Runner extends BaseRunner
     }
 
     /**
-     * Collect, transform, and write all broadcast event TypeScript interface files.
-     *
-     * Skips when shouldPublishBroadcastEvents is false or broadcast_events is disabled in config.
-     * Writes per-event files, barrel index files, the broadcast-events.ts index, and the
-     * optional echo-broadcast-events.d.ts module augmentation file.
+     * Collect, transform, and write the broadcast event files, their barrels, index, and echo augmentation.
      */
     protected function generateBroadcastEvents(): void
     {

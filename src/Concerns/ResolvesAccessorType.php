@@ -11,8 +11,7 @@ use Illuminate\Support\Str;
 use ReflectionClass;
 
 /**
- * Resolves the TypeScript type of a model accessor or mutator by name,
- * handling both new-style Attribute::make() and old-style get*Attribute() patterns.
+ * Resolves the TypeScript type of a model accessor or mutator by name.
  *
  * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
  */
@@ -34,8 +33,7 @@ trait ResolvesAccessorType
         $newStyle = Str::camel($name);
         $oldStyle = 'get'.Str::studly($name).'Attribute';
 
-        // New-style: protected function titleDisplay(): Attribute
-        // Must invoke via reflection because the method is protected
+        // New-style `protected function titleDisplay(): Attribute` — protected, so invoke via reflection.
         if ($reflectionModel->hasMethod($newStyle)) {
             $method = $reflectionModel->getMethod($newStyle);
 
@@ -48,15 +46,25 @@ trait ResolvesAccessorType
 
                     $getterReturn = LaravelTsPublish::closureReturnedTypes($getter);
 
+                    if ($getterReturn['type'] !== 'unknown' && ! $this->isVagueTsType($getterReturn['type'])) {
+                        return $getterReturn;
+                    }
+
+                    // The docblock may still carry generics the signature erases: Attribute<Collection<int, X>, never>.
+                    $docblockReturn = LaravelTsPublish::attributeDocblockReturnTypes($method);
+
+                    if ($docblockReturn['type'] !== 'unknown' && ! $this->isVagueTsType($docblockReturn['type'])) {
+                        return $docblockReturn;
+                    }
+
                     if ($getterReturn['type'] !== 'unknown') {
                         return $getterReturn;
                     }
 
-                    // read from doc blocks — tries Attribute<Get, Set> first, then @return
-                    return LaravelTsPublish::attributeDocblockReturnTypes($method);
+                    return $docblockReturn;
                 }
 
-                // write-only mutator (set only, no get) — not readable on the model shape
+                // A set-only mutator is not readable, so it contributes nothing to the model shape.
                 return $result;
             }
         }
@@ -71,5 +79,13 @@ trait ResolvesAccessorType
         }
 
         return $result;
+    }
+
+    /**
+     * A "vague" TS type carries no element information, so a docblock generic can usually do better.
+     */
+    protected function isVagueTsType(string $type): bool
+    {
+        return str_contains($type, 'unknown') || $type === 'object';
     }
 }

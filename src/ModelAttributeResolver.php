@@ -9,19 +9,19 @@ use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesAccessorType;
 use AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Str;
 use ReflectionClass;
+use ReflectionNamedType;
 use Throwable;
 
 /**
- * Centralized model attribute → TypeScript type resolver.
+ * Resolves model attributes and relations to TypeScript types via the accessor → cast → DB type waterfall.
  *
- * Encapsulates the "accessor → cast → DB type" waterfall that was previously
- * duplicated across ResolvesModelTypes, ResourceAstAnalyzer, and ModelTransformer.
- *
- * Registered as a singleton so ModelInspector results are cached per FQCN for the
- * duration of the publish run.
+ * Registered as a singleton so inspected model contexts are cached per FQCN for the whole publish run.
  *
  * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
  * @phpstan-import-type AttributeInfo from ModelInfo
@@ -45,18 +45,14 @@ class ModelAttributeResolver
     protected array $contexts = [];
 
     /**
-     * Map from a morphable child model FQCN to the sorted list of parent
-     * model FQCNs that declare a MorphOne/MorphMany pointing at it.
-     *
-     * Built once via buildMorphTargetMap() before model processing begins.
+     * Morphable child model FQCN → sorted parent FQCNs that declare a MorphOne/MorphMany pointing at it.
      *
      * @var array<class-string, list<class-string>>
      */
     protected array $morphTargetMap = [];
 
     /**
-     * Resolve the full TypeScriptTypeInfo for a model attribute through the
-     * accessor → cast → DB type waterfall.
+     * Resolve a model attribute's TypeScript type through the accessor → cast → DB type waterfall.
      *
      * @param  class-string  $modelFqcn
      * @return TypeScriptTypeInfo
@@ -73,12 +69,11 @@ class ModelAttributeResolver
         $attr = $ctx['attributes']->firstWhere('name', $attributeName);
 
         if ($attr === null) {
-            return $empty;
+            return $this->resolveAttributeFallbacks($modelFqcn, $ctx, $attributeName);
         }
 
         $cast = $attr['cast'];
 
-        // 1. Accessor — resolve via reflection to get the getter's return type
         if (($cast === 'attribute' || $cast === 'accessor')) {
             try {
                 $accessorInfo = $this->resolveAccessorType($attributeName, $ctx['instance'], $ctx['reflection']);
@@ -91,14 +86,14 @@ class ModelAttributeResolver
             }
         }
 
-        // 2. Regular cast (enum, date, json, etc.)
         if ($cast !== null && $cast !== '' && $cast !== 'attribute' && $cast !== 'accessor') {
             $tsInfo = LaravelTsPublish::toTsType($cast);
+
+            $tsInfo = $this->refineWithPropertyDocblock($ctx['reflection'], $attributeName, $tsInfo);
 
             return $this->appendNullable($tsInfo, $attr['nullable']);
         }
 
-        // 3. DB column type
         if ($attr['type'] === null || $attr['type'] === '') {
             return $empty;
         }
@@ -109,27 +104,124 @@ class ModelAttributeResolver
             return $empty; // @codeCoverageIgnore
         }
 
+        $tsInfo = $this->refineWithPropertyDocblock($ctx['reflection'], $attributeName, $tsInfo);
+
         return $this->appendNullable($tsInfo, $attr['nullable']);
+    }
+
+    /**
+     * Resolve names that are not literal attributes: camelCase aliases, and withCount()/withExists() virtuals.
+     *
+     * The snake_case fallback is tried first because a same-named accessor is a declared type, while the
+     * suffix fallbacks are a fixed number/boolean guess.
+     *
+     * @param  class-string  $modelFqcn
+     * @param  array{attributes: Collection<int, AttributeInfo>, relations: Collection<int, RelationInfo>, ...}  $ctx
+     * @return TypeScriptTypeInfo
+     */
+    protected function resolveAttributeFallbacks(string $modelFqcn, array $ctx, string $attributeName): array
+    {
+        $empty = LaravelTsPublish::emptyTypeScriptInfo();
+
+        // Guarded on the snake form being a literal attribute, so the recursive call always lands on
+        // resolveAttribute()'s exact-match branch and can never re-enter this method.
+        $snake = Str::snake($attributeName);
+        $snakeAttr = $snake === $attributeName ? null : $ctx['attributes']->firstWhere('name', $snake);
+
+        // Only accessors: Eloquent camel-cases the key when looking for a mutator method, but never when
+        // reading $attributes, so $order->placedAt on a plain placed_at column is null at runtime.
+        if ($snakeAttr !== null && ($snakeAttr['cast'] === 'attribute' || $snakeAttr['cast'] === 'accessor')) {
+            return $this->resolveAttribute($modelFqcn, $snake);
+        }
+
+        // Requires a matching relation, so a real column ending in "_count" is never guessed at here.
+        foreach (['_count' => 'number', '_exists' => 'boolean'] as $suffix => $tsType) {
+            if (! str_ends_with($attributeName, $suffix)) {
+                continue;
+            }
+
+            $base = Str::camel(substr($attributeName, 0, -strlen($suffix)));
+
+            if ($ctx['relations']->firstWhere('name', $base) !== null) {
+                return [...$empty, 'type' => $tsType];
+            }
+        }
+
+        return $empty;
+    }
+
+    /**
+     * Refine a vague resolved type using class-level @property/@property-read
+     * docblock tags (Larastan/ide-helper convention). Child class tags win.
+     *
+     * @param  ReflectionClass<Model>  $reflection
+     * @param  TypeScriptTypeInfo  $tsInfo
+     * @return TypeScriptTypeInfo
+     */
+    protected function refineWithPropertyDocblock(ReflectionClass $reflection, string $attributeName, array $tsInfo): array
+    {
+        if (! str_contains($tsInfo['type'], 'unknown') && $tsInfo['type'] !== 'object') {
+            return $tsInfo;
+        }
+
+        for ($class = $reflection; $class !== false; $class = $class->getParentClass()) {
+            $doc = $class->getDocComment();
+
+            if ($doc === false) {
+                continue;
+            }
+
+            // PHPDoc generics contain spaces (`array<string, string>`), so the type capture cannot be `\S+`.
+            // Excluding `$` and newlines instead of using `.+?` stops it running through a neighbouring
+            // tag's own `$variable` and description text.
+            if (! preg_match(
+                '/@property(?:-read)?[ \t]+([^$\r\n]+?)[ \t]+\$'.preg_quote($attributeName, '/').'\b/',
+                $doc,
+                $m,
+            )) {
+                continue;
+            }
+
+            $useMap = LaravelTsPublish::parseFileUseStatements($class);
+            $namespace = $class->getNamespaceName();
+
+            $infos = [];
+
+            foreach (LaravelTsPublish::splitPhpDocUnionType($m[1]) as $part) {
+                $infos[] = LaravelTsPublish::resolveDocblockTypePart($part, $useMap, $namespace);
+            }
+
+            $resolved = count($infos) === 1 ? $infos[0] : LaravelTsPublish::mergeTypeScriptInfos($infos);
+
+            if (! str_contains($resolved['type'], 'unknown')) {
+                return $resolved;
+            }
+        }
+
+        return $tsInfo;
     }
 
     /**
      * Resolve a relation name to its TypeScript type and related model FQCN.
      *
+     * `morphFqcns` carries every parent a MorphTo may resolve to, because `modelFqcn` can only name one
+     * and every token in the emitted union still needs an import.
+     *
      * @param  class-string  $modelFqcn
-     * @return array{type: string, modelFqcn: class-string<Model>|null}
+     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
      */
     public function resolveRelation(string $modelFqcn, string $relationName): array
     {
         $ctx = $this->resolveContext($modelFqcn);
 
         if ($ctx === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null];
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
         $relation = $ctx['relations']->firstWhere('name', $relationName);
 
         if ($relation === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null];
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
         $isMorphTo = $relation['type'] === 'MorphTo'
@@ -150,7 +242,7 @@ class ModelAttributeResolver
                 $type .= ' | null';
             }
 
-            return ['type' => $type, 'modelFqcn' => null];
+            return ['type' => $type, 'modelFqcn' => null, 'morphFqcns' => $targets];
         }
 
         DependencyRecorder::recordClass($relation['related']);
@@ -159,7 +251,7 @@ class ModelAttributeResolver
         $containsMany = str_contains(strtolower($relation['type']), 'many');
 
         if ($containsMany) {
-            return ['type' => $relatedModel.'[]', 'modelFqcn' => $relation['related']];
+            return ['type' => $relatedModel.'[]', 'modelFqcn' => $relation['related'], 'morphFqcns' => []];
         }
 
         $type = $relatedModel;
@@ -169,7 +261,7 @@ class ModelAttributeResolver
             $type .= ' | null';
         }
 
-        return ['type' => $type, 'modelFqcn' => $relation['related']];
+        return ['type' => $type, 'modelFqcn' => $relation['related'], 'morphFqcns' => []];
     }
 
     /**
@@ -191,9 +283,7 @@ class ModelAttributeResolver
     }
 
     /**
-     * If an attribute is an accessor whose getter returns exactly one Eloquent
-     * Model subclass, return its FQCN. Used as a fallback when the property is
-     * not a database relation.
+     * The single Eloquent Model FQCN an accessor's getter returns, or null when it is not exactly one.
      *
      * @param  class-string  $modelFqcn
      * @return class-string<Model>|null
@@ -206,9 +296,7 @@ class ModelAttributeResolver
     }
 
     /**
-     * Return all Eloquent Model FQCNs that an accessor's getter may return.
-     * Used when an accessor is typed as Attribute<ModelA|ModelB, never> and a
-     * partial filter (->only / ->except) is applied to the result.
+     * Return every Eloquent Model FQCN that an accessor's getter may return.
      *
      * @param  class-string  $modelFqcn
      * @return list<class-string<Model>>
@@ -236,11 +324,8 @@ class ModelAttributeResolver
                 fn (string $fqcn) => is_a($fqcn, Model::class, true),
             ));
 
-            // An accessor-returned model reached here is inlined into a resource's
-            // output when the resource applies ->only()/->except() to it (its
-            // column/cast types become an anonymous object shape). Its source file
-            // is therefore a real cache dependency — record it, mirroring how
-            // resolveRelation() records related models.
+            // These models get inlined into a resource by ->only()/->except(), so their files are real
+            // cache dependencies.
             foreach ($fqcns as $fqcn) {
                 DependencyRecorder::recordClass($fqcn);
             }
@@ -295,12 +380,7 @@ class ModelAttributeResolver
     }
 
     /**
-     * Scan all configured models' relations to build the morph target map.
-     *
-     * For each model that declares a MorphOne or MorphMany relation, the
-     * related (child) model is recorded as being morphable by the declaring
-     * (parent) model.  The resulting map lets getMorphToTargets() resolve
-     * MorphTo relations to precise union types instead of `unknown`.
+     * Scan every model's MorphOne/MorphMany relations to build the child → parents morph target map.
      *
      * @param  list<class-string>  $modelFqcns  All model FQCNs that will be processed.
      */
@@ -317,7 +397,7 @@ class ModelAttributeResolver
             }
 
             foreach ($ctx['relations'] as $relation) {
-                if ($relation['type'] !== 'MorphOne' && $relation['type'] !== 'MorphMany') {
+                if (! $this->isMorphParentRelation($parentFqcn, $relation)) {
                     continue;
                 }
 
@@ -335,13 +415,43 @@ class ModelAttributeResolver
             }
         }
 
-        // Sort each target list alphabetically for deterministic output.
+        // Sorted so the generated union type is stable across runs.
         foreach ($map as $childFqcn => $parents) {
             sort($parents);
             $map[$childFqcn] = $parents;
         }
 
         $this->morphTargetMap = $map;
+    }
+
+    /**
+     * Whether a relation is a morph parent, counting custom subclasses of MorphOne/MorphMany.
+     *
+     * @param  class-string  $parentFqcn
+     * @param  RelationInfo  $relation
+     */
+    protected function isMorphParentRelation(string $parentFqcn, array $relation): bool
+    {
+        if ($relation['type'] === 'MorphOne' || $relation['type'] === 'MorphMany') {
+            return true;
+        }
+
+        $reflection = $this->getReflection($parentFqcn);
+
+        if ($reflection === null || ! $reflection->hasMethod($relation['name'])) {
+            return false;
+        }
+
+        $returnType = $reflection->getMethod($relation['name'])->getReturnType();
+
+        if (! $returnType instanceof ReflectionNamedType || $returnType->isBuiltin()) {
+            return false;
+        }
+
+        $fqcn = $returnType->getName();
+
+        return is_a($fqcn, MorphOne::class, true)
+            || is_a($fqcn, MorphMany::class, true);
     }
 
     /**

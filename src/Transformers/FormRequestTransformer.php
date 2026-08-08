@@ -84,7 +84,6 @@ class FormRequestTransformer extends CoreTransformer
      */
     protected array $tsExtendsImports = [];
 
-    /** Reflection of the form request class, shared across transformation steps. */
     /** @var ReflectionClass<FormRequest> */
     protected ReflectionClass $reflection;
 
@@ -187,10 +186,6 @@ class FormRequestTransformer extends CoreTransformer
 
     /**
      * Apply #[TsCasts] type overrides to already-analyzed fields.
-     *
-     * Iterates the resolved fields and replaces tsType for any field whose
-     * fieldPath has an entry in $this->tsTypeOverrides. Also applies optional
-     * overrides, mapping optional: true to isRequired: false and vice versa.
      */
     protected function applyTsCastsOverrides(): self
     {
@@ -212,8 +207,7 @@ class FormRequestTransformer extends CoreTransformer
     }
 
     /**
-     * Build the TypeScript type import map from TsCasts import-path overrides
-     * and store the result in $this->typeImports.
+     * Build the TypeScript type import map from TsCasts and TsExtends import paths.
      */
     protected function buildTypeImports(): self
     {
@@ -230,7 +224,6 @@ class FormRequestTransformer extends CoreTransformer
             }
         }
 
-        // Include import paths declared via TsExtends attributes and config
         foreach ($this->tsExtendsImports as $importPath => $typeNames) {
             foreach ($typeNames as $typeName) {
                 $imports[$importPath][] = $typeName;

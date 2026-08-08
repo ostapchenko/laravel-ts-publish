@@ -28,7 +28,6 @@ use Throwable;
 
 abstract class BaseRunner
 {
-    /** Services */
     protected BarrelWriter $barrelWriter;
 
     protected GlobalsWriter $globalsWriter;
@@ -50,15 +49,11 @@ abstract class BaseRunner
 
     public bool $shouldPublishBroadcastEvents = true;
 
-    /** Enums */
-
     /** @var Collection<int, EnumGenerator> */
     public protected(set) Collection $enumGenerators;
 
     /** @var array<string, string> Barrel contents keyed by namespace path */
     public protected(set) array $enumModularBarrels = [];
-
-    /** Models */
 
     /** @var Collection<int, ModelGenerator> */
     public protected(set) Collection $modelGenerators;
@@ -66,15 +61,11 @@ abstract class BaseRunner
     /** @var array<string, string> Barrel contents keyed by namespace path */
     public protected(set) array $modelModularBarrels = [];
 
-    /** Resources */
-
     /** @var Collection<int, ResourceGenerator> */
     public protected(set) Collection $resourceGenerators;
 
     /** @var array<string, string> Barrel contents keyed by namespace path */
     public protected(set) array $resourceModularBarrels = [];
-
-    /** Routes */
 
     /** @var Collection<int, RouteGenerator> */
     public protected(set) Collection $routeGenerators;
@@ -82,18 +73,13 @@ abstract class BaseRunner
     /** @var array<string, string> Barrel contents keyed by namespace path */
     public protected(set) array $routeModularBarrels = [];
 
-    /** Form Requests */
-
     /** @var Collection<int, FormRequestGenerator> */
     public protected(set) Collection $formRequestGenerators;
 
     /** @var array<string, string> Barrel contents keyed by namespace path */
     public protected(set) array $formRequestModularBarrels = [];
 
-    /** Broadcast Channels */
     public protected(set) string $broadcastChannelsContent = '';
-
-    /** Broadcast Events */
 
     /** @var Collection<int, BroadcastEventGenerator> */
     public protected(set) Collection $broadcastEventGenerators;
@@ -148,14 +134,7 @@ abstract class BaseRunner
     }
 
     /**
-     * Build a generator for $fqcn, reusing the cached snapshot when its stored
-     * dependencies are unchanged and its outputs still exist. On a miss, build
-     * normally (transform + write) and record a fresh snapshot.
-     *
-     * The HIT fingerprint is recomputed over the SAME dependency paths recorded
-     * on the last build, so editing any dependency (the class's own file, its
-     * reflection ancestry, a related model, or a nested resource) changes a
-     * hash_file result, flips the fingerprint, and forces a rebuild.
+     * Build a generator for $fqcn, reusing the cached snapshot when its recorded dependencies are unchanged.
      *
      * @template T of CoreGenerator
      *
@@ -164,11 +143,8 @@ abstract class BaseRunner
      */
     protected function cachedGenerate(string $fqcn, string $generatorClass): CoreGenerator
     {
-        // No cache (disabled or --source), or a custom generator that cannot be
-        // rehydrated from a snapshot: build normally, no recording. Guarding on
-        // fromCache() keeps a custom `*.generator_class` that does not use the
-        // RehydratesFromCache trait from fatally calling an undefined
-        // ::fromCache() on a later cache hit.
+        // A custom `*.generator_class` need not use the RehydratesFromCache trait, so guard on fromCache()
+        // before a later hit tries to call it.
         if ($this->manifest === null || ! method_exists($generatorClass, 'fromCache')) {
             /** @var T $generator */
             $generator = resolve($generatorClass, ['findable' => $fqcn]);
@@ -178,14 +154,12 @@ abstract class BaseRunner
 
         $this->manifest->markSeen($fqcn);
 
-        // Fold a non-file signature (e.g. route definitions read from the router)
-        // into the fingerprint so inputs that live outside any class file still
-        // bust the cache. Empty for generators that do not provide one.
+        // Folds inputs living outside any class file (e.g. route definitions) into the fingerprint.
         $signature = is_subclass_of($generatorClass, ProvidesCacheSignature::class, true)
             ? $generatorClass::cacheSignature($fqcn)
             : '';
 
-        // HIT: recompute the fingerprint over the previously recorded deps + signature.
+        // Recomputed over the deps recorded on the last build, so editing any of them flips the fingerprint.
         $storedDeps = $this->manifest->deps($fqcn);
 
         if ($storedDeps !== [] && $this->manifest->hit($fqcn, Fingerprinter::fromPaths($storedDeps, $signature))) {
@@ -212,7 +186,6 @@ abstract class BaseRunner
             }
         }
 
-        // MISS: build normally while recording dependencies + outputs.
         DependencyRecorder::start();
         DependencyRecorder::recordClass($fqcn);
         OutputRecorder::start();
@@ -234,10 +207,7 @@ abstract class BaseRunner
         try {
             $snapshot = base64_encode(serialize($transformer));
         } catch (Throwable) {
-            // A transformer holding a non-serializable value cannot be cached;
-            // skip recording it (this class simply rebuilds next run) rather than
-            // crashing the publish. Caching is best-effort and must never break
-            // generation.
+            // Caching is best-effort: a transformer holding a non-serializable value just rebuilds next run.
             return $generator;
         }
 
@@ -266,8 +236,6 @@ abstract class BaseRunner
         /** @var list<class-string> $modelClasses */
         $modelClasses = $collector->collect()->all();
 
-        // Pre-scan all models to build the morph target map so that MorphTo
-        // relations can be resolved to precise union types.
         resolve(ModelAttributeResolver::class)->buildMorphTargetMap($modelClasses);
 
         return $modelClasses;

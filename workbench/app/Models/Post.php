@@ -15,7 +15,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Status;
 use Workbench\App\Enums\Visibility;
+use Workbench\App\Relations\MorphOneAttachment;
 
+/**
+ * @property array<string, string>|null $options
+ */
 class Post extends Model
 {
     use SoftDeletes;
@@ -108,6 +112,20 @@ class Post extends Model
     public function images(): MorphMany
     {
         return $this->morphMany(Image::class, 'imageable');
+    }
+
+    /** Polymorphic attachment via a custom MorphOne subclass */
+    public function attachment(): MorphOneAttachment
+    {
+        $morphOne = $this->morphOne(Attachment::class, 'attachable');
+
+        return new MorphOneAttachment(
+            $morphOne->getQuery(),
+            $this,
+            'attachable_type',
+            'attachable_id',
+            'id',
+        );
     }
 
     public function publishable(): bool
