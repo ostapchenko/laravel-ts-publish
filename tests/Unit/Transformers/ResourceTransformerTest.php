@@ -664,25 +664,21 @@ describe('ResourceTransformer imports', function () {
         expect($data->typeImports['.'])->toContain('UserResource');
     });
 
-    test('CommentResource has model imports from relation filter (post_limited)', function () {
+    test('CommentResource has enum imports from inline relation filter (post_extended)', function () {
         $data = (new ResourceTransformer(CommentResource::class))->data();
 
-        // post_limited = $this->post->only(['id', 'title']) — both keys are plain Post columns, so this
-        // now references the Post model interface instead of an inline shape, adding a Post import.
-        expect($data->properties['post_limited']['type'])->toBe("Pick<Post, 'id' | 'title'>");
+        // post_extended = $this->post?->except(['created_at', 'updated_at']) now references the Post
+        // model interface via Omit<> instead of an inline enum-casted shape. VisibilityType/PriorityType
+        // were only ever needed by the old inline shape and are gone from this resource's own imports —
+        // Post's own generated file carries them now. StatusType survives because resolvable_status
+        // (unrelated) still annotates a closure return type as Status directly.
+        expect($data->properties['post_extended']['type'])->toBe("Omit<Post, 'created_at' | 'updated_at'> | null");
         expect($data->typeImports)->toHaveKey('../../models');
         expect($data->typeImports['../../models'])->toContain('Post');
-
-        // post_extended = $this->post?->except(['created_at', 'updated_at']) stays on inline expansion:
-        // Post has mutators/relations that Omit<Post, ...> can't see under the default model-split
-        // template, so the analyzer keeps the existing enum-casted inline shape rather than risk dropping
-        // them — VisibilityType/PriorityType/StatusType imports are therefore unchanged.
-        expect($data->properties['post_extended']['type'])->not->toContain('Omit<');
         expect($data->typeImports)->toHaveKey('../../enums');
-        expect($data->typeImports['../../enums'])
-            ->toContain('StatusType')
-            ->toContain('VisibilityType')
-            ->toContain('PriorityType');
+        expect($data->typeImports['../../enums'])->toContain('StatusType')
+            ->not->toContain('VisibilityType')
+            ->not->toContain('PriorityType');
         expect($data->valueImports)->toBeEmpty();
     });
 
@@ -1620,39 +1616,31 @@ describe('ResourceTransformer TsExtends BFS trait deduplication', function () {
 });
 
 describe('ResourceTransformer with InvoiceResource', function () {
-    test('latest_payment_only references the Payment model via Pick', function () {
+    test('has enum imports from accessor model filter (latest_payment_only)', function () {
         $data = (new ResourceTransformer(InvoiceResource::class))->data();
 
-        // Every only() key on the latest_payment accessor (which returns ?Payment) is a plain Payment
-        // column, so this now references the emitted Payment model interface directly — Payment's own
-        // generated file carries PaymentStatus/PaymentMethod/Currency internally, so the resource itself
-        // no longer needs to import those enums for this property (superseding the old inline-shape import).
+        // Both latest_payment_only and latest_payment_excluded (the latest_payment accessor returns
+        // ?Payment) now reference the Payment model interface via Pick<>/Omit<> instead of an inline
+        // shape — Payment's own generated file carries PaymentStatus/PaymentMethod/Currency internally,
+        // so this resource no longer needs to import those enums itself.
         expect($data->properties['latest_payment_only']['type'])->toBe(
             "Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
         );
+        expect($data->properties['latest_payment_excluded']['type'])->toBe(
+            "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
+        );
     });
 
-    test('latest_payment_excluded stays on inline expansion because Payment has relations', function () {
+    test('has model imports from accessor model filter (latest_payment_excluded)', function () {
         $data = (new ResourceTransformer(InvoiceResource::class))->data();
 
-        // Payment has a mutator (dueNotice) and a relation (invoice) beyond its columns, which the default
-        // model-split template puts in separate PaymentMutators/PaymentRelations interfaces — an
-        // Omit<Payment, ...> reference can't see those, so the analyzer keeps the lossless inline shape.
-        expect($data->properties['latest_payment_excluded']['type'])
-            ->not->toContain('Omit<')
-            ->toContain('due_notice')
-            ->toContain('invoice: Invoice');
-    });
-
-    test('has model imports from accessor model filter', function () {
-        $data = (new ResourceTransformer(InvoiceResource::class))->data();
-
-        // latest_payment_only's Pick<Payment, ...> adds a Payment import; latest_payment_excluded's
-        // still-inline expansion keeps embedding the Invoice FQCN via its 'invoice' relation property, so
-        // both remain imported.
+        // The old inline expansion of latest_payment_excluded embedded the Invoice FQCN (via its
+        // 'invoice' relation property); Omit<Payment, ...> only needs Payment itself, so Invoice is no
+        // longer imported here — that relation lives in Payment's own generated file now (and,
+        // separately, was never something Model::except() actually returned at runtime — see
+        // tests/Feature/ModelOnlyExceptSemanticsTest.php).
         expect($data->typeImports)->toHaveKey('../../models');
-        expect($data->typeImports['../../models'])->toContain('Payment')
-            ->toContain('Invoice');
+        expect($data->typeImports['../../models'])->toContain('Payment');
     });
 });
 

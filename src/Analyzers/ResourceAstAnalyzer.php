@@ -2745,11 +2745,14 @@ class ResourceAstAnalyzer
      * single source of truth. Returns null when any key is not a column — callers fall back to inline
      * expansion (e.g. the key is an accessor/mutator, or names a relation instead of a column).
      *
-     * Pick<> only ever needs the picked keys, which are always columns present on the bare model interface
-     * regardless of model template — always safe. Omit<> exposes every other member too, so it additionally
-     * requires the bare model interface to be complete (see ModelAttributeResolver::baseModelInterfaceIsComplete());
-     * otherwise it would silently drop mutators/relations the inline expansion used to include, so this
-     * falls back to inline instead.
+     * Both wrappers target the bare model interface (columns only) unconditionally. This matches
+     * Eloquent's actual runtime behaviour, not just a convenient simplification: HasAttributes::except()
+     * iterates only $this->getAttributes() — relations live in a separate $this->relations property it
+     * never reads — and HasAttributes::mergeAttributeFromAttributeCasts() explicitly refuses to merge a
+     * get-only Attribute cast's cached value back into $this->attributes, so except() can never surface
+     * one even after it has been accessed. Verified empirically in
+     * tests/Feature/ModelOnlyExceptSemanticsTest.php against a real, DB-fetched model with a loaded
+     * relation and touched accessors. See docs/components/resource-ast-analyzer.md.
      *
      * @param  class-string<Model>  $modelFqcn
      * @param  list<string>  $keys
@@ -2767,10 +2770,6 @@ class ResourceAstAnalyzer
             if (! in_array($key, $columns, true)) {
                 return null;
             }
-        }
-
-        if (! $include && ! $resolver->baseModelInterfaceIsComplete($modelFqcn, $columns)) {
-            return null;
         }
 
         $quoted = implode(' | ', array_map(fn (string $k): string => "'".$k."'", $keys));

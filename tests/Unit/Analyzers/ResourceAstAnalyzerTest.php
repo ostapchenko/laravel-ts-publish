@@ -834,34 +834,33 @@ describe('ResourceAstAnalyzer with InvoiceResource', function () {
         );
     });
 
-    test('latest_payment_excluded stays on inline expansion because Payment has relations', function () {
-        // Payment has a mutator (dueNotice) and a relation (invoice) beyond its columns. Under the default
-        // model-split template those live in separate PaymentMutators/PaymentRelations interfaces that
-        // Omit<Payment, ...> cannot see, so referencing bare Payment would silently drop them — the
-        // analyzer detects this (baseModelInterfaceIsComplete()) and keeps the safe inline expansion.
+    test('latest_payment_excluded references the Payment model via Omit', function () {
+        // Every except() key is also a plain Payment column, so this references the model interface too.
+        // Omit<Payment, ...> targets the bare (columns-only) Payment interface, matching Eloquent's actual
+        // Model::except() runtime behavior — it never returns dueNotice (a mutator) or invoice (a
+        // relation) regardless of the excluded keys, see tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'latest_payment_excluded');
 
-        expect($prop['type'])
-            ->not->toContain('Omit<')
-            ->toContain('due_notice')
-            ->toContain('invoice: Invoice')
-            ->toContain('| null');
+        expect($prop['type'])->toBe(
+            "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
+        );
     });
 
-    test('Pick accessor model filter registers the Payment modelFqcn for import', function () {
-        // Superseded the old embedded enum/model FQCN assertions for latest_payment_only (PaymentStatus/
-        // PaymentMethod/Currency embedded within the old inline shape): it now only needs to import Payment
-        // itself — its own generated file already carries those enum imports. latest_payment_excluded is
-        // unaffected (still inline, see the test above) so it does not register a modelFqcn here.
+    test('Pick/Omit accessor model filters register the Payment modelFqcn for import', function () {
+        // Superseded the old embedded enum/model FQCN assertions (PaymentStatus/PaymentMethod/Currency and
+        // a self-keyed Invoice FQCN embedded within the old inline shape): the resource now only needs to
+        // import Payment itself — its own generated file already carries those enum and model imports.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
-        expect($analysis->modelFqcns)->toHaveKey('latest_payment_only', Payment::class);
+        expect($analysis->modelFqcns)
+            ->toHaveKey('latest_payment_only', Payment::class)
+            ->toHaveKey('latest_payment_excluded', Payment::class);
     });
 });
 
@@ -980,35 +979,33 @@ describe('ResourceAstAnalyzer with OrderItemResource', function () {
         expect($orderLimited['type'])->toBe("Pick<Order, 'id' | 'total'> | null");
     });
 
-    test('order_extended except() stays on inline expansion because Order has relations', function () {
+    test('order_extended except() with all-column keys references the Order model via Omit', function () {
         // order_extended = $this->order->except('created_at', 'updated_at') — both excluded keys are plain
-        // Order columns, but Order also has mutators (item_count, sorted_items, ...) and relations (user,
-        // items) that live in separate Order Mutators/Relations interfaces under the default model-split
-        // template — Omit<Order, ...> can't see those, so the analyzer keeps the safe inline expansion
-        // instead of silently dropping them (see ModelAttributeResolver::baseModelInterfaceIsComplete()).
+        // Order columns, so the emitted type omits them from the (columns-only) Order model interface.
+        // Order also has mutators (item_count, sorted_items, ...) and relations (user, items), but
+        // Model::except() never returns those at runtime regardless — see
+        // tests/Feature/ModelOnlyExceptSemanticsTest.php — so Omit<Order, ...> matches ground truth, and
+        // the old inline expansion (which used to include them) was the inaccurate one.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
         $orderExtended = collect($analysis->properties)->firstWhere('name', 'order_extended');
 
-        expect($orderExtended['type'])
-            ->not->toContain('Omit<')
-            ->not->toContain('created_at')
-            ->not->toContain('updated_at')
-            ->toContain('item_count')
-            ->toContain('items: OrderItem[]');
+        expect($orderExtended['type'])->toBe("Omit<Order, 'created_at' | 'updated_at'>");
     });
 
-    test('Pick relation filter registers the Order modelFqcn for import', function () {
-        // Superseded the old embedded enum/model FQCN assertions for order_limited (OrderStatus/
-        // PaymentMethod/Currency embedded within the old inline shape): it now only needs to import Order
-        // itself. order_extended is unaffected (still inline, see the test above).
+    test('Pick/Omit relation filters register the Order modelFqcn for import', function () {
+        // Superseded the old embedded enum/model FQCN assertions: the inline expansion used to pull in
+        // OrderStatus/PaymentMethod/Currency and the User/OrderItem FQCNs embedded within it directly.
+        // Now the resource only needs to import Order itself.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
-        expect($analysis->modelFqcns)->toHaveKey('order_limited', Order::class);
+        expect($analysis->modelFqcns)
+            ->toHaveKey('order_limited', Order::class)
+            ->toHaveKey('order_extended', Order::class);
     });
 });
 
@@ -1022,48 +1019,33 @@ describe('relation filters reference the emitted model interface', function () {
         expect($props['post_limited']['type'])->toBe("Pick<Post, 'id' | 'title'>");
     });
 
-    test('except() on a belongsTo with relations stays on inline expansion by default', function () {
+    test('except() on a nullsafe belongsTo with all-column keys emits Omit of the model, nullable', function () {
         // CommentResource: post_extended = $this->post?->except(['created_at', 'updated_at']). Post has
-        // mutators (title_display, excerpt, ...) and relations (author, comments, ...) that live in
-        // separate PostMutators/PostRelations interfaces under the default model-split template — an
-        // Omit<Post, ...> reference can't see those, so the analyzer keeps the lossless inline expansion.
+        // mutators (title_display, excerpt, ...) and relations (author, comments, ...) beyond its columns,
+        // but Omit<Post, ...> targets the (columns-only) Post interface unconditionally — that matches
+        // Eloquent's actual Model::except() runtime behavior, which never returns a mutator or relation
+        // regardless of the excluded keys. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 
-        expect($props['post_extended']['type'])
-            ->not->toContain('Omit<')
-            ->toContain('author: User')
-            ->toContain('title_display')
-            ->toEndWith('| null');
+        expect($props['post_extended']['type'])->toStartWith('Omit<Post, ')
+            ->and($props['post_extended']['type'])->toContain("'created_at'")
+            ->and($props['post_extended']['type'])->toContain("'updated_at'")
+            ->and($props['post_extended']['type'])->toEndWith('| null');
     });
 
-    test('except() references the model directly when the model-full template is configured', function () {
-        // Under the model-full template the base model interface already merges columns, mutators, and
-        // relations, so Omit<Post, ...> is safe even though Post has both — proves
-        // baseModelInterfaceIsComplete() actually flips the decision rather than always being false.
-        config()->set('ts-publish.models.template', 'laravel-ts-publish::model-full');
-
-        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
-        $props = collect($analyzer->analyze()->properties)->keyBy('name');
-
-        expect($props['post_extended']['type'])->toBe("Omit<Post, 'created_at' | 'updated_at'> | null");
-    });
-
-    test('post_limited registers Post as its modelFqcn for import', function () {
-        // post_extended does not (it stays on inline expansion by default — see the test above).
+    test('post_limited and post_extended register Post as their modelFqcn for import', function () {
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
         $analysis = $analyzer->analyze();
 
-        expect($analysis->modelFqcns)->toHaveKey('post_limited', Post::class);
+        expect($analysis->modelFqcns)
+            ->toHaveKey('post_limited', Post::class)
+            ->toHaveKey('post_extended', Post::class);
     });
 
     test('only() keeps keys quoted and unions them', function () {
         // OrderItemResource: order_extended = $this->order->except('created_at', 'updated_at') — variadic
         // args, not nullsafe, so no ' | null' suffix on this one (order_limited covers the nullsafe case).
-        // Order has relations, so this needs the model-full override to make Omit<> safe (see the
-        // 'stays on inline expansion by default' test above for the split-template fallback).
-        config()->set('ts-publish.models.template', 'laravel-ts-publish::model-full');
-
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(OrderItemResource::class), OrderItem::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 

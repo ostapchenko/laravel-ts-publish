@@ -2,8 +2,7 @@ import { type AsEnum } from '@tolki/ts';
 
 import { InvoiceStatus } from '../../enums';
 import type { User } from '../../../app/models';
-import type { DueAtNoticeType } from '../../enums';
-import type { Invoice, Payment } from '../../models';
+import type { Payment } from '../../models';
 import type { PaymentResource } from '.';
 
 /**
@@ -29,5 +28,5 @@ export interface InvoiceResource
     payments_count?: number;
     notes?: string | null;
     latest_payment_only: Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
-    latest_payment_excluded: { id: number; created_at: string | null; updated_at: string | null; due_notice: DueAtNoticeType; invoice: Invoice } | null;
+    latest_payment_excluded: Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
 }

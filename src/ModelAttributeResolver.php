@@ -390,37 +390,6 @@ class ModelAttributeResolver
     }
 
     /**
-     * Whether the bare model interface's `keyof` already spans every column, mutator, and relation —
-     * i.e. whether an Omit<Model, …> reference is safe to build from the bare model name alone.
-     *
-     * The shipped `model-full` template merges everything into one interface, so the bare name always
-     * qualifies there. The default `model-split` template only does when the model has nothing beyond
-     * columns — once it has a mutator or relation, those live in separate `{Model}Mutators`/
-     * `{Model}Relations` interfaces (combined only in `{Model}All`) that this package has no plumbing to
-     * import under a name distinct from the bare model, so an Omit<> built from the bare name there would
-     * silently drop them. Custom templates are treated the same as split, conservatively: false unless
-     * proven otherwise.
-     *
-     * @param  class-string  $modelFqcn
-     * @param  list<string>  $columns  pass the caller's already-resolved {@see databaseColumnNames()} result
-     */
-    public function baseModelInterfaceIsComplete(string $modelFqcn, array $columns): bool
-    {
-        $attributes = $this->getAttributes($modelFqcn);
-        $relations = $this->getRelations($modelFqcn);
-
-        $hasNonColumnMembers = ($attributes !== null && $attributes->contains(
-            fn (array $attr): bool => ! in_array($attr['name'], $columns, true),
-        )) || ($relations !== null && $relations->isNotEmpty());
-
-        if (! $hasNonColumnMembers) {
-            return true;
-        }
-
-        return Config::string('ts-publish.models.template') === 'laravel-ts-publish::model-full';
-    }
-
-    /**
      * @param  class-string  $modelFqcn
      */
     public function getRelationNullable(string $modelFqcn): ?RelationNullable
