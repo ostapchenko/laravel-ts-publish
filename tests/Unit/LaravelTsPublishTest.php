@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Casts\AsCollection;
+use Illuminate\Database\Eloquent\Casts\AsEncryptedCollection;
 use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -303,6 +304,13 @@ describe('castable-with-arguments cast strings', function () {
 
     test('an unresolvable AsEnumCollection argument degrades via the exact map, not a crash', function () {
         expect($this->service->toTsType(AsEnumCollection::class.':NotARealEnum')['type'])
+            ->toBe('unknown[]');
+    });
+
+    test('AsEncryptedCollection with arguments degrades gracefully via the final branch', function () {
+        // AsEncryptedCollection does not extend AsCollection (verified against vendor source), so it
+        // falls through resolveCastWithArguments()'s final branch — the bare-class exact map match.
+        expect($this->service->toTsType(AsEncryptedCollection::class.':,'.GridConfigDto::class)['type'])
             ->toBe('unknown[]');
     });
 
