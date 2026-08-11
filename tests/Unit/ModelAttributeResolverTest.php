@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Workbench\App\Models\Admin\Store;
 use Workbench\App\Models\Attachment;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
@@ -15,6 +16,7 @@ use Workbench\App\Models\Product;
 use Workbench\App\Models\PropertyDocblockBase;
 use Workbench\App\Models\PropertyDocblockChild;
 use Workbench\App\Models\PropertyDocblockEdge;
+use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
 
 test('resolveAttribute returns empty info for non-existent model class', function () {
@@ -213,6 +215,16 @@ test('accessor with vague closure type is refined by Attribute docblock generics
     expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>');
 });
 
+test('trait-declared accessor generics resolve through the trait file imports, not the model file', function () {
+    // summaryItems() is declared on the HasSummaries trait, which imports Store; Order itself
+    // never imports Store and lives in a different namespace, so only the trait file's use-map can resolve it.
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'summary_items');
+
+    expect($info['type'])->toBe('Store[] | Record<string, Store>')
+        ->and($info['classFqcns'])->toBe([Store::class]);
+});
+
 test('accessor with @phpstan-return docblock resolves through docblock', function () {
     $info = resolve(ModelAttributeResolver::class)
         ->resolveAttribute(Order::class, 'score_map');
@@ -293,6 +305,16 @@ describe('@property docblock refinement', function () {
 
         expect($info['type'])->toBe('User | null')
             ->and($info['classFqcns'])->toBe([User::class]);
+    });
+
+    test('an imported @phpstan-type alias in @property resolves to its shape, keeping optional keys', function () {
+        // grid_config's @property tags a GridConfig alias imported from GridConfigDto via
+        // @phpstan-import-type; the alias must expand inline rather than degrade to unknown[].
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'grid_config');
+
+        expect($info['type'])
+            ->toBe('{ filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null');
     });
 
     test('an unrecognized generic container degrades to the pre-existing vague type instead of partial-matching', function () {

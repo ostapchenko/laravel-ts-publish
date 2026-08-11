@@ -30,6 +30,7 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\User;
 use Workbench\App\ValueObjects\ArrayableData;
+use Workbench\App\ValueObjects\GridConfigDto;
 use Workbench\App\ValueObjects\Money;
 use Workbench\Shipping\Enums\Status as ShippingStatus;
 
@@ -946,6 +947,50 @@ describe('parseArrayShapeToTsTypes', function () {
         $result = $this->service->parseArrayShapeToTsTypes('array{x: SomeGeneric<int, Foo>}', [], '');
 
         expect($result)->toBe(['x' => 'unknown']);
+    });
+
+    test('an optional key keeps its `?` in the returned map instead of being stripped', function () {
+        $result = $this->service->parseArrayShapeToTsTypes('array{required: int, optional?: string}', [], '');
+
+        expect($result)->toBe(['required' => 'number', 'optional?' => 'string']);
+    });
+});
+
+describe('phpstan type aliases', function () {
+    test('a locally-defined alias resolves', function () {
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'GridConfig', new ReflectionClass(GridConfigDto::class),
+        );
+
+        expect($alias)->not->toBeNull()
+            ->and($alias['definition'])->toContain('filters?')
+            ->and($alias['class']->getName())->toBe(GridConfigDto::class);
+    });
+
+    test('an unknown alias name resolves to null', function () {
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'NoSuchAlias', new ReflectionClass(GridConfigDto::class),
+        );
+
+        expect($alias)->toBeNull();
+    });
+
+    test('a multiline alias definition is walked to its closing brace', function () {
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'MultilineAlias', new ReflectionClass(PhpstanTypeAliasMultilineHost::class),
+        );
+
+        expect($alias)->not->toBeNull()
+            ->and($alias['definition'])->toContain('first: string')
+            ->and($alias['definition'])->toContain('second: int');
+    });
+
+    test('a cyclical @phpstan-import-type chain terminates instead of recursing forever', function () {
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'LoopAlias', new ReflectionClass(PhpstanTypeAliasCycleA::class),
+        );
+
+        expect($alias)->toBeNull();
     });
 });
 
@@ -2306,3 +2351,29 @@ class AttributeDocblockClass
         return null;
     }
 }
+
+/**
+ * A @phpstan-type definition spanning multiple docblock lines, proving resolvePhpstanTypeAlias()
+ * walks lines until the array{...} shape's brace depth closes rather than truncating at the first.
+ *
+ * @phpstan-type MultilineAlias array{
+ *     first: string,
+ *     second: int,
+ * }
+ */
+class PhpstanTypeAliasMultilineHost {}
+
+/**
+ * Half of a mutual @phpstan-import-type cycle: LoopAlias here is imported from CycleB, which
+ * imports it back from here — resolvePhpstanTypeAlias() must terminate instead of recursing forever.
+ *
+ * @phpstan-import-type LoopAlias from PhpstanTypeAliasCycleB
+ */
+class PhpstanTypeAliasCycleA {}
+
+/**
+ * The other half of the mutual @phpstan-import-type cycle.
+ *
+ * @phpstan-import-type LoopAlias from PhpstanTypeAliasCycleA
+ */
+class PhpstanTypeAliasCycleB {}

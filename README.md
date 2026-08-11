@@ -323,8 +323,25 @@ class Message extends Model { ... }
 
 `$to` and `$headers` now generate as `string[] | null` and `Record<string, string> | null` instead of `unknown[] | null` — and it types the same property for PHPStan/Larastan too. The tag only takes effect when the waterfall's own result is vague, so it never overrides a type already resolved specifically (an accessor's return type, an enum cast, a custom `CastsAttributes` class, etc.), and a subclass's own tag wins over one declared on a parent.
 
+### Typing json columns with `@phpstan-type` aliases
+
+For a shape complex enough to deserve a name, define it once as a `@phpstan-type` on the DTO that owns it, then pull it into the model with `@phpstan-import-type`:
+
+```php
+/** @phpstan-type PresetConfig array{filters?: array<string, mixed>, sorts?: list<string>} */
+final readonly class PresetDto { ... }
+
+/**
+ * @phpstan-import-type PresetConfig from PresetDto
+ * @property PresetConfig|null $config
+ */
+class Preset extends Model { ... }
+```
+
+`$config` generates as `{ filters?: Record<string, unknown>; sorts?: string[] } | null` — the alias expands inline (no import of `PresetDto` itself is emitted, since only its shape is used), optional keys keep their `?`, and PHPStan validates the same alias. `@phpstan-import-type ... as Alias` and `@psalm-type`/`@psalm-import-type` are both recognized, an alias may reference another imported alias, and a cyclical import degrades to `unknown` rather than hanging the publish run. This is the preferred path over `#[TsCasts]` for a shape that's already worth documenting for static analysis.
+
 > [!TIP]
-> Before reaching for `#[TsCasts]`, check whether the generator can already infer the type on its own: a `@return`/`@phpstan-return` docblock on an accessor (generics included, e.g. `Collection<int, LineItem>`), or a class-level `@property` tag as above, is often enough. Both are read by PHPStan/Larastan too, so they're checked by static analysis in a way a package-specific attribute isn't.
+> Before reaching for `#[TsCasts]`, check whether the generator can already infer the type on its own: a `@return`/`@phpstan-return` docblock on an accessor (generics included, e.g. `Collection<int, LineItem>`), a class-level `@property` tag, or a `@phpstan-type`/`@phpstan-import-type` alias as above, is often enough. All three are read by PHPStan/Larastan too, so they're checked by static analysis in a way a package-specific attribute isn't.
 > 
 > `#[TsCasts]` is still the right tool when a shape is genuinely dynamic (keys built at runtime) or the type is owned by the frontend and needs its own import.
 

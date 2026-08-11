@@ -1,5 +1,6 @@
 import type { CurrencyType, OrderStatusType, PaymentMethodType } from '../../enums';
 import type { OrderItem, User } from '../../models';
+import type { Store } from '../../models/admin';
 
 /**
  * Exercises return $this->except([...]) as a direct return.
@@ -38,6 +39,7 @@ export interface OrderExceptResource
     listed_items: OrderItem[];
     unsorted_items: unknown[] | Record<string, unknown>;
     state_ids: number[] | null;
+    summary_items: Store[] | Record<string, Store>;
     user: User;
     items: OrderItem[];
 }

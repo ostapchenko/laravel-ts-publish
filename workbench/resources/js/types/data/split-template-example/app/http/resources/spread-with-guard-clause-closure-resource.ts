@@ -1,5 +1,6 @@
 import type { CurrencyType, OrderStatusType, PaymentMethodType, RoleType } from '../../enums';
 import type { OrderItem, User } from '../../models';
+import type { Store } from '../../models/admin';
 
 /**
  * Exercises both bugs simultaneously — the exact pattern from the original
@@ -49,6 +50,7 @@ export interface SpreadWithGuardClauseClosureResource
     listed_items: OrderItem[];
     unsorted_items: unknown[] | Record<string, unknown>;
     state_ids: number[] | null;
+    summary_items: Store[] | Record<string, Store>;
     user: User;
     items: OrderItem[];
     customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;

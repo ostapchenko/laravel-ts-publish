@@ -11,6 +11,7 @@ export interface Team
     owner_id: number;
     is_active: boolean;
     settings: unknown[] | null;
+    grid_config: { filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null;
     created_at: string | null;
     updated_at: string | null;
     deleted_at: string | null;

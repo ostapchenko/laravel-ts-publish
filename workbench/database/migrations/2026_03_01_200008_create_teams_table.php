@@ -19,6 +19,7 @@ return new class extends Migration
             $table->foreignIdFor(User::class, 'owner_id')->constrained('users');
             $table->boolean('is_active')->default(true);
             $table->jsonb('settings')->nullable();
+            $table->jsonb('grid_config')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

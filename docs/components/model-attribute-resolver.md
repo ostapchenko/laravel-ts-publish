@@ -36,11 +36,16 @@ docblock resolves this to `{ value: number; label: string }` instead.
 ### What counts as "vague"
 
 `isVagueTsType(string $type): bool` — a single predicate, defined once on `LaravelTsPublish`
-(and reused by `Concerns\ResolvesAccessorType`'s accessor-closure-vs-docblock check, which
-follows the same signature-then-docblock shape) — treats a type as vague when it contains the
-literal substring `unknown` (covers `unknown`, `unknown[]`, `unknown[] | Record<string,
-unknown>`, `Record<string, unknown>`, …) or is exactly `object`. Anything else — `string`,
-`OrderItem[]`, `{ value: number; label: string }` — is specific enough to win immediately.
+(reused by `Concerns\ResolvesAccessorType`'s accessor-closure-vs-docblock check and by
+`ModelAttributeResolver::refineWithPropertyDocblock()`'s `@property` refinement below, both of
+which follow the same "keep looking while still vague" shape) — treats a type as vague when it
+contains the literal substring `unknown` outside of any `{...}` object literal (covers `unknown`,
+`unknown[]`, `unknown[] | Record<string, unknown>`, `Record<string, unknown>`, …) or is exactly
+`object`. An object-literal shape is never vague on its own account, even when one of its own
+keys resolves to `unknown` — `{ filters?: Record<string, unknown>; sorts?: string[] }` is
+specific, because a `mixed`-typed key inside an otherwise-concrete shape is not the same thing as
+having no shape at all. Anything else — `string`, `OrderItem[]`, `{ value: number; label: string }`
+— is specific enough to win immediately.
 
 ## Nested array shapes inside generic containers
 
@@ -77,3 +82,54 @@ protected function stateIds(): Attribute
 ```
 
 Resolves to `number[] | null`, not `unknown[] | null`.
+
+## `@phpstan-type` / `@phpstan-import-type` alias resolution
+
+`LaravelTsPublish::resolvePhpstanTypeAlias(string $name, ReflectionClass $context): array{definition:
+string, class: ReflectionClass<object>}|null` looks up a phpstan/psalm type alias visible from
+`$context`, in this order:
+
+1. **Local definition** — a `@phpstan-type Name <definition>` (or `@psalm-type`) tag on
+   `$context`'s own docblock. A definition whose `{}`/`<>` depth is unbalanced on its own line is
+   walked across subsequent docblock lines (`balanceTypeDefinition()`) until it closes, so a
+   multi-line `array{...}` shape is captured whole rather than truncated at the first line.
+2. **Imported definition** — a `@phpstan-import-type Name from OtherClass` (or `... as Alias`) tag,
+   resolved by recursing into `OtherClass`'s own `resolvePhpstanTypeAlias()` call. This is what
+   makes resolution **transitive**: an import chain of aliases each re-exporting the next resolves
+   all the way to the class that actually wrote the shape.
+
+A `$seen` set of `"{FQCN}::{name}"` keys guards the import recursion — the same "already
+expanding" pattern `arrayableShapeType()` uses for `Arrayable`/`JsonSerializable` shape cycles.
+Two classes whose aliases `@phpstan-import-type` each other terminate with `null` (degrading the
+referencing property to `unknown`) instead of recursing forever. Results are cached per class.
+
+The returned `class` is the alias's **defining** class, not `$context` — its own use-map and
+namespace, not the referencing class's, resolve any class names inside the definition. This
+matters once the definition is expanded: `resolveDocblockTypePartOrAlias()` (the wiring used by
+both `docblockReturnTypes()`/`resolveDocblockTypeString()` and
+`refineWithPropertyDocblock()` below) tries `resolvePhpstanTypeAlias()` for each union member
+before falling through to the ordinary generic/shape/class pipeline, and on a hit resolves the raw
+definition (`resolveDocblockPartToInfo()`) against the alias's own file — deliberately *not*
+alias-aware again, so two purely local aliases naming each other can't open an unguarded second
+recursion path outside the `$seen`-guarded import chain.
+
+`@property`'s own array-shape parser (`parseArrayShapeToTsTypes()`) keeps a key's `?` as part of
+its returned map key (`'filters?'` rather than `'filters'`), so an alias expanding to
+`array{filters?: ...}` emits `filters?: ...` in the generated interface instead of silently
+dropping optionality.
+
+## Declaring-file use-maps for trait-provided methods
+
+Every docblock resolution that needs "the use-map/namespace of the file that wrote this
+docblock" — `docblockReturnTypes()`, `resolveDocblockTypeString()`,
+`parseDocblockReturnArrayShape()` — resolves that file via `methodDeclaringFileClass()`, not
+`ReflectionMethod::getDeclaringClass()` directly. For a method a class picks up from a `use`d
+trait, PHP's own `getDeclaringClass()` reports the *consuming* class, not the trait — a
+long-standing reflection quirk, since traits are flattened into the class at compile time — even
+though `getFileName()` and `getDocComment()` still read from the trait's own source.
+`methodDeclaringFileClass()` compares the method's real file (`getFileName()`) against the
+declaring class's file, and when they differ, walks the declaring class's traits (recursively, for
+traits-of-traits via `flattenTraits()`) to find the one whose file matches. Left unfixed, a class
+name in a trait-declared accessor's docblock — `@return Attribute<Collection<int, OptionValue>,
+never>` — would resolve against the *consuming* model's imports instead of the trait's, silently
+degrading to `unknown` whenever the model doesn't happen to import the same class.

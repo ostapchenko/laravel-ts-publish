@@ -4788,6 +4788,10 @@
                 "type": "number[] | null"
             },
             {
+                "name": "summary_items",
+                "type": "Store[] | Record<string, Store>"
+            },
+            {
                 "name": "user",
                 "type": "User"
             },
@@ -5764,6 +5768,10 @@
             {
                 "name": "settings",
                 "type": "unknown[] | null"
+            },
+            {
+                "name": "grid_config",
+                "type": "{ filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null"
             },
             {
                 "name": "created_at",
@@ -8702,6 +8710,11 @@
                 "optional": false
             },
             {
+                "name": "summary_items",
+                "type": "Store[] | Record<string, Store>",
+                "optional": false
+            },
+            {
                 "name": "user",
                 "type": "User",
                 "optional": false
@@ -10008,6 +10021,11 @@
                 "optional": false
             },
             {
+                "name": "summary_items",
+                "type": "Store[] | Record<string, Store>",
+                "optional": false
+            },
+            {
                 "name": "user",
                 "type": "User",
                 "optional": false
@@ -10182,6 +10200,11 @@
             {
                 "name": "state_ids",
                 "type": "number[] | null",
+                "optional": false
+            },
+            {
+                "name": "summary_items",
+                "type": "Store[] | Record<string, Store>",
                 "optional": false
             },
             {

@@ -3,6 +3,7 @@ import { type AsEnum } from '@tolki/ts';
 import { Currency, OrderStatus, PaymentMethod } from '../enums';
 import type { CurrencyType, OrderStatusType, PaymentMethodType } from '../enums';
 import type { OrderItem, User } from '.';
+import type { Store } from './admin';
 
 /** @see Workbench\App\Models\Order */
 export interface Order
@@ -56,6 +57,7 @@ export interface OrderMutators
     /** All items on the order, in their natural database order. */
     unsorted_items: unknown[] | Record<string, unknown>;
     state_ids: number[] | null;
+    summary_items: Store[] | Record<string, Store>;
 }
 
 export interface OrderRelations

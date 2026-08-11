@@ -456,6 +456,7 @@ declare global {
             /** All items on the order, in their natural database order. */
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
             // Relations
             user: User;
             user_count: number;
@@ -822,6 +823,7 @@ declare global {
             owner_id: number;
             is_active: boolean;
             settings: unknown[] | null;
+            grid_config: { filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null;
             created_at: string | null;
             updated_at: string | null;
             deleted_at: string | null;
@@ -2165,6 +2167,7 @@ declare global {
             listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
             user: workbench.app.models.User;
             items: workbench.app.models.OrderItem[];
         }
@@ -2528,6 +2531,7 @@ declare global {
             listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
             user: workbench.app.models.User;
             items: workbench.app.models.OrderItem[];
             customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2565,6 +2569,7 @@ declare global {
             listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
             user: workbench.app.models.User;
             items: workbench.app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;

@@ -161,13 +161,15 @@ class ModelAttributeResolver
      * Refine a vague resolved type using class-level @property/@property-read
      * docblock tags (Larastan/ide-helper convention). Child class tags win.
      *
+     * A tag naming a @phpstan-type/@phpstan-import-type alias expands to that alias's shape.
+     *
      * @param  ReflectionClass<Model>  $reflection
      * @param  TypeScriptTypeInfo  $tsInfo
      * @return TypeScriptTypeInfo
      */
     protected function refineWithPropertyDocblock(ReflectionClass $reflection, string $attributeName, array $tsInfo): array
     {
-        if (! str_contains($tsInfo['type'], 'unknown') && $tsInfo['type'] !== 'object') {
+        if (! LaravelTsPublish::isVagueTsType($tsInfo['type'])) {
             return $tsInfo;
         }
 
@@ -195,12 +197,12 @@ class ModelAttributeResolver
             $infos = [];
 
             foreach (LaravelTsPublish::splitPhpDocUnionType($m[1]) as $part) {
-                $infos[] = LaravelTsPublish::resolveDocblockTypePart($part, $useMap, $namespace);
+                $infos[] = LaravelTsPublish::resolveDocblockTypePartOrAlias($part, $useMap, $namespace, $class);
             }
 
             $resolved = count($infos) === 1 ? $infos[0] : LaravelTsPublish::mergeTypeScriptInfos($infos);
 
-            if (! str_contains($resolved['type'], 'unknown')) {
+            if (! LaravelTsPublish::isVagueTsType($resolved['type'])) {
                 return $resolved;
             }
         }

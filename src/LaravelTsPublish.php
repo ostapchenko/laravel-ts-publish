@@ -51,6 +51,14 @@ class LaravelTsPublish
      */
     protected array $shapeExpansionStack = [];
 
+    /**
+     * Per-class cache of resolved phpstan/psalm type aliases: FQCN => alias name => resolved
+     * definition, or null when the class carries no such alias (cached to skip re-parsing its docblock).
+     *
+     * @var array<string, array<string, array{definition: string, class: ReflectionClass<object>}|null>>
+     */
+    protected array $phpstanTypeAliasCache = [];
+
     /** @var list<string> */
     private const array RESERVED_JS_IDENTIFIERS = [
         'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger',
@@ -388,6 +396,116 @@ class LaravelTsPublish
     }
 
     /**
+     * Resolve a phpstan/psalm type alias visible from a class: a local `@phpstan-type` definition
+     * first, then a `@phpstan-import-type Name from Class [as Alias]` (recursively, cycle-guarded
+     * via $seen — the same "already expanding" guard arrayableShapeType() uses for shape recursion).
+     *
+     * @param  ReflectionClass<object>  $context
+     * @param  array<string, true>  $seen
+     * @return array{definition: string, class: ReflectionClass<object>}|null
+     */
+    public function resolvePhpstanTypeAlias(string $name, ReflectionClass $context, array $seen = []): ?array
+    {
+        $key = $context->getName();
+        $seenKey = $key.'::'.$name;
+
+        if (isset($seen[$seenKey])) {
+            return null;
+        }
+
+        $seen[$seenKey] = true;
+
+        if (array_key_exists($name, $this->phpstanTypeAliasCache[$key] ?? [])) {
+            return $this->phpstanTypeAliasCache[$key][$name];
+        }
+
+        $doc = $context->getDocComment();
+        $resolved = null;
+
+        if ($doc !== false) {
+            if (preg_match(
+                '/@(?:phpstan|psalm)-type\s+'.preg_quote($name, '/').'\b\s+(.+)$/m',
+                $doc,
+                $m,
+                PREG_OFFSET_CAPTURE,
+            )) {
+                $definition = $this->balanceTypeDefinition($m[1][0], $doc, $m[1][1] + strlen($m[1][0]));
+                $resolved = ['definition' => $definition, 'class' => $context];
+            }
+
+            if ($resolved === null && preg_match_all(
+                '/@(?:phpstan|psalm)-import-type\s+(\w+)\s+from\s+([\w\\\\]+)(?:\s+as\s+(\w+))?/m',
+                $doc,
+                $imports,
+                PREG_SET_ORDER,
+            )) {
+                foreach ($imports as $import) {
+                    $localName = $import[3] ?? $import[1];
+
+                    if ($localName !== $name) {
+                        continue;
+                    }
+
+                    $sourceClass = $this->resolveDocblockTypeName(
+                        $import[2],
+                        $this->parseFileUseStatements($context),
+                        $context->getNamespaceName(),
+                    );
+
+                    if (class_exists($sourceClass)) {
+                        $resolved = $this->resolvePhpstanTypeAlias($import[1], new ReflectionClass($sourceClass), $seen);
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        return $this->phpstanTypeAliasCache[$key][$name] = $resolved;
+    }
+
+    /**
+     * Extend a single-line `@phpstan-type`/`@psalm-type` capture across further docblock lines when
+     * its `{}`/`<>` depth is unbalanced — a multi-line `array{...}` shape — stripping each line's
+     * leading `*` comment marker as it goes. Mirrors extractReturnTypeFromDocblock()'s depth-aware walk.
+     */
+    protected function balanceTypeDefinition(string $firstLine, string $doc, int $offsetAfterFirstLine): string
+    {
+        $definition = trim(rtrim($firstLine, " \t*/"));
+        $depth = $this->braceAngleDepth($definition);
+
+        if ($depth <= 0) {
+            return $definition;
+        }
+
+        foreach (explode("\n", substr($doc, $offsetAfterFirstLine)) as $line) {
+            $stripped = trim((string) preg_replace('#^\s*\*+/?\s?#', '', $line));
+
+            if ($stripped === '') {
+                continue;
+            }
+
+            $stripped = rtrim($stripped, " \t*/");
+            $definition .= ' '.$stripped;
+            $depth += $this->braceAngleDepth($stripped);
+
+            if ($depth <= 0) {
+                break;
+            }
+        }
+
+        return trim($definition);
+    }
+
+    /**
+     * Net `{`/`<` nesting depth added by a string, used to detect an unbalanced type capture.
+     */
+    protected function braceAngleDepth(string $s): int
+    {
+        return substr_count($s, '{') + substr_count($s, '<') - substr_count($s, '}') - substr_count($s, '>');
+    }
+
+    /**
      * @template T of object
      *
      * @param  ReflectionClass<T>  $class
@@ -452,10 +570,14 @@ class LaravelTsPublish
 
     /**
      * A "vague" TS type carries no element information, so a docblock generic can usually do better.
+     *
+     * An object-literal shape is never vague even when one of its own keys resolves to 'unknown'
+     * (e.g. `{ filters?: Record<string, unknown> }` from a `mixed` value) — a bare 'unknown'
+     * substring only signals vagueness outside of `{...}`, where no per-key structure exists.
      */
     public function isVagueTsType(string $type): bool
     {
-        return str_contains($type, 'unknown') || $type === 'object';
+        return $type === 'object' || (str_contains($type, 'unknown') && ! str_contains($type, '{'));
     }
 
     /** @return TypeScriptTypeInfo */
@@ -547,6 +669,84 @@ class LaravelTsPublish
     }
 
     /**
+     * The ReflectionClass whose file actually declares a method's body.
+     *
+     * A long-standing PHP reflection quirk: for a method a class picks up from a `use`d trait,
+     * getDeclaringClass() reports the consuming class, not the trait — even though getFileName()
+     * and getDocComment() still read from the trait's own source. Walking the declaring class's
+     * traits (recursively, for traits-of-traits) recovers the class whose use-map actually applies.
+     *
+     * @return ReflectionClass<object>
+     */
+    protected function methodDeclaringFileClass(ReflectionMethod $method): ReflectionClass
+    {
+        $declaringClass = $method->getDeclaringClass();
+        $methodFile = $method->getFileName();
+
+        if ($methodFile === false || $methodFile === $declaringClass->getFileName()) {
+            return $declaringClass;
+        }
+
+        foreach ($this->flattenTraits($declaringClass) as $trait) {
+            if ($trait->getFileName() === $methodFile) {
+                return $trait;
+            }
+        }
+
+        return $declaringClass; // @codeCoverageIgnore
+    }
+
+    /**
+     * Every trait used by a class, including traits used by those traits.
+     *
+     * @param  ReflectionClass<object>  $class
+     * @return list<ReflectionClass<object>>
+     */
+    protected function flattenTraits(ReflectionClass $class): array
+    {
+        $traits = [];
+
+        foreach ($class->getTraits() as $trait) {
+            $traits[] = $trait;
+            array_push($traits, ...$this->flattenTraits($trait));
+        }
+
+        return $traits;
+    }
+
+    /**
+     * Resolve a full PHPDoc type string (splitting a top-level union) against an explicit class
+     * context, trying a phpstan/psalm type alias for each union member first — the shared tail of
+     * docblockReturnTypes() and resolveDocblockTypeString().
+     *
+     * @param  ReflectionClass<object>  $contextClass
+     * @return TypeScriptTypeInfo
+     */
+    protected function resolveDocblockTypeStringAgainst(string $typeString, ReflectionClass $contextClass): array
+    {
+        $useMap = $this->parseFileUseStatements($contextClass);
+        $namespace = $contextClass->getNamespaceName();
+
+        $infos = [];
+
+        foreach ($this->splitPhpDocUnionType($typeString) as $part) {
+            $part = trim($part);
+
+            if ($part === '') {
+                continue; // @codeCoverageIgnore
+            }
+
+            $infos[] = $this->resolveDocblockTypePartOrAlias($part, $useMap, $namespace, $contextClass);
+        }
+
+        if ($infos === []) {
+            return $this->emptyTypeScriptInfo(); // @codeCoverageIgnore
+        }
+
+        return count($infos) === 1 ? $infos[0] : $this->mergeTypeScriptInfos($infos);
+    }
+
+    /**
      * Parse a method's `@return` docblock — including multiline `array{...}` shapes — into type info,
      * resolving short class names through the declaring file's use statements.
      *
@@ -566,33 +766,7 @@ class LaravelTsPublish
             return $this->emptyTypeScriptInfo();
         }
 
-        $parts = $this->splitPhpDocUnionType($returnTypeString);
-
-        $declaringClass = $method->getDeclaringClass();
-        $useMap = $this->parseFileUseStatements($declaringClass);
-        $namespace = $declaringClass->getNamespaceName();
-
-        $infos = [];
-
-        foreach ($parts as $part) {
-            $part = trim($part);
-
-            if ($part === '') {
-                continue; // @codeCoverageIgnore
-            }
-
-            $infos[] = $this->resolveDocblockTypePart($part, $useMap, $namespace);
-        }
-
-        if ($infos === []) {
-            return $this->emptyTypeScriptInfo(); // @codeCoverageIgnore
-        }
-
-        if (count($infos) === 1) {
-            return $infos[0];
-        }
-
-        return $this->mergeTypeScriptInfos($infos);
+        return $this->resolveDocblockTypeStringAgainst($returnTypeString, $this->methodDeclaringFileClass($method));
     }
 
     /**
@@ -641,24 +815,63 @@ class LaravelTsPublish
      */
     protected function resolveDocblockTypeString(ReflectionMethod $method, string $typeString): array
     {
-        // Depth-aware split so Collection<int, A|B> isn't torn apart at the '|' inside the < >
-        $parts = $this->splitPhpDocUnionType($typeString);
+        return $this->resolveDocblockTypeStringAgainst($typeString, $this->methodDeclaringFileClass($method));
+    }
 
-        $declaringClass = $method->getDeclaringClass();
-        $useMap = $this->parseFileUseStatements($declaringClass);
-        $namespace = $declaringClass->getNamespaceName();
+    /**
+     * Resolve one union member of a docblock type, trying a @phpstan-type/@phpstan-import-type
+     * alias visible from $contextClass before falling through to resolveDocblockTypePart(). A hit
+     * resolves the alias's raw definition through the *plain* pipeline (resolveDocblockPartToInfo)
+     * against the alias's own defining class — not $contextClass's, and deliberately not alias-aware
+     * again: two purely-local aliases naming each other would otherwise recurse unguarded, since the
+     * cycle guard lives inside resolvePhpstanTypeAlias() and only covers the @phpstan-import-type chain.
+     *
+     * @param  array<string, string>  $useMap
+     * @param  ReflectionClass<object>  $contextClass
+     * @return TypeScriptTypeInfo
+     */
+    public function resolveDocblockTypePartOrAlias(string $part, array $useMap, string $namespace, ReflectionClass $contextClass): array
+    {
+        $alias = $this->resolvePhpstanTypeAlias($part, $contextClass);
 
+        if ($alias === null) {
+            return $this->resolveDocblockTypePart($part, $useMap, $namespace);
+        }
+
+        return $this->resolveDocblockPartToInfo(
+            $alias['definition'],
+            $this->parseFileUseStatements($alias['class']),
+            $alias['class']->getNamespaceName(),
+        );
+    }
+
+    /**
+     * Resolve an alias's raw definition string (a union, generic container, array shape, or plain
+     * name) through the ordinary docblock pipeline — not alias-aware itself — against the use-map
+     * and namespace of the class that actually wrote the definition.
+     *
+     * @param  array<string, string>  $useMap
+     * @return TypeScriptTypeInfo
+     */
+    protected function resolveDocblockPartToInfo(string $definition, array $useMap, string $namespace): array
+    {
         $infos = [];
 
-        foreach ($parts as $part) {
+        foreach ($this->splitPhpDocUnionType($definition) as $part) {
+            $part = trim($part);
+
+            if ($part === '') {
+                continue; // @codeCoverageIgnore
+            }
+
             $infos[] = $this->resolveDocblockTypePart($part, $useMap, $namespace);
         }
 
-        if (count($infos) === 1) {
-            return $infos[0];
+        if ($infos === []) {
+            return $this->emptyTypeScriptInfo(); // @codeCoverageIgnore
         }
 
-        return $this->mergeTypeScriptInfos($infos);
+        return count($infos) === 1 ? $infos[0] : $this->mergeTypeScriptInfos($infos);
     }
 
     /**
@@ -1038,7 +1251,7 @@ class LaravelTsPublish
             return [];
         }
 
-        $declaringClass = $method->getDeclaringClass();
+        $declaringClass = $this->methodDeclaringFileClass($method);
         $useMap = $this->parseFileUseStatements($declaringClass);
         $namespace = $declaringClass->getNamespaceName();
 
@@ -1070,9 +1283,10 @@ class LaravelTsPublish
         foreach ($entries as $entry) {
             $entry = trim($entry);
 
-            // Match 'key: type' or 'key?: type'
-            if (preg_match('/^(\w+)\??\s*:\s*(.+)$/s', $entry, $m)) {
-                $result[$m[1]] = $this->resolvePhpDocTypeToTs(trim($m[2]), $useMap, $namespace);
+            // Match 'key: type' or 'key?: type' — the '?' is kept as part of the returned key so
+            // callers formatting "$key: $type" emit the optional marker without extra bookkeeping.
+            if (preg_match('/^(\w+)(\??)\s*:\s*(.+)$/s', $entry, $m)) {
+                $result[$m[1].$m[2]] = $this->resolvePhpDocTypeToTs(trim($m[3]), $useMap, $namespace);
             }
         }
 

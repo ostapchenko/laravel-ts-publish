@@ -9,7 +9,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Workbench\App\ValueObjects\GridConfigDto;
 
+/**
+ * @phpstan-import-type GridConfig from GridConfigDto
+ *
+ * @property GridConfig|null $grid_config
+ */
 class Team extends Model
 {
     use SoftDeletes;
@@ -21,6 +27,7 @@ class Team extends Model
         'owner_id',
         'is_active',
         'settings',
+        'grid_config',
     ];
 
     protected function casts(): array
@@ -28,6 +35,7 @@ class Team extends Model
         return [
             'is_active' => 'boolean',
             'settings' => 'array',
+            'grid_config' => 'array',
         ];
     }
 
