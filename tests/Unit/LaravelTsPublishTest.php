@@ -985,6 +985,18 @@ describe('phpstan type aliases', function () {
             ->and($alias['definition'])->toContain('second: int');
     });
 
+    test('a two-hop @phpstan-import-type chain resolves through an intermediate re-exporting class', function () {
+        // X imports from Y, which only re-imports from Z (Y defines nothing locally) — proves the
+        // recursion resolves all the way to the class that actually wrote the definition.
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'TransitiveAlias', new ReflectionClass(PhpstanTypeAliasChainX::class),
+        );
+
+        expect($alias)->not->toBeNull()
+            ->and($alias['definition'])->toBe('array{depth: int}')
+            ->and($alias['class']->getName())->toBe(PhpstanTypeAliasChainZ::class);
+    });
+
     test('a cyclical @phpstan-import-type chain terminates instead of recursing forever', function () {
         $alias = $this->service->resolvePhpstanTypeAlias(
             'LoopAlias', new ReflectionClass(PhpstanTypeAliasCycleA::class),
@@ -2362,6 +2374,29 @@ class AttributeDocblockClass
  * }
  */
 class PhpstanTypeAliasMultilineHost {}
+
+/**
+ * X of a three-class @phpstan-import-type chain (X -> Y -> Z): imports TransitiveAlias from Y,
+ * which only re-exports it from Z — proves resolution reaches through an intermediate class that
+ * never defines the alias itself.
+ *
+ * @phpstan-import-type TransitiveAlias from PhpstanTypeAliasChainY
+ */
+class PhpstanTypeAliasChainX {}
+
+/**
+ * Y: re-exports TransitiveAlias from Z without ever defining it locally.
+ *
+ * @phpstan-import-type TransitiveAlias from PhpstanTypeAliasChainZ
+ */
+class PhpstanTypeAliasChainY {}
+
+/**
+ * Z: where TransitiveAlias is actually defined.
+ *
+ * @phpstan-type TransitiveAlias array{depth: int}
+ */
+class PhpstanTypeAliasChainZ {}
 
 /**
  * Half of a mutual @phpstan-import-type cycle: LoopAlias here is imported from CycleB, which
