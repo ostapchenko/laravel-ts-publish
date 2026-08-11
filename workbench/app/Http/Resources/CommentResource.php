@@ -38,6 +38,7 @@ class CommentResource extends JsonResource
             'post_direct' => new PostResource($this->post),
             'post_limited' => $this->post->only(['id', 'title']), // relation with only specific attributes
             'post_extended' => $this->post?->except(['created_at', 'updated_at']), // relation with except specific attributes
+            'post_excerpt_only' => $this->post->only(['id', 'excerpt']), // filter key 'excerpt' is an accessor, not a column — must fall back to inline expansion
             'post_title' => $this->whenLoaded('post', fn () => $this->post->title), // relation with no return type annotation on closure — analyzer should resolve type from body/relation column attributes
             'post_content' => $this->whenLoaded('post', fn () => $this->post?->content), // relation with return type annotation on closure and nullsafe traversal — analyzer should skip proxy step and resolve type from body/relation column attributes; annotation is only a fallback
             'post_title_display' => $this->whenLoaded('post', fn () => $this->post?->title_display), // relation with accessor return type annotation on closure and nullsafe traversal — analyzer should skip proxy step and resolve type from accessor return type; annotation is only a fallback

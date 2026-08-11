@@ -1425,7 +1425,7 @@ declare global {
             payments?: PaymentResource[];
             payments_count?: number;
             notes?: string | null;
-            latest_payment_only: { invoice_id: number; status: accounting.enums.PaymentStatusType; method: app.enums.PaymentMethodType; currency: app.enums.CurrencyType; amount: number; reference: string | null; paid_at: string | null } | null;
+            latest_payment_only: Pick<accounting.models.Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
             latest_payment_excluded: { id: number; created_at: string | null; updated_at: string | null; due_notice: accounting.enums.DueAtNoticeType; invoice: accounting.models.Invoice } | null;
         }
         /**
@@ -1483,7 +1483,7 @@ declare global {
             latitude?: number | null;
             longitude?: number | null;
             is_default: boolean;
-            user: { id: number; name: string };
+            user: Pick<app.models.User, 'id' | 'name'>;
             coordinates: GeoPoint;
             bounds: GeoBounds;
         }
@@ -1499,6 +1499,7 @@ declare global {
             priority: app.enums.PriorityType | null;
             priority_new: app.enums.PriorityType | null;
             comments: { id: number; content: string; user: app.models.User }[];
+            comments_limited: Pick<app.models.Comment, 'id' | 'content'>[];
             published: boolean;
             rating_display: number;
             word_count: string;
@@ -1623,8 +1624,9 @@ declare global {
             post?: PostResource;
             post_new?: PostResource;
             post_direct: PostResource;
-            post_limited: { id: number; title: string };
+            post_limited: Pick<app.models.Post, 'id' | 'title'>;
             post_extended: { id: number; title: string; content: string; user_id: number; status: app.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: Record<string, string> | null; deleted_at: string | null; category_id: number | null; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: app.models.User; categoryRel: app.models.Category | null; comments: app.models.Comment[]; tags: app.models.Tag[]; images: app.models.Image[]; attachment: app.models.Attachment | null } | null;
+            post_excerpt_only: { id: number; excerpt: string | null };
             post_title?: string;
             post_content?: string | null;
             post_title_display?: string | null;
@@ -2185,7 +2187,7 @@ declare global {
             product?: ProductResource;
             order?: app.models.Order;
             options?: Record<string, string | number | boolean> | null;
-            order_limited: { id: number; total: number } | null;
+            order_limited: Pick<app.models.Order, 'id' | 'total'> | null;
             order_extended: { id: number; ulid: string; user_id: number; status: app.enums.OrderStatusType; payment_method: app.enums.PaymentMethodType | null; currency: app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>; listed_items: app.models.OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: app.models.User; items: app.models.OrderItem[] };
         }
         /** Exercises ...$this->only([...]) spread with additional manual keys. */
@@ -2250,6 +2252,7 @@ declare global {
             priority: app.enums.PriorityType | null;
             priority_new: app.enums.PriorityType | null;
             comments: { id: number; content: string; user: app.models.User }[];
+            comments_limited: Pick<app.models.Comment, 'id' | 'content'>[];
             published: boolean;
             rating_display: number;
             word_count: string;

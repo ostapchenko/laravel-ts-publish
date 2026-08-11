@@ -52,6 +52,13 @@ class ModelAttributeResolver
     protected array $morphTargetMap = [];
 
     /**
+     * Per-FQCN cache of real database column names, keyed the same way as $contexts.
+     *
+     * @var array<class-string, list<string>>
+     */
+    protected array $dbColumnNamesCache = [];
+
+    /**
      * Resolve a model attribute's TypeScript type through the accessor → cast → DB type waterfall.
      *
      * @param  class-string  $modelFqcn
@@ -352,6 +359,65 @@ class ModelAttributeResolver
     public function getRelations(string $modelFqcn): ?Collection
     {
         return $this->resolveContext($modelFqcn)['relations'] ?? null;
+    }
+
+    /**
+     * Names of the model's real database columns, read straight from the schema.
+     *
+     * Mirrors ModelTransformer::transformColumns()'s $dbColumns exactly (same schema listing call) so a
+     * caller that only trusts real columns — e.g. building a Pick<>/Omit<> reference — never names a key
+     * the model interface doesn't also derive from that same source.
+     *
+     * @param  class-string  $modelFqcn
+     * @return list<string>
+     */
+    public function databaseColumnNames(string $modelFqcn): array
+    {
+        if (isset($this->dbColumnNamesCache[$modelFqcn])) {
+            return $this->dbColumnNamesCache[$modelFqcn];
+        }
+
+        $ctx = $this->resolveContext($modelFqcn);
+
+        if ($ctx === null) {
+            return [];
+        }
+
+        /** @var list<string> $columns */
+        $columns = $ctx['instance']->getConnection()->getSchemaBuilder()->getColumnListing($ctx['instance']->getTable());
+
+        return $this->dbColumnNamesCache[$modelFqcn] = $columns;
+    }
+
+    /**
+     * Whether the bare model interface's `keyof` already spans every column, mutator, and relation —
+     * i.e. whether an Omit<Model, …> reference is safe to build from the bare model name alone.
+     *
+     * The shipped `model-full` template merges everything into one interface, so the bare name always
+     * qualifies there. The default `model-split` template only does when the model has nothing beyond
+     * columns — once it has a mutator or relation, those live in separate `{Model}Mutators`/
+     * `{Model}Relations` interfaces (combined only in `{Model}All`) that this package has no plumbing to
+     * import under a name distinct from the bare model, so an Omit<> built from the bare name there would
+     * silently drop them. Custom templates are treated the same as split, conservatively: false unless
+     * proven otherwise.
+     *
+     * @param  class-string  $modelFqcn
+     * @param  list<string>  $columns  pass the caller's already-resolved {@see databaseColumnNames()} result
+     */
+    public function baseModelInterfaceIsComplete(string $modelFqcn, array $columns): bool
+    {
+        $attributes = $this->getAttributes($modelFqcn);
+        $relations = $this->getRelations($modelFqcn);
+
+        $hasNonColumnMembers = ($attributes !== null && $attributes->contains(
+            fn (array $attr): bool => ! in_array($attr['name'], $columns, true),
+        )) || ($relations !== null && $relations->isNotEmpty());
+
+        if (! $hasNonColumnMembers) {
+            return true;
+        }
+
+        return Config::string('ts-publish.models.template') === 'laravel-ts-publish::model-full';
     }
 
     /**

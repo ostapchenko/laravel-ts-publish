@@ -6,6 +6,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
+use Workbench\Accounting\Models\Payment;
 use Workbench\App\Enums\OrderStatus;
 use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Role;
@@ -819,20 +820,25 @@ describe('ResourceAstAnalyzer with InvoiceResource', function () {
         expect($status['optional'])->toBeTrue();
     });
 
-    test('latest_payment_only resolves inline type from accessor-returned model', function () {
+    test('latest_payment_only references the Payment model via Pick', function () {
+        // latest_payment is an accessor returning Payment; every only() key is a plain Payment column, so
+        // the analyzer references the emitted Payment model interface instead of an inline shape.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'latest_payment_only');
 
-        expect($prop['type'])
-            ->not->toBe('unknown')
-            ->toContain('invoice_id: number')
-            ->toContain('| null');
+        expect($prop['type'])->toBe(
+            "Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
+        );
     });
 
-    test('latest_payment_excluded resolves inline type from accessor-returned model', function () {
+    test('latest_payment_excluded stays on inline expansion because Payment has relations', function () {
+        // Payment has a mutator (dueNotice) and a relation (invoice) beyond its columns. Under the default
+        // model-split template those live in separate PaymentMutators/PaymentRelations interfaces that
+        // Omit<Payment, ...> cannot see, so referencing bare Payment would silently drop them — the
+        // analyzer detects this (baseModelInterfaceIsComplete()) and keeps the safe inline expansion.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
@@ -840,29 +846,22 @@ describe('ResourceAstAnalyzer with InvoiceResource', function () {
         $prop = collect($analysis->properties)->firstWhere('name', 'latest_payment_excluded');
 
         expect($prop['type'])
-            ->not->toBe('unknown')
-            ->toContain('id: number')
+            ->not->toContain('Omit<')
+            ->toContain('due_notice')
+            ->toContain('invoice: Invoice')
             ->toContain('| null');
     });
 
-    test('has enum imports from accessor model filter (latest_payment_only)', function () {
+    test('Pick accessor model filter registers the Payment modelFqcn for import', function () {
+        // Superseded the old embedded enum/model FQCN assertions for latest_payment_only (PaymentStatus/
+        // PaymentMethod/Currency embedded within the old inline shape): it now only needs to import Payment
+        // itself — its own generated file already carries those enum imports. latest_payment_excluded is
+        // unaffected (still inline, see the test above) so it does not register a modelFqcn here.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
-        expect($analysis->directEnumFqcns)
-            ->toHaveKey('Workbench\Accounting\Enums\PaymentStatus')
-            ->toHaveKey('Workbench\App\Enums\PaymentMethod')
-            ->toHaveKey('Workbench\App\Enums\Currency');
-    });
-
-    test('has model imports from accessor model filter (latest_payment_excluded)', function () {
-        $reflection = new ReflectionClass(InvoiceResource::class);
-        $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
-        $analysis = $analyzer->analyze();
-
-        expect($analysis->modelFqcns)
-            ->toHaveKey('Workbench\Accounting\Models\Invoice');
+        expect($analysis->modelFqcns)->toHaveKey('latest_payment_only', Payment::class);
     });
 });
 
@@ -969,17 +968,24 @@ describe('ResourceAstAnalyzer with OrderItemResource', function () {
         expect($order['type'])->toBe('Order');
     });
 
-    test('test order_limited only has id, total or null', function () {
+    test('order_limited only() with all-column keys references the Order model via Pick', function () {
+        // order_limited = $this->order?->only('id', 'total') — both keys are plain Order columns, so the
+        // analyzer now references the emitted Order model interface instead of re-deriving an inline shape.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
         $orderLimited = collect($analysis->properties)->firstWhere('name', 'order_limited');
 
-        expect($orderLimited['type'])->toBe('{ id: number; total: number } | null');
+        expect($orderLimited['type'])->toBe("Pick<Order, 'id' | 'total'> | null");
     });
 
-    test('test order_extended does not have created_at & updated_at', function () {
+    test('order_extended except() stays on inline expansion because Order has relations', function () {
+        // order_extended = $this->order->except('created_at', 'updated_at') — both excluded keys are plain
+        // Order columns, but Order also has mutators (item_count, sorted_items, ...) and relations (user,
+        // items) that live in separate Order Mutators/Relations interfaces under the default model-split
+        // template — Omit<Order, ...> can't see those, so the analyzer keeps the safe inline expansion
+        // instead of silently dropping them (see ModelAttributeResolver::baseModelInterfaceIsComplete()).
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
@@ -987,29 +993,103 @@ describe('ResourceAstAnalyzer with OrderItemResource', function () {
         $orderExtended = collect($analysis->properties)->firstWhere('name', 'order_extended');
 
         expect($orderExtended['type'])
+            ->not->toContain('Omit<')
             ->not->toContain('created_at')
-            ->not->toContain('updated_at');
+            ->not->toContain('updated_at')
+            ->toContain('item_count')
+            ->toContain('items: OrderItem[]');
     });
 
-    test('has enum imports from inline relation filter (order_extended)', function () {
+    test('Pick relation filter registers the Order modelFqcn for import', function () {
+        // Superseded the old embedded enum/model FQCN assertions for order_limited (OrderStatus/
+        // PaymentMethod/Currency embedded within the old inline shape): it now only needs to import Order
+        // itself. order_extended is unaffected (still inline, see the test above).
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
-        expect($analysis->directEnumFqcns)
-            ->toHaveKey('Workbench\App\Enums\OrderStatus')
-            ->toHaveKey('Workbench\App\Enums\PaymentMethod')
-            ->toHaveKey('Workbench\App\Enums\Currency');
+        expect($analysis->modelFqcns)->toHaveKey('order_limited', Order::class);
+    });
+});
+
+describe('relation filters reference the emitted model interface', function () {
+    test('only() on a belongsTo with all-column keys emits Pick of the model', function () {
+        // CommentResource: post_limited = $this->post->only(['id', 'title']) — both keys are plain
+        // Post columns, so the analyzer references the Post model interface instead of an inline shape.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['post_limited']['type'])->toBe("Pick<Post, 'id' | 'title'>");
     });
 
-    test('has model imports from inline relation filter (order_extended)', function () {
-        $reflection = new ReflectionClass(OrderItemResource::class);
-        $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
+    test('except() on a belongsTo with relations stays on inline expansion by default', function () {
+        // CommentResource: post_extended = $this->post?->except(['created_at', 'updated_at']). Post has
+        // mutators (title_display, excerpt, ...) and relations (author, comments, ...) that live in
+        // separate PostMutators/PostRelations interfaces under the default model-split template — an
+        // Omit<Post, ...> reference can't see those, so the analyzer keeps the lossless inline expansion.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['post_extended']['type'])
+            ->not->toContain('Omit<')
+            ->toContain('author: User')
+            ->toContain('title_display')
+            ->toEndWith('| null');
+    });
+
+    test('except() references the model directly when the model-full template is configured', function () {
+        // Under the model-full template the base model interface already merges columns, mutators, and
+        // relations, so Omit<Post, ...> is safe even though Post has both — proves
+        // baseModelInterfaceIsComplete() actually flips the decision rather than always being false.
+        config()->set('ts-publish.models.template', 'laravel-ts-publish::model-full');
+
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['post_extended']['type'])->toBe("Omit<Post, 'created_at' | 'updated_at'> | null");
+    });
+
+    test('post_limited registers Post as its modelFqcn for import', function () {
+        // post_extended does not (it stays on inline expansion by default — see the test above).
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
         $analysis = $analyzer->analyze();
 
-        expect($analysis->modelFqcns)
-            ->toHaveKey('Workbench\App\Models\User')
-            ->toHaveKey('Workbench\App\Models\OrderItem');
+        expect($analysis->modelFqcns)->toHaveKey('post_limited', Post::class);
+    });
+
+    test('only() keeps keys quoted and unions them', function () {
+        // OrderItemResource: order_extended = $this->order->except('created_at', 'updated_at') — variadic
+        // args, not nullsafe, so no ' | null' suffix on this one (order_limited covers the nullsafe case).
+        // Order has relations, so this needs the model-full override to make Omit<> safe (see the
+        // 'stays on inline expansion by default' test above for the split-template fallback).
+        config()->set('ts-publish.models.template', 'laravel-ts-publish::model-full');
+
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(OrderItemResource::class), OrderItem::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['order_extended']['type'])->toMatch("/^Omit<Order, '[a-z_]+'( \| '[a-z_]+')*>$/");
+    });
+
+    test('hasMany relation with all-column only() keys emits Pick with the [] suffix', function () {
+        // PostResource: comments_limited = $this->comments->only(['id', 'content']) — HasMany, so the
+        // many-relation [] suffix is preserved on top of the Pick<> reference.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(PostResource::class), Post::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['comments_limited']['type'])->toBe("Pick<Comment, 'id' | 'content'>[]");
+    });
+
+    test('a filter key that is an accessor still falls back to inline expansion', function () {
+        // CommentResource: post_excerpt_only = $this->post->only(['id', 'excerpt']) — 'excerpt' is an
+        // Attribute accessor on Post with no backing column, so the whole filter falls back to inline
+        // (the result must NOT be a Pick/Omit reference).
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['post_excerpt_only']['type'])
+            ->not->toContain('Pick<')
+            ->not->toContain('Omit<')
+            ->toBe('{ id: number; excerpt: string | null }');
     });
 });
 

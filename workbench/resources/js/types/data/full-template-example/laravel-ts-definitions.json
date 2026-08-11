@@ -6500,12 +6500,12 @@
             },
             {
                 "name": "latest_payment_only",
-                "type": "{ invoice_id: number; status: PaymentStatusType; method: PaymentMethodType; currency: CurrencyType; amount: number; reference: string | null; paid_at: string | null } | null",
+                "type": "Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
                 "optional": false
             },
             {
                 "name": "latest_payment_excluded",
-                "type": "{ id: number; created_at: string | null; updated_at: string | null; due_notice: DueAtNoticeType; invoice: Invoice } | null",
+                "type": "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
                 "optional": false
             }
         ],
@@ -6673,7 +6673,7 @@
             },
             {
                 "name": "user",
-                "type": "{ id: number; name: string }",
+                "type": "Pick<User, 'id' | 'name'>",
                 "optional": false
             },
             {
@@ -6753,6 +6753,11 @@
             {
                 "name": "comments",
                 "type": "{ id: number; content: string; user: User }[]",
+                "optional": false
+            },
+            {
+                "name": "comments_limited",
+                "type": "Pick<Comment, 'id' | 'content'>[]",
                 "optional": false
             },
             {
@@ -7203,12 +7208,17 @@
             },
             {
                 "name": "post_limited",
-                "type": "{ id: number; title: string }",
+                "type": "Pick<Post, 'id' | 'title'>",
                 "optional": false
             },
             {
                 "name": "post_extended",
-                "type": "{ id: number; title: string; content: string; user_id: number; status: StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: Record<string, string> | null; deleted_at: string | null; category_id: number | null; visibility: VisibilityType | null; priority: PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: User; categoryRel: Category | null; comments: Comment[]; tags: Tag[]; images: Image[]; attachment: Attachment | null } | null",
+                "type": "Omit<Post, 'created_at' | 'updated_at'> | null",
+                "optional": false
+            },
+            {
+                "name": "post_excerpt_only",
+                "type": "{ id: number; excerpt: string | null }",
                 "optional": false
             },
             {
@@ -8749,12 +8759,12 @@
             },
             {
                 "name": "order_limited",
-                "type": "{ id: number; total: number } | null",
+                "type": "Pick<Order, 'id' | 'total'> | null",
                 "optional": false
             },
             {
                 "name": "order_extended",
-                "type": "{ id: number; ulid: string; user_id: number; status: OrderStatusType; payment_method: PaymentMethodType | null; currency: CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: OrderItem[] | Record<string, OrderItem>; listed_items: OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: User; items: OrderItem[] }",
+                "type": "Omit<Order, 'created_at' | 'updated_at'>",
                 "optional": false
             }
         ],
@@ -8970,6 +8980,11 @@
             {
                 "name": "comments",
                 "type": "{ id: number; content: string; user: User }[]",
+                "optional": false
+            },
+            {
+                "name": "comments_limited",
+                "type": "Pick<Comment, 'id' | 'content'>[]",
                 "optional": false
             },
             {

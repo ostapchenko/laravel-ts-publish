@@ -2696,6 +2696,29 @@ class ResourceAstAnalyzer
         }
 
         $include = $methodName === 'only';
+
+        // Every filter key is a plain DB column: reference the emitted model interface directly so its
+        // #[TsCasts]/@property refinements stay authoritative instead of being re-derived and lost.
+        $modelReference = $this->relationFilterModelReference($modelFqcn, $keys, $include);
+
+        if ($modelReference !== null) {
+            $type = $modelReference;
+
+            if (str_ends_with($relationInfo['type'], '[]')) {
+                $type .= '[]';
+            }
+
+            if ($nullable) {
+                $type .= ' | null';
+            }
+
+            return [
+                ...$result,
+                'type' => $type,
+                'modelFqcn' => $modelFqcn,
+            ];
+        }
+
         $filterResult = $this->resolveFilteredRelationType($modelFqcn, $keys, $include);
         $inlineType = $filterResult['type'];
 
@@ -2714,6 +2737,46 @@ class ResourceAstAnalyzer
             'embeddedEnumFqcns' => $filterResult['enumFqcns'],
             'embeddedModelFqcns' => $filterResult['modelFqcns'],
         ];
+    }
+
+    /**
+     * Build a Pick<Model, …>/Omit<Model, …> reference when every filter key is a plain database column of
+     * the related model, so the emitted model interface (with its TsCasts/@property refinements) stays the
+     * single source of truth. Returns null when any key is not a column — callers fall back to inline
+     * expansion (e.g. the key is an accessor/mutator, or names a relation instead of a column).
+     *
+     * Pick<> only ever needs the picked keys, which are always columns present on the bare model interface
+     * regardless of model template — always safe. Omit<> exposes every other member too, so it additionally
+     * requires the bare model interface to be complete (see ModelAttributeResolver::baseModelInterfaceIsComplete());
+     * otherwise it would silently drop mutators/relations the inline expansion used to include, so this
+     * falls back to inline instead.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @param  list<string>  $keys
+     */
+    protected function relationFilterModelReference(string $modelFqcn, array $keys, bool $include): ?string
+    {
+        $resolver = resolve(ModelAttributeResolver::class);
+        $columns = $resolver->databaseColumnNames($modelFqcn);
+
+        if ($columns === []) {
+            return null; // @codeCoverageIgnore
+        }
+
+        foreach ($keys as $key) {
+            if (! in_array($key, $columns, true)) {
+                return null;
+            }
+        }
+
+        if (! $include && ! $resolver->baseModelInterfaceIsComplete($modelFqcn, $columns)) {
+            return null;
+        }
+
+        $quoted = implode(' | ', array_map(fn (string $k): string => "'".$k."'", $keys));
+        $wrapper = $include ? 'Pick' : 'Omit';
+
+        return $wrapper.'<'.class_basename($modelFqcn).', '.$quoted.'>';
     }
 
     /**

@@ -1,7 +1,7 @@
 import { type AsEnum } from '@tolki/ts';
 
 import { Priority, Status, Visibility } from '../../enums';
-import type { User } from '../../models';
+import type { Comment, User } from '../../models';
 import type { CommentResource } from '.';
 
 /** @see Workbench\App\Http\Resources\PostResource */
@@ -18,6 +18,7 @@ export interface PostResource
     priority: AsEnum<typeof Priority> | null;
     priority_new: AsEnum<typeof Priority> | null;
     comments: { id: number; content: string; user: User }[];
+    comments_limited: Pick<Comment, 'id' | 'content'>[];
     published: boolean;
     rating_display: number;
     word_count: string;

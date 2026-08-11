@@ -373,6 +373,7 @@ Key capabilities:
 - **`#[TsResource]` / `#[TsCasts]` / `#[TsExclude]`** — override the interface name/model/description, override or add property types, or exclude a resource entirely. See [Excluding with TsExclude](#excluding-with-tsexclude).
 - **Smart nullable relations** — the same nullability-detection strategy used by [models](#models), with config to override the strategy per relation type.
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and models.
+- **Relation `only()` / `except()`** — `$this->relation->only([...])` now references the generated model type via `Pick<Model, 'a' | 'b'>` (and `Omit<Model, ...>` for `except()`) whenever every filtered key is a real database column, keeping the model's `#[TsCasts]`/`@property` refinements instead of losing them to a re-derived inline shape.
 
 For every supported `toArray()` pattern, the full attribute reference, and nullable-relation strategies, see the full [API Resources documentation](https://tolki.abe.dev/ts/api-resources.html).
 

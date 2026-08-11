@@ -784,6 +784,15 @@ describe('aliasTypeName', function () {
             'User | UserProfile | Users', 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
         ))->toBe('AppUser | UserProfile | Users');
     });
+
+    // Pick<>/Omit<> relation-filter references (e.g. `Pick<User, 'id' | 'user'>`) carry a bare model
+    // token alongside lowercase quoted key literals — the quotes are valid word boundaries, so a key
+    // that happens to spell the model name in lowercase must not be mistaken for the bare token.
+    test('rewrites the bare model token inside Pick<>/Omit<> without touching quoted key literals', function () use ($nameMap) {
+        expect($this->service->aliasTypeName(
+            "Pick<User, 'id' | 'user'>", 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        ))->toBe("Pick<AppUser, 'id' | 'user'>");
+    });
 });
 
 describe('splitPhpDocUnionType', function () {
