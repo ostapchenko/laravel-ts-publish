@@ -160,7 +160,7 @@ describe('ModelWriter Resource interface output', function () {
 
         expect($content)
             ->toContain('export interface DealResource')
-            ->toContain('AsEnum<typeof AppStatus>')
+            ->toContain('AsEnum<typeof EnumsStatus>')
             ->toContain('AsEnum<typeof CrmStatus>');
     });
 

@@ -322,6 +322,19 @@ declare global {
             imageable_count: number;
             imageable_exists: boolean;
         }
+        export interface Kpi {
+            // Columns
+            id: number;
+            reportable_type: string;
+            reportable_id: number;
+            value: number;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            reportable: app.models.marketing.report.Report | app.models.sales.report.Report;
+            reportable_count: number;
+            reportable_exists: boolean;
+        }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
             id: number;
@@ -974,6 +987,40 @@ declare global {
             secondary_contact_id: number | null;
             created_at: string | null;
             updated_at: string | null;
+        }
+    }
+    export namespace app.models.marketing.report {
+        /**
+         * Fixture: same basename AND same parent namespace segment as
+         * Sales\Report\Report — reproduces the eagle MailPrice alias collision.
+         */
+        export interface Report {
+            // Columns
+            id: number;
+            name: string;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            kpis: app.models.Kpi[];
+            kpis_count: number;
+            kpis_exists: boolean;
+        }
+    }
+    export namespace app.models.sales.report {
+        /**
+         * Fixture: same basename AND same parent namespace segment as
+         * Marketing\Report\Report — reproduces the eagle MailPrice alias collision.
+         */
+        export interface Report {
+            // Columns
+            id: number;
+            name: string;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            kpis: app.models.Kpi[];
+            kpis_count: number;
+            kpis_exists: boolean;
         }
     }
     export namespace blog.models {

@@ -4309,7 +4309,7 @@
             },
             {
                 "name": "uploader_from_docblock",
-                "type": "AppUser | null"
+                "type": "ModelsUser | null"
             },
             {
                 "name": "config_from_docblock",
@@ -4321,7 +4321,7 @@
             },
             {
                 "name": "uploaders_from_docblock",
-                "type": "AppUser[] | Record<string, AppUser>"
+                "type": "ModelsUser[] | Record<string, ModelsUser>"
             },
             {
                 "name": "tree_from_docblock",
@@ -4353,7 +4353,7 @@
             },
             {
                 "name": "imageable",
-                "type": "Post | Product | AppUser | CrmUser"
+                "type": "Post | Product | ModelsUser | CrmUser"
             },
             {
                 "name": "imageable_count",
@@ -4361,6 +4361,74 @@
             },
             {
                 "name": "imageable_exists",
+                "type": "boolean"
+            }
+        ],
+        "Kpi": [
+            {
+                "name": "id",
+                "type": "number"
+            },
+            {
+                "name": "reportable_type",
+                "type": "string"
+            },
+            {
+                "name": "reportable_id",
+                "type": "number"
+            },
+            {
+                "name": "value",
+                "type": "number"
+            },
+            {
+                "name": "created_at",
+                "type": "string | null"
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null"
+            },
+            {
+                "name": "reportable",
+                "type": "MarketingReportReport | SalesReportReport"
+            },
+            {
+                "name": "reportable_count",
+                "type": "number"
+            },
+            {
+                "name": "reportable_exists",
+                "type": "boolean"
+            }
+        ],
+        "Report": [
+            {
+                "name": "id",
+                "type": "number"
+            },
+            {
+                "name": "name",
+                "type": "string"
+            },
+            {
+                "name": "created_at",
+                "type": "string | null"
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null"
+            },
+            {
+                "name": "kpis",
+                "type": "Kpi[]"
+            },
+            {
+                "name": "kpis_count",
+                "type": "number"
+            },
+            {
+                "name": "kpis_exists",
                 "type": "boolean"
             }
         ],
@@ -5929,7 +5997,7 @@
             },
             {
                 "name": "status",
-                "type": "AppStatusType | null"
+                "type": "EnumsStatusType | null"
             },
             {
                 "name": "color",
@@ -5985,15 +6053,15 @@
             },
             {
                 "name": "review_priority",
-                "type": "AppStatusType | PriorityType | null"
+                "type": "EnumsStatusType | PriorityType | null"
             },
             {
                 "name": "review_priority_typed",
-                "type": "AppStatusType | PriorityType | null"
+                "type": "EnumsStatusType | PriorityType | null"
             },
             {
                 "name": "review_priority_typed_short",
-                "type": "AppStatusType | PriorityType | null"
+                "type": "EnumsStatusType | PriorityType | null"
             },
             {
                 "name": "manager",
@@ -6187,7 +6255,7 @@
             },
             {
                 "name": "status",
-                "type": "AppStatusType"
+                "type": "EnumsStatusType"
             },
             {
                 "name": "crm_status",

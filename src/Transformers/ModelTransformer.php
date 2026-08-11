@@ -13,6 +13,7 @@ use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\ModelInspector;
 use AbeTwoThree\LaravelTsPublish\RelationNullable;
+use AbeTwoThree\LaravelTsPublish\Support\ImportNameRegistry;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\BuildsImportMaps;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ParsesTsExtends;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ResolvesImportConflicts;
@@ -529,67 +530,39 @@ class ModelTransformer extends CoreTransformer
      */
     protected function resolveImportConflicts(): self
     {
-        /** @var array<string, list<array{fqcn: string, kind: 'enum'|'model'}>> $reverseMap */
-        $reverseMap = [];
+        $registry = new ImportNameRegistry;
+        $registry->reserve($this->modelName);
 
         foreach ($this->enumFqcnMap as $fqcn => $typeName) {
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'enum'];
+            $registry->register($fqcn, $typeName);
         }
 
         foreach ($this->modelFqcnMap as $fqcn => $typeName) {
             if ($fqcn === $this->findable) {
                 continue;
             }
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'model'];
+
+            $relations = $this->modelFqcnRelations[$fqcn] ?? [];
+            $preferred = count($relations) === 1
+                ? Str::studly($relations[0]).$typeName
+                : null;
+
+            $registry->register($fqcn, $typeName, $preferred);
         }
 
-        foreach ($reverseMap as $typeName => $entries) {
-            $needsAlias = count($entries) > 1 || $typeName === $this->modelName;
+        foreach ($registry->resolve() as $fqcn => $localName) {
+            $typeName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
 
-            if (! $needsAlias) {
+            if ($typeName === null || $localName === $typeName) {
                 continue;
             }
 
-            /** @var list<array{fqcn: string, kind: 'enum'|'model', alias: string, originalName: string}> $candidates */
-            $candidates = [];
+            $this->importAliases[$fqcn] = $localName;
 
-            foreach ($entries as $entry) {
-                $fqcn = $entry['fqcn'];
-                $originalName = $entry['kind'] === 'enum'
-                    ? $this->enumFqcnMap[$fqcn]
-                    : $this->modelFqcnMap[$fqcn];
-
-                if ($entry['kind'] === 'model') {
-                    $relations = $this->modelFqcnRelations[$fqcn] ?? [];
-
-                    if (count($relations) === 1) {
-                        $alias = Str::studly($relations[0]).$originalName;
-                    } else {
-                        $alias = $this->computeNamespacePrefix($fqcn).$originalName;
-                    }
-                } else {
-                    $alias = $this->computeNamespacePrefix($fqcn).$originalName;
-                }
-
-                $candidates[] = ['fqcn' => $fqcn, 'kind' => $entry['kind'], 'alias' => $alias, 'originalName' => $originalName];
-            }
-
-            // Relation-derived aliases can collide with each other; namespace prefixes cannot.
-            $aliasCounts = array_count_values(array_column($candidates, 'alias'));
-
-            foreach ($candidates as $i => $candidate) {
-                if ($aliasCounts[$candidate['alias']] > 1) {
-                    $candidates[$i]['alias'] = $this->computeNamespacePrefix($candidate['fqcn']).$candidate['originalName'];
-                }
-            }
-
-            foreach ($candidates as $candidate) {
-                $this->importAliases[$candidate['fqcn']] = $candidate['alias'];
-
-                if ($candidate['kind'] === 'enum' && isset($this->enumConstMap[$candidate['fqcn']])) {
-                    $prefix = $this->computeNamespacePrefix($candidate['fqcn']);
-                    $this->constImportAliases[$candidate['fqcn']] = $prefix.$this->enumConstMap[$candidate['fqcn']];
-                }
+            if (isset($this->enumConstMap[$fqcn])) {
+                // Const alias mirrors the type alias's prefix.
+                $prefix = substr($localName, 0, strlen($localName) - strlen($typeName));
+                $this->constImportAliases[$fqcn] = $prefix.$this->enumConstMap[$fqcn];
             }
         }
 

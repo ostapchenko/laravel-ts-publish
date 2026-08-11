@@ -9,6 +9,7 @@ export * from './composite-comment';
 export * from './custom-key-post';
 export * from './excludable-model';
 export * from './image';
+export * from './kpi';
 export * from './model-with-nested-trait-extends';
 export * from './model-with-parent-extends';
 export * from './model-with-trait-extends';

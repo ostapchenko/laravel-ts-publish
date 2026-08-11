@@ -15,6 +15,8 @@ use Workbench\App\Models\ChildSharedExtendableModel;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\ExcludableModel;
 use Workbench\App\Models\Image;
+use Workbench\App\Models\Kpi;
+use Workbench\App\Models\Marketing\Report\Report as MarketingReport;
 use Workbench\App\Models\ModelWithNestedTraitExtends;
 use Workbench\App\Models\ModelWithParentExtends;
 use Workbench\App\Models\ModelWithTraitExtends;
@@ -22,6 +24,7 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
 use Workbench\App\Models\Profile;
+use Workbench\App\Models\Sales\Report\Report as SalesReport;
 use Workbench\App\Models\StrictCompositeComment;
 use Workbench\App\Models\StrictTaskAssignment;
 use Workbench\App\Models\Tag;
@@ -439,13 +442,15 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
         // Deal casts status to App\Enums\Status and crm_status to Crm\Enums\Status — both become StatusType.
+        // App\Enums is entirely skip-listed segments, so the registry falls back to the raw,
+        // nearest segment ('Enums'); Crm\Enums keeps its one non-skip segment ('Crm').
         $data = (new ModelTransformer(Deal::class))->data();
 
-        expect($data->columns['status']['type'])->toBe('AppStatusType');
+        expect($data->columns['status']['type'])->toBe('EnumsStatusType');
         expect($data->columns['crm_status']['type'])->toBe('CrmStatusType');
 
         $allImports = array_merge(...array_values($data->typeImports));
-        expect($allImports)->toContain('StatusType as AppStatusType')
+        expect($allImports)->toContain('StatusType as EnumsStatusType')
             ->and($allImports)->toContain('StatusType as CrmStatusType');
     });
 
@@ -512,6 +517,8 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
 
         // Both App\User and Crm\User declare morphMany(Image, 'imageable'), so the relation-based
         // alias is 'ImageableUser' for each and the namespace-based fallback has to break the tie.
+        // App\Models is entirely skip-listed, so the registry falls back to the raw, nearest
+        // segment ('Models'); Crm\Models keeps its one non-skip segment ('Crm').
         resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
             User::class,
             CrmUser::class,
@@ -522,12 +529,37 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
 
         $data = (new ModelTransformer(Image::class))->data();
 
-        expect($data->relations['imageable']['type'])->toBe('Post | Product | AppUser | CrmUser');
+        expect($data->relations['imageable']['type'])->toBe('Post | Product | ModelsUser | CrmUser');
 
         $allImports = array_merge(...array_values($data->typeImports));
-        expect($allImports)->toContain('User as AppUser')
+        expect($allImports)->toContain('User as ModelsUser')
             ->and($allImports)->toContain('User as CrmUser')
             ->and($allImports)->not->toContain('User as ImageableUser');
+    });
+});
+
+describe('ModelTransformer import alias resolution for same basename and same parent segment', function () {
+    test('same basename and same parent segment produce distinct aliases', function () {
+        // Kpi::reportable() morphs to both Report models; their nearest namespace segment is
+        // identically 'Report', reproducing the eagle MailPrice collision at depth 1.
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            Kpi::class,
+            SalesReport::class,
+            MarketingReport::class,
+        ]);
+
+        $data = (new ModelTransformer(Kpi::class))->data();
+
+        expect($data->relations['reportable']['type'])
+            ->toContain('SalesReportReport')
+            ->toContain('MarketingReportReport');
+
+        $allImports = array_merge(...array_values($data->typeImports));
+        expect($allImports)->toContain('Report as SalesReportReport')
+            ->and($allImports)->toContain('Report as MarketingReportReport');
+
+        preg_match_all('/as (\w+)/', implode(' ', $allImports), $matches);
+        expect($matches[1])->toBe(array_unique($matches[1]));
     });
 });
 
@@ -620,7 +652,7 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toHaveKey('status')
             ->toHaveKey('crm_status');
 
-        expect($data->enumColumns['status']['constName'])->toBe('AppStatus');
+        expect($data->enumColumns['status']['constName'])->toBe('EnumsStatus');
         expect($data->enumColumns['crm_status']['constName'])->toBe('CrmStatus');
     });
 
@@ -652,7 +684,7 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
         $data = (new ModelTransformer(Deal::class))->data();
 
         $allValueImports = array_merge(...array_values($data->valueImports));
-        expect($allValueImports)->toContain('Status as AppStatus')
+        expect($allValueImports)->toContain('Status as EnumsStatus')
             ->and($allValueImports)->toContain('Status as CrmStatus');
     });
 
@@ -725,7 +757,7 @@ describe('ModelTransformer with Warehouse model', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
         // The status column casts to App\Enums\Status, the appended current_crm_status to Crm\Enums\Status.
-        expect($data->columns['status']['type'])->toBe('AppStatusType | null');
+        expect($data->columns['status']['type'])->toBe('EnumsStatusType | null');
         expect($data->appends['current_crm_status']['type'])->toBe('CrmStatusType | null');
     });
 
