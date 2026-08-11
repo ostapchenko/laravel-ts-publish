@@ -31,9 +31,11 @@ typed `array<string, self>` is the type-checkable way to express its unbounded d
   anything on `'roles.*'`.
 - **A node with named children** composes to an inline object type, one part per child:
   `{$key}{$optional}: {$type}`, joined `'; '` and wrapped `'{ ... }'` — the same
-  `LaravelTsPublish::validJsObjectKey()` + `{ k: T; k2?: T2 }` convention `analyzeInlineArray()`
-  and `arrayableShapeType()` already use elsewhere for inline shapes. A prohibited child is
-  dropped from the object entirely; it can never legally appear in the payload.
+  `LaravelTsPublish::validJsObjectKey()` + optional-`?` convention
+  `ResourceAstAnalyzer::analyzeInlineArray()` already uses for its own inline object shapes (the
+  `'{ '.implode('; ', $parts).' }'` wrapping itself is shared even more widely, e.g.
+  `arrayableShapeType()`, though that method doesn't mark individual keys optional). A prohibited
+  child is dropped from the object entirely; it can never legally appear in the payload.
 - **A node with both an own rule and children** (`'products' => ['required', 'array']` *and*
   `'products.*.name' => [...]`) uses the children — the composed type is strictly more specific
   than the `unknown[]`/`unknown` placeholder the own rule alone would give.
