@@ -467,6 +467,15 @@ describe('Arrayable property-shape inference', function () {
         expect($result['type'])->toBe('{ amount: number; currency: string }');
     });
 
+    test('the docblock shape wins even when it diverges from the properties', function () {
+        // Money's own properties happen to mirror its docblock 1:1, so that test alone can't tell
+        // "docblock won" apart from "property inference happened to agree". This fixture's keys and
+        // types are unrelated to its properties, so a broken precedence check fails loudly here.
+        $result = $this->service->toTsType(ArrayableShapeDivergesFromPropertiesValueObject::class);
+
+        expect($result['type'])->toBe('{ id: number; label: string }');
+    });
+
     test('an Arrayable with no public properties stays unknown[]', function () {
         // ArrayableValueObject already covers the "no shape, no properties" fixture — see the toTsType describe block.
         $result = $this->service->toTsType(ArrayableValueObject::class);
@@ -520,6 +529,16 @@ describe('JsonSerializable DTO shape inference', function () {
 
         expect($result['type'])->toBe('JsonSerializablePlainValueObject')
             ->and($result['classFqcns'])->toBe([JsonSerializablePlainValueObject::class]);
+    });
+
+    test('JsonSerializable with typed public properties still falls through, unlike Arrayable', function () {
+        // jsonSerialize() carries no contract tying its return value to the object's own properties
+        // (unlike toArray()'s (array) $this convention), so property inference must not widen here —
+        // this fixture's properties bear no relation to what jsonSerialize() actually returns.
+        $result = $this->service->toTsType(JsonSerializableDivergingPropertiesValueObject::class);
+
+        expect($result['type'])->toBe('JsonSerializableDivergingPropertiesValueObject')
+            ->and($result['classFqcns'])->toBe([JsonSerializableDivergingPropertiesValueObject::class]);
     });
 });
 
@@ -2369,6 +2388,44 @@ class MutualPropertyDtoB implements Arrayable
     public function toArray(): array
     {
         return (array) $this;
+    }
+}
+
+/**
+ * An Arrayable DTO whose toArray() shape docblock deliberately names different keys/types than its
+ * public properties, so a precedence test can tell "docblock won" apart from "property inference
+ * happened to produce the same result" — Money's own properties happen to mirror its docblock 1:1.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableShapeDivergesFromPropertiesValueObject implements Arrayable
+{
+    public function __construct(
+        public string $internalName = '',
+        public bool $internalActive = false,
+    ) {}
+
+    /** @return array{id: int, label: string} */
+    public function toArray(): array
+    {
+        return ['id' => 1, 'label' => 'value'];
+    }
+}
+
+/**
+ * A JsonSerializable DTO whose jsonSerialize() output has no relation to its public properties —
+ * proves property-shape inference does not widen to the JsonSerializable path, where
+ * jsonSerialize() carries no contract tying its return value to the object's own properties.
+ */
+class JsonSerializableDivergingPropertiesValueObject implements JsonSerializable
+{
+    public function __construct(
+        public string $internalToken = 'secret',
+    ) {}
+
+    public function jsonSerialize(): mixed
+    {
+        return ['totally' => 'unrelated'];
     }
 }
 

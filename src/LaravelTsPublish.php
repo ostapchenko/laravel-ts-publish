@@ -262,12 +262,14 @@ class LaravelTsPublish
 
         // 5a-bis. JsonSerializable (non-Model, non-Arrayable) → object shape from jsonSerialize().
         //     No shape falls through rather than forcing unknown[]: unlike Arrayable, a bare
-        //     JsonSerializable isn't guaranteed to be array-shaped.
+        //     JsonSerializable isn't guaranteed to be array-shaped. Property inference is withheld
+        //     for the same reason — jsonSerialize() carries no contract tying its return value to
+        //     the object's own properties, unlike toArray()'s (array) $this convention.
         if (class_exists($phpType)
             && ! is_a($phpType, Model::class, true)
             && is_a($phpType, JsonSerializable::class, true)
         ) {
-            $shapeType = $this->arrayableShapeType($phpType, 'jsonSerialize');
+            $shapeType = $this->arrayableShapeType($phpType, 'jsonSerialize', fallbackToProperties: false);
 
             if ($shapeType !== null) {
                 $result['type'] = $shapeType;
@@ -385,11 +387,13 @@ class LaravelTsPublish
     }
 
     /**
-     * Build an inline TS object type from a method's `@return array{...}` shape, or null when absent.
+     * Build an inline TS object type from a method's `@return array{...}` shape, or from the
+     * class's typed public properties when $fallbackToProperties is true and no shape docblock
+     * exists, or null when neither yields anything.
      *
      * @param  class-string  $fqcn
      */
-    protected function arrayableShapeType(string $fqcn, string $method): ?string
+    protected function arrayableShapeType(string $fqcn, string $method, bool $fallbackToProperties = true): ?string
     {
         if (! method_exists($fqcn, $method)) {
             return null; // @codeCoverageIgnore
@@ -412,7 +416,7 @@ class LaravelTsPublish
         }
 
         if ($shape === []) {
-            return $this->publicPropertyShapeType($fqcn);
+            return $fallbackToProperties ? $this->publicPropertyShapeType($fqcn) : null;
         }
 
         $parts = [];
