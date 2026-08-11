@@ -49,20 +49,30 @@ having no shape at all. Anything else — `string`, `OrderItem[]`, `{ value: num
 
 ## Arrayable/JsonSerializable shape-source precedence
 
-`arrayableShapeType()` resolves a DTO's inline object shape in this order, falling through only
-when a step yields nothing:
+`arrayableShapeType()` takes a `bool $fallbackToProperties` argument, and the two call sites in
+`toTsType()` pass it differently — the shape-source chain is **not** identical for `Arrayable` and
+`JsonSerializable`:
 
-1. **`@return array{...}` docblock** on `toArray()`/`jsonSerialize()`, via
-   `parseDocblockReturnArrayShape()`. A vague `@return array<string, mixed>` doesn't count — only
-   a real `array{...}` shape wins here.
-2. **Typed public properties**, via `publicPropertyShapeType()` — the fallback for a DTO whose
-   `toArray()` is just `(array) $this` with no shape docblock. Promoted constructor properties
-   count as public properties for reflection purposes; private, protected, and static properties
-   are skipped, since none of them are part of `(array) $this`. Each property resolves through
-   `propertyTypes()` (reflection type, nullability appended), and a value carrying an unimportable
-   class/enum token degrades to `unknown` via the same `shapeValueHasUnimportableToken()` check
-   the docblock path uses.
-3. **`unknown[]`** — the class has neither a shape docblock nor any public instance properties.
+- **`Arrayable`/`toArray()`** (`$fallbackToProperties = true`, the default) resolves in this order,
+  falling through only when a step yields nothing:
+  1. **`@return array{...}` docblock** on `toArray()`, via `parseDocblockReturnArrayShape()`. A
+     vague `@return array<string, mixed>` doesn't count — only a real `array{...}` shape wins here.
+  2. **Typed public properties**, via `publicPropertyShapeType()` — the fallback for a DTO whose
+     `toArray()` is just `(array) $this` with no shape docblock. Promoted constructor properties
+     count as public properties for reflection purposes; private, protected, and static properties
+     are skipped, since none of them are part of `(array) $this`. Each property resolves through
+     `propertyTypes()` (reflection type, nullability appended), and a value carrying an
+     unimportable class/enum token degrades to `unknown` via the same
+     `shapeValueHasUnimportableToken()` check the docblock path uses.
+  3. **`unknown[]`** — the class has neither a shape docblock nor any public instance properties.
+- **`JsonSerializable`/`jsonSerialize()`** (`$fallbackToProperties = false`) resolves only from a
+  `@return array{...}` docblock; when that's absent it falls through to the rest of `toTsType()`
+  (class-basename, `__toString`, etc.) instead of `unknown[]` or a property-derived shape. Typed
+  public properties are deliberately **not** consulted here: `(array) $this` is a real contract
+  tying `toArray()`'s output to a DTO's own properties, but `jsonSerialize()` carries no such
+  contract — it can return anything, unrelated to the object's properties — so inferring a shape
+  from them would risk emitting a plausible-looking but wrong type instead of falling through
+  conservatively.
 
 `publicPropertyShapeType()` reuses `$shapeExpansionStack`, the same guard `arrayableShapeType()`
 uses for docblock shape cycles, under a `"{FQCN}::__properties"` key distinct from the
