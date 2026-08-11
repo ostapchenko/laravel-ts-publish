@@ -363,6 +363,29 @@ protected function casts(): array
 > 
 > `#[TsCasts]` is still the right tool when a shape is genuinely dynamic (keys built at runtime) or the type is owned by the frontend and needs its own import.
 
+### DTO-typed accessors and casts
+
+An `Arrayable`/`JsonSerializable` DTO whose `toArray()`/`jsonSerialize()` carries no `@return array{...}` shape now infers its shape from its own typed public properties — promoted constructor properties included — instead of falling back to `unknown[]`:
+
+```php
+final readonly class OrderTypeCapabilities implements Arrayable
+{
+    public function __construct(
+        public string $typeName,
+        public bool $tracksSteelDetails,
+        public ?string $warehouseDocsKey = null,
+    ) {}
+
+    /** @return array<string, bool|string|null> */
+    public function toArray(): array
+    {
+        return (array) $this;
+    }
+}
+```
+
+generates as `{ typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null }`. Nullable properties keep their `| null`; private, protected, and static properties are excluded, since they aren't part of `(array) $this`; and a property typed as a class with no import channel (a Model, for example) degrades to `unknown` the same way an unimportable docblock shape value does. Reach for a `@return array{...}` docblock instead only when the properties alone don't tell the whole story — it still wins whenever present.
+
 For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
 ## API Resources

@@ -309,7 +309,7 @@ declare global {
             status_from_docblock: app.enums.StatusType | null;
             uploader_from_docblock: User | null;
             config_from_docblock: MenuSettingsType;
-            data_from_docblock: unknown[];
+            data_from_docblock: { title: string; weight: number | null };
             uploaders_from_docblock: User[] | Record<string, User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
@@ -438,6 +438,7 @@ declare global {
             /** All items on the order, in their natural database order. */
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
             summary_items: app.models.admin.Store[] | Record<string, app.models.admin.Store>;
             // Relations
             user: User;
@@ -1927,7 +1928,7 @@ declare global {
             status_from_docblock: app.enums.StatusType | null;
             uploader_from_docblock: app.models.User | null;
             config_from_docblock: MenuSettingsType;
-            data_from_docblock: unknown[];
+            data_from_docblock: { title: string; weight: number | null };
             uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
@@ -2169,6 +2170,7 @@ declare global {
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
             summary_items: app.models.admin.Store[] | Record<string, app.models.admin.Store>;
             user: app.models.User;
             items: app.models.OrderItem[];
@@ -2533,6 +2535,7 @@ declare global {
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
             summary_items: app.models.admin.Store[] | Record<string, app.models.admin.Store>;
             user: app.models.User;
             items: app.models.OrderItem[];
@@ -2571,6 +2574,7 @@ declare global {
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
             summary_items: app.models.admin.Store[] | Record<string, app.models.admin.Store>;
             user: app.models.User;
             items: app.models.OrderItem[];

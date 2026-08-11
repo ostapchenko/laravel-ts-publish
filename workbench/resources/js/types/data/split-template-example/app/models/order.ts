@@ -57,6 +57,7 @@ export interface OrderMutators
     /** All items on the order, in their natural database order. */
     unsorted_items: unknown[] | Record<string, unknown>;
     state_ids: number[] | null;
+    capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
     summary_items: Store[] | Record<string, Store>;
 }
 

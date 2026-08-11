@@ -4333,7 +4333,7 @@
             },
             {
                 "name": "data_from_docblock",
-                "type": "unknown[]"
+                "type": "{ title: string; weight: number | null }"
             },
             {
                 "name": "uploaders_from_docblock",
@@ -4786,6 +4786,10 @@
             {
                 "name": "state_ids",
                 "type": "number[] | null"
+            },
+            {
+                "name": "capabilities",
+                "type": "{ typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null"
             },
             {
                 "name": "summary_items",
@@ -8107,7 +8111,7 @@
             },
             {
                 "name": "data_from_docblock",
-                "type": "unknown[]",
+                "type": "{ title: string; weight: number | null }",
                 "optional": false
             },
             {
@@ -8715,6 +8719,11 @@
             {
                 "name": "state_ids",
                 "type": "number[] | null",
+                "optional": false
+            },
+            {
+                "name": "capabilities",
+                "type": "{ typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null",
                 "optional": false
             },
             {
@@ -10029,6 +10038,11 @@
                 "optional": false
             },
             {
+                "name": "capabilities",
+                "type": "{ typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null",
+                "optional": false
+            },
+            {
                 "name": "summary_items",
                 "type": "Store[] | Record<string, Store>",
                 "optional": false
@@ -10208,6 +10222,11 @@
             {
                 "name": "state_ids",
                 "type": "number[] | null",
+                "optional": false
+            },
+            {
+                "name": "capabilities",
+                "type": "{ typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null",
                 "optional": false
             },
             {

@@ -47,6 +47,28 @@ specific, because a `mixed`-typed key inside an otherwise-concrete shape is not 
 having no shape at all. Anything else — `string`, `OrderItem[]`, `{ value: number; label: string }`
 — is specific enough to win immediately.
 
+## Arrayable/JsonSerializable shape-source precedence
+
+`arrayableShapeType()` resolves a DTO's inline object shape in this order, falling through only
+when a step yields nothing:
+
+1. **`@return array{...}` docblock** on `toArray()`/`jsonSerialize()`, via
+   `parseDocblockReturnArrayShape()`. A vague `@return array<string, mixed>` doesn't count — only
+   a real `array{...}` shape wins here.
+2. **Typed public properties**, via `publicPropertyShapeType()` — the fallback for a DTO whose
+   `toArray()` is just `(array) $this` with no shape docblock. Promoted constructor properties
+   count as public properties for reflection purposes; private, protected, and static properties
+   are skipped, since none of them are part of `(array) $this`. Each property resolves through
+   `propertyTypes()` (reflection type, nullability appended), and a value carrying an unimportable
+   class/enum token degrades to `unknown` via the same `shapeValueHasUnimportableToken()` check
+   the docblock path uses.
+3. **`unknown[]`** — the class has neither a shape docblock nor any public instance properties.
+
+`publicPropertyShapeType()` reuses `$shapeExpansionStack`, the same guard `arrayableShapeType()`
+uses for docblock shape cycles, under a `"{FQCN}::__properties"` key distinct from the
+`"{FQCN}::{method}"` docblock key — a property typed as the class itself, or a mutual A/B pair,
+degrades the second-level reference to `unknown[]` instead of recursing until memory is exhausted.
+
 ## Nested array shapes inside generic containers
 
 A docblock generic's value slot — the `X` in `list<X>`, `array<K, X>`, `Collection<K, X>` —

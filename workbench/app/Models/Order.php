@@ -15,6 +15,7 @@ use Workbench\App\Concerns\HasSummaries;
 use Workbench\App\Enums\Currency;
 use Workbench\App\Enums\OrderStatus;
 use Workbench\App\Enums\PaymentMethod;
+use Workbench\App\ValueObjects\CapabilitiesDto;
 
 class Order extends Model
 {
@@ -178,5 +179,11 @@ class Order extends Model
     protected function stateIds(): Attribute
     {
         return Attribute::get(fn () => null);
+    }
+
+    /** @return Attribute<CapabilitiesDto|null, never> */
+    protected function capabilities(): Attribute
+    {
+        return Attribute::get(fn (): ?CapabilitiesDto => null);
     }
 }

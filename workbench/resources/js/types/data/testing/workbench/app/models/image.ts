@@ -42,7 +42,7 @@ export interface ImageMutators
     status_from_docblock: StatusType | null;
     uploader_from_docblock: WorkbenchUser | null;
     config_from_docblock: MenuSettingsType;
-    data_from_docblock: unknown[];
+    data_from_docblock: { title: string; weight: number | null };
     uploaders_from_docblock: WorkbenchUser[] | Record<string, WorkbenchUser>;
     tree_from_docblock: { label: string; child: unknown[] };
     price_from_docblock: { amount: number; currency: string };

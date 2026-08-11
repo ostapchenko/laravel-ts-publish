@@ -1309,11 +1309,11 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
         expect($data->typeImports['@js/types/settings'])->toContain('MenuSettingsType');
     });
 
-    test('dataFromDocblock resolves Arrayable class to unknown[]', function () {
+    test('dataFromDocblock resolves Arrayable class without a shape docblock from its typed properties', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
         expect($data->mutators)->toHaveKey('data_from_docblock')
-            ->and($data->mutators['data_from_docblock']['type'])->toBe('unknown[]');
+            ->and($data->mutators['data_from_docblock']['type'])->toBe('{ title: string; weight: number | null }');
     });
 
     test('priceFromDocblock resolves Arrayable class with a shape docblock to an inline object type', function () {

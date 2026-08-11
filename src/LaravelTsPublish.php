@@ -25,6 +25,7 @@ use ReflectionFunction;
 use ReflectionIntersectionType;
 use ReflectionMethod;
 use ReflectionNamedType;
+use ReflectionProperty;
 use ReflectionType;
 use ReflectionUnionType;
 use UnitEnum;
@@ -411,7 +412,7 @@ class LaravelTsPublish
         }
 
         if ($shape === []) {
-            return null;
+            return $this->publicPropertyShapeType($fqcn);
         }
 
         $parts = [];
@@ -427,6 +428,51 @@ class LaravelTsPublish
         }
 
         return '{ '.implode('; ', $parts).' }';
+    }
+
+    /**
+     * Build an inline TS object shape from a class's public, non-static properties (promoted
+     * constructor properties included) — the fallback for an Arrayable/JsonSerializable DTO whose
+     * toArray()/jsonSerialize() carries no `@return array{...}` shape. Returns null when the class
+     * has no public instance properties, so the caller keeps its own `unknown[]` default.
+     *
+     * Reuses $shapeExpansionStack (the same guard arrayableShapeType() uses) under a `::__properties`
+     * key: a property typed as the class itself, or a mutual pair, would otherwise recurse forever.
+     *
+     * @param  class-string  $fqcn
+     */
+    protected function publicPropertyShapeType(string $fqcn): ?string
+    {
+        $guard = $fqcn.'::__properties';
+
+        if (isset($this->shapeExpansionStack[$guard])) {
+            return null;
+        }
+
+        $this->shapeExpansionStack[$guard] = true;
+
+        try {
+            $reflection = new ReflectionClass($fqcn);
+            $parts = [];
+
+            foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+                if ($property->isStatic()) {
+                    continue;
+                }
+
+                $type = $this->propertyTypes($reflection, $property->getName())['type'];
+
+                if ($this->shapeValueHasUnimportableToken($type)) {
+                    $type = 'unknown';
+                }
+
+                $parts[] = $property->getName().': '.$type;
+            }
+        } finally {
+            unset($this->shapeExpansionStack[$guard]);
+        }
+
+        return $parts === [] ? null : '{ '.implode('; ', $parts).' }';
     }
 
     /**

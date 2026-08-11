@@ -40,7 +40,7 @@ export interface Image
     status_from_docblock: StatusType | null;
     uploader_from_docblock: ModelsUser | null;
     config_from_docblock: MenuSettingsType;
-    data_from_docblock: unknown[];
+    data_from_docblock: { title: string; weight: number | null };
     uploaders_from_docblock: ModelsUser[] | Record<string, ModelsUser>;
     tree_from_docblock: { label: string; child: unknown[] };
     price_from_docblock: { amount: number; currency: string };

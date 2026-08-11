@@ -33,6 +33,7 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\User;
 use Workbench\App\ValueObjects\ArrayableData;
+use Workbench\App\ValueObjects\CapabilitiesDto;
 use Workbench\App\ValueObjects\GridConfigDto;
 use Workbench\App\ValueObjects\Money;
 use Workbench\Shipping\Enums\Status as ShippingStatus;
@@ -370,12 +371,6 @@ describe('Arrayable DTO shape inference', function () {
             ->and($result['classFqcns'])->toBeEmpty();
     });
 
-    test('Arrayable without docblock shape still resolves to unknown[]', function () {
-        $result = $this->service->toTsType(ArrayableData::class);
-
-        expect($result['type'])->toBe('unknown[]');
-    });
-
     test('Arrayable shape value that resolves to a class-backed token degrades that property to unknown', function () {
         // parseDocblockReturnArrayShape() carries type strings but not FQCNs, so a class token here is unimportable.
         $result = $this->service->toTsType(ArrayableWithClassValueObject::class);
@@ -449,6 +444,66 @@ describe('Arrayable DTO shape inference', function () {
         $result = $this->service->toTsType(ArrayableAndJsonSerializableValueObject::class);
 
         expect($result['type'])->toBe('{ fromArray: string }');
+    });
+});
+
+describe('Arrayable property-shape inference', function () {
+    test('typed public properties produce the object shape when no docblock shape exists', function () {
+        $result = $this->service->toTsType(ArrayableData::class);
+
+        expect($result['type'])->toBe('{ title: string; weight: number | null }');
+    });
+
+    test('promoted readonly properties with a generic toArray docblock resolve', function () {
+        $result = $this->service->toTsType(CapabilitiesDto::class);
+
+        expect($result['type'])->toBe('{ typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null }');
+    });
+
+    test('a @return array{...} docblock still wins over properties', function () {
+        // Money has typed public properties too, but its toArray() carries a real array{...} shape.
+        $result = $this->service->toTsType(Money::class);
+
+        expect($result['type'])->toBe('{ amount: number; currency: string }');
+    });
+
+    test('an Arrayable with no public properties stays unknown[]', function () {
+        // ArrayableValueObject already covers the "no shape, no properties" fixture — see the toTsType describe block.
+        $result = $this->service->toTsType(ArrayableValueObject::class);
+
+        expect($result['type'])->toBe('unknown[]');
+    });
+
+    test('private and static properties are excluded from the shape', function () {
+        $result = $this->service->toTsType(ArrayableWithNonPublicPropertiesDto::class);
+
+        expect($result['type'])->toBe('{ visible: string }');
+    });
+
+    test('a property typed as an unimportable class degrades that property to unknown', function () {
+        // No import channel exists for a bare model class token inside an inline object shape.
+        $result = $this->service->toTsType(ArrayableWithClassPropertyDto::class);
+
+        expect($result['type'])->toBe('{ label: string; owner: unknown }');
+    });
+
+    test('a property typed as the class itself terminates instead of exhausting memory', function () {
+        $result = $this->service->toTsType(SelfReferentialPropertyDto::class);
+
+        expect($result['type'])->toBe('{ label: string; child: unknown[] | null }');
+    });
+
+    test('a mutual A to B to A property shape cycle terminates', function () {
+        $result = $this->service->toTsType(MutualPropertyDtoA::class);
+
+        expect($result['type'])->toBe('{ label: string; sibling: { label: string; sibling: unknown[] | null } | null }');
+    });
+
+    test('the property cycle guard is released, so the same DTO resolves fully on a later call', function () {
+        $this->service->toTsType(MutualPropertyDtoA::class);
+
+        expect($this->service->toTsType(MutualPropertyDtoB::class)['type'])
+            ->toBe('{ label: string; sibling: { label: string; sibling: unknown[] | null } | null }');
     });
 });
 
@@ -2211,6 +2266,109 @@ class ArrayableMutualBValueObject implements Arrayable
     public function toArray(): array
     {
         return [];
+    }
+}
+
+/**
+ * An Arrayable DTO with no docblock shape and a mix of visibility/staticness, for property-based
+ * shape inference: only public, non-static properties (promoted ones included) belong in the shape.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithNonPublicPropertiesDto implements Arrayable
+{
+    public static string $shared = 'static';
+
+    protected string $internal = 'hidden';
+
+    private string $secret = 'hidden';
+
+    public function __construct(
+        public string $visible = '',
+    ) {}
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return ['visible' => $this->visible];
+    }
+}
+
+/**
+ * An Arrayable DTO whose property is typed as a Model class — no import channel exists for a bare
+ * class token inside an inline shape, so property-based inference must degrade it to unknown.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class ArrayableWithClassPropertyDto implements Arrayable
+{
+    public function __construct(
+        public string $label = '',
+        public ?User $owner = null,
+    ) {}
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return ['label' => $this->label, 'owner' => $this->owner];
+    }
+}
+
+/**
+ * A property typed as the class itself: the property-based shapeExpansionStack guard must
+ * terminate this instead of recursing until memory is exhausted.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class SelfReferentialPropertyDto implements Arrayable
+{
+    public function __construct(
+        public string $label = '',
+        public ?SelfReferentialPropertyDto $child = null,
+    ) {}
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return (array) $this;
+    }
+}
+
+/**
+ * Half of a mutual A -> B -> A property-shape cycle.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class MutualPropertyDtoA implements Arrayable
+{
+    public function __construct(
+        public string $label = '',
+        public ?MutualPropertyDtoB $sibling = null,
+    ) {}
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return (array) $this;
+    }
+}
+
+/**
+ * The other half of the mutual A -> B -> A property-shape cycle.
+ *
+ * @implements Arrayable<string, mixed>
+ */
+class MutualPropertyDtoB implements Arrayable
+{
+    public function __construct(
+        public string $label = '',
+        public ?MutualPropertyDtoA $sibling = null,
+    ) {}
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return (array) $this;
     }
 }
 
