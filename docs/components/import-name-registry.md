@@ -62,11 +62,37 @@ climbs only as far as needed:
   (`Str::studly($relation).$typeName`, e.g. `OwnerUser`) — a model reached by two or more
   relations, or not reached by any (e.g. a plain column cast), gets no preferred alias and
   starts straight from namespace segments.
-- **Const-alias mirroring.** For an enum FQCN whose resolved local name differs from its type
-  name, the paired const import (`$constImportAliases`) reuses the same prefix: the resolved
-  alias minus the type name, prepended to the enum's const name. `StatusType` aliased to
-  `CrmStatusType` mirrors `Status` to `CrmStatus`.
+- **Const-alias mirroring.** Const names are resolved through a second, sibling
+  `ImportNameRegistry` (same skip list) rather than derived by string-slicing the type
+  alias — slicing breaks once a member reaches the numeric tiebreak, where the local name is
+  no longer literally "prefix + type name". Because a const name collides exactly when its
+  paired type name does (both are deterministic functions of the same enum FQCN), the sibling
+  registry naturally mirrors the type registry's chosen depth: `StatusType` aliased to
+  `CrmStatusType` pairs with `Status` aliased to `CrmStatus`.
 
-Still remaining: `BroadcastEventTransformer` and `ResourceTransformer` derive aliases with
-`ResolvesImportConflicts::computeNamespacePrefix()` directly and have not been migrated onto
-the registry.
+### `ResourceTransformer`
+
+`ResourceTransformer::resolveImportConflicts()` follows the same shape as `ModelTransformer`,
+with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
+
+- **Reserved names.** The resource's own interface name (`$this->resourceName`) is reserved.
+- **Registration.** Every enum FQCN in `$enumFqcnMap`, resource FQCN in `$resourceFqcnMap`,
+  and model FQCN in `$modelFqcnMap` is registered with no preferred alias — resources have no
+  relation-derived preference the way `ModelTransformer`'s models do.
+- **Const-alias mirroring.** Identical to `ModelTransformer`: a sibling registry (same skip
+  list) resolves enum const aliases independently of the type aliases.
+
+### `BroadcastEventTransformer`
+
+`BroadcastEventTransformer::resolveImportConflicts()` uses one `ImportNameRegistry` per event
+file, `new ImportNameRegistry(['Events', 'Enums', 'Models'])`:
+
+- **Reserved names.** The event's own interface name (`$this->eventName`) is reserved.
+- **Registration.** Every enum FQCN in `$enumFqcnMap` and model FQCN in `$modelFqcnMap` is
+  registered with no preferred alias.
+- **No const-alias handling.** `$enumConstMap` is always empty on this transformer (broadcast
+  event payloads reference enums as types, never as tolki `AsEnum<typeof Const>` values), so
+  there is no sibling const registry — mirroring one here would be dead code.
+
+All three transformer consumers are now on `ImportNameRegistry`; no transformer derives
+aliases from a single namespace segment anymore.
