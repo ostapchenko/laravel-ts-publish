@@ -533,8 +533,17 @@ class ModelTransformer extends CoreTransformer
         $registry = new ImportNameRegistry;
         $registry->reserve($this->modelName);
 
+        // Const names collide exactly when their paired type names do (both are deterministic
+        // functions of the same enum FQCN), so a sibling registry resolves them independently
+        // rather than string-slicing the type alias — which breaks on a numeric tiebreak suffix.
+        $constRegistry = new ImportNameRegistry;
+
         foreach ($this->enumFqcnMap as $fqcn => $typeName) {
             $registry->register($fqcn, $typeName);
+
+            if (isset($this->enumConstMap[$fqcn])) {
+                $constRegistry->register($fqcn, $this->enumConstMap[$fqcn]);
+            }
         }
 
         foreach ($this->modelFqcnMap as $fqcn => $typeName) {
@@ -550,6 +559,8 @@ class ModelTransformer extends CoreTransformer
             $registry->register($fqcn, $typeName, $preferred);
         }
 
+        $constNames = $constRegistry->resolve();
+
         foreach ($registry->resolve() as $fqcn => $localName) {
             $typeName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
 
@@ -559,10 +570,8 @@ class ModelTransformer extends CoreTransformer
 
             $this->importAliases[$fqcn] = $localName;
 
-            if (isset($this->enumConstMap[$fqcn])) {
-                // Const alias mirrors the type alias's prefix.
-                $prefix = substr($localName, 0, strlen($localName) - strlen($typeName));
-                $this->constImportAliases[$fqcn] = $prefix.$this->enumConstMap[$fqcn];
+            if (isset($constNames[$fqcn]) && $constNames[$fqcn] !== $this->enumConstMap[$fqcn]) {
+                $this->constImportAliases[$fqcn] = $constNames[$fqcn];
             }
         }
 

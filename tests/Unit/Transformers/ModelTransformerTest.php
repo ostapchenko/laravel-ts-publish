@@ -561,6 +561,42 @@ describe('ModelTransformer import alias resolution for same basename and same pa
         preg_match_all('/as (\w+)/', implode(' ', $allImports), $matches);
         expect($matches[1])->toBe(array_unique($matches[1]));
     });
+
+    test('const alias stays sane when the type alias hits the numeric tiebreak', function () {
+        // Two distinct enum FQCNs whose namespace is entirely skip-listed except one shared
+        // segment ('V1'): both alias to 'V1StatusType' at depth 1, exhaust immediately (a
+        // single segment), and fall to ImportNameRegistry's numeric tiebreak — 'V1StatusType'
+        // and 'V1StatusType2'. The const alias must not be derived by slicing that string:
+        // substr('V1StatusType2', 0, strlen('V1StatusType2') - strlen('StatusType')) is 'V1S',
+        // producing the nonsense const alias 'V1SStatus' instead of mirroring 'V1Status2'.
+        $enumsFqcn = 'App\\Enums\\V1\\Status';
+        $modelsFqcn = 'App\\Models\\V1\\Status';
+
+        $transformer = new ModelTransformer(User::class);
+
+        (new ReflectionProperty($transformer, 'modelName'))->setValue($transformer, 'User');
+        (new ReflectionProperty($transformer, 'enumFqcnMap'))->setValue($transformer, [
+            $enumsFqcn => 'StatusType',
+            $modelsFqcn => 'StatusType',
+        ]);
+        (new ReflectionProperty($transformer, 'enumConstMap'))->setValue($transformer, [
+            $enumsFqcn => 'Status',
+            $modelsFqcn => 'Status',
+        ]);
+
+        (new ReflectionMethod($transformer, 'resolveImportConflicts'))->invoke($transformer);
+
+        $typeAliases = (new ReflectionProperty($transformer, 'importAliases'))->getValue($transformer);
+        $constAliases = (new ReflectionProperty($transformer, 'constImportAliases'))->getValue($transformer);
+
+        expect($typeAliases[$enumsFqcn])->toBe('V1StatusType')
+            ->and($typeAliases[$modelsFqcn])->toBe('V1StatusType2');
+
+        expect($constAliases[$enumsFqcn])->toBe('V1Status')
+            ->and($constAliases[$modelsFqcn])->toBe('V1Status2');
+
+        expect(array_values($constAliases))->toBe(array_unique(array_values($constAliases)));
+    });
 });
 
 describe('ModelTransformer doc block descriptions', function () {
