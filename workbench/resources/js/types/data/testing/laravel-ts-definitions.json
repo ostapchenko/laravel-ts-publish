@@ -4784,6 +4784,10 @@
                 "type": "unknown[] | Record<string, unknown>"
             },
             {
+                "name": "state_ids",
+                "type": "number[] | null"
+            },
+            {
                 "name": "user",
                 "type": "User"
             },
@@ -8693,6 +8697,11 @@
                 "optional": false
             },
             {
+                "name": "state_ids",
+                "type": "number[] | null",
+                "optional": false
+            },
+            {
                 "name": "user",
                 "type": "User",
                 "optional": false
@@ -9994,6 +10003,11 @@
                 "optional": false
             },
             {
+                "name": "state_ids",
+                "type": "number[] | null",
+                "optional": false
+            },
+            {
                 "name": "user",
                 "type": "User",
                 "optional": false
@@ -10166,6 +10180,11 @@
                 "optional": false
             },
             {
+                "name": "state_ids",
+                "type": "number[] | null",
+                "optional": false
+            },
+            {
                 "name": "user",
                 "type": "User",
                 "optional": false
@@ -10260,6 +10279,16 @@
             {
                 "name": "widget_config_coalesce",
                 "type": "WidgetConfigType",
+                "optional": false
+            },
+            {
+                "name": "autocomplete",
+                "type": "{ value: number; label: string }",
+                "optional": false
+            },
+            {
+                "name": "summaries",
+                "type": "{ key: string; label: string }[]",
                 "optional": false
             }
         ],

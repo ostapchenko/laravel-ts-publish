@@ -437,6 +437,7 @@ declare global {
             listed_items: OrderItem[];
             /** All items on the order, in their natural database order. */
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
             // Relations
             user: User;
             user_count: number;
@@ -2163,6 +2164,7 @@ declare global {
             sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
             user: app.models.User;
             items: app.models.OrderItem[];
         }
@@ -2525,6 +2527,7 @@ declare global {
             sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
             user: app.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2561,6 +2564,7 @@ declare global {
             sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
             user: app.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2583,6 +2587,8 @@ declare global {
             money_value: unknown;
             page_meta_ternary: PageMetaType | null;
             widget_config_coalesce: WidgetConfigType;
+            autocomplete: { value: number; label: string };
+            summaries: { key: string; label: string }[];
         }
         /** Exercises: whenCounted on two polymorphic relations. */
         export interface TagResource {

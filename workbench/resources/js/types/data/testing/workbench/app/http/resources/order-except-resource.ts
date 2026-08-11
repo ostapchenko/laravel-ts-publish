@@ -37,6 +37,7 @@ export interface OrderExceptResource
     sorted_items: OrderItem[] | Record<string, OrderItem>;
     listed_items: OrderItem[];
     unsorted_items: unknown[] | Record<string, unknown>;
+    state_ids: number[] | null;
     user: User;
     items: OrderItem[];
 }

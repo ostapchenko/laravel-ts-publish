@@ -149,4 +149,32 @@ class Order extends Model
     {
         return Attribute::get(fn (): Collection => $this->items);
     }
+
+    /** @return array{value: int, label: string} */
+    public function asAutoCompleteOption(): array
+    {
+        return ['value' => (int) $this->getKey(), 'label' => (string) $this->notes];
+    }
+
+    /** @return list<array{key: string, label: string}> */
+    public function presetSummaries(): array
+    {
+        return [['key' => 'a', 'label' => 'A']];
+    }
+
+    /**
+     * A vague `: array` signature must not override a docblock that only narrows a single key.
+     *
+     * @return array{value: int, label: string}
+     */
+    public function primaryLabel(): string
+    {
+        return (string) $this->notes;
+    }
+
+    /** @return Attribute<?array<int, int>, never> */
+    protected function stateIds(): Attribute
+    {
+        return Attribute::get(fn () => null);
+    }
 }

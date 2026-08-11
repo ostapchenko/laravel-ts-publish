@@ -4150,6 +4150,23 @@ describe('static call inference', function () {
     });
 });
 
+describe('vague array signature docblock shapes resolved via $this->resource->method()', function () {
+    beforeEach(function () {
+        $this->props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(StaticCallResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+    });
+
+    test('$this->resource->asAutoCompleteOption() resolves the @return array{...} shape, not unknown[]', function () {
+        expect($this->props['autocomplete']['type'])->toBe('{ value: number; label: string }');
+    });
+
+    test('$this->resource->presetSummaries() resolves list<array{...}> to an object array', function () {
+        expect($this->props['summaries']['type'])->toBe('{ key: string; label: string }[]');
+    });
+});
+
 describe('reflected static-call types dispatch their imports', function () {
     beforeEach(function () {
         $this->analysis = new ResourceAstAnalyzer(

@@ -65,6 +65,12 @@ class StaticCallResource extends JsonResource
             // import may end up in the emitted file. A third distinct #[TsType] class for the
             // same isolation reason as page_meta_ternary above.
             'widget_config_coalesce' => UrlService::moneyValue() ?? UrlService::widgetConfig(),
+            // Proves methodOrDocblockReturnTypes() defers a vague `: array` signature to a precise
+            // @return array{...} docblock shape instead of emitting unknown[] (Task 6).
+            'autocomplete' => $this->resource->asAutoCompleteOption(),
+            // Proves a docblock array{...} shape nested inside list<> resolves through the same
+            // shape resolver instead of degrading to unknown[][] (Task 6).
+            'summaries' => $this->resource->presetSummaries(),
         ];
     }
 }

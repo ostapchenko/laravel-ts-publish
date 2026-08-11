@@ -55,6 +55,7 @@ export interface OrderMutators
     listed_items: OrderItem[];
     /** All items on the order, in their natural database order. */
     unsorted_items: unknown[] | Record<string, unknown>;
+    state_ids: number[] | null;
 }
 
 export interface OrderRelations

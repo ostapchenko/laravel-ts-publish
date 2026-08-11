@@ -325,8 +325,11 @@ test('docblock @return array shape provides type overrides when no TsCasts prese
 
     $result = $analyzer->analyze();
 
+    // The outer object still joins with ', ' (buildTypeStringWithOverrides(), untouched by Task 6); the
+    // nested shapes now resolve through resolveArrayShapeString(), so they join with '; ' like everywhere
+    // else that helper is used.
     expect($result)->not->toBeNull()
-        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number, name: string, email: string } | null }, flash: { success: string | null, error: string | null }, appName: string }')
+        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number; name: string; email: string } | null }, flash: { success: string | null; error: string | null }, appName: string }')
         ->and($result['importStatements'])->toBe([]);
 });
 
@@ -348,7 +351,7 @@ test('TsCasts overrides win over docblock for same key', function () {
     $result = $analyzer->analyze();
 
     expect($result)->not->toBeNull()
-        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number, name: string, email: string } | null }, flash: FlashMessages, appName: string }')
+        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number; name: string; email: string } | null }, flash: FlashMessages, appName: string }')
         ->and($result['importStatements'])->toBe([]);
 });
 

@@ -83,9 +83,12 @@ trait ResolvesAccessorType
 
     /**
      * A "vague" TS type carries no element information, so a docblock generic can usually do better.
+     *
+     * Delegates to LaravelTsPublish::isVagueTsType() — the single definition of "vague" shared with
+     * methodOrDocblockReturnTypes() — rather than duplicating the predicate here.
      */
     protected function isVagueTsType(string $type): bool
     {
-        return str_contains($type, 'unknown') || $type === 'object';
+        return LaravelTsPublish::isVagueTsType($type);
     }
 }

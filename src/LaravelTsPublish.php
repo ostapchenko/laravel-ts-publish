@@ -433,13 +433,29 @@ class LaravelTsPublish
         }
 
         $reflectionMethod = $class->getMethod($method);
-        $returnType = $reflectionMethod->getReturnType();
+        $signatureInfo = $this->resolveReflectionType($reflectionMethod->getReturnType());
 
-        if ($returnType !== null) {
-            return $this->resolveReflectionType($returnType);
+        if ($signatureInfo['type'] !== 'unknown' && ! $this->isVagueTsType($signatureInfo['type'])) {
+            return $signatureInfo;
         }
 
-        return $this->docblockReturnTypes($reflectionMethod);
+        // A vague native signature (: array, : iterable, ...) carries no element information, so a
+        // docblock shape like `@return array{value: int, label: string}` can usually do better.
+        $docblockInfo = $this->docblockReturnTypes($reflectionMethod);
+
+        if ($docblockInfo['type'] !== 'unknown' && ! $this->isVagueTsType($docblockInfo['type'])) {
+            return $docblockInfo;
+        }
+
+        return $signatureInfo['type'] !== 'unknown' ? $signatureInfo : $docblockInfo;
+    }
+
+    /**
+     * A "vague" TS type carries no element information, so a docblock generic can usually do better.
+     */
+    public function isVagueTsType(string $type): bool
+    {
+        return str_contains($type, 'unknown') || $type === 'object';
     }
 
     /** @return TypeScriptTypeInfo */
@@ -662,6 +678,14 @@ class LaravelTsPublish
             return $generic;
         }
 
+        if (str_starts_with($part, 'array{')) {
+            $shapeType = $this->resolveArrayShapeString($part, $useMap, $namespace);
+
+            if ($shapeType !== null) {
+                return [...$this->emptyTypeScriptInfo(), 'type' => $shapeType];
+            }
+        }
+
         $resolved = $this->resolveDocblockTypeName($part, $useMap, $namespace);
 
         return str_contains($resolved, '<')
@@ -680,6 +704,22 @@ class LaravelTsPublish
     public function resolveGenericContainerType(string $type, array $useMap, string $namespace): ?array
     {
         $type = trim($type);
+
+        // Nullable-prefixed generic (?array<int, X>, ?Collection<int, X>) — strip, resolve, reattach.
+        // Mirrors toTsType()'s step 0 for the non-generic case.
+        if (str_starts_with($type, '?')) {
+            $inner = $this->resolveGenericContainerType(substr($type, 1), $useMap, $namespace);
+
+            if ($inner === null) {
+                return null;
+            }
+
+            if (! str_contains($inner['type'], 'null')) {
+                $inner['type'] .= ' | null';
+            }
+
+            return $inner;
+        }
 
         // X[] shorthand (but not TS-style unions — split upstream)
         if (str_ends_with($type, '[]')) {
@@ -743,6 +783,14 @@ class LaravelTsPublish
 
         if ($nested !== null) {
             return $nested;
+        }
+
+        if (str_starts_with(trim($valueType), 'array{')) {
+            $shapeType = $this->resolveArrayShapeString(trim($valueType), $useMap, $namespace);
+
+            if ($shapeType !== null) {
+                return [...$this->emptyTypeScriptInfo(), 'type' => $shapeType];
+            }
         }
 
         // Unions inside the value slot (e.g. Collection<int, A|B>)
@@ -1032,6 +1080,41 @@ class LaravelTsPublish
     }
 
     /**
+     * Resolve a PHPDoc `array{...}` shape string to an inline TS object literal, or null when
+     * $phpType isn't a well-formed shape. Shared by resolvePhpDocTypeToTs(), resolveDocblockTypePart(),
+     * and resolveDocblockContainerValue() so a shape resolves identically wherever it appears.
+     *
+     * A per-key value carrying an unimportable token (a bare class/enum name) degrades to 'unknown':
+     * the shape map is string-only, so it can never carry the FQCN an import would need.
+     *
+     * @param  array<string, string>  $useMap
+     */
+    protected function resolveArrayShapeString(string $phpType, array $useMap, string $namespace): ?string
+    {
+        if (! str_starts_with($phpType, 'array{') || ! str_ends_with($phpType, '}')) {
+            return null;
+        }
+
+        $innerTypes = $this->parseArrayShapeToTsTypes($phpType, $useMap, $namespace);
+
+        if ($innerTypes === []) {
+            return 'Record<string, unknown>';
+        }
+
+        $parts = [];
+
+        foreach ($innerTypes as $key => $type) {
+            if ($this->shapeValueHasUnimportableToken($type)) {
+                $type = 'unknown';
+            }
+
+            $parts[] = $key.': '.$type;
+        }
+
+        return '{ '.implode('; ', $parts).' }';
+    }
+
+    /**
      * Resolve a PHPDoc type string (including nested array shapes) to a TypeScript type string.
      *
      * @param  array<string, string>  $useMap
@@ -1060,19 +1143,7 @@ class LaravelTsPublish
 
         // After the union split this is a pure shape
         if (str_starts_with($phpType, 'array{')) {
-            $innerTypes = $this->parseArrayShapeToTsTypes($phpType, $useMap, $namespace);
-
-            if ($innerTypes !== []) {
-                $parts = [];
-
-                foreach ($innerTypes as $key => $type) {
-                    $parts[] = $key.': '.$type;
-                }
-
-                return '{ '.implode(', ', $parts).' }';
-            }
-
-            return 'Record<string, unknown>';
+            return $this->resolveArrayShapeString($phpType, $useMap, $namespace) ?? 'Record<string, unknown>';
         }
 
         $resolved = $this->resolveDocblockTypeName($phpType, $useMap, $namespace);

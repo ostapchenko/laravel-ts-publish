@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Attributes\TsType;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish;
+use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -331,12 +332,13 @@ describe('Arrayable DTO shape inference', function () {
         expect($result['type'])->toBe('{ owner: unknown }');
     });
 
-    test('a class-backed value hidden inside Record<string, X> or a nested array{...} shape also degrades to unknown', function () {
-        // extractImportableTypes() skips anything containing '<' or starting with '{', so Record<string, User> and
-        // nested array{owner: User} leak the bare token; shapeValueHasUnimportableToken() tokenizes the whole string.
+    test('a class-backed value hidden inside Record<string, X> degrades the whole value; nested in array{...} degrades just the leaf', function () {
+        // Record<string, User> has no shape to recurse into, so shapeValueHasUnimportableToken() degrades
+        // the whole value. The nested array{owner: User} now resolves through resolveArrayShapeString(),
+        // which degrades only the unimportable 'owner' leaf (Task 6) instead of losing the whole shape.
         $result = $this->service->toTsType(ArrayableWithHiddenClassValueObject::class);
 
-        expect($result['type'])->toBe('{ recordOfUsers: unknown; nestedOwner: unknown }');
+        expect($result['type'])->toBe('{ recordOfUsers: unknown; nestedOwner: { owner: unknown } }');
     });
 
     test('class-backed array shape values keep degrading to unknown after the tokenizer rewrite', function () {
@@ -496,6 +498,39 @@ describe('methodOrDocblockReturnTypes', function () {
     });
 });
 
+describe('vague signature types defer to docblock shapes', function () {
+    test(': array signature with @return array{...} resolves the shape', function () {
+        $info = app(LaravelTsPublish::class)->methodOrDocblockReturnTypes(
+            new ReflectionClass(Order::class), 'asAutoCompleteOption',
+        );
+
+        expect($info['type'])->toBe('{ value: number; label: string }');
+    });
+
+    test('list<array{...}> resolves to an object array, not unknown[][]', function () {
+        $info = app(LaravelTsPublish::class)->methodOrDocblockReturnTypes(
+            new ReflectionClass(Order::class), 'presetSummaries',
+        );
+
+        expect($info['type'])->toBe('{ key: string; label: string }[]');
+    });
+
+    test('a specific signature still beats the docblock', function () {
+        // : string is already specific, so it must win even though the docblock names a wider shape.
+        $info = app(LaravelTsPublish::class)->methodOrDocblockReturnTypes(
+            new ReflectionClass(Order::class), 'primaryLabel',
+        );
+
+        expect($info['type'])->toBe('string');
+    });
+
+    test('a nullable-prefixed generic resolves to the inner type or null', function () {
+        $info = resolve(ModelAttributeResolver::class)->resolveAttribute(Order::class, 'state_ids');
+
+        expect($info['type'])->toBe('number[] | null');
+    });
+});
+
 describe('nativePhpFunctionReturnedTypes', function () {
     test('userland function with scalar return type reflects', function () {
         // route() is a userland global from illuminate/foundation's helpers.php, not a PHP-internal function.
@@ -558,15 +593,20 @@ describe('docblockReturnTypes', function () {
         $method = new ReflectionMethod(DocblockReturnClass::class, 'multilineArrayShape');
         $result = $this->service->docblockReturnTypes($method);
 
-        // toTsType() partial-matches 'array' here; parseDocblockReturnArrayShape() gives per-key types.
-        expect($result['type'])->toBe('unknown[]');
+        // resolveDocblockTypePart() now resolves a top-level array{...} shape through the same
+        // shape resolver resolvePhpDocTypeToTs() uses, instead of falling through to toTsType()'s
+        // partial match on the bare word "array".
+        expect($result['type'])->toBe(
+            '{ auth: { user: { id: number; name: string; email: string } | null }; '.
+            'flash: { success: string | null; error: string | null }; appName: string }',
+        );
     });
 
     test('docblockReturnTypes handles single-line @return array shape', function () {
         $method = new ReflectionMethod(DocblockReturnClass::class, 'singleLineArrayShape');
         $result = $this->service->docblockReturnTypes($method);
 
-        expect($result['type'])->toBe('unknown[]');
+        expect($result['type'])->toBe('{ name: string; age: number }');
     });
 
     test('docblockReturnTypes degrades an unrecognized outer generic instead of guessing a partial-match type', function () {
@@ -819,10 +859,13 @@ describe('parseDocblockReturnArrayShape', function () {
         $method = new ReflectionMethod(DocblockReturnClass::class, 'multilineArrayShape');
         $result = $this->service->parseDocblockReturnArrayShape($method);
 
+        // Nested array{...} shapes now resolve through resolveArrayShapeString(), the same helper
+        // resolveDocblockContainerValue() and resolveDocblockTypePart() use, so the object-literal
+        // separator is consistently '; ' rather than the previous inconsistent ', '.
         expect($result)->toHaveKeys(['auth', 'flash', 'appName'])
             ->and($result['appName'])->toBe('string')
-            ->and($result['flash'])->toBe('{ success: string | null, error: string | null }')
-            ->and($result['auth'])->toBe('{ user: { id: number, name: string, email: string } | null }');
+            ->and($result['flash'])->toBe('{ success: string | null; error: string | null }')
+            ->and($result['auth'])->toBe('{ user: { id: number; name: string; email: string } | null }');
     });
 
     test('parses single-line @return array shape', function () {
@@ -865,7 +908,9 @@ describe('resolvePhpDocTypeToTs', function () {
     test('resolves nested array shape', function () {
         $result = $this->service->resolvePhpDocTypeToTs('array{name: string, age: int}', [], '');
 
-        expect($result)->toBe('{ name: string, age: number }');
+        // Semicolon-separated, matching resolveArrayShapeString() — the same formatter used by
+        // resolveDocblockContainerValue() and resolveDocblockTypePart() — and real generated output.
+        expect($result)->toBe('{ name: string; age: number }');
     });
 
     test('resolves array shape with nullable inner type', function () {

@@ -31,4 +31,6 @@ export interface StaticCallResource
     money_value: unknown;
     page_meta_ternary: PageMetaType | null;
     widget_config_coalesce: WidgetConfigType;
+    autocomplete: { value: number; label: string };
+    summaries: { key: string; label: string }[];
 }
