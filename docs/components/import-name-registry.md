@@ -49,6 +49,24 @@ climbs only as far as needed:
 
 ## Consumers
 
-Not yet wired up — `ImportNameRegistry` has no callers as of this writing. It is a
-standalone, fully unit-tested support class; a follow-up migrates the transformers that
-currently derive aliases with `ResolvesImportConflicts::computeNamespacePrefix()` onto it.
+### `ModelTransformer`
+
+`ModelTransformer::resolveImportConflicts()` builds one `ImportNameRegistry` per model file:
+
+- **Reserved names.** The model's own interface name (`$this->modelName`) is reserved before
+  anything is registered, so an imported class that happens to share the current model's name
+  is forced to alias even if it would otherwise be the only member of its group.
+- **Registration.** Every enum FQCN in `$enumFqcnMap` is registered with no preferred alias.
+  Every model FQCN in `$modelFqcnMap` (excluding the model being transformed) is registered
+  too; if it backs exactly one relation, the relation name supplies a preferred alias
+  (`Str::studly($relation).$typeName`, e.g. `OwnerUser`) — a model reached by two or more
+  relations, or not reached by any (e.g. a plain column cast), gets no preferred alias and
+  starts straight from namespace segments.
+- **Const-alias mirroring.** For an enum FQCN whose resolved local name differs from its type
+  name, the paired const import (`$constImportAliases`) reuses the same prefix: the resolved
+  alias minus the type name, prepended to the enum's const name. `StatusType` aliased to
+  `CrmStatusType` mirrors `Status` to `CrmStatus`.
+
+Still remaining: `BroadcastEventTransformer` and `ResourceTransformer` derive aliases with
+`ResolvesImportConflicts::computeNamespacePrefix()` directly and have not been migrated onto
+the registry.
