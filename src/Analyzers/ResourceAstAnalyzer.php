@@ -139,6 +139,15 @@ class ResourceAstAnalyzer
     protected array $closureParamExprBindings = [];
 
     /**
+     * Closure params / loop vars bound to a model class (whenLoaded params, relation-chain
+     * map params, foreach over a many-relation), so `$var`, `$var->prop`, `$var->method()`
+     * resolve against that model. Scoped: writers save and restore around the body.
+     *
+     * @var array<string, class-string<Model>>
+     */
+    protected array $varModelBindings = [];
+
+    /**
      * Top-level `$var = expr;` bindings for the method last analyzed, so a bare `Variable` value
      * expression resolves through its bound expression instead of degrading to unknown. Only variables
      * written exactly once are recorded; analyzeThisMethodSpread() saves and restores this per method.
@@ -258,6 +267,35 @@ class ResourceAstAnalyzer
                 && ($writeCounts[$stmt->expr->var->name] ?? 0) === 1
             ) {
                 $this->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
+            }
+        }
+
+        $this->bindForeachLoopVariables($stmts);
+    }
+
+    /**
+     * Bind a top-level `foreach ($this->{manyRelation} as $item)`'s value variable to the relation's
+     * element model, for the whole method — mirrors `collectLocalVarBindings()`'s method-wide scope.
+     *
+     * @param  array<Node\Stmt>  $stmts
+     */
+    protected function bindForeachLoopVariables(array $stmts): void
+    {
+        foreach ($stmts as $stmt) {
+            if (! $stmt instanceof Foreach_
+                || ! $stmt->valueVar instanceof Variable
+                || ! is_string($stmt->valueVar->name)
+                || ! $stmt->expr instanceof PropertyFetch
+                || ! $this->isThisPropertyFetch($stmt->expr)
+                || ! $stmt->expr->name instanceof Identifier
+            ) {
+                continue;
+            }
+
+            $relationInfo = $this->resolveModelRelationTypeInfo($stmt->expr->name->toString());
+
+            if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
+                $this->varModelBindings[$stmt->valueVar->name] = $relationInfo['modelFqcn'];
             }
         }
     }
@@ -905,18 +943,20 @@ class ResourceAstAnalyzer
             return $this->analyzeThisMethodCall($expr->name->toString());
         }
 
-        /** @var class-string<Model>|null $closureModelClass */
-        $closureModelClass = $this->closureRelationModelClass;
-
-        // $variable->property — resolve against the related model in a whenLoaded closure context
-        if ($closureModelClass !== null
-            && $expr instanceof PropertyFetch
+        // $variable->property — resolve against the variable's own bound model (whenLoaded param,
+        // chain map param, foreach value var), falling back to the ambient whenLoaded closure model.
+        if ($expr instanceof PropertyFetch
             && $expr->var instanceof Variable
             && is_string($expr->var->name)
             && $expr->var->name !== 'this'
             && $expr->name instanceof Identifier
         ) {
-            return $this->analyzeRelatedModelProperty($expr->name->toString());
+            /** @var class-string<Model>|null $boundModel */
+            $boundModel = $this->varModelBindings[$expr->var->name] ?? $this->closureRelationModelClass;
+
+            if ($boundModel !== null) {
+                return $this->analyzeRelatedModelProperty($expr->name->toString(), $boundModel);
+            }
         }
 
         // `$variable->map(fn (TypedClass $item) => [...])` — no closureRelationModelClass is required
@@ -948,19 +988,38 @@ class ResourceAstAnalyzer
             return $this->analyzeVariablePluckCall($expr);
         }
 
-        // $variable->method() — resolve against the related model in a whenLoaded closure context
-        if ($this->closureRelationModelClass !== null
-            && $expr instanceof MethodCall
+        // $variable->method() — resolve against the variable's own bound model, falling back to the
+        // ambient whenLoaded closure model.
+        if ($expr instanceof MethodCall
             && $expr->var instanceof Variable
             && is_string($expr->var->name)
             && $expr->var->name !== 'this'
             && $expr->name instanceof Identifier
         ) {
-            return $this->analyzeRelatedModelMethodCall($expr->name->toString());
+            /** @var class-string<Model>|null $boundModel */
+            $boundModel = $this->varModelBindings[$expr->var->name] ?? $this->closureRelationModelClass;
+
+            if ($boundModel !== null) {
+                return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $boundModel);
+            }
         }
 
         if ($expr instanceof Ternary) {
             return $this->analyzeTernary($expr);
+        }
+
+        // Bare variable bound to a model class (whenLoaded param, chain map param, foreach value var) —
+        // resolves to the model's own type. Checked before closure-param/local-var expression bindings,
+        // which resolve through a *different* expression rather than naming a model directly.
+        if ($expr instanceof Variable && is_string($expr->name) && isset($this->varModelBindings[$expr->name])) {
+            $modelFqcn = $this->varModelBindings[$expr->name];
+
+            return [
+                ...$this->unknownResult(),
+                'type' => class_basename($modelFqcn),
+                'optional' => false,
+                'modelFqcn' => $modelFqcn,
+            ];
         }
 
         // Bare variable bound either to a closure parameter (bindClosureParamsFromCondition) or to a
@@ -1172,6 +1231,11 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->whenLoaded('relation') or $this->whenLoaded('relation', value, default).
      *
+     * A single-model relation's closure param is also bound in `$varModelBindings`, so a bare
+     * `$param` (not just `$param->prop`) resolves to the related model. A to-many relation is not
+     * bound this way: the param holds the whole collection, not one element, so binding it to the
+     * element model would resolve a bare `$param` to a wrong-but-plausible singular type.
+     *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenLoaded(MethodCall $call): array
@@ -1182,19 +1246,33 @@ class ResourceAstAnalyzer
         if (count($args) >= 2) {
             // Resolve the related model so accesses on local variables inside the closure can be typed.
             $previousRelationModel = $this->closureRelationModelClass;
+            $previousVarModelBindings = $this->varModelBindings;
+            $relationInfo = null;
 
             if ($args[0]->value instanceof String_) {
-                $info = $this->resolveModelRelationTypeInfo($args[0]->value->value);
+                $relationInfo = $this->resolveModelRelationTypeInfo($args[0]->value->value);
 
-                if (($info['modelFqcn'] ?? null) !== null) {
-                    $this->closureRelationModelClass = $info['modelFqcn'];
+                if ($relationInfo['modelFqcn'] !== null) {
+                    $this->closureRelationModelClass = $relationInfo['modelFqcn'];
                 }
+            }
+
+            if ($relationInfo !== null
+                && $relationInfo['modelFqcn'] !== null
+                && ! str_ends_with($relationInfo['type'], '[]')
+                && ($args[1]->value instanceof ClosureExpr || $args[1]->value instanceof ArrowFunction)
+                && isset($args[1]->value->params[0])
+                && $args[1]->value->params[0]->var instanceof Variable
+                && is_string($args[1]->value->params[0]->var->name)
+            ) {
+                $this->varModelBindings[$args[1]->value->params[0]->var->name] = $relationInfo['modelFqcn'];
             }
 
             $inner = $this->analyzeValueExpression($args[1]->value);
             $inner['optional'] = true;
 
             $this->closureRelationModelClass = $previousRelationModel;
+            $this->varModelBindings = $previousVarModelBindings;
 
             return $inner;
         }
@@ -1858,9 +1936,10 @@ class ResourceAstAnalyzer
     /**
      * Resolve and analyze a $this->method() spread from a trait or the class itself.
      *
-     * $localVarBindings/$resolvingLocalVars are scoped to a single method's statement list, so they are
-     * saved, cleared, re-collected for the target method, and restored via `finally` — a caller's `$data`
-     * and a same-named `$data` here are different variables, and the caller may still be mid-analysis.
+     * $localVarBindings/$resolvingLocalVars/$varModelBindings are scoped to a single method's statement
+     * list, so they are saved, cleared, re-collected for the target method, and restored via `finally` —
+     * a caller's `$data` and a same-named `$data` here are different variables, and the caller may still
+     * be mid-analysis.
      */
     protected function analyzeThisMethodSpread(string $methodName): ?ResourceAnalysis
     {
@@ -1889,8 +1968,10 @@ class ResourceAstAnalyzer
 
         $previousLocalVarBindings = $this->localVarBindings;
         $previousResolvingLocalVars = $this->resolvingLocalVars;
+        $previousVarModelBindings = $this->varModelBindings;
         $this->localVarBindings = [];
         $this->resolvingLocalVars = [];
+        $this->varModelBindings = [];
         $this->collectLocalVarBindings($targetMethod->stmts);
 
         try {
@@ -1909,6 +1990,7 @@ class ResourceAstAnalyzer
         } finally {
             $this->localVarBindings = $previousLocalVarBindings;
             $this->resolvingLocalVars = $previousResolvingLocalVars;
+            $this->varModelBindings = $previousVarModelBindings;
         }
 
         $docTypes = $this->parseReturnArrayShape($method);
@@ -3210,11 +3292,14 @@ class ResourceAstAnalyzer
 
     /**
      * Analyze a method-call chain rooted at `$this->{manyRelation}` made of identity-preserving collection
-     * ops (take, skip, filter, values, sortBy, ...) plus at most one `map()` or `pluck()`. A `map()` body
-     * is analyzed with the relation's element model bound as $closureRelationModelClass.
+     * ops (take, skip, filter, values, sortBy, ...) plus at most one `map()` or `pluck()`, or terminated by
+     * an argless `first()`/`last()`. A `map()` body is analyzed with the relation's element model bound as
+     * $closureRelationModelClass, and the closure's own first param bound in $varModelBindings so a bare
+     * `$param` (not just `$param->prop`) also resolves.
      *
      * Returns null — deferring to the caller's unknown fallthrough — for any other op, a second map/pluck,
-     * or an unresolvable body. That is why `$this->items->count()` still reaches knownMethodRule().
+     * a first()/last() combined with map/pluck (YAGNI), or an unresolvable body. That is why
+     * `$this->items->count()` still reaches knownMethodRule().
      *
      * @return ValueExpressionResult|null
      */
@@ -3223,6 +3308,7 @@ class ResourceAstAnalyzer
         $identityOps = [
             'take', 'skip', 'filter', 'reject', 'values', 'unique',
             'sortBy', 'sortByDesc', 'slice', 'reverse', 'where', 'whereNotNull',
+            'load', 'loadMissing',
         ];
 
         // Walk down the chain collecting op names until we reach $this->prop.
@@ -3250,6 +3336,19 @@ class ResourceAstAnalyzer
         }
 
         $elementModel = $relationInfo['modelFqcn'];
+
+        // first()/last() as the outermost op terminate the chain with a single element or null. $ops[0]
+        // is the outermost call because the walk above collects outside-in, and always exists here: the
+        // while loop above ran at least once, since $call is typed as MethodCall.
+        $terminalOp = $ops[0]['name'];
+        $isTerminal = ($terminalOp === 'first' || $terminalOp === 'last')
+            && ! $ops[0]['node']->isFirstClassCallable()
+            && $ops[0]['node']->getArgs() === [];
+
+        if ($isTerminal) {
+            array_shift($ops);
+        }
+
         $mapNode = null;
         $pluckNode = null;
 
@@ -3261,6 +3360,7 @@ class ResourceAstAnalyzer
                 $sequentialKeys = match ($op['name']) {
                     'values' => true,
                     'take' => $sequentialKeys && $this->isFrontAnchoredTake($op['node']),
+                    'load', 'loadMissing' => $sequentialKeys,
                     default => false,
                 };
 
@@ -3283,6 +3383,19 @@ class ResourceAstAnalyzer
 
             // Unsupported op, including a 2nd map()/pluck() or map()+pluck() combined.
             return null;
+        }
+
+        if ($isTerminal) {
+            if ($mapNode !== null || $pluckNode !== null) {
+                return null; // YAGNI: map()/pluck() combined with a first()/last() terminal.
+            }
+
+            return [
+                ...$this->unknownResult(),
+                'type' => class_basename($elementModel).' | null',
+                'optional' => false,
+                'modelFqcn' => $elementModel,
+            ];
         }
 
         if ($mapNode === null && $pluckNode === null) {
@@ -3347,12 +3460,21 @@ class ResourceAstAnalyzer
         }
 
         $previousContext = $this->closureRelationModelClass;
+        $previousVarModelBindings = $this->varModelBindings;
         $this->closureRelationModelClass = $elementModel;
+
+        if ($mapArg->params !== []
+            && $mapArg->params[0]->var instanceof Variable
+            && is_string($mapArg->params[0]->var->name)
+        ) {
+            $this->varModelBindings[$mapArg->params[0]->var->name] = $elementModel;
+        }
 
         try {
             $bodyResult = $this->analyzeValueExpression($mapArg);
         } finally {
             $this->closureRelationModelClass = $previousContext;
+            $this->varModelBindings = $previousVarModelBindings;
         }
 
         if ($bodyResult['type'] === 'unknown') {
@@ -3507,19 +3629,24 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve a property access on a related model within a whenLoaded closure.
+     * Resolve a property access on a related model — either an explicitly bound model (a
+     * varModelBindings entry for the receiver variable) or, by default, the ambient whenLoaded
+     * closure's related model.
      *
      * Uses the same resolution chain as model attributes: accessor → cast → DB column type.
      *
+     * @param  class-string<Model>|null  $modelFqcn
      * @return ValueExpressionResult
      */
-    protected function analyzeRelatedModelProperty(string $propertyName): array
+    protected function analyzeRelatedModelProperty(string $propertyName, ?string $modelFqcn = null): array
     {
-        if ($this->closureRelationModelClass === null) {
+        $modelFqcn ??= $this->closureRelationModelClass;
+
+        if ($modelFqcn === null) {
             return $this->unknownResult(); // @codeCoverageIgnore
         }
 
-        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->closureRelationModelClass, $propertyName);
+        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($modelFqcn, $propertyName);
 
         if ($tsInfo['type'] === 'unknown') {
             return $this->unknownResult();
@@ -3538,17 +3665,22 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve a method call (instance or static) on a related model within a whenLoaded closure.
+     * Resolve a method call (instance or static) on a related model — either an explicitly bound
+     * model (a varModelBindings entry for the receiver variable) or, by default, the ambient
+     * whenLoaded closure's related model.
      *
+     * @param  class-string<Model>|null  $modelFqcn
      * @return ValueExpressionResult
      */
-    protected function analyzeRelatedModelMethodCall(string $methodName): array
+    protected function analyzeRelatedModelMethodCall(string $methodName, ?string $modelFqcn = null): array
     {
-        if ($this->closureRelationModelClass === null) {
+        $modelFqcn ??= $this->closureRelationModelClass;
+
+        if ($modelFqcn === null) {
             return $this->unknownResult(); // @codeCoverageIgnore
         }
 
-        $tsInfo = resolve(ModelAttributeResolver::class)->resolveMethodReturnType($this->closureRelationModelClass, $methodName);
+        $tsInfo = resolve(ModelAttributeResolver::class)->resolveMethodReturnType($modelFqcn, $methodName);
 
         if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
             return [...$tsInfo, 'optional' => false];

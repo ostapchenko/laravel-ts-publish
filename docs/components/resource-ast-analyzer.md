@@ -87,3 +87,48 @@ has (`embeddedModelFqcns`, self-keyed by FQCN) does not carry the per-property a
 needed to alias-rewrite each member's reference correctly. Extending Pick/Omit to this branch
 is possible but requires new per-property import plumbing — tracked as follow-up work, not
 part of this feature.
+
+## Variable bindings
+
+`$varModelBindings` (`array<string, class-string<Model>>`) maps a local variable name to a model
+class, so `$var`, `$var->prop`, and `$var->method()` resolve against that model instead of
+degrading to `unknown`. It is populated from three sources, each scoped to the body it binds:
+
+- **`whenLoaded('relation', fn ($x) => ...)`** — when `relation` resolves to a *single*-model
+  relation, `$x` is bound to that model for the closure body. A to-many relation's closure param
+  is deliberately **not** bound this way: the param holds the whole collection, not one element,
+  so binding it to the element model would resolve a bare `$x` to a wrong-but-plausible singular
+  type (e.g. `OrderItem` instead of `OrderItem[]`) — `$x->pluck(...)`/`$x->map(...)` already
+  resolve via the older `$closureRelationModelClass` mechanism, unaffected by this guard.
+- **A relation-chain `map()`** (`$this->{manyRelation}->take(5)->map(fn ($m) => ...)`) — `$m` is
+  bound to the relation's element model for the map closure's body.
+- **A top-level `foreach ($this->{manyRelation} as $item) { ... }`** — `$item` is bound to the
+  relation's element model for the rest of the method's analysis (mirrors `$localVarBindings`'
+  method-wide scope, restored around a `...$this->method()` spread the same way).
+
+### Scoping and shadowing
+
+Every writer follows the same save/restore discipline as `$closureRelationModelClass`: snapshot
+the map (or the one key being overwritten), mutate it for the nested body's analysis, then restore
+the snapshot — so a closure parameter that shadows an outer variable of the same name resolves
+against its **own** binding and can never leak into, or be leaked into by, the outer scope. See
+`ClosureParamShadowResource` in the workbench: a top-level `$member` and a `map(fn ($member) =>
+$member)` closure param share a name, and each site resolves independently.
+
+`outer_member` in that same fixture is a known, accepted gap: `collectWrittenVariableNames()`
+still counts every closure parameter as a write (needed to protect `$localVarBindings`, an
+unrelated, unscoped mechanism, from a *different* shadowing hazard), so a top-level local shadowed
+by a closure param it stays unbound rather than resolving to its own top-level expression. Fixing
+that is out of scope here — narrowing which closures count as writes would require statically
+predicting whether a given closure will actually receive a `$varModelBindings` entry, which risks
+the exact wrong-but-plausible leak this mechanism exists to prevent.
+
+### What deliberately stays unbound
+
+- **A reassigned local** (written more than once in the method) — `$localVarBindings` already
+  skips these; `$varModelBindings` has no reassignment analog since it only ever binds closure
+  params and loop variables, each written exactly once by construction.
+- **First-class callables** (`->map(...)`, `->pluck(...)`) — there is no closure body to bind a
+  param into, so these are rejected before any binding is attempted.
+- **A relation-chain `map()` whose argument isn't a `Closure`/`ArrowFunction`** (a string callable
+  like `'strtoupper'`, or an array callable like `[$this, 'method']`) — same reasoning.

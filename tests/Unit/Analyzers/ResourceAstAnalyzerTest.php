@@ -611,8 +611,9 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['member_plucked_fcc']['type'])->toBe('unknown');
     });
 
-    test('an unsupported op in the chain keeps current unknown behavior', function () {
-        expect($this->props['first_member']['type'])->toBe('unknown');
+    test('first() as the outermost op yields the element type or null', function () {
+        expect($this->props['first_member']['type'])->toBe('User | null')
+            ->and($this->props['first_member']['optional'])->toBeFalse();
     });
 
     // A Collection whose keys are gapped or reordered json_encodes to an object, not an array.
@@ -3046,7 +3047,7 @@ describe('ResourceAstAnalyzer with LoopReturnResource (collectDirectReturns loop
         $props = collect($this->analysis->properties);
 
         expect($props->firstWhere('name', 'id')['type'])->toBe('number')
-            ->and($props->firstWhere('name', 'first_item_name')['type'])->toBe('unknown')
+            ->and($props->firstWhere('name', 'first_item_name')['type'])->toBe('string')
             ->and($props->firstWhere('name', 'total')['type'])->toBe('number');
     });
 });
@@ -4291,15 +4292,19 @@ describe('local variable bindings', function () {
         expect($this->props['shadowed']['type'])->toBe('unknown');
     });
 
-    // A closure parameter rebinds the name, so a same-named top-level local must not resolve inside it.
-    test('a closure or arrow-function parameter shadowing an outer local drops the binding', function () {
+    // A closure parameter rebinds the name: it resolves against its own bound model (whenLoaded
+    // relation / chain element), and must not leak that binding into a same-named outer local.
+    test('a closure or arrow-function parameter shadowing an outer local binds to its own model, not the outer local', function () {
         $props = collect(
             (new ResourceAstAnalyzer(new ReflectionClass(ClosureParamShadowResource::class), Team::class))
                 ->analyze()->properties,
         )->keyBy('name');
 
-        expect($props['mapped_members']['type'])->toBe('unknown')
-            ->and($props['loaded_owner']['type'])->toBe('unknown')
+        expect($props['mapped_members']['type'])->toBe('User[]')
+            ->and($props['loaded_owner']['type'])->toBe('User')
+            // outer_member: write-count shadow protection in collectWrittenVariableNames() still
+            // counts the closure param as a write, so the outer $member local stays unbound. See
+            // task-11-brief.md's "outer_member note" — narrowing that protection is deferred.
             ->and($props['outer_member']['type'])->toBe('unknown');
     });
 
@@ -4311,6 +4316,35 @@ describe('local variable bindings', function () {
         )->keyBy('name');
 
         expect($props['key']['type'])->toBe('string');
+    });
+});
+
+describe('variable-to-model bindings', function () {
+    test('whenLoaded closure param binds to the relation target', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(ClosureParamShadowResource::class), Team::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['loaded_owner']['type'])->toBe('User')
+            ->and($props['mapped_members']['type'])->toBe('User[]')
+            // Deferred — see task-11-brief.md's "outer_member note".
+            ->and($props['outer_member']['type'])->toBe('unknown');
+    });
+
+    test('relation chain first() yields the element or null', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(RelationChainResource::class), Team::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['first_member']['type'])->toBe('User | null');
+    });
+
+    test('foreach over a many-relation binds the loop variable', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(LoopReturnResource::class), Order::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['first_item_name']['type'])->toBe('string');
     });
 });
 

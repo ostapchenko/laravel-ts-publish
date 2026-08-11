@@ -7187,12 +7187,12 @@
             },
             {
                 "name": "mapped_members",
-                "type": "unknown",
+                "type": "User[]",
                 "optional": false
             },
             {
                 "name": "loaded_owner",
-                "type": "unknown",
+                "type": "User",
                 "optional": true
             }
         ],
@@ -8375,7 +8375,7 @@
             },
             {
                 "name": "first_item_name",
-                "type": "unknown",
+                "type": "string",
                 "optional": true
             },
             {
@@ -9467,7 +9467,7 @@
             },
             {
                 "name": "first_member",
-                "type": "unknown",
+                "type": "User | null",
                 "optional": false
             },
             {

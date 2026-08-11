@@ -9,7 +9,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Workbench\App\Models\Order;
 
 /**
- * Exercises collectDirectReturns loop branch in toArray().
+ * Exercises collectDirectReturns loop branch in toArray(). `$item` is bound to the `items`
+ * relation's element model (OrderItem), so `$item->name` resolves instead of degrading to unknown.
  *
  * @mixin Order
  */

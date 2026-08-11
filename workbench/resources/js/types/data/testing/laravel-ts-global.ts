@@ -1624,11 +1624,18 @@ declare global {
             tags?: { first_item: string } | { first_item: null };
             retry_result?: { attempted: boolean };
         }
-        /** A closure parameter that shadows a top-level local must not resolve through the outer binding. */
+        /**
+         * A closure parameter that shadows a top-level local resolves through its own scoped binding
+         * (whenLoaded relation / relation-chain element model), and must not leak the outer local's value.
+         *
+         * `outer_member` is a known over-degradation: the write-count shadow guard in
+         * collectWrittenVariableNames() still counts the closure param as a write to `$member`, so the
+         * top-level `$member` local is never bound. Narrowing that guard is deferred (see task-11-brief.md).
+         */
         export interface ClosureParamShadowResource {
             outer_member: unknown;
-            mapped_members: unknown;
-            loaded_owner?: unknown;
+            mapped_members: workbench.app.models.User[];
+            loaded_owner?: workbench.app.models.User;
         }
         /**
          * Exercises analyzeClosureUnion metadata propagation (enum, model, resource FQCNs)
@@ -2060,10 +2067,13 @@ declare global {
             y: string;
             x: number;
         }
-        /** Exercises collectDirectReturns loop branch in toArray(). */
+        /**
+         * Exercises collectDirectReturns loop branch in toArray(). `$item` is bound to the `items`
+         * relation's element model (OrderItem), so `$item->name` resolves instead of degrading to unknown.
+         */
         export interface LoopReturnResource {
             id: number;
-            first_item_name?: unknown;
+            first_item_name?: string;
             total?: number;
         }
         export interface MediaTypeInstanceOfResource {
@@ -2382,7 +2392,7 @@ declare global {
             member_formatted: unknown;
             member_mapped_fcc: unknown;
             member_plucked_fcc: unknown;
-            first_member: unknown;
+            first_member: workbench.app.models.User | null;
             members_sorted: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
             members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
             members_tail: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
