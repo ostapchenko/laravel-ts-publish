@@ -10251,6 +10251,16 @@
                 "name": "money_value",
                 "type": "unknown",
                 "optional": false
+            },
+            {
+                "name": "page_meta_ternary",
+                "type": "PageMetaType | null",
+                "optional": false
+            },
+            {
+                "name": "widget_config_coalesce",
+                "type": "WidgetConfigType",
+                "optional": false
             }
         ],
         "TagResource": [

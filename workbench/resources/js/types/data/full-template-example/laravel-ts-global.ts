@@ -6,9 +6,11 @@
 // Read more: https://github.com/abetwothree/laravel-ts-publish
 export {}
 
+import type { PageMetaType } from '@js/types/page-meta';
 import type { ProductMetadata, ProductJsonMetaData } from '@js/types/product';
 import type { MenuSettingsType } from '@js/types/settings';
 import type { PostSnapshot } from '@js/types/snapshots';
+import type { WidgetConfigType } from '@js/types/widget-config';
 import type { Auditable } from '@/types/audit';
 import type { BaseResource } from '@/types/base';
 import type { BroadcastableEvent } from '@/types/broadcast';
@@ -2579,6 +2581,8 @@ declare global {
             mixed_return: unknown;
             order_or_status: app.models.Order | app.enums.StatusType;
             money_value: unknown;
+            page_meta_ternary: PageMetaType | null;
+            widget_config_coalesce: WidgetConfigType;
         }
         /** Exercises: whenCounted on two polymorphic relations. */
         export interface TagResource {

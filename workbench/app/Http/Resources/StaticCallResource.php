@@ -53,6 +53,18 @@ class StaticCallResource extends JsonResource
             // Proves acceptReflectedTypeInfo() still rejects a non-Model class result:
             // no published file exists to import OpaqueHandle from.
             'money_value' => UrlService::moneyValue(),
+            // Proves a ternary branch's customImports survive analyzeClosureUnion()'s merge
+            // instead of being dropped alongside the other propagated FQCN channels. Uses a
+            // #[TsType] class distinct from MenuSettings so the regression test can't pass by
+            // riding on the plain `menu_settings` property's own contribution above.
+            'page_meta_ternary' => $this->notes
+                ? UrlService::pageMeta()
+                : null,
+            // Proves the *used* operand's customImports survive analyzeCoalesce()'s merge — the
+            // left branch degrades to unknown and is discarded, so only the right branch's
+            // import may end up in the emitted file. A third distinct #[TsType] class for the
+            // same isolation reason as page_meta_ternary above.
+            'widget_config_coalesce' => UrlService::moneyValue() ?? UrlService::widgetConfig(),
         ];
     }
 }

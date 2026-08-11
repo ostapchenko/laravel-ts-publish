@@ -10,6 +10,8 @@ use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Status;
 use Workbench\App\Models\Order;
 use Workbench\App\ValueObjects\OpaqueHandle;
+use Workbench\App\ValueObjects\PageMeta;
+use Workbench\App\ValueObjects\WidgetConfig;
 
 /**
  * Exercises general static-call return type reflection (Task 10):
@@ -88,5 +90,24 @@ class UrlService
     public static function moneyValue(): OpaqueHandle
     {
         return new OpaqueHandle('opaque');
+    }
+
+    /**
+     * A #[TsType(import: ...)]-annotated class, reflected inside a ternary branch — proves
+     * customImports survives analyzeClosureUnion()'s merge with the ternary's other branch.
+     */
+    public static function pageMeta(): PageMeta
+    {
+        return new PageMeta('meta');
+    }
+
+    /**
+     * A #[TsType(import: ...)]-annotated class, reflected as the right-hand side of a `??` whose
+     * left-hand side degrades to unknown — proves customImports survives analyzeCoalesce()'s
+     * merge even though the left branch's result is discarded.
+     */
+    public static function widgetConfig(): WidgetConfig
+    {
+        return new WidgetConfig('default');
     }
 }

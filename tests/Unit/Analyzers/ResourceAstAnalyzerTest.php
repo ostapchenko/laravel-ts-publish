@@ -4182,6 +4182,26 @@ describe('reflected static-call types dispatch their imports', function () {
     test('a DTO return type still degrades to unknown', function () {
         expect($this->props['money_value']['type'] ?? 'unknown')->toBe('unknown');
     });
+
+    test('a TsType custom import survives a ternary merge with a null branch', function () {
+        // analyzeTernary() routes through analyzeClosureUnion(), which previously propagated every
+        // other FQCN channel (modelFqcn, directEnumFqcn, embedded lists) but not customImports.
+        // page_meta_ternary uses a #[TsType] class distinct from the plain menu_settings property's
+        // MenuSettings, so this assertion can't pass by riding on that unrelated property's import.
+        expect($this->props['page_meta_ternary']['type'])->toBe('PageMetaType | null')
+            ->and($this->analysis->customImports)->toHaveKey('@js/types/page-meta')
+            ->and($this->analysis->customImports['@js/types/page-meta'])->toContain('PageMetaType');
+    });
+
+    test('a TsType custom import survives a coalesce merge with a discarded left branch', function () {
+        // analyzeCoalesce() previously rebuilt its result from scratch, dropping every channel; the
+        // left branch here degrades to unknown and is discarded, so only the right branch's import
+        // may end up in the emitted file. widget_config_coalesce uses a third distinct #[TsType]
+        // class so this assertion is isolated from both menu_settings and page_meta_ternary.
+        expect($this->props['widget_config_coalesce']['type'])->toBe('WidgetConfigType')
+            ->and($this->analysis->customImports)->toHaveKey('@js/types/widget-config')
+            ->and($this->analysis->customImports['@js/types/widget-config'])->toContain('WidgetConfigType');
+    });
 });
 
 describe('helper and receiver method inference', function () {

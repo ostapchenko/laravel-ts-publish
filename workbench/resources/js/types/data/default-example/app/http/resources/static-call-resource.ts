@@ -1,7 +1,9 @@
 import { type AsEnum } from '@tolki/ts';
 
 import { Status } from '../../enums';
+import type { PageMetaType } from '@js/types/page-meta';
 import type { MenuSettingsType } from '@js/types/settings';
+import type { WidgetConfigType } from '@js/types/widget-config';
 import type { PriorityType, StatusType } from '../../enums';
 import type { Order } from '../../models';
 import type { OrderItemResource } from '.';
@@ -27,4 +29,6 @@ export interface StaticCallResource
     mixed_return: unknown;
     order_or_status: Order | StatusType;
     money_value: unknown;
+    page_meta_ternary: PageMetaType | null;
+    widget_config_coalesce: WidgetConfigType;
 }
