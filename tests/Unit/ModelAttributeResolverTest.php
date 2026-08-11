@@ -336,6 +336,22 @@ describe('@property docblock refinement', function () {
     });
 });
 
+describe('castable-with-arguments casts', function () {
+    test('AsEnumCollection::of(Status) resolves through the waterfall to a nullable enum array', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'week_days');
+
+        expect($info['type'])->toBe('StatusType[] | null');
+    });
+
+    test('AsCollection::of(GridConfigDto) resolves through the waterfall to a nullable shape array', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'grid_configs');
+
+        expect($info['type'])->toBe('{ label: string; config: Record<string, unknown> }[] | null');
+    });
+});
+
 describe('attribute-lookup fallbacks', function () {
     test('resolves {relation}_count virtual attribute (withCount) to number', function () {
         $info = resolve(ModelAttributeResolver::class)

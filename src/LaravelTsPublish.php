@@ -11,6 +11,8 @@ use Closure;
 use Composer\ClassMapGenerator\PhpFileParser;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Casts\AsCollection;
+use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -179,6 +181,19 @@ class LaravelTsPublish
             return $result;
         }
 
+        // 1b. Castable-with-arguments cast strings: "CastClass:arg1,arg2". The head must be
+        //     an existing class so DB strings like "decimal:2" never enter this branch.
+        $colonPos = strpos($phpType, ':');
+
+        if ($colonPos !== false) {
+            $head = substr($phpType, 0, $colonPos);
+            $args = array_map(trim(...), explode(',', substr($phpType, $colonPos + 1)));
+
+            if (class_exists($head)) {
+                return $this->resolveCastWithArguments($head, $args, $result);
+            }
+        }
+
         // 2. #[TsType] explicit override, ahead of every automatic resolution
         if (class_exists($phpType)) {
             $attrs = (new ReflectionClass($phpType))->getAttributes(TsType::class);
@@ -319,6 +334,53 @@ class LaravelTsPublish
 
         return $head !== ''
             && (preg_match('/[A-Z]/', $head) === 1 || str_contains($head, '\\'));
+    }
+
+    /**
+     * Resolve a "CastClass:args" cast string. AsEnumCollection carries its enum;
+     * AsCollection resolves its mapped element to an inline shape when possible;
+     * other cast classes resolve as the bare class (args stripped).
+     *
+     * @param  list<string>  $args
+     * @param  TypeScriptTypeInfo  $result
+     * @return TypeScriptTypeInfo
+     */
+    protected function resolveCastWithArguments(string $head, array $args, array $result): array
+    {
+        if (is_a($head, AsEnumCollection::class, true) && ($args[0] ?? '') !== '' && enum_exists($args[0])) {
+            $enumInfo = $this->toTsType($args[0]);
+            $enumInfo['type'] .= '[]';
+
+            return $enumInfo;
+        }
+
+        if (is_a($head, AsCollection::class, true)) {
+            // AsCollection::using($collection, $map) => "AsCollection:$collection,$map"
+            $mapClass = $args[1] ?? '';
+
+            if ($mapClass !== '' && class_exists($mapClass)) {
+                $elementInfo = $this->toTsType($mapClass);
+
+                if (str_starts_with($elementInfo['type'], '{')) {
+                    $elementInfo['type'] .= '[]';
+
+                    return $elementInfo;
+                }
+
+                if ($elementInfo['enumFqcns'] !== []) {
+                    $elementInfo['type'] .= '[]';
+
+                    return $elementInfo;
+                }
+            }
+
+            $result['type'] = 'unknown[]';
+
+            return $result;
+        }
+
+        // Any other cast class — strip the arguments and resolve the class itself.
+        return $this->toTsType($head);
     }
 
     /**

@@ -809,6 +809,8 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             deleted_at: string | null;
+            week_days: app.enums.StatusType[] | null;
+            grid_configs: { label: string; config: Record<string, unknown> }[] | null;
             // Mutators
             /** Whether the team has any members */
             has_member: boolean;

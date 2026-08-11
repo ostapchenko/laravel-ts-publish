@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\TypeScriptMap;
+use Illuminate\Database\Eloquent\Casts\AsArrayObject;
+use Illuminate\Database\Eloquent\Casts\AsCollection;
+use Illuminate\Database\Eloquent\Casts\AsStringable;
 use Illuminate\Support\Collection;
 
 beforeEach(function () {
@@ -97,3 +100,13 @@ test('maps network column types to string', function (string $dbType) {
 
     expect($map[$dbType])->toBe('string');
 })->with(['inet', 'cidr', 'macaddr', 'macaddr8']);
+
+test('maps bare castable classes to their TS shapes', function (string $castableClass, string $expected) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[strtolower($castableClass)])->toBe($expected);
+})->with([
+    [AsArrayObject::class, 'Record<string, unknown>'],
+    [AsStringable::class, 'string'],
+    [AsCollection::class, 'unknown[]'],
+]);

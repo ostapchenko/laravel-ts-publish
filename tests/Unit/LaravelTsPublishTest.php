@@ -7,6 +7,8 @@ use AbeTwoThree\LaravelTsPublish\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Casts\AsCollection;
+use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -266,6 +268,46 @@ describe('toTsType', function () {
 
     test('toTsType resolves void to void', function () {
         expect($this->service->toTsType('void')['type'])->toBe('void');
+    });
+});
+
+describe('castable-with-arguments cast strings', function () {
+    test('AsEnumCollection:Enum resolves to an enum array with FQCNs plumbed', function () {
+        $info = $this->service->toTsType(
+            AsEnumCollection::class.':'.Status::class,
+        );
+
+        expect($info['type'])->toBe('StatusType[]')
+            ->and($info['enumFqcns'])->toBe([Status::class]);
+    });
+
+    test('AsCollection:,MappedClass resolves the element shape', function () {
+        $info = $this->service->toTsType(
+            AsCollection::class.':,'.GridConfigDto::class,
+        );
+
+        expect($info['type'])->toBe('{ label: string; config: Record<string, unknown> }[]');
+    });
+
+    test('AsCollection with no map still resolves to unknown[]', function () {
+        expect($this->service->toTsType(AsCollection::class.':,')['type'])
+            ->toBe('unknown[]')
+            ->and($this->service->toTsType(AsCollection::class)['type'])
+            ->toBe('unknown[]');
+    });
+
+    test('a custom CastsAttributes cast with args resolves through the cast class', function () {
+        expect($this->service->toTsType(MenuSettings::class.':whatever')['type'])
+            ->toBe($this->service->toTsType(MenuSettings::class)['type']);
+    });
+
+    test('an unresolvable AsEnumCollection argument degrades via the exact map, not a crash', function () {
+        expect($this->service->toTsType(AsEnumCollection::class.':NotARealEnum')['type'])
+            ->toBe('unknown[]');
+    });
+
+    test('a DB cast string with a class-less head is untouched by the colon-split branch', function () {
+        expect($this->service->toTsType('decimal:2')['type'])->toBe('number');
     });
 });
 

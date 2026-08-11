@@ -41,7 +41,7 @@ class TypeScriptMap
             AsUri::class => 'string',
             AsBinary::class => 'string',
             AsFluent::class => 'object',
-            AsArrayObject::class => 'unknown[]',
+            AsArrayObject::class => 'Record<string, unknown>',
             AsCollection::class => 'unknown[]',
             AsEncryptedArrayObject::class => 'unknown[]',
             AsEncryptedCollection::class => 'unknown[]',

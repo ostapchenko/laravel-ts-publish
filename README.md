@@ -340,6 +340,24 @@ class Preset extends Model { ... }
 
 `$config` generates as `{ filters?: Record<string, unknown>; sorts?: string[] } | null` — the alias expands inline (no import of `PresetDto` itself is emitted, since only its shape is used), optional keys keep their `?`, and PHPStan validates the same alias. `@phpstan-import-type ... as Alias` and `@psalm-type`/`@psalm-import-type` are both recognized, an alias may reference another imported alias, and a cyclical import degrades to `unknown` rather than hanging the publish run. This is the preferred path over `#[TsCasts]` for a shape that's already worth documenting for static analysis.
 
+### Typing castable-with-arguments casts
+
+Laravel's built-in `Castable` classes carry their configuration after a colon — `AsEnumCollection::of(DayOfWeek::class)` and `AsCollection::of(...)`/`::using(...)` all build a `"ClassName:arg1,arg2"` cast string. These are resolved without any extra config:
+
+```php
+protected function casts(): array
+{
+    return [
+        'week_days' => AsEnumCollection::of(DayOfWeek::class),
+        'grid_configs' => AsCollection::of(GridConfigDto::class),
+    ];
+}
+```
+
+- **`AsEnumCollection::of($enum)`** generates as the enum's TypeScript type suffixed `[]` — `DayOfWeekType[]` — with the enum's import wired exactly like a scalar enum-typed column.
+- **`AsCollection::of($map)` / `::using($collection, $map)`** resolves the mapped class's element shape and appends `[]`. An `Arrayable` DTO with a documented `toArray()` shape inlines as an object array (`{ label: string; config: Record<string, unknown> }[]`); a mapped enum resolves the same way `AsEnumCollection` does. Without a resolvable map (or a bare `AsCollection`/`AsCollection::class`), it stays `unknown[]` — the same fallback as today.
+- **Any other `Castable`/`CastsAttributes` class carrying arguments** — a custom cast, `AsEncryptedCollection`, etc. — resolves as if the arguments weren't there, i.e. exactly like the bare class.
+
 > [!TIP]
 > Before reaching for `#[TsCasts]`, check whether the generator can already infer the type on its own: a `@return`/`@phpstan-return` docblock on an accessor (generics included, e.g. `Collection<int, LineItem>`), a class-level `@property` tag, or a `@phpstan-type`/`@phpstan-import-type` alias as above, is often enough. All three are read by PHPStan/Larastan too, so they're checked by static analysis in a way a package-specific attribute isn't.
 > 

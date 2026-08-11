@@ -5786,6 +5786,14 @@
                 "type": "string | null"
             },
             {
+                "name": "week_days",
+                "type": "StatusType[] | null"
+            },
+            {
+                "name": "grid_configs",
+                "type": "{ label: string; config: Record<string, unknown> }[] | null"
+            },
+            {
                 "name": "has_member",
                 "type": "boolean"
             },

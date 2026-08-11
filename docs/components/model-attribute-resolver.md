@@ -118,6 +118,25 @@ its returned map key (`'filters?'` rather than `'filters'`), so an alias expandi
 `array{filters?: ...}` emits `filters?: ...` in the generated interface instead of silently
 dropping optionality.
 
+## Castable-with-arguments cast strings
+
+`resolveAttribute()` passes a model's raw cast value straight to `LaravelTsPublish::toTsType()`, including
+compound `Castable` strings built by Laravel's own `AsEnumCollection::of()`/`AsCollection::of()`/`::using()`
+helpers — these encode their arguments after the *first* colon (`"Illuminate\...\AsEnumCollection:App\Enums\Status"`),
+since an argument is itself a class name and may contain `\`. `toTsType()`'s cast-string step (`resolveCastWithArguments()`)
+splits on that first colon only and dispatches on the head:
+
+| Head class | Args (comma-separated after `:`) | Resolves to |
+| --- | --- | --- |
+| `AsEnumCollection` (or subclass) | `[enumClass]` | the enum's TS type suffixed `[]`, `enumFqcns` populated for the import — identical wiring to a scalar enum-typed column |
+| `AsCollection` (or subclass) | `[collectionClass, mapClass]` (either may be empty) | `mapClass`'s resolved element, suffixed `[]`, when it resolves to an inline `{...}` shape or an enum; `unknown[]` when `mapClass` is absent or resolves to anything else |
+| any other existing `Castable`/`CastsAttributes` class | (ignored) | `toTsType($head)` — resolved exactly as the bare class, arguments stripped |
+| a head that is not an existing class (`"decimal:2"`, `"encrypted:array"`) | — | untouched; falls through to the DB-type/`encrypted:` steps further down the waterfall |
+
+The `AsCollection` branch only trusts an inline `{...}` shape or an enum as the array element — a bare unpublished
+class token has no import channel, so that case degrades to `unknown[]` rather than emit an identifier nothing
+imports.
+
 ## Declaring-file use-maps for trait-provided methods
 
 Every docblock resolution that needs "the use-map/namespace of the file that wrote this
