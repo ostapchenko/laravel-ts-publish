@@ -5,10 +5,13 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Workbench\App\Models\Activity;
 use Workbench\App\Models\Admin\Store;
 use Workbench\App\Models\Attachment;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
+use Workbench\App\Models\Kpi;
+use Workbench\App\Models\Marketing\Report\Report as MarketingReport;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
@@ -16,6 +19,7 @@ use Workbench\App\Models\Product;
 use Workbench\App\Models\PropertyDocblockBase;
 use Workbench\App\Models\PropertyDocblockChild;
 use Workbench\App\Models\PropertyDocblockEdge;
+use Workbench\App\Models\Sales\Report\Report as SalesReport;
 use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
 
@@ -125,7 +129,7 @@ test('buildMorphTargetMap builds map from MorphMany inverse relations', function
     ]);
 
     // User, Post, and Product all have morphMany(Image::class, 'imageable')
-    $targets = $resolver->getMorphToTargets(Image::class);
+    $targets = $resolver->getMorphToTargets(Image::class, 'imageable');
 
     expect($targets)->toBe([Post::class, Product::class, User::class]);
 });
@@ -139,13 +143,13 @@ test('getMorphToTargets returns empty array when no inverse relations exist', fu
         Image::class,
     ]);
 
-    expect($resolver->getMorphToTargets(CompositeComment::class))->toBe([]);
+    expect($resolver->getMorphToTargets(CompositeComment::class, 'commentable'))->toBe([]);
 });
 
 test('getMorphToTargets returns empty array when map is not built', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    expect($resolver->getMorphToTargets(Image::class))->toBe([]);
+    expect($resolver->getMorphToTargets(Image::class, 'imageable'))->toBe([]);
 });
 
 test('buildMorphTargetMap skips non-existent model classes', function () {
@@ -157,9 +161,27 @@ test('buildMorphTargetMap skips non-existent model classes', function () {
         Image::class,
     ]);
 
-    $targets = $resolver->getMorphToTargets(Image::class);
+    $targets = $resolver->getMorphToTargets(Image::class, 'imageable');
 
     expect($targets)->toBe([User::class]);
+});
+
+test('getMorphToTargets falls back to the legacy childFqcn bucket for an unmatched morph name', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    $resolver->buildMorphTargetMap([
+        User::class,
+        Post::class,
+        Product::class,
+        Image::class,
+    ]);
+
+    // 'imageable' is Image's real morph name; a name no relation was ever keyed under still
+    // resolves — via the plain childFqcn bucket — to the same aggregate, proving the keyed
+    // lookup degrades gracefully rather than losing the union entirely.
+    expect($resolver->getMorphToTargets(Image::class, 'not-a-real-morph-name'))
+        ->toBe($resolver->getMorphToTargets(Image::class, 'imageable'))
+        ->toBe([Post::class, Product::class, User::class]);
 });
 
 test('resolveRelation returns union type for MorphTo when targets exist', function () {
@@ -198,6 +220,49 @@ test('morph target map includes parents declaring custom MorphOne subclasses', f
     $info = $resolver->resolveRelation(Attachment::class, 'attachable');
 
     expect($info['type'])->toContain('Post');
+});
+
+test('a bare @return MorphTo<Model, $this> generic is not narrowing and falls through to the reverse map', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    // Kpi::reportable() carries `@return MorphTo<Model, $this>` — the useless, non-narrowing
+    // kind — so it must still resolve via the reverse scan of Sales/Marketing Report's
+    // morphMany('reportable'), not degrade to 'unknown' and not emit a literal 'Model' token.
+    $resolver->buildMorphTargetMap([Kpi::class, SalesReport::class, MarketingReport::class]);
+
+    $result = $resolver->resolveRelation(Kpi::class, 'reportable');
+
+    expect($result['morphFqcns'])->toBe([MarketingReport::class, SalesReport::class])
+        ->and($result['type'])->not->toContain('Model')
+        ->and($result['type'])->not->toBe('unknown');
+});
+
+describe('morphTo docblock generics', function () {
+    test('a concrete generic types the relation without any reverse relation', function () {
+        // causer() is declared on the HasRelatableLinkedRecord trait (mirroring eagle's own
+        // shape) with no reverse morphMany anywhere pointing at Activity — only the docblock
+        // generic can type it.
+        $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'causer');
+
+        expect($info['type'])->toContain('User')
+            ->and($info['morphFqcns'])->toBe([User::class]);
+    });
+
+    test('a bare Model generic still resolves through the reverse map', function () {
+        $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'subject');
+
+        expect($info['type'])->not->toContain('User'); // not polluted by causer
+    });
+
+    test('two morphTos on one model do not share a target union', function () {
+        $resolver = resolve(ModelAttributeResolver::class);
+        $resolver->buildMorphTargetMap([Activity::class, Kpi::class, SalesReport::class, MarketingReport::class]);
+
+        $causer = $resolver->resolveRelation(Activity::class, 'causer');
+        $subject = $resolver->resolveRelation(Activity::class, 'subject');
+
+        expect($causer['type'])->not->toBe($subject['type']);
+    });
 });
 
 test('attributeDocblockReturnTypes captures nested generic getter type', function () {

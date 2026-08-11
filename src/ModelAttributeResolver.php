@@ -11,6 +11,8 @@ use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Database\Eloquent\Relations\MorphOneOrMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
@@ -45,9 +47,13 @@ class ModelAttributeResolver
     protected array $contexts = [];
 
     /**
-     * Morphable child model FQCN → sorted parent FQCNs that declare a MorphOne/MorphMany pointing at it.
+     * Reverse morph-target map: sorted parent FQCNs that declare a MorphOne/MorphMany pointing at a
+     * child. Keyed twice per relation found — once under `childFqcn|morphName` (the morph name read
+     * from `getMorphType()`, e.g. `imageable`) so two differently-named morphTos on one child model
+     * don't share a union, and once under the plain `childFqcn` as a legacy aggregate bucket used
+     * when a child relation's own morph name can't be determined.
      *
-     * @var array<class-string, list<class-string>>
+     * @var array<string, list<class-string>>
      */
     protected array $morphTargetMap = [];
 
@@ -237,21 +243,9 @@ class ModelAttributeResolver
             || (str_ends_with($relation['type'], 'MorphTo') && ! str_ends_with($relation['type'], 'MorphToMany'));
 
         if ($isMorphTo) {
-            $targets = $this->getMorphToTargets($modelFqcn);
+            $targets = $this->resolveMorphToTargets($modelFqcn, $relationName);
 
-            if ($targets !== []) {
-                $type = implode(' | ', array_map(class_basename(...), $targets));
-            } else {
-                $type = 'unknown';
-            }
-
-            $nullableRelations = Config::boolean('ts-publish.models.nullable_relations');
-
-            if ($nullableRelations && $ctx['relationNullable']->isNullable($relation)) {
-                $type .= ' | null';
-            }
-
-            return ['type' => $type, 'modelFqcn' => null, 'morphFqcns' => $targets];
+            return $this->buildMorphUnionInfo($targets, $relation, $ctx);
         }
 
         DependencyRecorder::recordClass($relation['related']);
@@ -423,7 +417,7 @@ class ModelAttributeResolver
      */
     public function buildMorphTargetMap(array $modelFqcns): void
     {
-        /** @var array<class-string, list<class-string>> $map */
+        /** @var array<string, list<class-string>> $map */
         $map = [];
 
         foreach ($modelFqcns as $parentFqcn) {
@@ -442,20 +436,32 @@ class ModelAttributeResolver
 
                 DependencyRecorder::recordClass($childFqcn);
 
-                if (! isset($map[$childFqcn])) {
-                    $map[$childFqcn] = [];
+                // Written under both keys: the morph-name-specific bucket so two differently-named
+                // morphTos on one child don't share a union, and the plain childFqcn bucket as the
+                // legacy aggregate a child relation falls back to when its own name can't be read.
+                $keys = [$childFqcn];
+                $morphName = $this->relationMorphName($ctx['instance'], $relation['name']);
+
+                if ($morphName !== null) {
+                    $keys[] = $childFqcn.'|'.$morphName;
                 }
 
-                if (! in_array($parentFqcn, $map[$childFqcn], true)) {
-                    $map[$childFqcn][] = $parentFqcn;
+                foreach ($keys as $key) {
+                    if (! isset($map[$key])) {
+                        $map[$key] = [];
+                    }
+
+                    if (! in_array($parentFqcn, $map[$key], true)) {
+                        $map[$key][] = $parentFqcn;
+                    }
                 }
             }
         }
 
         // Sorted so the generated union type is stable across runs.
-        foreach ($map as $childFqcn => $parents) {
+        foreach ($map as $key => $parents) {
             sort($parents);
-            $map[$childFqcn] = $parents;
+            $map[$key] = $parents;
         }
 
         $this->morphTargetMap = $map;
@@ -492,14 +498,150 @@ class ModelAttributeResolver
     }
 
     /**
-     * Return the list of parent model FQCNs that morphTo the given child model.
+     * Return the list of parent model FQCNs that morphTo the given child model under the given
+     * morph (relation) name — falling back to the legacy childFqcn-only bucket (every parent
+     * regardless of name) when no parent declared a relation under that specific name.
      *
      * @param  class-string  $childModelFqcn
      * @return list<class-string>
      */
-    public function getMorphToTargets(string $childModelFqcn): array
+    public function getMorphToTargets(string $childModelFqcn, string $morphName): array
     {
-        return $this->morphTargetMap[$childModelFqcn] ?? [];
+        return $this->morphTargetMap[$childModelFqcn.'|'.$morphName]
+            ?? $this->morphTargetMap[$childModelFqcn]
+            ?? [];
+    }
+
+    /**
+     * Resolve a MorphTo relation's target model FQCNs: a narrowing `@return MorphTo<X, ...>`
+     * docblock generic first, then the reverse-relation map keyed by the relation's own morph
+     * name. The single source of truth for MorphTo target resolution — both resolveRelation() and
+     * ModelTransformer's relation pipeline call this, so a docblock generic is honored wherever a
+     * MorphTo union is emitted, not just through resolveRelation()'s own callers.
+     *
+     * @param  class-string  $modelFqcn
+     * @return list<class-string>
+     */
+    public function resolveMorphToTargets(string $modelFqcn, string $relationName): array
+    {
+        $docblockTargets = $this->morphToDocblockTargets($modelFqcn, $relationName);
+
+        if ($docblockTargets !== []) {
+            return $docblockTargets;
+        }
+
+        $ctx = $this->resolveContext($modelFqcn);
+
+        if ($ctx === null) {
+            return [];
+        }
+
+        $morphName = $this->relationMorphName($ctx['instance'], $relationName) ?? '';
+
+        return $this->getMorphToTargets($modelFqcn, $morphName);
+    }
+
+    /**
+     * Concrete Model subclasses named by a morphTo method's `@return MorphTo<X|Y, ...>` docblock
+     * generic, resolved through the declaring class's — or, for a trait-provided relation, the
+     * trait's — use-map via `methodDeclaringFileClass()` (the same resolution Task 7 introduced
+     * for accessor/mutator docblocks). Bare `Model` and abstract targets yield `[]` so the caller
+     * falls through to the reverse-relation map instead of importing a useless base class.
+     *
+     * @param  class-string  $modelFqcn
+     * @return list<class-string<Model>>
+     */
+    protected function morphToDocblockTargets(string $modelFqcn, string $relationName): array
+    {
+        $reflection = $this->getReflection($modelFqcn);
+
+        if ($reflection === null || ! $reflection->hasMethod($relationName)) {
+            return [];
+        }
+
+        $method = $reflection->getMethod($relationName);
+        $returnType = LaravelTsPublish::extractReturnTypeFromDocblock((string) $method->getDocComment());
+
+        if ($returnType === null
+            || ! preg_match('/^\\\\?(?:Illuminate\\\\Database\\\\Eloquent\\\\Relations\\\\)?MorphTo\s*<(.+)>$/s', trim($returnType), $m)
+        ) {
+            return [];
+        }
+
+        $declaringClass = LaravelTsPublish::methodDeclaringFileClass($method);
+        $useMap = LaravelTsPublish::parseFileUseStatements($declaringClass);
+        $namespace = $declaringClass->getNamespaceName();
+
+        // Only the first generic argument names the target(s) — the second ($this, by Laravel's
+        // own convention) carries no target information and is discarded here.
+        $firstArg = trim(Str::before($m[1], ','));
+        $targets = [];
+
+        foreach (LaravelTsPublish::splitPhpDocUnionType($firstArg) as $part) {
+            $fqcn = LaravelTsPublish::resolveDocblockTypeName(trim($part), $useMap, $namespace);
+
+            if (! class_exists($fqcn) || ! is_a($fqcn, Model::class, true) || $fqcn === Model::class) {
+                return [];
+            }
+
+            if ((new ReflectionClass($fqcn))->isAbstract()) {
+                return [];
+            }
+
+            /** @var class-string<Model> $fqcn */
+            $targets[] = $fqcn;
+        }
+
+        return $targets;
+    }
+
+    /**
+     * Build a MorphTo relation's resolveRelation()-shaped result from a resolved target list —
+     * shared by the docblock-generic and reverse-map branches so both apply nullability and
+     * morphFqcns identically.
+     *
+     * @param  list<class-string>  $targets
+     * @param  RelationInfo  $relation
+     * @param  array{relationNullable: RelationNullable, ...}  $ctx
+     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
+     */
+    protected function buildMorphUnionInfo(array $targets, array $relation, array $ctx): array
+    {
+        $type = $targets !== []
+            ? implode(' | ', array_map(class_basename(...), $targets))
+            : 'unknown';
+
+        $nullableRelations = Config::boolean('ts-publish.models.nullable_relations');
+
+        if ($nullableRelations && $ctx['relationNullable']->isNullable($relation)) {
+            $type .= ' | null';
+        }
+
+        return ['type' => $type, 'modelFqcn' => null, 'morphFqcns' => $targets];
+    }
+
+    /**
+     * The morph "name" (e.g. 'imageable') for a MorphTo/MorphOne/MorphMany relation, read from its
+     * getMorphType() column ('imageable_type' minus the '_type' suffix). Building an Eloquent
+     * relation queries nothing — addConstraints() only appends to the query builder — so invoking
+     * it on an unpersisted instance is safe; any failure degrades to null so callers fall back to
+     * the legacy per-child bucket instead of surfacing an exception.
+     */
+    protected function relationMorphName(Model $instance, string $relationName): ?string
+    {
+        try {
+            $relation = $instance->{$relationName}();
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! $relation instanceof MorphTo && ! $relation instanceof MorphOneOrMany) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $morphType = $relation->getMorphType();
+
+        return str_ends_with($morphType, '_type') ? substr($morphType, 0, -5) : $morphType;
     }
 
     /**

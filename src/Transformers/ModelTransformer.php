@@ -415,7 +415,7 @@ class ModelTransformer extends CoreTransformer
             if ($isMorphTo) {
                 /** @var ModelAttributeResolver $resolver */
                 $resolver = resolve(ModelAttributeResolver::class);
-                $morphTargets = $resolver->getMorphToTargets($this->findable);
+                $morphTargets = $resolver->resolveMorphToTargets($this->findable, $relation['name']);
 
                 if ($includedModels !== []) {
                     $morphTargets = array_values(array_filter(

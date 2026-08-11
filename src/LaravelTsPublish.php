@@ -788,9 +788,12 @@ class LaravelTsPublish
      * and getDocComment() still read from the trait's own source. Walking the declaring class's
      * traits (recursively, for traits-of-traits) recovers the class whose use-map actually applies.
      *
+     * Public so callers outside this class — e.g. ModelAttributeResolver's morphTo docblock
+     * generic parsing — can resolve the same declaring-file use-map for a trait-provided method.
+     *
      * @return ReflectionClass<object>
      */
-    protected function methodDeclaringFileClass(ReflectionMethod $method): ReflectionClass
+    public function methodDeclaringFileClass(ReflectionMethod $method): ReflectionClass
     {
         $declaringClass = $method->getDeclaringClass();
         $methodFile = $method->getFileName();

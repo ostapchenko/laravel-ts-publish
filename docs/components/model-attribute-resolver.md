@@ -169,13 +169,46 @@ The `AsCollection` branch only trusts an inline `{...}` shape or an enum as the 
 class token has no import channel, so that case degrades to `unknown[]` rather than emit an identifier nothing
 imports.
 
+## MorphTo target resolution: docblock generic → reverse map keyed by morph name
+
+`resolveMorphToTargets(string $modelFqcn, string $relationName): list<class-string>` is the
+single entry point both `resolveRelation()` and `ModelTransformer::transformRelations()` call for
+a `MorphTo` relation's target union — a duplicate ad hoc implementation in `ModelTransformer` was
+exactly how a docblock generic went unread by the actual publish pipeline even after
+`resolveRelation()` itself honored it, which is why only one method owns this now. Resolution
+order:
+
+1. **`morphToDocblockTargets()`** — a `@return`/`@phpstan-return MorphTo<X|Y, ...>` generic on the
+   relation method. Only the *first* generic argument is read (the second, `$this` by Laravel's
+   own convention, names the child and carries no target information). Each union member is
+   resolved to a FQCN through `methodDeclaringFileClass()`'s use-map (see below — critical for a
+   trait-provided relation) and must be an existing, concrete `Model` subclass; a bare `Model` or
+   an abstract class anywhere in the union makes the *whole* generic non-narrowing (`[]`), since a
+   `MorphTo<Model, $this>` generic is Larastan's own placeholder for "targets not statically
+   known" and emitting a literal `Model` token would be a useless, unimportable-in-spirit result.
+2. **The reverse-relation map, keyed by morph name.** When the docblock is absent or non-narrowing,
+   `relationMorphName()` invokes the relation method on an unpersisted instance (safe — building
+   an Eloquent relation only appends to a query builder, it never queries) to read
+   `MorphTo::getMorphType()` (`'imageable_type'` minus the `_type` suffix → `'imageable'`), then
+   looks up `getMorphToTargets($modelFqcn, $morphName)`.
+
+`buildMorphTargetMap()` writes two keys per parent relation found: `childFqcn.'|'.morphName` (so
+two differently-named `morphTo`s on the same child model — e.g. `Activity::causer` and
+`Activity::subject` — don't share a union) and the plain `childFqcn` as a legacy aggregate bucket.
+`getMorphToTargets()` tries the specific key first and falls back to the plain bucket, so a model
+whose own morph name can't be determined (constructor throws, `getMorphType()` unavailable)
+degrades to the old, model-wide behavior instead of losing the union to `unknown`. A model with
+exactly one `morphTo` relation is unaffected either way, since its keyed and legacy buckets always
+hold the same parents.
+
 ## Declaring-file use-maps for trait-provided methods
 
 Every docblock resolution that needs "the use-map/namespace of the file that wrote this
 docblock" — `docblockReturnTypes()`, `resolveDocblockTypeString()`,
-`parseDocblockReturnArrayShape()` — resolves that file via `methodDeclaringFileClass()`, not
-`ReflectionMethod::getDeclaringClass()` directly. For a method a class picks up from a `use`d
-trait, PHP's own `getDeclaringClass()` reports the *consuming* class, not the trait — a
+`parseDocblockReturnArrayShape()`, `ModelAttributeResolver::morphToDocblockTargets()` — resolves
+that file via `methodDeclaringFileClass()`, not `ReflectionMethod::getDeclaringClass()` directly.
+For a method a class picks up from a `use`d trait, PHP's own `getDeclaringClass()` reports the
+*consuming* class, not the trait — a
 long-standing reflection quirk, since traits are flattened into the class at compile time — even
 though `getFileName()` and `getDocComment()` still read from the trait's own source.
 `methodDeclaringFileClass()` compares the method's real file (`getFileName()`) against the

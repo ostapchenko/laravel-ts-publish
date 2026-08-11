@@ -363,6 +363,23 @@ protected function casts(): array
 > 
 > `#[TsCasts]` is still the right tool when a shape is genuinely dynamic (keys built at runtime) or the type is owned by the frontend and needs its own import.
 
+### Typing `morphTo` relations
+
+A `morphTo()` relation's target union is normally inferred in reverse — by scanning every other model for a `morphOne`/`morphMany` pointing back at it — which can only ever find a union, never narrow one. A `@return MorphTo<A|B, $this>` docblock generic on the relation method overrides that scan and types the relation directly, PHPStan-checked, no `#[TsCasts]` needed:
+
+```php
+class Activity extends Model
+{
+    /** @return MorphTo<User, $this> */
+    public function causer(): MorphTo
+    {
+        return $this->morphTo();
+    }
+}
+```
+
+`causer` generates as `User | null` even though no other model declares a reverse relation pointing at `Activity`. The second generic argument (`$this`, Laravel's own convention for the child) carries no target information and is ignored. A generic naming the base `Model` class (`MorphTo<Model, $this>`) isn't narrowing — it's the common, useless case (`@phpstan-return MorphTo<Model, $this>` is what Larastan itself expects when a relation's targets aren't known upfront) — so it falls through to the reverse scan exactly as if no generic were present, rather than emitting a `Model` token nothing can import. Two differently-named `morphTo` relations on the same model resolve independently either way, since both the docblock generic and the reverse scan are read per relation, not per model.
+
 ### DTO-typed accessors and casts
 
 An `Arrayable` DTO whose `toArray()` carries no `@return array{...}` shape now infers its shape from its own typed public properties — promoted constructor properties included — instead of falling back to `unknown[]`:

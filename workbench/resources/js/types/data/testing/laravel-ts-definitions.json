@@ -3557,6 +3557,60 @@
                 "type": "boolean"
             }
         ],
+        "Activity": [
+            {
+                "name": "id",
+                "type": "number"
+            },
+            {
+                "name": "causer_type",
+                "type": "string | null"
+            },
+            {
+                "name": "causer_id",
+                "type": "number | null"
+            },
+            {
+                "name": "subject_type",
+                "type": "string | null"
+            },
+            {
+                "name": "subject_id",
+                "type": "number | null"
+            },
+            {
+                "name": "created_at",
+                "type": "string | null"
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null"
+            },
+            {
+                "name": "subject",
+                "type": "unknown | null"
+            },
+            {
+                "name": "causer",
+                "type": "User | null"
+            },
+            {
+                "name": "subject_count",
+                "type": "number"
+            },
+            {
+                "name": "causer_count",
+                "type": "number"
+            },
+            {
+                "name": "subject_exists",
+                "type": "boolean"
+            },
+            {
+                "name": "causer_exists",
+                "type": "boolean"
+            }
+        ],
         "Address": [
             {
                 "name": "id",

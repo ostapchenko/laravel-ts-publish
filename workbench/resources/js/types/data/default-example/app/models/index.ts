@@ -1,3 +1,4 @@
+export * from './activity';
 export * from './address';
 export * from './attachment';
 export * from './base-extendable-model';
