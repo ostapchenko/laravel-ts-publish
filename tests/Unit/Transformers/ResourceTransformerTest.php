@@ -20,6 +20,7 @@ use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\FqcnMixinResource;
 use Workbench\App\Http\Resources\ImageDelegatedResource;
 use Workbench\App\Http\Resources\ImageMorphResource;
+use Workbench\App\Http\Resources\KpiResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
 use Workbench\App\Http\Resources\MediaTypeUnknownResource;
@@ -39,9 +40,12 @@ use Workbench\App\Models\Address;
 use Workbench\App\Models\Admin\Store as AdminStore;
 use Workbench\App\Models\Comment;
 use Workbench\App\Models\Image;
+use Workbench\App\Models\Kpi;
+use Workbench\App\Models\Marketing\Report\Report as MarketingReport;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
+use Workbench\App\Models\Sales\Report\Report as SalesReport;
 use Workbench\App\Models\TrackingEvent;
 use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
@@ -1234,23 +1238,26 @@ describe('ResourceTransformer import collision deconfliction', function () {
 
         $allTypeImports = array_merge(...array_values($data->typeImports));
 
-        expect($allTypeImports)->toContain('StatusType as AppStatusType')
+        // App\Enums, App\Models, and App\Http\Resources are entirely skip-listed, so the
+        // registry falls back to the raw, nearest segment (Enums / Models / Resources); the
+        // Crm side keeps its one non-skip segment ('Crm').
+        expect($allTypeImports)->toContain('StatusType as EnumsStatusType')
             ->toContain('StatusType as CrmStatusType');
 
-        expect($allTypeImports)->toContain('User as AppUser')
+        expect($allTypeImports)->toContain('User as ModelsUser')
             ->toContain('User as CrmUser');
 
-        expect($allTypeImports)->toContain('UserResource as AppUserResource')
+        expect($allTypeImports)->toContain('UserResource as ResourcesUserResource')
             ->toContain('UserResource as CrmUserResource');
 
-        expect($data->properties['status']['type'])->toBe('AppStatusType');
-        expect($data->properties['status_enum']['type'])->toBe('AppStatusType');
+        expect($data->properties['status']['type'])->toBe('EnumsStatusType');
+        expect($data->properties['status_enum']['type'])->toBe('EnumsStatusType');
         expect($data->properties['crm_status']['type'])->toBe('CrmStatusType');
         expect($data->properties['crm_enum']['type'])->toBe('CrmStatusType');
         expect($data->properties['customer']['type'])->toBe('CrmUser');
-        expect($data->properties['admin']['type'])->toBe('AppUser');
+        expect($data->properties['admin']['type'])->toBe('ModelsUser');
         expect($data->properties['customer_resource']['type'])->toBe('CrmUserResource');
-        expect($data->properties['admin_resource']['type'])->toBe('AppUserResource');
+        expect($data->properties['admin_resource']['type'])->toBe('ResourcesUserResource');
     });
 
     test('aliases enum type imports, value imports, and property types with tolki enabled', function () {
@@ -1262,28 +1269,30 @@ describe('ResourceTransformer import collision deconfliction', function () {
         $allTypeImports = array_merge(...array_values($data->typeImports));
         $allValueImports = array_merge(...array_values($data->valueImports));
 
-        expect($allTypeImports)->toContain('User as AppUser')
+        // Same all-skip-listed fallback as the tolki-disabled test above; the const alias
+        // mirrors the type alias's chosen prefix ('Enums') via the sibling const registry.
+        expect($allTypeImports)->toContain('User as ModelsUser')
             ->toContain('User as CrmUser');
 
-        expect($allTypeImports)->toContain('UserResource as AppUserResource')
+        expect($allTypeImports)->toContain('UserResource as ResourcesUserResource')
             ->toContain('UserResource as CrmUserResource');
 
-        expect($allTypeImports)->toContain('StatusType as AppStatusType')
+        expect($allTypeImports)->toContain('StatusType as EnumsStatusType')
             ->toContain('StatusType as CrmStatusType');
 
-        expect($allValueImports)->toContain('Status as AppStatus')
+        expect($allValueImports)->toContain('Status as EnumsStatus')
             ->toContain('Status as CrmStatus');
 
-        expect($data->properties['status']['type'])->toBe('AppStatusType');
+        expect($data->properties['status']['type'])->toBe('EnumsStatusType');
         expect($data->properties['crm_status']['type'])->toBe('CrmStatusType');
 
-        expect($data->properties['status_enum']['type'])->toBe('AsEnum<typeof AppStatus>');
+        expect($data->properties['status_enum']['type'])->toBe('AsEnum<typeof EnumsStatus>');
         expect($data->properties['crm_enum']['type'])->toBe('AsEnum<typeof CrmStatus>');
 
         expect($data->properties['customer']['type'])->toBe('CrmUser');
-        expect($data->properties['admin']['type'])->toBe('AppUser');
+        expect($data->properties['admin']['type'])->toBe('ModelsUser');
         expect($data->properties['customer_resource']['type'])->toBe('CrmUserResource');
-        expect($data->properties['admin_resource']['type'])->toBe('AppUserResource');
+        expect($data->properties['admin_resource']['type'])->toBe('ResourcesUserResource');
     });
 });
 
@@ -1992,3 +2001,28 @@ describe('ResourceTransformer with morphTo-backed resources', function () {
             ->and($data->typeImports['@js/types/settings'] ?? [])->toContain('MenuSettingsType');
     });
 })->group('transformer');
+
+describe('ResourceTransformer import alias resolution for same basename and same parent segment', function () {
+    test('same basename and same parent segment produce distinct aliases', function () {
+        // Kpi::reportable() morphs to both Report models; their nearest namespace segment is
+        // identically 'Report', reproducing the eagle MailPrice collision at depth 1.
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            Kpi::class,
+            SalesReport::class,
+            MarketingReport::class,
+        ]);
+
+        $data = (new ResourceTransformer(KpiResource::class))->data();
+
+        expect($data->properties['reportable']['type'])
+            ->toContain('SalesReportReport')
+            ->toContain('MarketingReportReport');
+
+        $allImports = array_merge(...array_values($data->typeImports));
+        expect($allImports)->toContain('Report as SalesReportReport')
+            ->and($allImports)->toContain('Report as MarketingReportReport');
+
+        preg_match_all('/as (\w+)/', implode(' ', $allImports), $matches);
+        expect($matches[1])->toBe(array_unique($matches[1]));
+    });
+});

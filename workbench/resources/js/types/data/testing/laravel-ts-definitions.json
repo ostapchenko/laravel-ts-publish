@@ -116,6 +116,22 @@
                 }
             ]
         },
+        ".Workbench.App.Events.ReportSynced": {
+            "eventName": "ReportSynced",
+            "broadcastName": ".Workbench.App.Events.ReportSynced",
+            "properties": [
+                {
+                    "name": "salesReport",
+                    "type": "Partial<SalesReportReport>",
+                    "optional": false
+                },
+                {
+                    "name": "marketingReport",
+                    "type": "Partial<MarketingReportReport>",
+                    "optional": false
+                }
+            ]
+        },
         "server.created": {
             "eventName": "ServerCreated",
             "broadcastName": "server.created",
@@ -8178,6 +8194,13 @@
             {
                 "name": "payload",
                 "type": "{ address: AddressResource; items_loaded?: OrderItem[] } | null",
+                "optional": true
+            }
+        ],
+        "KpiResource": [
+            {
+                "name": "reportable",
+                "type": "MarketingReportReport | SalesReportReport",
                 "optional": true
             }
         ],

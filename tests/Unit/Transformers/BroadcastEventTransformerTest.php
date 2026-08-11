@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Dtos\TsBroadcastEventDto;
+use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\Transformers\BroadcastEventTransformer;
 use Workbench\App\Events\EnumBroadcastEvent;
 use Workbench\App\Events\MixedTypesEvent;
@@ -10,10 +11,14 @@ use Workbench\App\Events\MultiModelEvent;
 use Workbench\App\Events\OrderShipped;
 use Workbench\App\Events\PostPublishedEvent;
 use Workbench\App\Events\PureEnumEvent;
+use Workbench\App\Events\ReportSynced;
 use Workbench\App\Events\ServerCreated;
 use Workbench\App\Events\TeamMessageSent;
 use Workbench\App\Events\UserNotification;
 use Workbench\App\Events\UserRegisteredEvent;
+use Workbench\App\Models\Kpi;
+use Workbench\App\Models\Marketing\Report\Report as MarketingReport;
+use Workbench\App\Models\Sales\Report\Report as SalesReport;
 use Workbench\Crm\Events\StatusSynced;
 use Workbench\Crm\Events\UserSynced as CrmUserSynced;
 
@@ -423,5 +428,33 @@ describe('TsExtends on BroadcastEventTransformer', function () {
             expect($transformer->tsExtends)->toContain('GlobalBase');
             expect($transformer->tsExtends)->toContain('BroadcastableEvent');
         });
+    });
+});
+
+describe('ReportSynced (same basename and same parent segment — import aliasing)', function () {
+    it('assigns distinct aliases to both Report models', function () {
+        // Both Report models morphMany to Kpi under 'reportable'; their nearest namespace
+        // segment is identically 'Report', reproducing the eagle MailPrice collision at depth 1.
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            Kpi::class,
+            SalesReport::class,
+            MarketingReport::class,
+        ]);
+
+        $transformer = app(BroadcastEventTransformer::class, ['findable' => ReportSynced::class]);
+        $allTypes = array_merge(...array_values($transformer->typeImports));
+
+        expect($allTypes)->toContain('Report as SalesReportReport');
+        expect($allTypes)->toContain('Report as MarketingReportReport');
+
+        preg_match_all('/as (\w+)/', implode(' ', $allTypes), $matches);
+        expect($matches[1])->toBe(array_unique($matches[1]));
+    });
+
+    it('rewrites both properties to their aliased Partial<> types', function () {
+        $transformer = app(BroadcastEventTransformer::class, ['findable' => ReportSynced::class]);
+
+        expect($transformer->properties['salesReport']['type'])->toBe('Partial<SalesReportReport>');
+        expect($transformer->properties['marketingReport']['type'])->toBe('Partial<MarketingReportReport>');
     });
 });

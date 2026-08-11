@@ -4,6 +4,7 @@ import type { MultiModelEvent } from './app/events/MultiModelEvent';
 import type { OrderShipped } from './app/events/OrderShipped';
 import type { PostPublishedEvent } from './app/events/PostPublishedEvent';
 import type { PureEnumEvent } from './app/events/PureEnumEvent';
+import type { ReportSynced } from './app/events/ReportSynced';
 import type { ServerCreated } from './app/events/ServerCreated';
 import type { StatusSynced } from './crm/events/StatusSynced';
 import type { TeamMessageSent } from './app/events/TeamMessageSent';
@@ -19,6 +20,7 @@ export type BroadcastEvent =
     | '.Workbench.App.Events.OrderShipped'
     | '.Workbench.App.Events.PostPublishedEvent'
     | '.Workbench.App.Events.PureEnumEvent'
+    | '.Workbench.App.Events.ReportSynced'
     | 'server.created'
     | '.Workbench.Crm.Events.StatusSynced'
     | '.Workbench.App.Events.TeamMessageSent'
@@ -34,6 +36,7 @@ export const BroadcastEvents = Object.freeze({
     OrderShipped: '.Workbench.App.Events.OrderShipped',
     PostPublishedEvent: '.Workbench.App.Events.PostPublishedEvent',
     PureEnumEvent: '.Workbench.App.Events.PureEnumEvent',
+    ReportSynced: '.Workbench.App.Events.ReportSynced',
     ServerCreated: 'server.created',
     StatusSynced: '.Workbench.Crm.Events.StatusSynced',
     TeamMessageSent: '.Workbench.App.Events.TeamMessageSent',
@@ -50,6 +53,7 @@ export type {
     OrderShipped,
     PostPublishedEvent,
     PureEnumEvent,
+    ReportSynced,
     ServerCreated,
     StatusSynced,
     TeamMessageSent,

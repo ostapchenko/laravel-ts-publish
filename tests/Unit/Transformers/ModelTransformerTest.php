@@ -495,23 +495,6 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
         }
     });
 
-    test('computeNamespacePrefix returns meaningful namespace segment', function () {
-        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
-
-        $transformer = new ModelTransformer(Deal::class);
-
-        $method = new ReflectionMethod($transformer, 'computeNamespacePrefix');
-
-        // Crm\Models\User → strip 'Workbench\', skip 'Models' → 'Crm'
-        expect($method->invoke($transformer, 'Workbench\\Crm\\Models\\User'))->toBe('Crm');
-
-        // App\Models\User → strip 'Workbench\', skip 'Models' & 'App' → 'App' (fallback to first)
-        expect($method->invoke($transformer, 'Workbench\\App\\Models\\User'))->toBe('App');
-
-        // Accounting\Enums\InvoiceStatus → strip 'Workbench\', skip 'Enums' → 'Accounting'
-        expect($method->invoke($transformer, 'Workbench\\Accounting\\Enums\\InvoiceStatus'))->toBe('Accounting');
-    });
-
     test('falls back to namespace-based alias when relation-based aliases collide', function () {
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
@@ -797,7 +780,7 @@ describe('ModelTransformer with Warehouse model', function () {
         expect($data->appends['current_crm_status']['type'])->toBe('CrmStatusType | null');
     });
 
-    test('uses computeNamespacePrefix for model referenced by 2+ relations', function () {
+    test('uses namespace-based alias for model referenced by 2+ relations', function () {
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
         $data = (new ModelTransformer(Warehouse::class))->data();

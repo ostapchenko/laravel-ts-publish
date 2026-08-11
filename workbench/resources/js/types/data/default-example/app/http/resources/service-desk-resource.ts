@@ -1,5 +1,5 @@
 import type { User as CrmUser } from '../../../crm/models';
-import type { User as AppUser } from '../../models';
+import type { User as ModelsUser } from '../../models';
 
 /**
  * Exercises the inline model FQCN collision scenario.
@@ -16,5 +16,5 @@ export interface ServiceDeskResource
     id: number;
     title: string;
     crm_agent: CrmUser | null;
-    order_requester: { user: AppUser } | null;
+    order_requester: { user: ModelsUser } | null;
 }

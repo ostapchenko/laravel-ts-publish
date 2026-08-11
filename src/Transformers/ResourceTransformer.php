@@ -13,6 +13,7 @@ use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Dtos\TsResourceDto;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use AbeTwoThree\LaravelTsPublish\Support\ImportNameRegistry;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\BuildsImportMaps;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ParsesTsExtends;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ResolvesImportConflicts;
@@ -776,45 +777,45 @@ class ResourceTransformer extends CoreTransformer
      */
     protected function resolveImportConflicts(): self
     {
-        /** @var array<string, list<array{fqcn: string, kind: 'enum'|'resource'|'model'}>> $reverseMap */
-        $reverseMap = [];
+        $skip = ['Models', 'Enums', 'Http', 'Resources', 'App'];
+
+        $registry = new ImportNameRegistry($skip);
+        $registry->reserve($this->resourceName);
+
+        // Const names collide exactly when their paired type names do (both are deterministic
+        // functions of the same enum FQCN), so a sibling registry resolves them independently
+        // rather than string-slicing the type alias — which breaks on a numeric tiebreak suffix.
+        $constRegistry = new ImportNameRegistry($skip);
 
         foreach ($this->enumFqcnMap as $fqcn => $typeName) {
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'enum'];
+            $registry->register($fqcn, $typeName);
+
+            if (isset($this->enumConstMap[$fqcn])) {
+                $constRegistry->register($fqcn, $this->enumConstMap[$fqcn]);
+            }
         }
 
         foreach ($this->resourceFqcnMap as $fqcn => $typeName) {
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'resource'];
+            $registry->register($fqcn, $typeName);
         }
 
         foreach ($this->modelFqcnMap as $fqcn => $typeName) {
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'model'];
+            $registry->register($fqcn, $typeName);
         }
 
-        foreach ($reverseMap as $typeName => $entries) {
-            $needsAlias = count($entries) > 1 || $typeName === $this->resourceName;
+        $constNames = $constRegistry->resolve();
 
-            if (! $needsAlias) {
+        foreach ($registry->resolve() as $fqcn => $localName) {
+            $typeName = $this->enumFqcnMap[$fqcn] ?? $this->resourceFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
+
+            if ($typeName === null || $localName === $typeName) {
                 continue;
             }
 
-            foreach ($entries as $entry) {
-                /** @var class-string $fqcn */
-                $fqcn = $entry['fqcn'];
-                $originalName = match ($entry['kind']) {
-                    'enum' => $this->enumFqcnMap[$fqcn],
-                    'resource' => $this->resourceFqcnMap[$fqcn],
-                    'model' => $this->modelFqcnMap[$fqcn],
-                };
+            $this->importAliases[$fqcn] = $localName;
 
-                $prefix = $this->computeNamespacePrefix($fqcn, ['Models', 'Enums', 'Http', 'Resources', 'App']);
-                $alias = $prefix.$originalName;
-
-                $this->importAliases[$fqcn] = $alias;
-
-                if ($entry['kind'] === 'enum' && isset($this->enumConstMap[$fqcn])) {
-                    $this->constImportAliases[$fqcn] = $prefix.$this->enumConstMap[$fqcn];
-                }
+            if (isset($constNames[$fqcn]) && $constNames[$fqcn] !== $this->enumConstMap[$fqcn]) {
+                $this->constImportAliases[$fqcn] = $constNames[$fqcn];
             }
         }
 

@@ -32,6 +32,7 @@ export * from './image-delegated-resource';
 export * from './image-morph-resource';
 export * from './image-resource';
 export * from './inline-array-fqcn-resource';
+export * from './kpi-resource';
 export * from './local-var-guard-clause-resource';
 export * from './local-var-reassign-resource';
 export * from './local-var-recursion-resource';

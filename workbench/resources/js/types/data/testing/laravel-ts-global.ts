@@ -1957,6 +1957,13 @@ declare global {
             payload?: { address: AddressResource; items_loaded?: workbench.app.models.OrderItem[] } | null;
         }
         /**
+         * Fixture: Kpi::reportable() morphs to two Report models sharing basename and parent segment,
+         * reproducing the eagle MailPrice alias collision through a resource instead of a model.
+         */
+        export interface KpiResource {
+            reportable?: workbench.app.models.marketing.report.Report | workbench.app.models.sales.report.Report;
+        }
+        /**
          * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the
          * same variable, separated by a guard-clause return, must not resolve either return
          * branch through a single static binding — which assignment was "last" depends on
@@ -3152,6 +3159,10 @@ declare global {
             role: workbench.app.enums.RoleType;
             visibility: workbench.app.enums.VisibilityType;
             action: string;
+        }
+        export interface ReportSynced {
+            salesReport: Partial<workbench.app.models.sales.report.Report>;
+            marketingReport: Partial<workbench.app.models.marketing.report.Report>;
         }
         export interface ServerCreated {
             serverId: number;

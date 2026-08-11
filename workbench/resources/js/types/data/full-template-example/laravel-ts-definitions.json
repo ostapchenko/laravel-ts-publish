@@ -116,6 +116,22 @@
                 }
             ]
         },
+        ".Workbench.App.Events.ReportSynced": {
+            "eventName": "ReportSynced",
+            "broadcastName": ".Workbench.App.Events.ReportSynced",
+            "properties": [
+                {
+                    "name": "salesReport",
+                    "type": "Partial<SalesReportReport>",
+                    "optional": false
+                },
+                {
+                    "name": "marketingReport",
+                    "type": "Partial<MarketingReportReport>",
+                    "optional": false
+                }
+            ]
+        },
         "server.created": {
             "eventName": "ServerCreated",
             "broadcastName": "server.created",
@@ -8051,7 +8067,7 @@
             },
             {
                 "name": "uploader_from_docblock",
-                "type": "AppUser | null",
+                "type": "ModelsUser | null",
                 "optional": false
             },
             {
@@ -8066,7 +8082,7 @@
             },
             {
                 "name": "uploaders_from_docblock",
-                "type": "AppUser[] | Record<string, AppUser>",
+                "type": "ModelsUser[] | Record<string, ModelsUser>",
                 "optional": false
             },
             {
@@ -8106,7 +8122,7 @@
             },
             {
                 "name": "imageable",
-                "type": "Post | Product | AppUser | CrmUser",
+                "type": "Post | Product | ModelsUser | CrmUser",
                 "optional": false
             }
         ],
@@ -8118,17 +8134,17 @@
             },
             {
                 "name": "imageable",
-                "type": "Post | Product | AppUser | CrmUser",
+                "type": "Post | Product | ModelsUser | CrmUser",
                 "optional": false
             },
             {
                 "name": "uploaders_from_docblock",
-                "type": "AppUser[] | Record<string, AppUser>",
+                "type": "ModelsUser[] | Record<string, ModelsUser>",
                 "optional": false
             },
             {
                 "name": "imageable_when_loaded",
-                "type": "Post | Product | AppUser | CrmUser",
+                "type": "Post | Product | ModelsUser | CrmUser",
                 "optional": true
             }
         ],
@@ -8178,6 +8194,13 @@
             {
                 "name": "payload",
                 "type": "{ address: AddressResource; items_loaded?: OrderItem[] } | null",
+                "optional": true
+            }
+        ],
+        "KpiResource": [
+            {
+                "name": "reportable",
+                "type": "MarketingReportReport | SalesReportReport",
                 "optional": true
             }
         ],
@@ -9501,7 +9524,7 @@
             },
             {
                 "name": "order_requester",
-                "type": "{ user: AppUser } | null",
+                "type": "{ user: ModelsUser } | null",
                 "optional": false
             }
         ],
@@ -10678,22 +10701,22 @@
             },
             {
                 "name": "review_priority",
-                "type": "AppStatusType | PriorityType | null",
+                "type": "EnumsStatusType | PriorityType | null",
                 "optional": false
             },
             {
                 "name": "review_priority_typed",
-                "type": "AppStatusType | PriorityType | null",
+                "type": "EnumsStatusType | PriorityType | null",
                 "optional": false
             },
             {
                 "name": "review_priority_typed_short",
-                "type": "AppStatusType | PriorityType | null",
+                "type": "EnumsStatusType | PriorityType | null",
                 "optional": false
             },
             {
                 "name": "manager",
-                "type": "AppUser | null",
+                "type": "ModelsUser | null",
                 "optional": false
             },
             {
@@ -10708,17 +10731,17 @@
             },
             {
                 "name": "last_user_activity_by",
-                "type": "AppUser | CrmUser | null",
+                "type": "ModelsUser | CrmUser | null",
                 "optional": false
             },
             {
                 "name": "last_user_activity_by_typed",
-                "type": "AppUser | CrmUser | null",
+                "type": "ModelsUser | CrmUser | null",
                 "optional": false
             },
             {
                 "name": "last_user_activity_by_typed_short",
-                "type": "AppUser | CrmUser | null",
+                "type": "ModelsUser | CrmUser | null",
                 "optional": false
             },
             {
@@ -10956,12 +10979,12 @@
             },
             {
                 "name": "status",
-                "type": "AppStatusType",
+                "type": "EnumsStatusType",
                 "optional": false
             },
             {
                 "name": "status_enum",
-                "type": "AsEnum<typeof AppStatus>",
+                "type": "AsEnum<typeof EnumsStatus>",
                 "optional": false
             },
             {
@@ -10981,7 +11004,7 @@
             },
             {
                 "name": "admin",
-                "type": "AppUser",
+                "type": "ModelsUser",
                 "optional": true
             },
             {
@@ -10991,7 +11014,7 @@
             },
             {
                 "name": "admin_resource",
-                "type": "AppUserResource",
+                "type": "ResourcesUserResource",
                 "optional": true
             },
             {

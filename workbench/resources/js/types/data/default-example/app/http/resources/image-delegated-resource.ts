@@ -1,7 +1,7 @@
 import type { MenuSettingsType } from '@js/types/settings';
 import type { User as CrmUser } from '../../../crm/models';
 import type { StatusType } from '../../enums';
-import type { Post, Product, User as AppUser } from '../../models';
+import type { Post, Product, User as ModelsUser } from '../../models';
 
 /**
  * Same morphTo union, reached through the model-delegated analysis rather than an array literal.
@@ -33,10 +33,10 @@ export interface ImageDelegatedResource
     flexible_id: string | number | null;
     optional_label: string | null;
     status_from_docblock: StatusType | null;
-    uploader_from_docblock: AppUser | null;
+    uploader_from_docblock: ModelsUser | null;
     config_from_docblock: MenuSettingsType;
     data_from_docblock: unknown[];
-    uploaders_from_docblock: AppUser[] | Record<string, AppUser>;
+    uploaders_from_docblock: ModelsUser[] | Record<string, ModelsUser>;
     tree_from_docblock: { label: string; child: unknown[] };
     price_from_docblock: { amount: number; currency: string };
     label_from_docblock: string;
@@ -44,5 +44,5 @@ export interface ImageDelegatedResource
     wrong_format_docblock: string | null;
     positive_int_accessor: number;
     numeric_string_accessor: string;
-    imageable: Post | Product | AppUser | CrmUser;
+    imageable: Post | Product | ModelsUser | CrmUser;
 }

@@ -9,6 +9,7 @@ use AbeTwoThree\LaravelTsPublish\Concerns\ParsesTsCasts;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Dtos\TsBroadcastEventDto;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use AbeTwoThree\LaravelTsPublish\Support\ImportNameRegistry;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ParsesTsExtends;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ResolvesImportConflicts;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\SnapshotsTransformerState;
@@ -444,35 +445,29 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Detect conflicting import names and alias them by namespace prefix (App\Models\User → AppUser).
+     * Detect conflicting import names and assign globally-unique aliases via ImportNameRegistry.
      */
     protected function resolveImportConflicts(): self
     {
-        /** @var array<string, list<array{fqcn: string, kind: 'enum'|'model'}>> $reverseMap */
-        $reverseMap = [];
+        $registry = new ImportNameRegistry(['Events', 'Enums', 'Models']);
+        $registry->reserve($this->eventName);
 
         foreach ($this->enumFqcnMap as $fqcn => $typeName) {
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'enum'];
+            $registry->register($fqcn, $typeName);
         }
 
         foreach ($this->modelFqcnMap as $fqcn => $typeName) {
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'model'];
+            $registry->register($fqcn, $typeName);
         }
 
-        foreach ($reverseMap as $entries) {
-            if (count($entries) <= 1) {
+        foreach ($registry->resolve() as $fqcn => $localName) {
+            $typeName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
+
+            if ($typeName === null || $localName === $typeName) {
                 continue;
             }
 
-            foreach ($entries as $entry) {
-                $fqcn = $entry['fqcn'];
-                $originalName = $entry['kind'] === 'enum'
-                    ? $this->enumFqcnMap[$fqcn]
-                    : $this->modelFqcnMap[$fqcn];
-
-                $this->importAliases[$fqcn] =
-                    $this->computeNamespacePrefix($fqcn, ['Events', 'Enums', 'Models']).$originalName;
-            }
+            $this->importAliases[$fqcn] = $localName;
         }
 
         if ($this->importAliases !== []) {
