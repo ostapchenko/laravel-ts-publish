@@ -4109,24 +4109,24 @@ describe('static call inference', function () {
         expect($this->props['default_status']['type'])->toContain('Status');
     });
 
-    test('static call declared to return a non-enum class degrades to unknown', function () {
-        // A return type backed by an arbitrary class has no FQCN dispatch path out of analyzeStaticCall's
-        // general-reflection branch, so accepting its token would emit an import-less TS reference.
-        expect($this->props['located_order']['type'])->toBe('unknown');
+    test('static call declared to return a Model resolves via modelFqcn', function () {
+        // A single-Model classFqcns entry now dispatches through the modelFqcn slot instead of degrading.
+        expect($this->props['located_order']['type'])->toBe('Order');
     });
 
     test('new ResourceCollection(...) resolves to collected resource array', function () {
         expect($this->props['new_items']['type'])->toBe('OrderItemResource[]');
     });
 
-    test('static call declared to return a #[TsType]-annotated class degrades to unknown', function () {
-        // #[TsType] classes register only in customImports, which this branch cannot dispatch into imports.
-        expect($this->props['menu_settings']['type'])->toBe('unknown');
+    test('static call declared to return a #[TsType]-annotated class resolves via customImports', function () {
+        // #[TsType] classes register only in customImports, now carried through on the result.
+        expect($this->props['menu_settings']['type'])->toBe('MenuSettingsType');
     });
 
-    test('static call declared to return a multi-enum union degrades to unknown', function () {
-        // directEnumFqcn carries a single FQCN, so a Status|Priority union would drop the second import.
-        expect($this->props['status_or_priority']['type'])->toBe('unknown');
+    test('static call declared to return a multi-enum union resolves via embeddedEnumFqcns', function () {
+        // directEnumFqcn carries a single FQCN, so a Status|Priority union dispatches through the list slot.
+        expect($this->props['status_or_priority']['type'])->toContain('StatusType')
+            ->and($this->props['status_or_priority']['type'])->toContain('PriorityType');
     });
 
     test('static call declared void/never/mixed degrades to unknown', function () {
@@ -4135,10 +4135,52 @@ describe('static call inference', function () {
         }
     });
 
-    test('static call declared to return an enum-plus-class union degrades to unknown', function () {
-        // classFqcns and enumFqcns can both be non-empty for one TypeScriptTypeInfo (Order|Status), so the
-        // classFqcns guard must fire first or the enum branch accepts and drops the Order import.
-        expect($this->props['order_or_status']['type'])->toBe('unknown');
+    test('static call declared to return an enum-plus-model union resolves via both channels', function () {
+        // classFqcns and enumFqcns can both be non-empty for one TypeScriptTypeInfo (Order|Status); both
+        // must dispatch off the same result (embeddedModelFqcns and embeddedEnumFqcns) rather than one
+        // guard shadowing the other.
+        expect($this->props['order_or_status']['type'])->toContain('Order')
+            ->and($this->props['order_or_status']['type'])->toContain('StatusType');
+    });
+
+    test('static call declared to return a non-Model class still degrades to unknown', function () {
+        // A return type backed by an arbitrary, non-Model class has no dispatch path for its import
+        // (no published file exists for OpaqueHandle), so the whole result is still rejected.
+        expect($this->props['money_value']['type'])->toBe('unknown');
+    });
+});
+
+describe('reflected static-call types dispatch their imports', function () {
+    beforeEach(function () {
+        $this->analysis = new ResourceAstAnalyzer(
+            new ReflectionClass(StaticCallResource::class), Order::class,
+        )->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('a model return type resolves with its FQCN plumbed', function () {
+        expect($this->props['located_order']['type'])->toBe('Order')
+            ->and($this->analysis->modelFqcns)->toHaveKey('located_order');
+    });
+
+    test('a TsType custom import carries through', function () {
+        expect($this->props['menu_settings']['type'])->toBe('MenuSettingsType')
+            ->and($this->analysis->customImports)->toHaveKey('@js/types/settings');
+    });
+
+    test('an enum union resolves with both enums plumbed', function () {
+        expect($this->props['status_or_priority']['type'])->toContain('StatusType')
+            ->and($this->props['status_or_priority']['type'])->toContain('PriorityType')
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('status_or_priority');
+    });
+
+    test('a model|enum union resolves with both channels plumbed', function () {
+        expect($this->props['order_or_status']['type'])->toContain('Order')
+            ->and($this->props['order_or_status']['type'])->toContain('StatusType');
+    });
+
+    test('a DTO return type still degrades to unknown', function () {
+        expect($this->props['money_value']['type'] ?? 'unknown')->toBe('unknown');
     });
 });
 

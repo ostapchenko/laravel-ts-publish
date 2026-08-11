@@ -2570,14 +2570,15 @@ declare global {
             status_const: workbench.app.enums.StatusType;
             items: OrderItemResource[];
             default_status: workbench.app.enums.StatusType;
-            located_order: unknown;
+            located_order: workbench.app.models.Order;
             new_items: OrderItemResource[];
-            menu_settings: unknown;
-            status_or_priority: unknown;
+            menu_settings: MenuSettingsType;
+            status_or_priority: workbench.app.enums.StatusType | workbench.app.enums.PriorityType;
             void_return: unknown;
             never_return: unknown;
             mixed_return: unknown;
-            order_or_status: unknown;
+            order_or_status: workbench.app.models.Order | workbench.app.enums.StatusType;
+            money_value: unknown;
         }
         /** Exercises: whenCounted on two polymorphic relations. */
         export interface TagResource {

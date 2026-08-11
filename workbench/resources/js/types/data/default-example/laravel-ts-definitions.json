@@ -10209,7 +10209,7 @@
             },
             {
                 "name": "located_order",
-                "type": "unknown",
+                "type": "Order",
                 "optional": false
             },
             {
@@ -10219,12 +10219,12 @@
             },
             {
                 "name": "menu_settings",
-                "type": "unknown",
+                "type": "MenuSettingsType",
                 "optional": false
             },
             {
                 "name": "status_or_priority",
-                "type": "unknown",
+                "type": "StatusType | PriorityType",
                 "optional": false
             },
             {
@@ -10244,6 +10244,11 @@
             },
             {
                 "name": "order_or_status",
+                "type": "Order | StatusType",
+                "optional": false
+            },
+            {
+                "name": "money_value",
                 "type": "unknown",
                 "optional": false
             }

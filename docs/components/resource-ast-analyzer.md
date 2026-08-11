@@ -49,6 +49,33 @@ runtime. That mismatch predates this feature and is unrelated to `only()`/`excep
 being re-derived inline; it isn't fixed here (out of scope), but is worth knowing if you're
 relying on the shape of an `except()`-filtered relation for a key that isn't a column.
 
+## Import dispatch rules
+
+A static-call value (e.g. `UrlService::locateOrder($id)`) whose method has no dedicated handler
+falls through to `analyzeStaticCall()`'s general-reflection branch: it reflects the method's
+return type into a `TypeScriptTypeInfo` and hands it to `acceptReflectedTypeInfo()`, which
+decides whether the result can be emitted at all. The invariant is absolute: **a type token
+never outruns its import** — nothing may be accepted unless every referenced name has a
+resolvable `import` statement somewhere in the dispatch chain.
+
+| Reflected shape | Accepted? | Dispatch channel |
+| --- | --- | --- |
+| Primitive / union of primitives (`string`, `int \| null`) | yes | emitted verbatim, no import needed |
+| Single enum | yes | `directEnumFqcn` |
+| Multiple enums (`Status\|Priority`) | yes | `embeddedEnumFqcns` (per-property inline-enum import plumbing) |
+| Single `Model` subclass | yes | `modelFqcn` |
+| Multiple / mixed `Model` subclasses | yes | `embeddedModelFqcns` |
+| `Model` + enum union (`Order\|Status`) | yes | `modelFqcn`/`embeddedModelFqcns` *and* `directEnumFqcn`/`embeddedEnumFqcns` together — both channels fire off the same result |
+| `#[TsType(import: ...)]`-annotated class | yes | `customImports`, merged into `ResourceAnalysis::$customImports` and consumed by `ResourceTransformer::mergeCustomImports()` |
+| Any non-`Model` class (DTO, value object, cast class without `#[TsType]`) | **no** — degrades to `unknown` | none; this package generates no published file for an arbitrary class, so there is nothing to import |
+| `void` / `never` / `mixed`'s reflected `unknown \| null` / empty type | **no** — degrades to `unknown` | none; these carry no meaningful TypeScript shape |
+
+The non-`Model`-class rejection is a single guard checked before any channel is populated:
+`Order|Status` and `Order|SomeDto` are structurally similar (`classFqcns` and `enumFqcns` both
+non-empty) but only the first is importable, so every `classFqcns` entry must pass the
+`is_a($fqcn, Model::class, true)` check or the whole result is rejected — accepting the enum
+half while dropping an unimportable class token would still leak a compile error.
+
 ### Multi-model accessor unions are untouched
 
 The other branch of `analyzeRelationFilter()` — an accessor typed as a union of two or more

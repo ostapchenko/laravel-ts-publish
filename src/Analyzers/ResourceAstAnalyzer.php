@@ -10,6 +10,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
+use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Carbon\Carbon as BaseCarbon;
@@ -86,6 +87,7 @@ use ReflectionNamedType;
  * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
  * @phpstan-import-type MultiEnumFqcnsMap from ResourceAnalysis
  * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
+ * @phpstan-import-type TypesImportMap from Datable
  *
  * @phpstan-type ValueExpressionResult = array{
  *      type: string,
@@ -98,7 +100,8 @@ use ReflectionNamedType;
  *      embeddedEnumResourceFqcns?: list<class-string>,
  *      embeddedModelFqcns?: list<class-string>,
  *      embeddedResourceFqcns?: list<class-string>,
- *      multiEnumResourceFqcns?: list<class-string>
+ *      multiEnumResourceFqcns?: list<class-string>,
+ *      customImports?: TypesImportMap
  * }
  * @phpstan-type ClosureAnnotationResult = array{
  *      type: string,
@@ -501,6 +504,9 @@ class ResourceAstAnalyzer
                 $inlineModelFqcns[$keyName][] = $fqcn;
             }
 
+            foreach ($result['customImports'] ?? [] as $path => $types) {
+                $customImports[$path] = [...($customImports[$path] ?? []), ...$types];
+            }
         }
 
         return new ResourceAnalysis(
@@ -1403,40 +1409,48 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult only when it cannot break
-     * generated imports: primitives/unions pass verbatim, a lone enum passes with its FQCN.
-     *
-     * All rejections share one guard, because an enum result and a class result are not mutually
-     * exclusive on a single TypeScriptTypeInfo (`Order|Status` populates both). Rejected: any
-     * classFqcns or customImports entry, since this branch has no dispatch path for their imports;
-     * multi-enum unions, since directEnumFqcn is a single slot; and 'void'/'never'/the 'unknown | null'
-     * that `mixed` always reflects as (ReflectionNamedType::allowsNull() is always true for mixed).
+     * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult only when every
+     * referenced type can be imported: primitives verbatim; enums via the single slot or
+     * the embedded list; Model classes via modelFqcn/embeddedModelFqcns; TsType custom
+     * imports carried through. A non-Model class token has no published file to import,
+     * so it still rejects the whole result.
      *
      * @param  TypeScriptTypeInfo  $tsInfo
      * @return ValueExpressionResult|null
      */
     protected function acceptReflectedTypeInfo(array $tsInfo): ?array
     {
-        $isUnimportableOrMeaningless = in_array($tsInfo['type'], ['unknown', 'unknown | null', 'void', 'never', ''], true)
-            || $tsInfo['customImports'] !== []
-            || $tsInfo['classFqcns'] !== []
-            || count($tsInfo['enumFqcns']) > 1;
-
-        if ($isUnimportableOrMeaningless) {
+        if (in_array($tsInfo['type'], ['unknown', 'unknown | null', 'void', 'never', ''], true)) {
             return null;
         }
 
-        // Exactly one enum, guaranteed by the guard above — plumb the FQCN so its import is generated.
-        if ($tsInfo['enumFqcns'] !== []) {
-            return [
-                ...$this->unknownResult(),
-                'type' => $tsInfo['type'],
-                'optional' => false,
-                'directEnumFqcn' => $tsInfo['enumFqcns'][0],
-            ];
+        foreach ($tsInfo['classFqcns'] as $fqcn) {
+            if (! is_a($fqcn, Model::class, true)) {
+                return null;
+            }
         }
 
-        return [...$this->unknownResult(), 'type' => $tsInfo['type'], 'optional' => false];
+        $result = [...$this->unknownResult(), 'type' => $tsInfo['type'], 'optional' => false];
+
+        if (count($tsInfo['enumFqcns']) === 1 && $tsInfo['classFqcns'] === []) {
+            $result['directEnumFqcn'] = $tsInfo['enumFqcns'][0];
+        } elseif ($tsInfo['enumFqcns'] !== []) {
+            $result['embeddedEnumFqcns'] = $tsInfo['enumFqcns'];
+        }
+
+        if (count($tsInfo['classFqcns']) === 1 && $tsInfo['enumFqcns'] === []) {
+            /** @var class-string<Model> $modelFqcn */
+            $modelFqcn = $tsInfo['classFqcns'][0];
+            $result['modelFqcn'] = $modelFqcn;
+        } elseif ($tsInfo['classFqcns'] !== []) {
+            $result['embeddedModelFqcns'] = $tsInfo['classFqcns'];
+        }
+
+        if ($tsInfo['customImports'] !== []) {
+            $result['customImports'] = $tsInfo['customImports'];
+        }
+
+        return $result;
     }
 
     /**

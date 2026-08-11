@@ -2570,14 +2570,15 @@ declare global {
             status_const: app.enums.StatusType;
             items: OrderItemResource[];
             default_status: app.enums.StatusType;
-            located_order: unknown;
+            located_order: app.models.Order;
             new_items: OrderItemResource[];
-            menu_settings: unknown;
-            status_or_priority: unknown;
+            menu_settings: MenuSettingsType;
+            status_or_priority: app.enums.StatusType | app.enums.PriorityType;
             void_return: unknown;
             never_return: unknown;
             mixed_return: unknown;
-            order_or_status: unknown;
+            order_or_status: app.models.Order | app.enums.StatusType;
+            money_value: unknown;
         }
         /** Exercises: whenCounted on two polymorphic relations. */
         export interface TagResource {

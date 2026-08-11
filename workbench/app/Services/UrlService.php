@@ -9,22 +9,21 @@ use Workbench\App\Casts\MenuSettings;
 use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Status;
 use Workbench\App\Models\Order;
+use Workbench\App\ValueObjects\OpaqueHandle;
 
 /**
  * Exercises general static-call return type reflection (Task 10):
  * a declared scalar return type, a docblock-only return type (shadowed here by
  * the native `array` hint, since native types win over docblocks), a directly
- * returned enum, and a directly returned model — the latter proves that
- * acceptReflectedTypeInfo() degrades an unpublished class token to unknown
- * rather than emit a type with no import.
+ * returned enum, and a directly returned model.
  *
- * Also exercises acceptReflectedTypeInfo()'s remaining reject paths, each
- * previously unproven by a fixture-backed test: a #[TsType(import: ...)]-annotated
- * class (its import lives only in customImports, which the general-reflection
- * branch has no dispatch path for), a multi-enum union (directEnumFqcn is a
- * single slot — plumbing only enumFqcns[0] would silently drop the rest), and
- * void/never/mixed return types (which produce syntactically valid but
- * semantically nonsense property types if accepted as-is).
+ * Also exercises acceptReflectedTypeInfo()'s import-dispatch paths: a directly
+ * returned Model (`modelFqcn`), a #[TsType(import: ...)]-annotated class (its
+ * import carried through `customImports`), a multi-enum union (`embeddedEnumFqcns`,
+ * since `directEnumFqcn` is a single slot), a model+enum union (both channels at
+ * once), void/never/mixed return types (still meaningless, so still rejected), and
+ * a plain non-Model, non-importable class (still rejected — no published file to
+ * import it from).
  */
 class UrlService
 {
@@ -72,13 +71,22 @@ class UrlService
     }
 
     /**
-     * A one-enum-plus-one-class union — classFqcns and enumFqcns are both non-empty for
-     * this single TypeScriptTypeInfo. Proves the classFqcns guard fires even when an
-     * enumFqcns entry is also present, instead of the enum branch accepting first and
-     * silently dropping the Order import.
+     * A one-enum-plus-one-model union — classFqcns and enumFqcns are both non-empty for
+     * this single TypeScriptTypeInfo. Proves both dispatch channels (embeddedModelFqcns and
+     * embeddedEnumFqcns) fire off the same result instead of one guard shadowing the other.
      */
     public static function orderOrStatus(): Order|Status
     {
         return Status::Draft;
+    }
+
+    /**
+     * A plain class with no Arrayable/JsonSerializable/__toString/#[TsType] — its classFqcns
+     * entry is not a Model, so acceptReflectedTypeInfo() must still reject the whole result:
+     * no published file exists to import OpaqueHandle from.
+     */
+    public static function moneyValue(): OpaqueHandle
+    {
+        return new OpaqueHandle('opaque');
     }
 }
