@@ -101,4 +101,30 @@ describe('ImportNameRegistry', function () {
             expect($b->resolve()[$fqcn])->toBe($alias);
         }
     });
+
+    test('two different colliding type-name groups resolve identically regardless of which group registers first', function () {
+        $a = new ImportNameRegistry;
+        $a->register('Org\Sales\Alpha', 'Alpha');
+        $a->register('Org\Marketing\Alpha', 'Alpha');
+        $a->register('Org\X\Beta', 'Beta', preferredAlias: 'SalesAlpha'); // collides with the Alpha group's natural alias
+        $a->register('Org\Y\Beta', 'Beta', preferredAlias: 'ZetaBeta');
+
+        $b = new ImportNameRegistry;
+        $b->register('Org\X\Beta', 'Beta', preferredAlias: 'SalesAlpha');
+        $b->register('Org\Y\Beta', 'Beta', preferredAlias: 'ZetaBeta');
+        $b->register('Org\Sales\Alpha', 'Alpha');
+        $b->register('Org\Marketing\Alpha', 'Alpha');
+
+        $resolvedA = $a->resolve();
+        $resolvedB = $b->resolve();
+
+        // Whichever of the Alpha/Beta groups resolve() processes first claims 'SalesAlpha'.
+        // If group-processing order tracked registration order instead of being independent
+        // of it, $a and $b (which register the two groups in opposite order) would disagree.
+        foreach ($resolvedA as $fqcn => $alias) {
+            expect($resolvedB[$fqcn])->toBe($alias);
+        }
+
+        expect(array_unique(array_values($resolvedA)))->toHaveCount(4);
+    });
 });
