@@ -101,6 +101,12 @@ test('maps network column types to string', function (string $dbType) {
     expect($map[$dbType])->toBe('string');
 })->with(['inet', 'cidr', 'macaddr', 'macaddr8']);
 
+test('maps tsvector columns to string', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['tsvector'])->toBe('string');
+});
+
 test('maps bare castable classes to their TS shapes', function (string $castableClass, string $expected) {
     $map = (new TypeScriptMap)->gather();
 

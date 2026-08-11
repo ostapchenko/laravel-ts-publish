@@ -113,6 +113,9 @@ class TypeScriptMap
             'macaddr' => 'string',
             'macaddr8' => 'string',
 
+            // Postgres full-text search vector
+            'tsvector' => 'string',
+
             'null' => 'null',
             'mixed' => 'unknown',
 
