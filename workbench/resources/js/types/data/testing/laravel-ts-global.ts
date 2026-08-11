@@ -2393,6 +2393,8 @@ declare global {
             member_mapped_fcc: unknown;
             member_plucked_fcc: unknown;
             first_member: workbench.app.models.User | null;
+            members_after_load: workbench.app.models.User[];
+            first_member_after_load: workbench.app.models.User | null;
             members_sorted: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
             members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
             members_tail: workbench.app.models.User[] | Record<string, workbench.app.models.User>;

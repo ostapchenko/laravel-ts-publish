@@ -616,6 +616,13 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['first_member']['optional'])->toBeFalse();
     });
 
+    // load()/loadMissing() are identity ops: they don't break sequential keys, and don't block
+    // the first()/last() terminal recognition that walks past them.
+    test('load() is an identity op that preserves sequential keys and the first() terminal', function () {
+        expect($this->props['members_after_load']['type'])->toBe('User[]')
+            ->and($this->props['first_member_after_load']['type'])->toBe('User | null');
+    });
+
     // A Collection whose keys are gapped or reordered json_encodes to an object, not an array.
     test('a key-preserving chain with no values() carries the object arm', function () {
         expect($this->props['members_sorted']['type'])->toBe('User[] | Record<string, User>')

@@ -77,6 +77,11 @@ class RelationChainResource extends JsonResource
             // first() as the outermost, argless op terminates the chain with a single element or null.
             'first_member' => $this->members->take(5)->first(),
 
+            // load()/loadMissing() are identity ops too (return $this unchanged) — an intervening
+            // load() must not break sequential keys, nor block first() terminal recognition below it.
+            'members_after_load' => $this->members->load('profile')->values(),
+            'first_member_after_load' => $this->members->load('profile')->first(),
+
             // Key-preserving ops with no values() to reindex: json_encode serializes a gapped or
             // reordered Collection as an OBJECT, so the array type alone would be wrong.
             'members_sorted' => $this->members->sortBy('name'),

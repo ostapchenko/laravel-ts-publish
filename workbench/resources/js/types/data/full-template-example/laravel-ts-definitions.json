@@ -9471,6 +9471,16 @@
                 "optional": false
             },
             {
+                "name": "members_after_load",
+                "type": "User[]",
+                "optional": false
+            },
+            {
+                "name": "first_member_after_load",
+                "type": "User | null",
+                "optional": false
+            },
+            {
                 "name": "members_sorted",
                 "type": "User[] | Record<string, User>",
                 "optional": false

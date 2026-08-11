@@ -20,6 +20,8 @@ export interface RelationChainResource
     member_mapped_fcc: unknown;
     member_plucked_fcc: unknown;
     first_member: User | null;
+    members_after_load: User[];
+    first_member_after_load: User | null;
     members_sorted: User[] | Record<string, User>;
     members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
     members_tail: User[] | Record<string, User>;
