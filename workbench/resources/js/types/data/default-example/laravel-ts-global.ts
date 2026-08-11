@@ -1636,6 +1636,7 @@ declare global {
             outer_member: unknown;
             mapped_members: app.models.User[];
             loaded_owner?: app.models.User;
+            loaded_members_bare?: unknown;
         }
         /**
          * Exercises analyzeClosureUnion metadata propagation (enum, model, resource FQCNs)

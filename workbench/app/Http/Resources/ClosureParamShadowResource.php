@@ -34,6 +34,9 @@ class ClosureParamShadowResource extends JsonResource
             'loaded_owner' => $this->whenLoaded('owner', function ($owner) {
                 return $owner;
             }),
+            // 'members' is a to-many relation: the closure param holds the whole collection, not
+            // one element, so it must NOT bind to the element model — must stay unknown, not `User`.
+            'loaded_members_bare' => $this->whenLoaded('members', fn ($members) => $members),
         ];
     }
 }

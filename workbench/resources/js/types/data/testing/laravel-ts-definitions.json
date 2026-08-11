@@ -7194,6 +7194,11 @@
                 "name": "loaded_owner",
                 "type": "User",
                 "optional": true
+            },
+            {
+                "name": "loaded_members_bare",
+                "type": "unknown",
+                "optional": true
             }
         ],
         "ClosureUnionMetadataResource": [

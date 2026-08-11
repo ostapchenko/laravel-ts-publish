@@ -4338,6 +4338,17 @@ describe('variable-to-model bindings', function () {
             ->and($props['outer_member']['type'])->toBe('unknown');
     });
 
+    // 'members' is a to-many relation: the closure param holds the whole collection, not one
+    // element, so it must not bind to the element model — a bare return must stay unknown, not
+    // resolve to the (wrong) singular `User`.
+    test('whenLoaded closure param is not bound for a to-many relation', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(ClosureParamShadowResource::class), Team::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['loaded_members_bare']['type'])->toBe('unknown');
+    });
+
     test('relation chain first() yields the element or null', function () {
         $props = collect((new ResourceAstAnalyzer(
             new ReflectionClass(RelationChainResource::class), Team::class,

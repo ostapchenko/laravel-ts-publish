@@ -1268,11 +1268,14 @@ class ResourceAstAnalyzer
                 $this->varModelBindings[$args[1]->value->params[0]->var->name] = $relationInfo['modelFqcn'];
             }
 
-            $inner = $this->analyzeValueExpression($args[1]->value);
-            $inner['optional'] = true;
+            try {
+                $inner = $this->analyzeValueExpression($args[1]->value);
+            } finally {
+                $this->closureRelationModelClass = $previousRelationModel;
+                $this->varModelBindings = $previousVarModelBindings;
+            }
 
-            $this->closureRelationModelClass = $previousRelationModel;
-            $this->varModelBindings = $previousVarModelBindings;
+            $inner['optional'] = true;
 
             return $inner;
         }

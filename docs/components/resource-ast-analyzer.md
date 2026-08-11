@@ -118,7 +118,7 @@ $member)` closure param share a name, and each site resolves independently.
 `outer_member` in that same fixture is a known, accepted gap: `collectWrittenVariableNames()`
 still counts every closure parameter as a write (needed to protect `$localVarBindings`, an
 unrelated, unscoped mechanism, from a *different* shadowing hazard), so a top-level local shadowed
-by a closure param it stays unbound rather than resolving to its own top-level expression. Fixing
+by a closure param stays unbound rather than resolving to its own top-level expression. Fixing
 that is out of scope here — narrowing which closures count as writes would require statically
 predicting whether a given closure will actually receive a `$varModelBindings` entry, which risks
 the exact wrong-but-plausible leak this mechanism exists to prevent.
