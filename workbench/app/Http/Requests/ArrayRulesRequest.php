@@ -77,6 +77,7 @@ class ArrayRulesRequest extends FormRequest
             'products.*.categories' => ['required', 'array'],
             'products.*.categories.*' => ['required', 'string'],
             'products.*.is_available' => ['required', 'boolean'],
+            'products.*.notes' => ['nullable', 'string'],
 
             // Deep nesting example
             'order' => ['required', 'array'],

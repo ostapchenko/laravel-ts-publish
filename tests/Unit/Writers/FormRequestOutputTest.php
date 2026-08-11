@@ -199,8 +199,10 @@ describe('ArrayRulesRequest output', function () {
         expect($this->content)->toContain('selected_ids: number[];');
     });
 
-    it('quotes dot-notation field names and marks them optional', function () {
-        expect($this->content)->toContain('"order.id"?: string;');
+    it('composes dotted and wildcard rules into a nested parent type instead of a flat quoted key', function () {
+        expect($this->content)
+            ->toContain('order: { id: string; items: { product_id: number; quantity: number }[] };')
+            ->not->toContain('"order.id"');
     });
 });
 

@@ -231,33 +231,13 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->isNullable)->toBeTrue();
         });
 
-        it('infers string[] for nested wildcard array field', function () {
+        it('never emits a dotted or wildcarded field path at the top level', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(ArrayRulesRequest::class);
 
-            $node = collect($nodes)->firstWhere('fieldPath', 'products.*.categories');
-            expect($node)->not->toBeNull();
-            expect($node->tsType)->toBe('string[]');
-        });
-
-        it('forces dot-notation and wildcard paths to always be optional regardless of required rule', function () {
-            $analyzer = new FormRequestRulesAnalyzer;
-            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
-
-            // Wildcard element path with required validator — must be optional
-            $tagsWildcard = collect($nodes)->firstWhere('fieldPath', 'tags.*');
-            expect($tagsWildcard)->not->toBeNull();
-            expect($tagsWildcard->isRequired)->toBeFalse();
-
-            // Deep dot-notation path with required validator — must be optional
-            $orderId = collect($nodes)->firstWhere('fieldPath', 'order.id');
-            expect($orderId)->not->toBeNull();
-            expect($orderId->isRequired)->toBeFalse();
-
-            // Deep nested wildcard with required validator — must be optional
-            $productName = collect($nodes)->firstWhere('fieldPath', 'products.*.name');
-            expect($productName)->not->toBeNull();
-            expect($productName->isRequired)->toBeFalse();
+            foreach ($nodes as $node) {
+                expect($node->fieldPath)->not->toContain('.');
+            }
         });
 
         it('maps Rule::anyOf with all-string inner rules to string type', function () {
@@ -378,6 +358,84 @@ describe('FormRequestRulesAnalyzer', function () {
             // Second call: static request → isDynamic must reset to false
             $analyzer->analyze(StorePostRequest::class);
             expect($analyzer->isDynamic)->toBeFalse();
+        });
+    });
+
+    describe('nested array rule composition', function () {
+        it('composes parent.*.child rules into a typed element object', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $products = collect($nodes)->firstWhere('fieldPath', 'products');
+            expect($products)->not->toBeNull();
+            expect($products->tsType)
+                ->toContain('name: string')
+                ->toContain('price: number')
+                ->toContain('quantity: number')
+                ->toContain('categories: string[]')
+                ->toContain('is_available: boolean')
+                ->toEndWith('[]');
+            expect($products->isRequired)->toBeTrue();
+        });
+
+        it('marks a nested child without a required rule as an optional, nullable key', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $products = collect($nodes)->firstWhere('fieldPath', 'products');
+            expect($products->tsType)->toContain('notes?: string | null');
+        });
+
+        it('recursively nests dotted parents and arrayifies wildcard segments', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $order = collect($nodes)->firstWhere('fieldPath', 'order');
+            expect($order)->not->toBeNull();
+            expect($order->tsType)->toBe('{ id: string; items: { product_id: number; quantity: number }[] }');
+            expect($order->isRequired)->toBeTrue();
+        });
+
+        it('drops flat composed keys once folded into their parent', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $fieldPaths = array_map(fn ($n) => $n->fieldPath, $nodes);
+
+            expect($fieldPaths)
+                ->not->toContain('products.*.name')
+                ->not->toContain('products.*.categories')
+                ->not->toContain('products.*.categories.*')
+                ->not->toContain('order.id')
+                ->not->toContain('order.items')
+                ->not->toContain('order.items.*.product_id')
+                ->not->toContain('tags.*')
+                ->not->toContain('roles.*');
+        });
+
+        it('keeps one-level wildcard scalar composition unchanged: roles.* -> roles: string[]', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $roles = collect($nodes)->firstWhere('fieldPath', 'roles');
+            expect($roles)->not->toBeNull();
+            expect($roles->tsType)->toBe('string[]');
+            expect($roles->isRequired)->toBeTrue();
+
+            $tags = collect($nodes)->firstWhere('fieldPath', 'tags');
+            expect($tags)->not->toBeNull();
+            expect($tags->tsType)->toBe('string[]');
+            expect($tags->isRequired)->toBeFalse();
+        });
+
+        it('composes required_array_keys into a keyed unknown object when there are no wildcard children', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $permissions = collect($nodes)->firstWhere('fieldPath', 'permissions');
+            expect($permissions)->not->toBeNull();
+            expect($permissions->tsType)->toBe('{ read: unknown; write: unknown }');
+            expect($permissions->isRequired)->toBeTrue();
         });
     });
 

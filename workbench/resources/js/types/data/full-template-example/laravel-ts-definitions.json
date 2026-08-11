@@ -1410,25 +1410,9 @@
                     "jsDocMetadata": []
                 },
                 {
-                    "fieldPath": "tags.*",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
                     "fieldPath": "selected_ids",
                     "tsType": "number[]",
                     "isRequired": true,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "selected_ids.*",
-                    "tsType": "number",
-                    "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
@@ -1442,25 +1426,9 @@
                     "jsDocMetadata": []
                 },
                 {
-                    "fieldPath": "roles.*",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
                     "fieldPath": "allowed_roles",
                     "tsType": "string[]",
                     "isRequired": true,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "allowed_roles.*",
-                    "tsType": "string",
-                    "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
@@ -1474,25 +1442,9 @@
                     "jsDocMetadata": []
                 },
                 {
-                    "fieldPath": "sku_codes.*",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
                     "fieldPath": "airports",
                     "tsType": "string[]",
                     "isRequired": true,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "airports.*",
-                    "tsType": "string",
-                    "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
@@ -1522,24 +1474,8 @@
                     "jsDocMetadata": []
                 },
                 {
-                    "fieldPath": "ordered_items.*",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
                     "fieldPath": "limited_choices",
                     "tsType": "string[]",
-                    "isRequired": false,
-                    "isNullable": true,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "limited_choices.*",
-                    "tsType": "string",
                     "isRequired": false,
                     "isNullable": true,
                     "isProhibited": false,
@@ -1554,14 +1490,6 @@
                     "jsDocMetadata": []
                 },
                 {
-                    "fieldPath": "required_answers.*",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
                     "fieldPath": "coordinates",
                     "tsType": "number[]",
                     "isRequired": true,
@@ -1570,107 +1498,17 @@
                     "jsDocMetadata": []
                 },
                 {
-                    "fieldPath": "coordinates.*",
-                    "tsType": "number",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
                     "fieldPath": "products",
-                    "tsType": "unknown[]",
+                    "tsType": "{ name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null }[]",
                     "isRequired": true,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "products.*.name",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "products.*.price",
-                    "tsType": "number",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "products.*.quantity",
-                    "tsType": "number",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "products.*.categories",
-                    "tsType": "string[]",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "products.*.categories.*",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "products.*.is_available",
-                    "tsType": "boolean",
-                    "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
                 },
                 {
                     "fieldPath": "order",
-                    "tsType": "unknown[]",
+                    "tsType": "{ id: string; items: { product_id: number; quantity: number }[] }",
                     "isRequired": true,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "order.id",
-                    "tsType": "string",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": [
-                        "@format uuid"
-                    ]
-                },
-                {
-                    "fieldPath": "order.items",
-                    "tsType": "unknown[]",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "order.items.*.product_id",
-                    "tsType": "number",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "order.items.*.quantity",
-                    "tsType": "number",
-                    "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
@@ -2331,8 +2169,8 @@
                     "jsDocMetadata": []
                 },
                 {
-                    "fieldPath": "airports.*",
-                    "tsType": "'NYC' | 'LIT'",
+                    "fieldPath": "airports",
+                    "tsType": "('NYC' | 'LIT')[]",
                     "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
@@ -2445,8 +2283,8 @@
                     ]
                 },
                 {
-                    "fieldPath": "addresses.*.id",
-                    "tsType": "unknown",
+                    "fieldPath": "addresses",
+                    "tsType": "{ id?: unknown }[]",
                     "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
@@ -2534,14 +2372,6 @@
                 {
                     "fieldPath": "tags",
                     "tsType": "string[]",
-                    "isRequired": false,
-                    "isNullable": false,
-                    "isProhibited": false,
-                    "jsDocMetadata": []
-                },
-                {
-                    "fieldPath": "tags.*",
-                    "tsType": "string",
                     "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3187,7 +3017,7 @@
                 },
                 {
                     "fieldPath": "permissions",
-                    "tsType": "unknown[]",
+                    "tsType": "{ read: unknown; write: unknown }",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,

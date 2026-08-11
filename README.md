@@ -507,6 +507,7 @@ class StorePostRequest extends FormRequest
             'rating' => ['nullable', 'numeric'],
             'tags' => ['array'],
             'tags.*' => ['string'],
+            'order.items.*.sku' => ['required', 'string'],
         ];
     }
 }
@@ -515,12 +516,13 @@ class StorePostRequest extends FormRequest
 ```typescript
 import type { StorePostRequest } from '@js/types/data/form-requests';
 
-// { title: string; rating?: number | null; tags?: string[]; "tags.*"?: string; }
+// { title: string; rating?: number | null; tags?: string[]; order?: { items?: { sku: string }[] }; }
 ```
 
 Key capabilities:
 
-- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type, including nested/wildcard (`tags.*`) array element rules.
+- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type.
+- **Nested/wildcard composition** — `parent.*.child` and `parent.child` dot-notation rules compose recursively into their nearest undotted ancestor (`tags.*` → `tags: string[]`, `order.items.*.sku` → `order?: { items?: { sku: string }[] }`) instead of surviving as separate flat, quoted keys. Declaring the parent's own rules (e.g. `'order' => ['required', 'array']`) makes the composed key required instead of optional.
 - **Presence & nullability** — `required`/`sometimes` control whether a field is optional (`?`), `nullable` adds `| null`, and `missing`/`prohibited` fields are excluded from the interface entirely.
 - **`#[TsCasts]`** — override or add field types on the request class itself, the same attribute used by models and resources.
 - **`#[TsExtends]`** — extend shared interfaces, the same mechanism used by models and resources. See [Extending Interfaces](#extending-interfaces-with-tsextends--configs).

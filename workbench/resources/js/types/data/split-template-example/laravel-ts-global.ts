@@ -2939,39 +2939,19 @@ declare global {
     export namespace app.http.requests {
         export interface ArrayRulesRequest {
             tags?: string[];
-            "tags.*"?: string;
             selected_ids: number[];
-            "selected_ids.*"?: number;
             roles: string[];
-            "roles.*"?: string;
             allowed_roles: string[];
-            "allowed_roles.*"?: string;
             sku_codes: string[];
-            "sku_codes.*"?: string;
             airports: string[];
-            "airports.*"?: string;
             primary_airport: string;
             config: unknown[];
             ordered_items: string[];
-            "ordered_items.*"?: string;
             limited_choices?: string[] | null;
-            "limited_choices.*"?: string | null;
             required_answers: string[];
-            "required_answers.*"?: string;
             coordinates: number[];
-            "coordinates.*"?: number;
-            products: unknown[];
-            "products.*.name"?: string;
-            "products.*.price"?: number;
-            "products.*.quantity"?: number;
-            "products.*.categories"?: string[];
-            "products.*.categories.*"?: string;
-            "products.*.is_available"?: boolean;
-            order: unknown[];
-            "order.id"?: string;
-            "order.items"?: unknown[];
-            "order.items.*.product_id"?: number;
-            "order.items.*.quantity"?: number;
+            products: { name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null }[];
+            order: { id: string; items: { product_id: number; quantity: number }[] };
         }
         export interface BooleanRulesRequest {
             terms_accepted?: boolean;
@@ -3058,7 +3038,7 @@ declare global {
             team_id?: unknown;
             state?: unknown;
             zones: 'first-zone' | 'second-zone';
-            "airports.*"?: 'NYC' | 'LIT';
+            airports?: ('NYC' | 'LIT')[];
             toppings: string;
             role_id_prohibited?: unknown;
             role_id_callback?: unknown;
@@ -3070,7 +3050,7 @@ declare global {
             role_id_required_unless_callback: unknown;
             title: string;
             email_unique: unknown;
-            "addresses.*.id"?: unknown;
+            addresses?: { id?: unknown }[];
             photo: File;
             quantity: number;
             accent_color?: 'red' | 'blue';
@@ -3083,7 +3063,6 @@ declare global {
             rating?: number | bigint | null;
             email: string;
             tags?: string[];
-            "tags.*"?: string;
         }
         export interface StringRulesRequest {
             website: string;
@@ -3161,7 +3140,7 @@ declare global {
             full_address: string | null;
             mobile: string | null;
             contact_method: string | null;
-            permissions: unknown[];
+            permissions: { read: unknown; write: unknown };
             optional_preference?: string;
             is_authenticated: boolean;
             role: string;

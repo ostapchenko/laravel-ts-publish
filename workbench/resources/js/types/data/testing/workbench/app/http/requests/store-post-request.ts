@@ -7,5 +7,4 @@ export interface StorePostRequest {
     /** @format email */
     email: string;
     tags?: string[];
-    "tags.*"?: string;
 }
