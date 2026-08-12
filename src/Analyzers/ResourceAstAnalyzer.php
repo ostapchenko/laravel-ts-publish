@@ -1074,12 +1074,10 @@ class ResourceAstAnalyzer
     /**
      * Analyze a null-coalescing expression (`$left ?? $right`).
      *
-     * Both operands are resolved and unioned when they differ; a `null` left type is treated as
-     * unknown, because the coalesce operator guarantees the fallback is used instead. Only the
-     * customImports of whichever operand(s) actually contribute a type to the result are merged
-     * in — a discarded branch's import must not be emitted, since nothing references it. Other
-     * FQCN channels (modelFqcn, directEnumFqcn, embedded lists) are pre-existing gaps this method
-     * already dropped before customImports existed; fixing those is out of scope here.
+     * Cannot delegate to analyzeClosureUnion(): coalesce discards the left operand's `null`, so
+     * unioning the raw branch types would render `Order | null | Order`. Only the operands that
+     * actually contribute a member to the result have their FQCN/import channels merged in — a
+     * discarded branch's import must not be emitted, since nothing references it.
      *
      * @return ValueExpressionResult
      */
@@ -1096,21 +1094,18 @@ class ResourceAstAnalyzer
         $leftType = trim(str_replace('null |', '', $leftType));
 
         if ($leftType === 'unknown' || $leftType === '') {
-            return $this->withMergedCustomImports(['type' => $rightType, 'optional' => false], $rightResult);
+            return $this->mergeUnionChannels([$rightType], [$rightResult]);
         }
 
         if ($rightType === 'unknown') {
-            return $this->withMergedCustomImports(['type' => $leftType, 'optional' => false], $leftResult);
+            return $this->mergeUnionChannels([$leftType], [$leftResult]);
         }
 
         if ($leftType === $rightType) {
-            return $this->withMergedCustomImports(['type' => $leftType, 'optional' => false], $leftResult, $rightResult);
+            return $this->mergeUnionChannels([$leftType], [$leftResult, $rightResult]);
         }
 
-        return $this->withMergedCustomImports(
-            ['type' => $leftType.' | '.$rightType, 'optional' => false],
-            $leftResult, $rightResult,
-        );
+        return $this->mergeUnionChannels([$leftType, $rightType], [$leftResult, $rightResult]);
     }
 
     /**
@@ -1542,47 +1537,6 @@ class ResourceAstAnalyzer
 
         if ($tsInfo['customImports'] !== []) {
             $result['customImports'] = $tsInfo['customImports'];
-        }
-
-        return $result;
-    }
-
-    /**
-     * Merge the customImports maps of zero or more ValueExpressionResults into one, deduping the
-     * type-name list per import path. Used wherever two or more results are combined into one
-     * (coalesce, ternary/closure union) so a customImports-carrying branch — e.g. a reflected
-     * static call returning a #[TsType]-annotated class — keeps its import through the merge.
-     *
-     * @param  ValueExpressionResult  ...$results
-     * @return TypesImportMap
-     */
-    protected function mergeResultCustomImports(array ...$results): array
-    {
-        /** @var TypesImportMap $merged */
-        $merged = [];
-
-        foreach ($results as $result) {
-            foreach ($result['customImports'] ?? [] as $path => $types) {
-                $merged[$path] = [...($merged[$path] ?? []), ...$types];
-            }
-        }
-
-        return $merged;
-    }
-
-    /**
-     * Attach the merged customImports of $sources onto $result, only when non-empty.
-     *
-     * @param  ValueExpressionResult  $result
-     * @param  ValueExpressionResult  ...$sources
-     * @return ValueExpressionResult
-     */
-    protected function withMergedCustomImports(array $result, array ...$sources): array
-    {
-        $customImports = $this->mergeResultCustomImports(...$sources);
-
-        if ($customImports !== []) {
-            $result['customImports'] = $customImports;
         }
 
         return $result;
@@ -4021,17 +3975,7 @@ class ResourceAstAnalyzer
     {
         /** @var list<string> $types */
         $types = [];
-        /** @var list<class-string> $enumResourceFqcns FQCNs from EnumResource::make() / new EnumResource() branches */
-        $enumResourceFqcns = [];
-        /** @var list<class-string> $enumDirectFqcns FQCNs from direct $this->prop enum-access branches */
-        $enumDirectFqcns = [];
-        /** @var list<class-string> $embeddedEnumFqcns FQCNs embedded inside nested inline-object types */
-        $embeddedEnumFqcns = [];
-        /** @var list<class-string> $embeddedModelFqcns */
-        $embeddedModelFqcns = [];
-        /** @var list<class-string> $embeddedResourceFqcns */
-        $embeddedResourceFqcns = [];
-        /** @var list<ValueExpressionResult> $branchResults every non-null, non-unknown branch, for customImports merging */
+        /** @var list<ValueExpressionResult> $branchResults every non-null, non-unknown branch, for channel merging */
         $branchResults = [];
         $hasNull = false;
 
@@ -4053,36 +3997,6 @@ class ResourceAstAnalyzer
 
             $types[] = $inner['type'];
             $branchResults[] = $inner;
-
-            // EnumResource branches are tracked apart from direct-access ones, so the result can
-            // propagate the correct FQCN metadata.
-            if (isset($inner['enumFqcn'])) {
-                $enumResourceFqcns[] = $inner['enumFqcn'];
-            }
-
-            if (isset($inner['directEnumFqcn'])) {
-                $enumDirectFqcns[] = $inner['directEnumFqcn'];
-            }
-
-            if (isset($inner['embeddedEnumFqcns'])) {
-                array_push($embeddedEnumFqcns, ...$inner['embeddedEnumFqcns']);
-            }
-
-            if (isset($inner['embeddedModelFqcns'])) {
-                array_push($embeddedModelFqcns, ...$inner['embeddedModelFqcns']);
-            }
-
-            if (isset($inner['embeddedResourceFqcns'])) {
-                array_push($embeddedResourceFqcns, ...$inner['embeddedResourceFqcns']);
-            }
-
-            if (isset($inner['resourceFqcn'])) {
-                $embeddedResourceFqcns[] = $inner['resourceFqcn'];
-            }
-
-            if (isset($inner['modelFqcn'])) {
-                $embeddedModelFqcns[] = $inner['modelFqcn'];
-            }
         }
 
         if ($hasNull) {
@@ -4116,6 +4030,71 @@ class ResourceAstAnalyzer
 
         if ($types === []) {
             return $this->unknownResult(); // @codeCoverageIgnore
+        }
+
+        return $this->mergeUnionChannels($types, $branchResults);
+    }
+
+    /**
+     * Fold union member types plus their contributing branch results into one ValueExpressionResult,
+     * carrying every FQCN and custom-import channel across so no emitted token loses its import.
+     *
+     * Shared by the ternary/closure union and by coalesce, which computes its own member list because
+     * it discards the left operand's null.
+     *
+     * @param  list<string>  $types
+     * @param  list<ValueExpressionResult>  $branchResults
+     * @return ValueExpressionResult
+     */
+    protected function mergeUnionChannels(array $types, array $branchResults): array
+    {
+        /** @var list<class-string> $enumResourceFqcns FQCNs from EnumResource::make() / new EnumResource() branches */
+        $enumResourceFqcns = [];
+        /** @var list<class-string> $enumDirectFqcns FQCNs from direct $this->prop enum-access branches */
+        $enumDirectFqcns = [];
+        /** @var list<class-string> $embeddedEnumFqcns FQCNs embedded inside nested inline-object types */
+        $embeddedEnumFqcns = [];
+        /** @var list<class-string> $embeddedModelFqcns */
+        $embeddedModelFqcns = [];
+        /** @var list<class-string> $embeddedResourceFqcns */
+        $embeddedResourceFqcns = [];
+        /** @var TypesImportMap $customImports */
+        $customImports = [];
+
+        foreach ($branchResults as $inner) {
+            // EnumResource branches are tracked apart from direct-access ones, so the result can
+            // propagate the correct FQCN metadata.
+            if (isset($inner['enumFqcn'])) {
+                $enumResourceFqcns[] = $inner['enumFqcn'];
+            }
+
+            if (isset($inner['directEnumFqcn'])) {
+                $enumDirectFqcns[] = $inner['directEnumFqcn'];
+            }
+
+            if (isset($inner['embeddedEnumFqcns'])) {
+                array_push($embeddedEnumFqcns, ...$inner['embeddedEnumFqcns']);
+            }
+
+            if (isset($inner['embeddedModelFqcns'])) {
+                array_push($embeddedModelFqcns, ...$inner['embeddedModelFqcns']);
+            }
+
+            if (isset($inner['embeddedResourceFqcns'])) {
+                array_push($embeddedResourceFqcns, ...$inner['embeddedResourceFqcns']);
+            }
+
+            if (isset($inner['resourceFqcn'])) {
+                $embeddedResourceFqcns[] = $inner['resourceFqcn'];
+            }
+
+            if (isset($inner['modelFqcn'])) {
+                $embeddedModelFqcns[] = $inner['modelFqcn'];
+            }
+
+            foreach ($inner['customImports'] ?? [] as $path => $importTypes) {
+                $customImports[$path] = [...($customImports[$path] ?? []), ...$importTypes];
+            }
         }
 
         $result = ['type' => implode(' | ', $types), 'optional' => false];
@@ -4164,7 +4143,11 @@ class ResourceAstAnalyzer
             $result['embeddedResourceFqcns'] = $embeddedResourceFqcns;
         }
 
-        return $this->withMergedCustomImports($result, ...$branchResults);
+        if ($customImports !== []) {
+            $result['customImports'] = $customImports;
+        }
+
+        return $result;
     }
 
     /**

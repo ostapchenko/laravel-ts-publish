@@ -20,6 +20,7 @@ use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureParamShadowResource;
 use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
+use Workbench\App\Http\Resources\CoalesceChannelResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\CommonResource;
 use Workbench\App\Http\Resources\ConditionalParamArrayResource;
@@ -4449,4 +4450,16 @@ test('a $hidden filter key falls back to inline expansion instead of Pick<>', fu
 
     expect($props['attachment_public']['type'])->toBe("Pick<Attachment, 'id' | 'filename'>")
         ->and($props['attachment_hidden']['type'])->toBe('{ id: number; internal_notes: string | null }');
+});
+
+test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(CoalesceChannelResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    expect($props['buyer']['type'])->toBe('User | null')
+        ->and($analysis->modelFqcns)->toContain(User::class)
+        ->and($props['status']['type'])->toBe('OrderStatusType')
+        ->and($analysis->directEnumFqcns)->toContain(OrderStatus::class);
 });
