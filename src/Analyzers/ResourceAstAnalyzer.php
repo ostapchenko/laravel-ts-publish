@@ -3155,18 +3155,20 @@ class ResourceAstAnalyzer
         if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
             /** @var class-string $wrappedClass */
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
+            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                return [...$tsInfo, 'optional' => false];
+            if ($accepted !== null) {
+                return $accepted;
             }
         } elseif ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
             // @mixin-style resources: `$this->resource->commentsCount()` lives on the model.
             /** @var class-string $modelClass */
             $modelClass = $this->modelClass;
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
+            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                return [...$tsInfo, 'optional' => false];
+            if ($accepted !== null) {
+                return $accepted;
             }
         }
 
@@ -3583,6 +3585,8 @@ class ResourceAstAnalyzer
     /**
      * Analyze a `$this->resource::staticMethod()` call against the wrapped class, then the @mixin model.
      *
+     * Each reflection is accepted only when its tokens can be imported; see acceptReflectedTypeInfo().
+     *
      * @return ValueExpressionResult
      */
     protected function analyzeStaticMethodOnResource(string $methodName): array
@@ -3593,9 +3597,10 @@ class ResourceAstAnalyzer
         if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
             /** @var class-string $wrappedClass */
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
+            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                return [...$tsInfo, 'optional' => false];
+            if ($accepted !== null) {
+                return $accepted;
             }
         }
 
@@ -3603,9 +3608,10 @@ class ResourceAstAnalyzer
             /** @var class-string $modelClass */
             $modelClass = $this->modelClass;
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
+            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                return [...$tsInfo, 'optional' => false];
+            if ($accepted !== null) {
+                return $accepted;
             }
         }
 
@@ -3651,7 +3657,8 @@ class ResourceAstAnalyzer
     /**
      * Resolve a method call (instance or static) on a related model — either an explicitly bound
      * model (a varModelBindings entry for the receiver variable) or, by default, the ambient
-     * whenLoaded closure's related model.
+     * whenLoaded closure's related model. Accepted only when its tokens can be imported;
+     * see acceptReflectedTypeInfo().
      *
      * @param  class-string<Model>|null  $modelFqcn
      * @return ValueExpressionResult
@@ -3666,11 +3673,7 @@ class ResourceAstAnalyzer
 
         $tsInfo = resolve(ModelAttributeResolver::class)->resolveMethodReturnType($modelFqcn, $methodName);
 
-        if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-            return [...$tsInfo, 'optional' => false];
-        }
-
-        return $this->unknownResult(); // @codeCoverageIgnore
+        return $this->acceptReflectedTypeInfo($tsInfo) ?? $this->unknownResult();
     }
 
     /**
@@ -3696,7 +3699,8 @@ class ResourceAstAnalyzer
      * Analyze a generic `$this->method()` by reflecting its declared return type.
      *
      * Checks the resource's own methods, then the wrapped class, then the backing model — covering
-     * calls delegated via `__call` or `@mixin`.
+     * calls delegated via `__call` or `@mixin`. Each reflection is accepted only when its tokens can
+     * be imported; see acceptReflectedTypeInfo().
      *
      * @return ValueExpressionResult
      */
@@ -3704,12 +3708,10 @@ class ResourceAstAnalyzer
     {
         if ($this->resourceReflection->hasMethod($methodName)) {
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes($this->resourceReflection, $methodName);
+            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                return [
-                    ...$tsInfo,
-                    'optional' => false,
-                ];
+            if ($accepted !== null) {
+                return $accepted;
             }
         }
 
@@ -3718,12 +3720,10 @@ class ResourceAstAnalyzer
         if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
             /** @var class-string $wrappedClass */
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
+            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                return [
-                    ...$tsInfo,
-                    'optional' => false,
-                ];
+            if ($accepted !== null) {
+                return $accepted;
             }
         }
 
@@ -3731,12 +3731,10 @@ class ResourceAstAnalyzer
             /** @var class-string $modelClass */
             $modelClass = $this->modelClass;
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
+            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
-            if ($tsInfo['type'] !== '' && $tsInfo['type'] !== 'unknown') {
-                return [
-                    ...$tsInfo,
-                    'optional' => false,
-                ];
+            if ($accepted !== null) {
+                return $accepted;
             }
         }
 

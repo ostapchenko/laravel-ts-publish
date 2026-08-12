@@ -70,6 +70,7 @@ use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\QuirkyResource;
+use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
 use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\SpreadJsonBaseResource;
@@ -4462,4 +4463,17 @@ test('analyzeCoalesce() keeps the surviving operands FQCN channels', function ()
         ->and($analysis->modelFqcns)->toContain(User::class)
         ->and($props['status']['type'])->toBe('OrderStatusType')
         ->and($analysis->directEnumFqcns)->toContain(OrderStatus::class);
+});
+
+test('a reflected $this->method() return dispatches its enum and model FQCNs', function () {
+    // The raw [...$tsInfo] spread carried enumFqcns/classFqcns, which no dispatcher reads.
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(ReflectedMethodChannelResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    expect($props['fallback_status']['type'])->toBe('StatusType')
+        ->and($analysis->directEnumFqcns)->toContain(Status::class)
+        ->and($props['fallback_owner']['type'])->toBe('User')
+        ->and($analysis->modelFqcns)->toContain(User::class);
 });
