@@ -2055,11 +2055,12 @@ describe('ResourceAstAnalyzer with OrderCollection (explicit $collects)', functi
             ->and($this->analysis->nestedResources['data'])->toBe(OrderResource::class);
     });
 
-    test('resolves other properties as unknown when no model backing', function () {
+    test('resolves $this->collection->count() to number', function () {
         $totalCount = collect($this->analysis->properties)->firstWhere('name', 'total_count');
 
         expect($totalCount)->not->toBeNull()
-            ->and($totalCount['type'])->toBe('unknown');
+            ->and($totalCount['type'])->toBe('number')
+            ->and($totalCount['optional'])->toBeFalse();
     });
 });
 

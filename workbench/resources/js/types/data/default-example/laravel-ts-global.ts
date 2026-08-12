@@ -2162,7 +2162,7 @@ declare global {
         }
         export interface OrderCollection {
             data: OrderResource[];
-            total_count: unknown;
+            total_count: number;
         }
         /**
          * Exercises withCount()/withExists() virtual attributes and camelCase

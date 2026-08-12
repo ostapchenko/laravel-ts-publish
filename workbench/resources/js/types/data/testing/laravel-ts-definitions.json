@@ -8435,7 +8435,7 @@
             },
             {
                 "name": "total_count",
-                "type": "unknown",
+                "type": "number",
                 "optional": false
             }
         ],

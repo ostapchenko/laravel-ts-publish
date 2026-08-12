@@ -3586,14 +3586,18 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        // Receiver must be $this->{manyRelation}
+        // Receiver must be $this->{manyRelation}, or $this->collection on a ResourceCollection —
+        // Laravel populates that property with the collected resources, always a many receiver.
         if ($expr->var instanceof PropertyFetch
             && $this->isThisPropertyFetch($expr->var)
             && $expr->var->name instanceof Identifier
         ) {
-            $relation = $this->resolveModelRelationTypeInfo($expr->var->name->toString());
+            $propName = $expr->var->name->toString();
 
-            if (str_ends_with($relation['type'], '[]')) {
+            $isManyReceiver = ($propName === 'collection' && $this->isResourceCollection())
+                || str_ends_with($this->resolveModelRelationTypeInfo($propName)['type'], '[]');
+
+            if ($isManyReceiver) {
                 return [
                     ...$this->unknownResult(),
                     'type' => $method === 'count' ? 'number' : 'boolean',
