@@ -1701,6 +1701,15 @@ declare global {
             detail_or_null?: { tag: TagResource; name: string } | null;
             items_or_null?: workbench.app.models.OrderItem[] | null;
         }
+        /**
+         * Regression fixture: `??` used to keep the type string of whichever operand won while dropping its
+         * FQCN, so both properties below emitted a token with no import (TS2304). analyzeCoalesce() now
+         * carries the surviving operands' channels through the same merge the ternary union uses.
+         */
+        export interface CoalesceChannelResource {
+            buyer: workbench.app.models.User | null;
+            status: workbench.app.enums.OrderStatusType;
+        }
         export interface CommentResource {
             id: number;
             content: string;
@@ -1833,6 +1842,19 @@ declare global {
             draft?: boolean;
             total?: number;
             status?: workbench.app.enums.OrderStatusType;
+        }
+        /**
+         * Regression fixture: a #[TsType(import: …)] token must reach the emitted file together with its
+         * import from every result collector, not only analyzeReturnArray(). Each shape below reaches a
+         * different collector and used to emit its token with no import at all (TS2304); each uses a
+         * distinct #[TsType] class so no shape can ride on another's import.
+         */
+        export interface CustomImportChannelResource {
+            id: number;
+            inline_meta: { cfg: MenuSettingsType };
+            merged_meta: PageMetaType;
+            assigned_label: string;
+            assigned_meta: WidgetConfigType;
         }
         /** Resource that delegates to parent — tests non-array return guard. */
         export interface DelegatingResource {
@@ -2323,10 +2345,18 @@ declare global {
             notes: string | null;
             search_index: unknown;
         }
-        /** Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape. */
+        /**
+         * Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape.
+         *
+         * `attachment_hidden` is a regression: Attachment::$hidden keeps `internal_notes` out of the emitted
+         * model interface, so `Pick<Attachment, 'internal_notes'>` violates `K extends keyof T` (TS2344) —
+         * the reference must degrade to inline expansion, which also matches Model::only()'s runtime result.
+         */
         export interface PostAttachmentFilterResource {
             id: number;
             attachment: { id: number; filename: string; attachable: workbench.app.models.Post };
+            attachment_public: Pick<workbench.app.models.Attachment, 'id' | 'filename'>;
+            attachment_hidden: { id: number; internal_notes: string | null };
         }
         export interface PostCollection {
             data: PostResource[];
@@ -2429,6 +2459,16 @@ declare global {
             var_new_enum: unknown;
             fake_field: unknown;
             fake_relation?: unknown;
+        }
+        /**
+         * Regression fixture: analyzeThisMethodCall() spread a reflected TypeScriptTypeInfo straight into its
+         * result, whose enumFqcns/classFqcns keys no dispatcher reads — so both properties emitted a token
+         * with no import (TS2304). The reflection now goes through acceptReflectedTypeInfo() like every other
+         * reflected path. Both methods are `: mixed` so the @return docblock is what resolves them.
+         */
+        export interface ReflectedMethodChannelResource {
+            fallback_status: workbench.app.enums.StatusType;
+            fallback_owner: workbench.app.models.User;
         }
         /**
          * Exercises collection method chains rooted at a many-relation
