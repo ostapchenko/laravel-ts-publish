@@ -547,9 +547,9 @@ class ModelTransformer extends CoreTransformer
         $registry = new ImportNameRegistry;
         $registry->reserve($this->modelName);
 
-        // Const names collide exactly when their paired type names do (both are deterministic
-        // functions of the same enum FQCN), so a sibling registry resolves them independently
-        // rather than string-slicing the type alias — which breaks on a numeric tiebreak suffix.
+        // A sibling registry resolves const names independently rather than string-slicing the type
+        // alias, which breaks on a numeric tiebreak suffix. The two registries can't see each other, so
+        // a const name equal to another enum's type name still collides — see the docs' known limitation.
         $constRegistry = new ImportNameRegistry;
 
         foreach ($this->enumFqcnMap as $fqcn => $typeName) {

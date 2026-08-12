@@ -73,10 +73,17 @@ transformer walking `$registry->resolve()` itself.
 - **Const-alias mirroring.** Const names are resolved through a second, sibling
   `ImportNameRegistry` (same skip list) rather than derived by string-slicing the type
   alias — slicing breaks once a member reaches the numeric tiebreak, where the local name is
-  no longer literally "prefix + type name". Because a const name collides exactly when its
-  paired type name does (both are deterministic functions of the same enum FQCN), the sibling
-  registry naturally mirrors the type registry's chosen depth: `StatusType` aliased to
-  `CrmStatusType` pairs with `Status` aliased to `CrmStatus`.
+  no longer literally "prefix + type name". Within each registry the two run in lockstep (both
+  names are deterministic functions of the same enum FQCN), so the sibling registry naturally
+  mirrors the type registry's chosen depth: `StatusType` aliased to `CrmStatusType` pairs with
+  `Status` aliased to `CrmStatus`.
+
+  The two registries do **not** see each other, though, and TypeScript gives value and type
+  imports one shared identifier namespace. An enum named `Role` (const `Role`, type `RoleType`)
+  imported alongside an enum named `RoleType` (const `RoleType`, type `RoleTypeType`) collides
+  on `RoleType` across the registries, and neither one notices — the emitted file gets a
+  `TS2300`. Known limitation; it needs a name whose `…Type` form is another imported enum's own
+  name, so it has not been observed in practice.
 - **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
   $this->modelFqcnMap, $constRegistry->resolve())` — the `+` union is safe because a given FQCN
   is never legitimately both an enum and a model.
