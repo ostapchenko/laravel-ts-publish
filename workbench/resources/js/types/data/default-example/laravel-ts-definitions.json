@@ -4648,8 +4648,8 @@
                 "type": "string"
             },
             {
-                "name": "search_index",
-                "type": "unknown"
+                "name": "tracking_code",
+                "type": "string | null"
             },
             {
                 "name": "score_map",
@@ -5100,6 +5100,10 @@
                 "type": "string | null"
             },
             {
+                "name": "normalized_phone",
+                "type": "string | null"
+            },
+            {
                 "name": "social_links",
                 "type": "{ twitter?: string; github?: string; linkedin?: string; website?: string }"
             },
@@ -5134,10 +5138,6 @@
             {
                 "name": "display_summary",
                 "type": "string"
-            },
-            {
-                "name": "normalized_phone",
-                "type": "unknown"
             },
             {
                 "name": "formatted_bio",
@@ -8620,6 +8620,11 @@
                 "optional": false
             },
             {
+                "name": "tracking_code",
+                "type": "string | null",
+                "optional": false
+            },
+            {
                 "name": "score_map",
                 "type": "Record<string, number>",
                 "optional": false
@@ -9946,6 +9951,11 @@
                 "optional": false
             },
             {
+                "name": "tracking_code",
+                "type": "string | null",
+                "optional": false
+            },
+            {
                 "name": "score_map",
                 "type": "Record<string, number>",
                 "optional": false
@@ -10130,6 +10140,11 @@
             {
                 "name": "search_index",
                 "type": "unknown",
+                "optional": false
+            },
+            {
+                "name": "tracking_code",
+                "type": "string | null",
                 "optional": false
             },
             {

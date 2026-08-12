@@ -317,6 +317,11 @@ class ModelTransformer extends CoreTransformer
 
             $resolved = $this->resolveMutatorType($name);
 
+            // No getter, no docblock generic, no backing column: nothing to publish for this name.
+            if ($resolved['omit'] ?? false) {
+                continue;
+            }
+
             if ($isAppended) {
                 $this->appends[$name] = ['type' => $resolved['type'], 'description' => $this->resolveAccessorDescription($name), 'optional' => $this->optionalOverrides[$name] ?? false];
             } else {

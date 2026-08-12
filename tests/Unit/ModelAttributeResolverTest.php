@@ -16,6 +16,7 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
+use Workbench\App\Models\Profile;
 use Workbench\App\Models\PropertyDocblockBase;
 use Workbench\App\Models\PropertyDocblockChild;
 use Workbench\App\Models\PropertyDocblockEdge;
@@ -417,6 +418,32 @@ describe('@property docblock refinement', function () {
             ->resolveAttribute(PropertyDocblockTraitFixture::class, 'labels');
 
         expect($info['type'])->toBe('string[]');
+    });
+});
+
+describe('write-only accessor waterfall', function () {
+    test('a set-only mutator with a documented Get generic resolves to that type', function () {
+        // Order::trackingCode has no getter closure, but its docblock still names Attribute<?string, string>.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'tracking_code');
+
+        expect($info['type'])->toBe('string | null');
+    });
+
+    test('a set-only mutator backed by a real column resolves through the DB waterfall', function () {
+        // Profile::normalizedPhone has no getter and no docblock generic, but 'normalized_phone' is a real column.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Profile::class, 'normalized_phone');
+
+        expect($info['type'])->toBe('string | null');
+    });
+
+    test('a set-only mutator with no docblock generic and no backing column resolves to unknown', function () {
+        // Order::searchIndex has neither a getter, a docblock generic, nor a matching DB column.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'search_index');
+
+        expect($info['type'])->toBe('unknown');
     });
 });
 

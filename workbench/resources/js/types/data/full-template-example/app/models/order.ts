@@ -40,8 +40,8 @@ export interface Order
     is_paid: boolean;
     /** Formatted total with currency symbol */
     formatted_total: string;
-    /** Write-only mutator (no getter) for a non-DB column */
-    search_index: unknown;
+    /** Write-only mutator whose docblock still documents what a getter would return. */
+    tracking_code: string | null;
     score_map: Record<string, number>;
     sorted_items: OrderItem[] | Record<string, OrderItem>;
     listed_items: OrderItem[];

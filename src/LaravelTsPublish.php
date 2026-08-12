@@ -39,9 +39,12 @@ use UnitEnum;
  *    customImports: array<string, list<string>>,
  *    enumFqcns: list<class-string>,
  *    classFqcns: list<class-string>,
+ *    omit?: bool,
  * }
  *
  * `enums` holds PHP enum const names (display only); `enumTypes` holds the TS alias names emitted in imports.
+ * `omit`, when true, signals a property that resolved to nothing useful and should be dropped from
+ * generated output entirely rather than emitted as `unknown` (see omittedTypeScriptInfo()).
  */
 class LaravelTsPublish
 {
@@ -1671,6 +1674,17 @@ class LaravelTsPublish
     public function emptyTypeScriptInfo(): array
     {
         return ['type' => 'unknown', 'enums' => [], 'enumTypes' => [], 'classes' => [], 'customImports' => [], 'enumFqcns' => [], 'classFqcns' => []];
+    }
+
+    /**
+     * A TypeScriptTypeInfo signaling that a property resolved to nothing useful and should be
+     * dropped from generated output entirely, rather than emitted as `unknown`.
+     *
+     * @return TypeScriptTypeInfo
+     */
+    public function omittedTypeScriptInfo(): array
+    {
+        return [...$this->emptyTypeScriptInfo(), 'omit' => true];
     }
 
     /**

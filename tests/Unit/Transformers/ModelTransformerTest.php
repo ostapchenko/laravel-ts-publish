@@ -283,6 +283,21 @@ describe('ModelTransformer with Order model that has complex TsCasts and multipl
     });
 });
 
+describe('ModelTransformer with Order model write-only mutators', function () {
+    test('a set-only mutator with no docblock generic and no backing column is omitted entirely', function () {
+        $data = (new ModelTransformer(Order::class))->data();
+
+        expect($data->mutators)->not->toHaveKey('search_index');
+    });
+
+    test('a set-only mutator with a documented Get generic still appears with that type', function () {
+        $data = (new ModelTransformer(Order::class))->data();
+
+        expect($data->mutators)->toHaveKey('tracking_code')
+            ->and($data->mutators['tracking_code']['type'])->toBe('string | null');
+    });
+});
+
 describe('ModelTransformer filename generation', function () {
     test('filename returns kebab-cased model name', function () {
         expect((new ModelTransformer(User::class))->filename())->toBe('user');
@@ -306,12 +321,13 @@ describe('ModelTransformer with Profile model that has property-level TsCasts, w
         expect($data->columns['settings']['type'])->toBe('{ notifications_enabled: boolean; theme: "light" | "dark"; language: string }');
     });
 
-    test('transforms Profile model write-only mutator as unknown', function () {
+    test('transforms Profile model write-only mutator through its backing column, not as a mutator', function () {
         $data = (new ModelTransformer(Profile::class))->data();
 
-        // normalizedPhone is set-only on the fixture — no get.
-        expect($data->mutators)->toHaveKey('normalized_phone')
-            ->and($data->mutators['normalized_phone']['type'])->toBe('unknown');
+        // normalizedPhone is set-only — no get — but 'normalized_phone' is a real, nullable column.
+        expect($data->mutators)->not->toHaveKey('normalized_phone')
+            ->and($data->columns)->toHaveKey('normalized_phone')
+            ->and($data->columns['normalized_phone']['type'])->toBe('string | null');
     });
 
     test('transforms Profile model old-style mutator', function () {

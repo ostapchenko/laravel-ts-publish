@@ -125,6 +125,18 @@ class Order extends Model
         );
     }
 
+    /**
+     * Write-only mutator whose docblock still documents what a getter would return.
+     *
+     * @return Attribute<?string, string>
+     */
+    protected function trackingCode(): Attribute
+    {
+        return Attribute::make(
+            set: fn (string $value): string => strtoupper($value),
+        );
+    }
+
     /** @phpstan-return Attribute<array<string, int>, never> */
     protected function scoreMap(): Attribute
     {

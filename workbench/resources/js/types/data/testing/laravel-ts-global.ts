@@ -470,8 +470,8 @@ declare global {
             is_paid: boolean;
             /** Formatted total with currency symbol */
             formatted_total: string;
-            /** Write-only mutator (no getter) for a non-DB column */
-            search_index: unknown;
+            /** Write-only mutator whose docblock still documents what a getter would return. */
+            tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: OrderItem[] | Record<string, OrderItem>;
             listed_items: OrderItem[];
@@ -615,6 +615,8 @@ declare global {
             date_of_birth: string | null;
             website: string | null;
             phone_number: string | null;
+            /** Write-only mutator, no get — but `normalized_phone` is a real column, so it still types the column */
+            normalized_phone: string | null;
             social_links: { twitter?: string; github?: string; linkedin?: string; website?: string };
             settings: { notifications_enabled: boolean; theme: "light" | "dark"; language: string };
             menu_settings: MenuSettingsType | null;
@@ -627,8 +629,6 @@ declare global {
             age: number | null;
             /** Full display name combining user name and bio snippet */
             display_summary: string;
-            /** Write-only mutator — normalizes phone number on set, no get */
-            normalized_phone: unknown;
             /** Old-style mutator for avatar URL capitalization */
             formatted_bio: string;
             // Relations
@@ -2216,6 +2216,7 @@ declare global {
             is_paid: boolean;
             formatted_total: string;
             search_index: unknown;
+            tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
             listed_items: workbench.app.models.OrderItem[];
@@ -2583,6 +2584,7 @@ declare global {
             is_paid: boolean;
             formatted_total: string;
             search_index: unknown;
+            tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
             listed_items: workbench.app.models.OrderItem[];
@@ -2622,6 +2624,7 @@ declare global {
             is_paid: boolean;
             formatted_total: string;
             search_index: unknown;
+            tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
             listed_items: workbench.app.models.OrderItem[];

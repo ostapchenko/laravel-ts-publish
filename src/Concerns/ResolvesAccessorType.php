@@ -64,8 +64,17 @@ trait ResolvesAccessorType
                     return $docblockReturn;
                 }
 
-                // A set-only mutator is not readable, so it contributes nothing to the model shape.
-                return $result;
+                // Set-only: no getter closure to read a runtime type from, but the method's own
+                // docblock may still document a Get generic (Attribute<Get, Set>).
+                $docblockReturn = LaravelTsPublish::attributeDocblockReturnTypes($method);
+
+                if ($docblockReturn['type'] !== 'unknown' && ! $this->isVagueTsType($docblockReturn['type'])) {
+                    return $docblockReturn;
+                }
+
+                // Nothing to read this attribute's shape from at all — the caller decides whether a
+                // DB column of the same name still applies; when none does, this signals to omit it.
+                return LaravelTsPublish::omittedTypeScriptInfo();
             }
         }
 

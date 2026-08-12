@@ -61,7 +61,7 @@ class Profile extends Model
         );
     }
 
-    /** Write-only mutator — normalizes phone number on set, no get */
+    /** Write-only mutator, no get — but `normalized_phone` is a real column, so it still types the column */
     protected function normalizedPhone(): Attribute
     {
         return Attribute::make(
