@@ -646,6 +646,12 @@ class ResourceAstAnalyzer
         }
 
         if ($expr instanceof CastArray_) {
+            // A cast of an array literal is the identity — the shape survives. Any other operand
+            // (e.g. a scalar, which PHP wraps into a single-element list) stays the flat fallback.
+            if ($expr->expr instanceof Array_) {
+                return $this->analyzeInlineArray($expr->expr);
+            }
+
             return ['type' => 'unknown[]', 'optional' => false];
         }
 

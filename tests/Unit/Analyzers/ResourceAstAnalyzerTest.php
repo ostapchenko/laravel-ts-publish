@@ -196,7 +196,7 @@ describe('ResourceAstAnalyzer with PostResource', function () {
             ->and($prop['optional'])->toBeFalse();
     });
 
-    test('(array) cast resolves to unknown[]', function () {
+    test('(array) cast of an inline array literal preserves its shape', function () {
         $reflection = new ReflectionClass(PostResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Post::class);
         $analysis = $analyzer->analyze();
@@ -204,7 +204,7 @@ describe('ResourceAstAnalyzer with PostResource', function () {
         $prop = collect($analysis->properties)->firstWhere('name', 'heading_content');
 
         expect($prop)->not->toBeNull()
-            ->and($prop['type'])->toBe('unknown[]')
+            ->and($prop['type'])->toBe('{ title: string; summary: string }')
             ->and($prop['optional'])->toBeFalse();
     });
 

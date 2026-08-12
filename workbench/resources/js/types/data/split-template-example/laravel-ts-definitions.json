@@ -6719,7 +6719,7 @@
             },
             {
                 "name": "heading_content",
-                "type": "unknown[]",
+                "type": "{ title: string; summary: string }",
                 "optional": false
             },
             {
@@ -8971,7 +8971,7 @@
             },
             {
                 "name": "heading_content",
-                "type": "unknown[]",
+                "type": "{ title: string; summary: string }",
                 "optional": false
             },
             {

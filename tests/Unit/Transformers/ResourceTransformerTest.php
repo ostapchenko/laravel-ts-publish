@@ -164,10 +164,10 @@ describe('ResourceTransformer with PostResource', function () {
         expect($data->properties['word_count']['optional'])->toBeFalse();
     });
 
-    test('(array) cast resolves to unknown[]', function () {
+    test('(array) cast of an inline array literal preserves its shape', function () {
         $data = (new ResourceTransformer(PostResource::class))->data();
 
-        expect($data->properties['heading_content']['type'])->toBe('unknown[]');
+        expect($data->properties['heading_content']['type'])->toBe('{ title: string; summary: string }');
         expect($data->properties['heading_content']['optional'])->toBeFalse();
     });
 

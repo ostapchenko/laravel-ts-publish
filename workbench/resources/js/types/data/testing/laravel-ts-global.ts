@@ -1549,7 +1549,7 @@ declare global {
             published: boolean;
             rating_display: number;
             word_count: string;
-            heading_content: unknown[];
+            heading_content: { title: string; summary: string };
             publishable: boolean;
             comments_count: number;
             is_featured: boolean;
@@ -2317,7 +2317,7 @@ declare global {
             published: boolean;
             rating_display: number;
             word_count: string;
-            heading_content: unknown[];
+            heading_content: { title: string; summary: string };
             publishable: boolean;
             comments_count: number;
             is_featured: boolean;
