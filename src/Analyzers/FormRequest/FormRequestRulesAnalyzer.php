@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\FormRequest;
 
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use BackedEnum;
 use Illuminate\Auth\GenericUser;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Request;
@@ -35,6 +36,7 @@ use Illuminate\Validation\ValidationRuleParser;
 use ReflectionClass;
 use ReflectionException;
 use Throwable;
+use UnitEnum;
 
 /**
  * Analyzes a FormRequest's `rules()` method and normalizes the result into a tree for interface generation.
@@ -538,33 +540,33 @@ class FormRequestRulesAnalyzer
 
         $enumReflection = new ReflectionClass($enumClass);
 
-        if (! $enumReflection->isEnum() || ! $enumReflection->implementsInterface(\BackedEnum::class)) {
+        if (! $enumReflection->isEnum() || ! $enumReflection->implementsInterface(BackedEnum::class)) {
             return 'string';
         }
 
         $cases = $enumReflection->getMethod('cases')->invoke(null);
 
-        /** @var \BackedEnum[] $cases */
+        /** @var BackedEnum[] $cases */
 
-        /** @var \UnitEnum[] $only */
+        /** @var UnitEnum[] $only */
         $only = $reflection->getProperty('only')->getValue($rule);
-        /** @var \UnitEnum[] $except */
+        /** @var UnitEnum[] $except */
         $except = $reflection->getProperty('except')->getValue($rule);
 
         if ($only !== []) {
             $cases = array_values(array_filter(
                 $cases,
-                fn (\BackedEnum $case): bool => in_array($case, $only, true),
+                fn (BackedEnum $case): bool => in_array($case, $only, true),
             ));
         } elseif ($except !== []) {
             $cases = array_values(array_filter(
                 $cases,
-                fn (\BackedEnum $case): bool => ! in_array($case, $except, true),
+                fn (BackedEnum $case): bool => ! in_array($case, $except, true),
             ));
         }
 
         $values = array_map(
-            fn (\BackedEnum $case): string => is_string($case->value) ? "'{$case->value}'" : (string) $case->value,
+            fn (BackedEnum $case): string => is_string($case->value) ? "'{$case->value}'" : (string) $case->value,
             $cases,
         );
 
