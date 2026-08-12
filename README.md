@@ -323,6 +323,10 @@ class Message extends Model { ... }
 
 `$to` and `$headers` now generate as `string[] | null` and `Record<string, string> | null` instead of `unknown[] | null` — and it types the same property for PHPStan/Larastan too. The tag only takes effect when the waterfall's own result is vague, so it never overrides a type already resolved specifically (an accessor's return type, an enum cast, a custom `CastsAttributes` class, etc.), and a subclass's own tag wins over one declared on a parent.
 
+A refinement that's still partly vague is accepted as long as it's more structured than a bare untyped array/collection/object — `@property array<string, mixed>|null $settings` refines a plain `'array'` cast to `Record<string, unknown> | null` even though `Record<string, unknown>` itself still names `unknown`, because it beats the `unknown[]` it replaces. A refinement that's exactly as vague as the original (`unknown`, `unknown[]`, `object`, or the `unknown[] | Record<string, unknown>` Collection fallback) is still rejected.
+
+The `@property` walk also covers every **trait** used by the class or its parents (recursively), so a trait supplying an accessor can carry its own class-level tag — including the non-standard `@property string[] labels` form some packages use without the `$` sigil.
+
 ### Typing json columns with `@phpstan-type` aliases
 
 For a shape complex enough to deserve a name, define it once as a `@phpstan-type` on the DTO that owns it, then pull it into the model with `@phpstan-import-type`:
@@ -404,6 +408,32 @@ final readonly class OrderTypeCapabilities implements Arrayable
 generates as `{ typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null }`. Nullable properties keep their `| null`; private, protected, and static properties are excluded, since they aren't part of `(array) $this`; and a property typed as a class with no import channel (a Model, for example) degrades to `unknown` the same way an unimportable docblock shape value does. Reach for a `@return array{...}` docblock instead only when the properties alone don't tell the whole story — it still wins whenever present.
 
 This is `Arrayable`-only. A `JsonSerializable` DTO's `jsonSerialize()` still only resolves from a `@return array{...}` docblock and otherwise falls through to later resolution steps (e.g. its class basename), rather than inferring from properties — `(array) $this` is a real contract tying `toArray()` to a DTO's own properties, but `jsonSerialize()` can return anything, so inferring its shape from properties could produce a confidently wrong type.
+
+### What gets published: hidden attributes, write-only accessors
+
+Not every attribute Eloquent knows about ends up in the generated interface:
+
+- **`$hidden` attributes are never published**, matching Laravel's own `toArray()`/`toJson()` serialization — the same rule that keeps a `password` or `remember_token` column out of the model's own interface. An app that needs a hidden column client-side should either drop it from `$hidden` or call `makeVisible()` before returning the model; the generator has no way to see a runtime `makeVisible()` call, so a hidden column always drops from the model's own published interface regardless.
+- **Write-only mutators** — `Attribute::make(set: ...)` with no `get:` — resolve in this order: (1) the method's own `@return Attribute<Get, Set>` docblock, when the `Get` type is present and isn't itself vague; (2) a same-named database column, if one exists; (3) otherwise the mutator is omitted from the interface entirely, rather than emitted as `unknown`.
+
+```php
+class Order extends Model
+{
+    /** @return Attribute<?string, string> */
+    protected function trackingCode(): Attribute
+    {
+        return Attribute::make(set: fn (string $value): string => strtoupper($value));
+    }
+
+    // No getter, no docblock generic, no backing column — omitted from OrderMutators entirely.
+    protected function searchIndex(): Attribute
+    {
+        return Attribute::make(set: fn (string $value): string => strtolower($value));
+    }
+}
+```
+
+`trackingCode` generates as `tracking_code: string | null` in `OrderMutators`; `searchIndex` doesn't appear there at all. A write-only mutator backed by a real column (e.g. one that normalizes a value on save) resolves through the normal column waterfall instead, and is published as a column rather than a mutator.
 
 For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 

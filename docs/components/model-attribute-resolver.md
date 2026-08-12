@@ -169,6 +169,62 @@ The `AsCollection` branch only trusts an inline `{...}` shape or an enum as the 
 class token has no import channel, so that case degrades to `unknown[]` rather than emit an identifier nothing
 imports.
 
+## `@property` refinement: search order, trait walk, and the acceptance rule
+
+`refineWithPropertyDocblock(ReflectionClass $reflection, string $attributeName, array $tsInfo):
+array` only runs at all when `$tsInfo['type']` is already vague (see above) — a concrete waterfall
+result is never second-guessed. When it does run, `propertyDocblockClasses()` builds the search
+order: the class/parent chain first (child tag wins over parent), then every trait used anywhere in
+that chain, recursively via `collectTraitsRecursively()` (`ReflectionClass::getTraits()`, walked
+again on each trait for traits-of-traits). A trait is checked only after the whole
+inheritance chain has been exhausted, so a real class-level tag always wins over one living on a
+trait the class happens to use.
+
+For each candidate class, `refineFromClassDocblock()` looks for an `@property`/`@property-read` tag
+naming `$attributeName`. The `$` sigil before the property name is **optional** in the tag regex —
+a non-standard but real-world convention (`@property string[] tag_names`, no `$`) some packages
+use on a trait's own class docblock. This is safe to widen because the type-capture group still
+excludes the literal `$` character entirely: a genuine `@property Type $name Description` line
+still can't be walked through by a *different* attribute's search, since the type capture cannot
+cross the `$` that marks the real variable, regardless of whether the sigil is required at the
+match's own end. Only a docblock tag that never contains `$` anywhere on its line — the exact,
+narrow case the optional sigil exists for — is affected by the relaxation.
+
+### Acceptance rule: `isStrictlyMoreStructured()`
+
+A refinement candidate is only used when it clears `isStrictlyMoreStructured(string $candidate,
+string $current): bool`:
+
+- A candidate that isn't vague at all (no `unknown`, not bare `object`) is always accepted.
+- A candidate that *is* still vague is accepted only when **both** hold:
+  1. `$current` — the type being replaced — is *entirely* vague: exactly `unknown`, `unknown[]`,
+     `object`, or the `unknown[] | Record<string, unknown>` Collection fallback, each optionally
+     suffixed `| null` (`isEntirelyVagueTsType()`).
+  2. `$candidate` is not itself in that same entirely-vague set.
+
+This is deliberately narrower than "not vague" — a bare `Record<string, unknown>` (vague per
+`isVagueTsType()`, since it names `unknown` outside any `{...}`) still beats a bare `unknown[]`,
+because it at least commits to a dictionary shape the original carried no information about at
+all. But it does **not** beat another already-somewhat-structured vague type: refining
+`Record<string, unknown>` itself, or refining into the Collection fallback
+`unknown[] | Record<string, unknown>`, is rejected, since neither side of that comparison is
+"entirely" vague to begin with.
+
+```php
+/** @property array<string, mixed>|null $settings */
+class Team extends Model
+{
+    protected function casts(): array
+    {
+        return ['settings' => 'array'];
+    }
+}
+```
+
+`settings` resolves through the `'array'` cast to `unknown[]` first — entirely vague — so the tag's
+`Record<string, unknown> | null` is accepted even though it still names `unknown`, and `settings`
+generates as `Record<string, unknown> | null` rather than `unknown[] | null`.
+
 ## MorphTo target resolution: docblock generic → reverse map keyed by morph name
 
 `resolveMorphToTargets(string $modelFqcn, string $relationName): list<class-string>` is the
