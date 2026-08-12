@@ -2904,10 +2904,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Build a Pick<Model, …>/Omit<Model, …> reference when every filter key is a plain database column of
-     * the related model, so the emitted model interface (with its TsCasts/@property refinements) stays the
-     * single source of truth. Returns null when any key is not a column — callers fall back to inline
-     * expansion (e.g. the key is an accessor/mutator, or names a relation instead of a column).
+     * Build a Pick<Model, …>/Omit<Model, …> reference when every filter key is a column the model interface
+     * actually declares, so that interface (with its TsCasts/@property refinements) stays the single source
+     * of truth. Returns null when any key is not one — callers fall back to inline expansion (e.g. the key
+     * is an accessor/mutator, names a relation instead of a column, or is $hidden and so never emitted).
      *
      * Both wrappers target the bare model interface (columns only) unconditionally. This matches
      * Eloquent's actual runtime behaviour, not just a convenient simplification: HasAttributes::except()
@@ -2924,7 +2924,7 @@ class ResourceAstAnalyzer
     protected function relationFilterModelReference(string $modelFqcn, array $keys, bool $include): ?string
     {
         $resolver = resolve(ModelAttributeResolver::class);
-        $columns = $resolver->databaseColumnNames($modelFqcn);
+        $columns = $resolver->publishedColumnNames($modelFqcn);
 
         if ($columns === []) {
             return null; // @codeCoverageIgnore

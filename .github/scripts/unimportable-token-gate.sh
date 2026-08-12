@@ -5,6 +5,8 @@
 # also counts TS2300 "Duplicate identifier" errors: two different imports
 # resolving to the same local name, e.g. two unrelated MailPrice models both
 # aliased to MailPriceMailPrice (see docs/components/import-name-registry.md).
+# TS2344 rounds out the set: a token that IS imported but named where its own
+# type rejects it, e.g. Pick<Model, K> over a key the interface never declares.
 #
 # The unknown-regression gate cannot catch either shape: a leaked or colliding
 # token is a NEW property with a plausible-looking type, not an existing
@@ -34,10 +36,10 @@ if [ -n "$setup_errs" ] || { [ "$status" -ne 0 ] && ! printf '%s\n' "$out" | gre
   exit 1
 fi
 
-errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2552)" || true)
+errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2344|2552)" || true)
 count=$(printf '%s' "$errs" | grep -c . || true)
 
-echo "TS2300/TS2304/TS2552 (duplicate identifier / cannot find name) in generated tree: $count"
+echo "TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: $count"
 printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier) '([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
 
 if [ $# -ge 1 ]; then

@@ -65,7 +65,7 @@ answer was neither `string` nor `unknown` but `ShipmentStatusType`.
 
 Runs `npx tsc --noEmit` over the generated tree and counts "cannot find name" diagnostics — TS2304, plus
 TS2552 (`Did you mean…`), which TypeScript emits instead when a similarly-named global exists — together
-with TS2300 (`Duplicate identifier`).
+with TS2300 (`Duplicate identifier`) and TS2344 (`does not satisfy the constraint`).
 
 TS2300 catches a different failure shape than the other two: not a token emitted *without* an import, but
 two *different* imports resolving to the *same* local name. This is exactly how the MailPrice collision
@@ -74,13 +74,18 @@ algorithm derived an alias from a single namespace segment and two classes happe
 basename and that segment. `ImportNameRegistry` (`docs/components/import-name-registry.md`) exists to make
 that impossible, and this gate is the standing check that it stays that way.
 
+TS2344 is a third shape: the token is imported and unique, but named somewhere its own type rejects it —
+the case that motivated adding it was `Pick<Model, K>` built from raw schema columns while the model
+interface omits `$hidden` ones, so `K extends keyof T` failed. See
+`docs/components/resource-ast-analyzer.md`.
+
 ```bash
 .github/scripts/unimportable-token-gate.sh          # report only
 .github/scripts/unimportable-token-gate.sh 14       # fail if the count exceeds 14
 ```
 
 ```
-TS2300/TS2304/TS2552 (duplicate identifier / cannot find name) in generated tree: 14
+TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 14
    8   CustomObject
    2   ExtendableInterface
    2   Coordinate

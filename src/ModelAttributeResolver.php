@@ -459,9 +459,9 @@ class ModelAttributeResolver
     /**
      * Names of the model's real database columns, read straight from the schema.
      *
-     * Mirrors ModelTransformer::transformColumns()'s $dbColumns exactly (same schema listing call) so a
-     * caller that only trusts real columns — e.g. building a Pick<>/Omit<> reference — never names a key
-     * the model interface doesn't also derive from that same source.
+     * Mirrors ModelTransformer::transformColumns()'s $dbColumns exactly (same schema listing call). This is
+     * the raw listing: it still includes $hidden columns, which never reach the emitted interface — callers
+     * naming keys against that interface want publishedColumnNames() instead.
      *
      * @param  class-string  $modelFqcn
      * @return list<string>
@@ -482,6 +482,36 @@ class ModelAttributeResolver
         $columns = $ctx['instance']->getConnection()->getSchemaBuilder()->getColumnListing($ctx['instance']->getTable());
 
         return $this->dbColumnNamesCache[$modelFqcn] = $columns;
+    }
+
+    /**
+     * Names of the database columns that actually reach the emitted model interface.
+     *
+     * ModelTransformer::transformColumns() keeps only attributes that are real columns and skips $hidden
+     * ones, so the raw schema listing is a superset. `Pick<Model, K>` constrains K to keyof Model, so a
+     * caller naming a hidden column would emit uncompilable TypeScript.
+     *
+     * @param  class-string  $modelFqcn
+     * @return list<string>
+     */
+    public function publishedColumnNames(string $modelFqcn): array
+    {
+        $columns = $this->databaseColumnNames($modelFqcn);
+        $attributes = $this->getAttributes($modelFqcn);
+
+        if ($attributes === null) {
+            return $columns; // @codeCoverageIgnore
+        }
+
+        $published = $attributes
+            ->reject(fn (array $attr): bool => $attr['hidden'])
+            ->pluck('name')
+            ->all();
+
+        return array_values(array_filter(
+            $columns,
+            fn (string $column): bool => in_array($column, $published, true),
+        ));
     }
 
     /**

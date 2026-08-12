@@ -21,11 +21,18 @@ docblock refinements that a from-scratch recompute loses.
 
 `relationFilterModelReference()` builds `Pick<Model, 'a' | 'b'>` (for `only()`) or
 `Omit<Model, 'a' | 'b'>` (for `except()`) — `[]`-suffixed for many-relations, `| null`-suffixed
-for nullsafe calls — whenever **every filter key is a real database column** of the related
-model, per `ModelAttributeResolver::databaseColumnNames()` (the live schema listing — the same
-source `ModelTransformer::transformColumns()` uses to decide `$dbColumns`, so a `Pick`/`Omit`
-reference can never name a key the model interface doesn't also derive from that schema). A key
-that is an accessor, mutator, or relation name falls back to the inline expansion unchanged —
+for nullsafe calls — whenever **every filter key is a column the model interface actually
+declares**, per `ModelAttributeResolver::publishedColumnNames()`.
+
+That gate has to match the *emitted* interface, not just the schema. The raw schema listing
+(`databaseColumnNames()`) is a superset: `ModelTransformer::transformColumns()` skips `$hidden`
+columns, since Laravel never serializes them. `Pick<T, K>` constrains `K extends keyof T`, so
+naming a hidden column there is a hard `TS2344` — `publishedColumnNames()` subtracts them, and
+such a key falls back to inline expansion instead (which is also the more faithful output:
+`Model::only()` resolves through `getAttribute()` and *does* return hidden attributes at
+runtime). `Omit<T, K>` does not constrain `K`, so it would compile either way; the same gate is
+applied to both for one rule rather than two. A key that is an accessor, mutator, or relation
+name falls back to the inline expansion unchanged —
 `only()` can legitimately request those (Eloquent's `Model::only()` resolves through
 `getAttribute()`, which reaches accessors and relations too), but the analyzer only optimizes
 the plain-column case and leaves everything else to the existing inline path.

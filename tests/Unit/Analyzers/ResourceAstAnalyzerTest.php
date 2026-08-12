@@ -63,6 +63,7 @@ use Workbench\App\Http\Resources\OrderItemResource;
 use Workbench\App\Http\Resources\OrderOnlyResource;
 use Workbench\App\Http\Resources\OrderResource;
 use Workbench\App\Http\Resources\OrderSummaryResource;
+use Workbench\App\Http\Resources\PostAttachmentFilterResource;
 use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
@@ -4437,4 +4438,15 @@ test('the customImports map survives every result collector', function () {
             '@js/types/page-meta',
             '@js/types/widget-config',
         ]);
+});
+
+test('a $hidden filter key falls back to inline expansion instead of Pick<>', function () {
+    // Pick<T, K> constrains K to keyof T, and a $hidden column never reaches the model interface.
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(PostAttachmentFilterResource::class), Post::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props['attachment_public']['type'])->toBe("Pick<Attachment, 'id' | 'filename'>")
+        ->and($props['attachment_hidden']['type'])->toBe('{ id: number; internal_notes: string | null }');
 });
