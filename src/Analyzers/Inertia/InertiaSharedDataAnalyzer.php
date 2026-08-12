@@ -24,6 +24,7 @@ use Spatie\StructureDiscoverer\Discover;
  *     withAllErrors: bool,
  *     importStatements: list<string>,
  * }
+ * @phpstan-type OverrideEntry = array{type: string, optional: bool}
  */
 class InertiaSharedDataAnalyzer
 {
@@ -187,7 +188,7 @@ class InertiaSharedDataAnalyzer
      * Build a TypeScript object type string, applying TsCasts overrides where present.
      *
      * @param  array<string|int, mixed>  $props  The Surveyor-analyzed properties.
-     * @param  array<string, string>  $overrides  TsCasts type overrides keyed by property name.
+     * @param  array<string, string>  $overrides  Type overrides keyed by property name.
      */
     protected function buildTypeStringWithOverrides(array $props, array $overrides): string
     {
@@ -195,11 +196,12 @@ class InertiaSharedDataAnalyzer
             return 'Record<string, never>';
         }
 
+        $normalized = $this->normalizeOverrideKeys($overrides);
         $parts = [];
 
         foreach ($props as $key => $value) {
-            if (isset($overrides[$key])) {
-                $parts[] = $key.': '.$overrides[$key];
+            if (isset($normalized[$key])) {
+                $parts[] = $key.($normalized[$key]['optional'] ? '?: ' : ': ').$normalized[$key]['type'];
 
                 continue;
             }
@@ -218,12 +220,36 @@ class InertiaSharedDataAnalyzer
             $parts[] = $key.$separator.$tsType;
         }
 
-        foreach ($overrides as $key => $type) {
+        foreach ($normalized as $key => $override) {
             if (! array_key_exists($key, $props)) {
-                $parts[] = $key.': '.$type;
+                $parts[] = $key.($override['optional'] ? '?: ' : ': ').$override['type'];
             }
         }
 
         return '{ '.implode(', ', $parts).' }';
+    }
+
+    /**
+     * Split the docblock parser's key-embedded optional marker back out, so overrides can be matched
+     * against Surveyor's plain property names — otherwise `filters?` misses `filters` and the entry is
+     * emitted twice, which TypeScript rejects as a duplicate identifier.
+     *
+     * @param  array<string, string>  $overrides
+     * @return array<string, OverrideEntry>
+     */
+    protected function normalizeOverrideKeys(array $overrides): array
+    {
+        $normalized = [];
+
+        // Insertion order carries priority: #[TsCasts] entries are merged after docblock ones, so an
+        // attribute-supplied `filters` still wins over a docblock-supplied `filters?`.
+        foreach ($overrides as $key => $type) {
+            $optional = str_ends_with($key, '?');
+            $name = $optional ? substr($key, 0, -1) : $key;
+
+            $normalized[$name] = ['type' => $type, 'optional' => $optional];
+        }
+
+        return $normalized;
     }
 }
