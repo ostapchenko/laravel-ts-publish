@@ -95,12 +95,14 @@ with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
 - **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
   $this->resourceFqcnMap + $this->modelFqcnMap, $constRegistry->resolve())` — the three-way
   union is safe because no FQCN is written into more than one of the three maps. `resourceFqcnMap`
-  is populated only from `analysis->nestedResources` (`JsonResource` subclasses), and
-  `modelFqcnMap` only from `analysis->modelFqcns` and the multi-class accessor branch in
-  `resolveMultiClassAccessorFqcns()` — both restricted, by how the upstream analyzers build
-  their `classFqcns`, to Eloquent model classes. This is a property of *where these maps are
-  populated from*, not something PHP's type system enforces (a class extending both `Model` and
-  `JsonResource` is technically possible; nothing in this codebase creates or expects one).
+  is populated from `analysis->nestedResources` (`JsonResource` subclasses) and the
+  `ResourceCollection` flat-alias branch (`analysis->flatTypeAliasFqcn`); `modelFqcnMap` from
+  `analysis->modelFqcns` and the multi-class accessor branch in
+  `resolveMultiClassAccessorFqcns()` — all four sites restricted, by how the upstream analyzers
+  build their `classFqcns`/`flatTypeAliasFqcn`, to `JsonResource` or Eloquent model classes
+  respectively. This is a property of *where these maps are populated from*, not something PHP's
+  type system enforces (a class extending both `Model` and `JsonResource` is technically
+  possible; nothing in this codebase creates or expects one).
 
 ### `BroadcastEventTransformer`
 
