@@ -2847,8 +2847,8 @@ class ResourceAstAnalyzer
     /**
      * Build a Pick<Model, …>/Omit<Model, …> reference when every filter key is a declared model column.
      *
-     * Both wrappers target the bare model interface unconditionally — Eloquent's except() only ever
-     * reads getAttributes(), so relations and get-only Attribute casts can never leak in regardless.
+     * Both wrappers target the bare model interface unconditionally — except() iterates only $this->getAttributes(),
+     * and mergeAttributeFromAttributeCasts() refuses get-only casts, so neither relations nor accessors can surface.
      *
      * @param  class-string<Model>  $modelFqcn
      * @param  list<string>  $keys
@@ -3189,7 +3189,7 @@ class ResourceAstAnalyzer
     /**
      * Determine whether a Carbon(Immutable) method returns a __toString()-only class, not a genuine string.
      *
-     * Needed since toTsType() erases Stringable classes to a bare `string`, indistinguishable from real ones.
+     * Needed since toTsType() erases Stringable classes to a bare `string` — mirrors step 5b's own condition.
      * Carbon/CarbonImmutable are excluded — their `__toString()` IS the canonical value, unlike CarbonInterval's.
      */
     protected function carbonMethodReturnsUnimportableStringable(string $carbonClass, string $methodName): bool

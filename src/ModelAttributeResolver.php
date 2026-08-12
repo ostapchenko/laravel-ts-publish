@@ -445,8 +445,8 @@ class ModelAttributeResolver
     /**
      * Names of the model's real database columns, read straight from the schema.
      *
-     * This is the raw listing: it still includes $hidden columns, which never reach the emitted
-     * interface — callers naming keys against that interface want publishedColumnNames() instead.
+     * Mirrors ModelTransformer::transformColumns()'s $dbColumns exactly (same schema listing call).
+     * Raw listing — includes $hidden columns; callers want publishedColumnNames() for the emitted interface.
      *
      * @param  class-string  $modelFqcn
      * @return list<string>
