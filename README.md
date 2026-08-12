@@ -963,6 +963,19 @@ When `globals.enabled` is enabled, a global declaration file is created that mak
 ],
 ```
 
+When `json.enabled` is enabled, a `laravel-ts-definitions.json` file is written alongside the generated `.ts` files, containing every collected model, enum, resource, form request, and broadcast event as structured data (columns, cases, properties, and so on) rather than TypeScript source:
+
+```php
+// config/ts-publish.php
+
+'json' => [
+    'enabled' => true,
+    'filename' => 'laravel-ts-definitions.json',
+],
+```
+
+The file has one top-level object per feature — `models`, `enums`, `resources`, `formRequests`, `broadcastEvents` — and **every one of those objects is keyed by the fully-qualified class name** of the PHP class it was generated from (e.g. `"Workbench\\App\\Models\\User"`), not by its short class name. Each entry also carries a `name` field with the short type name that used to be the map's key. Keying by FQCN is deliberate: two classes that share a basename in different namespaces (`App\Models\User` and `Crm\Models\User`, for instance) are common in larger apps, and a short-name key would silently overwrite one with the other. If you parse this file, key your lookups by FQCN and read `name` for display purposes — **this is a breaking change** for anything written against an older bare-name-keyed version of this file.
+
 The JSON output from `watcher.enabled` is designed to work with build tools and file watchers (like the [@tolki/ts Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html)) that need to know which PHP source files were collected so they can trigger a re-publish when those files change.
 
 ## Configuration Reference

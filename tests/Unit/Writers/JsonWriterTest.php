@@ -21,8 +21,75 @@ test('writes json content when enabled', function () {
     expect($decoded)
         ->toHaveKey('models')
         ->toHaveKey('enums')
-        ->and($decoded['models'])->toHaveKey('User')
-        ->and($decoded['enums'])->toHaveKey('Status');
+        ->and($decoded['models'])->toHaveKey('Workbench\App\Models\User')
+        ->and($decoded['models']['Workbench\App\Models\User']['name'])->toBe('User')
+        ->and($decoded['enums'])->toHaveKey('Workbench\App\Enums\Status')
+        ->and($decoded['enums']['Workbench\App\Enums\Status']['name'])->toBe('Status');
+});
+
+test('models map keys by FQCN so same-basename models cannot collapse', function () {
+    config()->set('ts-publish.json.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new JsonWriter(new Filesystem);
+    $decoded = json_decode($writer->write($runner), true);
+
+    expect($decoded['models'])->toHaveKey('Workbench\App\Models\Sales\Report\Report')
+        ->and($decoded['models'])->toHaveKey('Workbench\App\Models\Marketing\Report\Report')
+        ->and($decoded['models']['Workbench\App\Models\Sales\Report\Report']['name'])->toBe('Report')
+        ->and($decoded['models'])->toHaveKey('Workbench\App\Models\User')
+        ->and($decoded['models'])->toHaveKey('Workbench\Crm\Models\User')
+        ->and($decoded['models'])->toHaveKey('Workbench\App\Models\TrackingEvent')
+        ->and($decoded['models'])->toHaveKey('Workbench\Shipping\Models\TrackingEvent');
+});
+
+test('every discovered model appears in the definitions json', function () {
+    config()->set('ts-publish.json.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new JsonWriter(new Filesystem);
+    $decoded = json_decode($writer->write($runner), true);
+
+    // 52 discovered models (see ModelsFinderTest); the old bare-name keying yielded 49.
+    expect($decoded['models'])->toHaveCount(52);
+});
+
+test('enums map keys by FQCN so same-basename enums cannot collapse', function () {
+    config()->set('ts-publish.json.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new JsonWriter(new Filesystem);
+    $decoded = json_decode($writer->write($runner), true);
+
+    expect($decoded['enums'])->toHaveKey('Workbench\App\Enums\Status')
+        ->and($decoded['enums'])->toHaveKey('Workbench\Crm\Enums\Status')
+        ->and($decoded['enums']['Workbench\Crm\Enums\Status']['name'])->toBe('Status')
+        ->and($decoded['enums'])->toHaveCount(20);
+});
+
+test('resources map keys by FQCN so same-basename resources cannot collapse', function () {
+    config()->set('ts-publish.json.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new JsonWriter(new Filesystem);
+    $decoded = json_decode($writer->write($runner), true);
+
+    expect($decoded['resources'])->toHaveKey('Workbench\App\Http\Resources\UserResource')
+        ->and($decoded['resources'])->toHaveKey('Workbench\Crm\Http\Resources\UserResource')
+        ->and($decoded['resources']['Workbench\Crm\Http\Resources\UserResource']['name'])->toBe('UserResource')
+        ->and($decoded['resources'])->toHaveCount(99);
 });
 
 test('returns empty string when json output is disabled', function () {
@@ -49,10 +116,11 @@ test('json models contain columns as name/type pairs', function () {
     $content = $writer->write($runner);
 
     $decoded = json_decode($content, true);
-    $userFields = $decoded['models']['User'];
+    $userModel = $decoded['models']['Workbench\App\Models\User'];
 
-    $nameField = collect($userFields)->firstWhere('name', 'name');
-    expect($nameField)->toBe(['name' => 'name', 'type' => 'string']);
+    $nameField = collect($userModel['properties'])->firstWhere('name', 'name');
+    expect($userModel['name'])->toBe('User')
+        ->and($nameField)->toBe(['name' => 'name', 'type' => 'string']);
 });
 
 test('json enums contain cases and methods', function () {
@@ -66,9 +134,10 @@ test('json enums contain cases and methods', function () {
     $content = $writer->write($runner);
 
     $decoded = json_decode($content, true);
-    $status = $decoded['enums']['Status'];
+    $status = $decoded['enums']['Workbench\App\Enums\Status'];
 
     expect($status)
+        ->toHaveKey('name')
         ->toHaveKey('cases')
         ->toHaveKey('caseKinds')
         ->toHaveKey('caseTypes')
@@ -87,8 +156,9 @@ test('json resources include typeAlias for flat collections', function () {
     $content = $writer->write($runner);
     $decoded = json_decode($content, true);
 
-    expect($decoded['resources'])->toHaveKey('PostFlatCollection');
-    expect($decoded['resources']['PostFlatCollection'])->toBe(['typeAlias' => 'PostResource[]']);
+    expect($decoded['resources'])->toHaveKey('Workbench\App\Http\Resources\PostFlatCollection');
+    expect($decoded['resources']['Workbench\App\Http\Resources\PostFlatCollection'])
+        ->toBe(['name' => 'PostFlatCollection', 'typeAlias' => 'PostResource[]']);
 })->skip(fn () => ! version_compare(app()->version(), '13', '>='));
 
 test('writes json file to disk when output_to_files is enabled', function () {
