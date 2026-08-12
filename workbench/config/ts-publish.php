@@ -201,10 +201,7 @@ return [
     |
     | 'relationship_case': Case style for relationship names ('snake', 'camel', or 'pascal').
     | 'nullable_relations': When enabled, singular relations generate types with | null.
-    | 'exclude_hidden': When enabled, Eloquent $hidden attributes (e.g. password, remember_token)
-    | are omitted from generated model interfaces, matching Laravel's own toArray()/toJson()
-    | serialization. Defaults to false (hidden attributes are shown) to avoid silently dropping
-    | properties consumers may already rely on; opt in once you've confirmed nothing needs them.
+    | 'exclude_hidden': When enabled, Eloquent $hidden attributes are omitted
     */
 
     'models' => [
