@@ -16,10 +16,10 @@ object key. A node's own rule data (its resolved TS type, required/nullable/proh
 JSDoc metadata) lives at the exact path it was declared on; intermediate ancestors created only
 to reach a deeper path (e.g. `order` when only `order.id` was declared) have none.
 
-The trie node itself (`FormRequestRuleTrieNode`) is a small internal class defined in the same
-file, not a plain nested array — PHPStan (this project runs level 10) rejects a directly
-self-referencing `@phpstan-type` array shape as a "circular definition," so a `children` property
-typed `array<string, self>` is the type-checkable way to express its unbounded depth.
+The trie node itself is a small internal class ([`FormRequestRuleTrieNode`](../../src/Analyzers/FormRequest/FormRequestRuleTrieNode.php)),
+not a plain nested array — PHPStan (this project runs level 10) rejects a directly self-referencing
+`@phpstan-type` array shape as a "circular definition," so a `children` property typed
+`array<string, FormRequestRuleTrieNode>` is the type-checkable way to express its unbounded depth.
 
 `composeTrieNode()` then collapses the trie bottom-up:
 
