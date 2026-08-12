@@ -573,25 +573,11 @@ class ModelTransformer extends CoreTransformer
             $registry->register($fqcn, $typeName, $preferred);
         }
 
-        $constNames = $constRegistry->resolve();
-
-        foreach ($registry->resolve() as $fqcn => $localName) {
-            $typeName = $this->enumFqcnMap[$fqcn] ?? $this->modelFqcnMap[$fqcn] ?? null;
-
-            if ($typeName === null || $localName === $typeName) {
-                continue;
-            }
-
-            $this->importAliases[$fqcn] = $localName;
-
-            if (isset($constNames[$fqcn]) && $constNames[$fqcn] !== $this->enumConstMap[$fqcn]) {
-                $this->constImportAliases[$fqcn] = $constNames[$fqcn];
-            }
-        }
-
-        if ($this->importAliases !== []) {
-            $this->rewriteTypeReferences();
-        }
+        $this->applyResolvedImportNames(
+            $registry->resolve(),
+            $this->enumFqcnMap + $this->modelFqcnMap,
+            $constRegistry->resolve(),
+        );
 
         return $this;
     }

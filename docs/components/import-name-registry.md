@@ -49,6 +49,12 @@ climbs only as far as needed:
 
 ## Consumers
 
+Each transformer's `resolveImportConflicts()` builds the registry (or registries) that fit its
+own FQCN maps, then hands the resolved names to the shared
+`ResolvesImportConflicts::applyResolvedImportNames()` step — the part that actually assigns
+aliases and, when anything was aliased, triggers `rewriteTypeReferences()` — rather than each
+transformer walking `$registry->resolve()` itself.
+
 ### `ModelTransformer`
 
 `ModelTransformer::resolveImportConflicts()` builds one `ImportNameRegistry` per model file:
@@ -69,6 +75,9 @@ climbs only as far as needed:
   paired type name does (both are deterministic functions of the same enum FQCN), the sibling
   registry naturally mirrors the type registry's chosen depth: `StatusType` aliased to
   `CrmStatusType` pairs with `Status` aliased to `CrmStatus`.
+- **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
+  $this->modelFqcnMap, $constRegistry->resolve())` — the `+` union is safe because a given FQCN
+  is never legitimately both an enum and a model.
 
 ### `ResourceTransformer`
 
@@ -81,6 +90,10 @@ with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
   relation-derived preference the way `ModelTransformer`'s models do.
 - **Const-alias mirroring.** Identical to `ModelTransformer`: a sibling registry (same skip
   list) resolves enum const aliases independently of the type aliases.
+- **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
+  $this->resourceFqcnMap + $this->modelFqcnMap, $constRegistry->resolve())` — the three-way
+  union is safe for the same reason: a class can extend at most one of `Model` or
+  `JsonResource`, and an enum FQCN is neither.
 
 ### `BroadcastEventTransformer`
 
@@ -93,6 +106,9 @@ file, `new ImportNameRegistry(['Events', 'Enums', 'Models'])`:
 - **No const-alias handling.** `$enumConstMap` is always empty on this transformer (broadcast
   event payloads reference enums as types, never as tolki `AsEnum<typeof Const>` values), so
   there is no sibling const registry — mirroring one here would be dead code.
+- **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
+  $this->modelFqcnMap)` — the third argument is omitted, defaulting to `[]`, so const aliases
+  are never populated.
 
 All three transformer consumers are now on `ImportNameRegistry`; no transformer derives
 aliases from a single namespace segment anymore.

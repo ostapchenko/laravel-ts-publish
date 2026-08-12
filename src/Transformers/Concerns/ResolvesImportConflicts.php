@@ -43,4 +43,39 @@ trait ResolvesImportConflicts
 
         return $constName;
     }
+
+    /**
+     * Rewrite property type references to use aliased names; each transformer implements this
+     * against its own property shape.
+     */
+    abstract protected function rewriteTypeReferences(): void;
+
+    /**
+     * Apply a registry's resolved names to the alias maps, then rewrite type references when
+     * anything was actually aliased.
+     *
+     * @param  array<string, string>  $resolved  FQCN => final local type name
+     * @param  array<string, string>  $typeNames  FQCN => unaliased TypeScript type name
+     * @param  array<string, string>  $constNames  FQCN => final local const name (empty when the caller has no const imports)
+     */
+    protected function applyResolvedImportNames(array $resolved, array $typeNames, array $constNames = []): void
+    {
+        foreach ($resolved as $fqcn => $localName) {
+            $typeName = $typeNames[$fqcn] ?? null;
+
+            if ($typeName === null || $localName === $typeName) {
+                continue;
+            }
+
+            $this->importAliases[$fqcn] = $localName;
+
+            if (isset($constNames[$fqcn]) && $constNames[$fqcn] !== $this->enumConstMap[$fqcn]) {
+                $this->constImportAliases[$fqcn] = $constNames[$fqcn];
+            }
+        }
+
+        if ($this->importAliases !== []) {
+            $this->rewriteTypeReferences();
+        }
+    }
 }
