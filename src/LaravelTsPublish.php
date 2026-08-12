@@ -438,13 +438,10 @@ class LaravelTsPublish
     }
 
     /**
-     * Build an inline TS object shape from a class's public, non-static properties (promoted
-     * constructor properties included) — the fallback for an Arrayable/JsonSerializable DTO whose
-     * toArray()/jsonSerialize() carries no `@return array{...}` shape. Returns null when the class
-     * has no public instance properties, so the caller keeps its own `unknown[]` default.
+     * Build an inline TS object shape from a class's public, non-static properties — the fallback for
+     * an Arrayable/JsonSerializable DTO with no `@return array{...}` shape.
      *
-     * Reuses $shapeExpansionStack (the same guard arrayableShapeType() uses) under a `::__properties`
-     * key: a property typed as the class itself, or a mutual pair, would otherwise recurse forever.
+     * Reuses $shapeExpansionStack under a `::__properties` key to guard against infinite recursion.
      *
      * @param  class-string  $fqcn
      */
@@ -485,9 +482,8 @@ class LaravelTsPublish
     /**
      * Whether a resolved shape value contains an identifier that would need an import to be valid.
      *
-     * extractImportableTypes() can't be reused: it skips anything containing '<' or '{', which
-     * docblock-derived shapes routinely contain. Object-literal keys are stripped first so the
-     * 'owner' in '{ owner: User }' isn't read as a value-side identifier.
+     * extractImportableTypes() can't be reused: it skips '<'/'{' content, which docblock shapes routinely have.
+     * Object-literal keys are stripped first so 'owner' in '{ owner: User }' isn't read as a value token.
      */
     protected function shapeValueHasUnimportableToken(string $type): bool
     {
@@ -686,9 +682,8 @@ class LaravelTsPublish
     /**
      * A "vague" TS type carries no element information, so a docblock generic can usually do better.
      *
-     * An object-literal shape is never vague even when one of its own keys resolves to 'unknown'
-     * (e.g. `{ filters?: Record<string, unknown> }` from a `mixed` value) — a bare 'unknown'
-     * substring only signals vagueness outside of `{...}`, where no per-key structure exists.
+     * An object-literal shape is never vague even when a key resolves to 'unknown' — a bare 'unknown'
+     * substring only signals vagueness outside `{...}`, where no per-key structure exists.
      */
     public function isVagueTsType(string $type): bool
     {
@@ -704,9 +699,8 @@ class LaravelTsPublish
     /**
      * Resolve a PHP function name (built-in or userland global) to its TypeScript return type.
      *
-     * Laravel's helpers (`route()`, `url()`) are plain functions from `illuminate/foundation`'s
-     * `helpers.php`, so they are not `isInternal()`. Only all-builtin scalar return types are mapped:
-     * `toTsType()`'s partial matching turns `Carbon\CarbonInterface` into number, and no import can fire here.
+     * Only all-builtin scalar return types are mapped: toTsType()'s partial matching would turn a class
+     * like `Carbon\CarbonInterface` into `number` here, with no import channel to attach to it.
      *
      * @return TypeScriptTypeInfo
      */
@@ -786,13 +780,8 @@ class LaravelTsPublish
     /**
      * The ReflectionClass whose file actually declares a method's body.
      *
-     * A long-standing PHP reflection quirk: for a method a class picks up from a `use`d trait,
-     * getDeclaringClass() reports the consuming class, not the trait — even though getFileName()
-     * and getDocComment() still read from the trait's own source. Walking the declaring class's
-     * traits (recursively, for traits-of-traits) recovers the class whose use-map actually applies.
-     *
-     * Public so callers outside this class — e.g. ModelAttributeResolver's morphTo docblock
-     * generic parsing — can resolve the same declaring-file use-map for a trait-provided method.
+     * PHP reflection quirk: for a trait-provided method, getDeclaringClass() reports the consuming
+     * class, not the trait, even though getFileName()/getDocComment() still read from the trait.
      *
      * @return ReflectionClass<object>
      */
@@ -937,12 +926,10 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve one union member of a docblock type, trying a @phpstan-type/@phpstan-import-type
-     * alias visible from $contextClass before falling through to resolveDocblockTypePart(). A hit
-     * resolves the alias's raw definition through the *plain* pipeline (resolveDocblockPartToInfo)
-     * against the alias's own defining class — not $contextClass's, and deliberately not alias-aware
-     * again: two purely-local aliases naming each other would otherwise recurse unguarded, since the
-     * cycle guard lives inside resolvePhpstanTypeAlias() and only covers the @phpstan-import-type chain.
+     * Resolve one union member of a docblock type, trying a @phpstan-type/@phpstan-import-type alias first.
+     *
+     * A hit resolves via the *plain* pipeline, deliberately not alias-aware again, to avoid two purely-local
+     * aliases naming each other recursing unguarded — the cycle guard only covers the @phpstan-import-type chain.
      *
      * @param  array<string, string>  $useMap
      * @param  ReflectionClass<object>  $contextClass
@@ -1412,12 +1399,10 @@ class LaravelTsPublish
     }
 
     /**
-     * Resolve a PHPDoc `array{...}` shape string to an inline TS object literal, or null when
-     * $phpType isn't a well-formed shape. Shared by resolvePhpDocTypeToTs(), resolveDocblockTypePart(),
-     * and resolveDocblockContainerValue() so a shape resolves identically wherever it appears.
+     * Resolve a PHPDoc `array{...}` shape string to an inline TS object literal, or null when malformed.
      *
-     * A per-key value carrying an unimportable token (a bare class/enum name) degrades to 'unknown':
-     * the shape map is string-only, so it can never carry the FQCN an import would need.
+     * A per-key value with an unimportable token (a bare class/enum name) degrades to 'unknown': the
+     * shape map is string-only, so it can never carry the FQCN an import would need.
      *
      * @param  array<string, string>  $useMap
      */
@@ -1691,8 +1676,7 @@ class LaravelTsPublish
      * Merge a list of TypeScriptTypeInfo results into one, joining type strings with ' | '.
      *
      * Class-backed entries dedupe by FQCN, not short name, so two classes sharing a class_basename()
-     * keep separate tokens for rewriteTypeReferences() to alias independently with limit=1 replacement.
-     * Container-decorated types ('OrderItem[]', 'Record<string, OrderItem>') stay one opaque token.
+     * keep separate tokens for rewriteTypeReferences() to alias independently.
      *
      * @param  list<TypeScriptTypeInfo>  $infos
      * @return TypeScriptTypeInfo
@@ -1772,9 +1756,8 @@ class LaravelTsPublish
     /**
      * Replace a bare type name with its import alias inside one item's type string.
      *
-     * Unlimited unless a second FQCN on the same item resolves to that same name: a widened container
-     * repeats its element (`X[] | Record<string, X>`) so one pass must take both, while a same-basename
-     * union has one occurrence per FQCN and must leave the rest for the other passes.
+     * Unlimited unless a second FQCN on the item resolves to the same name — a widened container repeats its
+     * element, so one pass must take both; a same-basename union has one occurrence per FQCN and leaves the rest.
      *
      * @param  list<string>  $itemFqcns  every FQCN registered against the item being rewritten; deduped
      *                                   here, since a repeated FQCN would read as a name collision and
@@ -1904,9 +1887,8 @@ class LaravelTsPublish
     /**
      * Prefix unqualified type names in a TypeScript type string with their global namespace.
      *
-     * Used for the globals file, where types from other namespaces must be fully qualified
-     * (`PaymentStatusType` → `enums.PaymentStatusType`). Pass 1 resolves per-file import aliases
-     * (`CrmUser` → `models.User`) first, so aliased names reach the qualification pass resolved.
+     * Pass 1 resolves per-file import aliases (`CrmUser` → `models.User`) first, so aliased names
+     * reach the namespace-qualification pass already resolved.
      *
      * @param  string  $typeStr  The TypeScript type string to rewrite.
      * @param  array<string, list<string>>  $namespacedTypes  Map of namespace prefix → type names it owns.

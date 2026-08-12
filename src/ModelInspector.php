@@ -33,7 +33,8 @@ class ModelInspector extends EloquentModelInspector
             $modelInfo = $data;
         }
 
-        /** @var array{
+        /**
+         * @var array{
          *  class: class-string<Model>,
          *  database: string,
          *  table: string,

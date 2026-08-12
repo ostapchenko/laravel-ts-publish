@@ -47,11 +47,10 @@ class ModelAttributeResolver
     protected array $contexts = [];
 
     /**
-     * Reverse morph-target map: sorted parent FQCNs that declare a MorphOne/MorphMany pointing at a
-     * child. Keyed twice per relation found — once under `childFqcn|morphName` (the morph name read
-     * from `getMorphType()`, e.g. `imageable`) so two differently-named morphTos on one child model
-     * don't share a union, and once under the plain `childFqcn` as a legacy aggregate bucket used
-     * when a child relation's own morph name can't be determined.
+     * Reverse morph-target map: parent FQCNs declaring a MorphOne/MorphMany pointing at a child.
+     *
+     * Keyed twice per relation — `childFqcn|morphName` so two differently-named morphTos on one child
+     * don't share a union, and a plain `childFqcn` legacy bucket for when the morph name is unknown.
      *
      * @var array<string, list<class-string>>
      */
@@ -167,12 +166,9 @@ class ModelAttributeResolver
 
     /**
      * Refine a vague resolved type using class-level @property/@property-read docblock tags
-     * (Larastan/ide-helper convention): first the class/parent chain (child tags win), then each
-     * of those classes' traits, recursively — a trait's own class docblock is consulted last.
+     * (Larastan/ide-helper convention).
      *
-     * A tag naming a @phpstan-type/@phpstan-import-type alias expands to that alias's shape.
-     * Public: ModelTransformer's mutator resolution also calls this for accessor-derived types,
-     * since it resolves accessors directly rather than through resolveAttribute()'s own waterfall.
+     * Searches the class/parent chain (child wins), then each class's traits, recursively.
      *
      * @param  ReflectionClass<Model>  $reflection
      * @param  TypeScriptTypeInfo  $tsInfo
@@ -239,18 +235,10 @@ class ModelAttributeResolver
     }
 
     /**
-     * Attempt a refinement from a single class's own (non-inherited) @property/@property-read
-     * docblock tag. Null when the class has no usable tag for this attribute.
+     * Attempt a refinement from a single class's own @property/@property-read docblock tag; null if none.
      *
-     * Two forms are matched: the documented `@property Type $name` (`$` required, a trailing
-     * description tolerated — the type capture excludes `$` entirely, so a genuine `$variable`
-     * marker anywhere before the target name still blocks a run into a neighbouring tag or
-     * description); and the non-standard, `$`-less `@property Type name` some vendor traits use,
-     * accepted only in that exact undescribed form (name immediately followed by end of line or
-     * the docblock terminator). The `$`-less type capture also excludes a bare space not
-     * following a comma, so it can't span a natural-language description at all — without both
-     * restrictions, a `$`-less tag's trailing description could have its last word mistaken for
-     * the property name and resolved into a confidently wrong concrete type.
+     * Also matches a `$`-less `@property Type name` form some vendor traits use, but only when undescribed —
+     * otherwise a trailing description's last word could be mistaken for the property name, yielding a wrong type.
      *
      * @param  ReflectionClass<object>  $class
      * @param  TypeScriptTypeInfo  $current
@@ -290,10 +278,8 @@ class ModelAttributeResolver
     /**
      * Whether a docblock-derived refinement is more structured than the type it would replace.
      *
-     * A refinement that still names 'unknown' is only accepted when the type it replaces is
-     * entirely vague (a bare untyped array/collection/object, optionally nullable) and the
-     * refinement itself is not equally vague — e.g. `Record<string, unknown>` beats a bare
-     * `unknown[]`, but neither beats the other.
+     * A refinement still naming 'unknown' is accepted only when the replaced type is entirely vague
+     * and the refinement isn't equally vague — e.g. `Record<string, unknown>` beats `unknown[]`, but neither wins.
      */
     protected function isStrictlyMoreStructured(string $candidate, string $current): bool
     {
@@ -459,9 +445,8 @@ class ModelAttributeResolver
     /**
      * Names of the model's real database columns, read straight from the schema.
      *
-     * Mirrors ModelTransformer::transformColumns()'s $dbColumns exactly (same schema listing call). This is
-     * the raw listing: it still includes $hidden columns, which never reach the emitted interface — callers
-     * naming keys against that interface want publishedColumnNames() instead.
+     * This is the raw listing: it still includes $hidden columns, which never reach the emitted
+     * interface — callers naming keys against that interface want publishedColumnNames() instead.
      *
      * @param  class-string  $modelFqcn
      * @return list<string>
@@ -653,11 +638,9 @@ class ModelAttributeResolver
     }
 
     /**
-     * Resolve a MorphTo relation's target model FQCNs: a narrowing `@return MorphTo<X, ...>`
-     * docblock generic first, then the reverse-relation map keyed by the relation's own morph
-     * name. The single source of truth for MorphTo target resolution — both resolveRelation() and
-     * ModelTransformer's relation pipeline call this, so a docblock generic is honored wherever a
-     * MorphTo union is emitted, not just through resolveRelation()'s own callers.
+     * Resolve a MorphTo relation's target model FQCNs — a docblock generic first, then the reverse-relation map.
+     *
+     * Single source of truth for MorphTo targets: both resolveRelation() and ModelTransformer's pipeline call this.
      *
      * @param  class-string  $modelFqcn
      * @return list<class-string>
@@ -682,11 +665,10 @@ class ModelAttributeResolver
     }
 
     /**
-     * Concrete Model subclasses named by a morphTo method's `@return MorphTo<X|Y, ...>` docblock
-     * generic, resolved through the declaring class's — or, for a trait-provided relation, the
-     * trait's — use-map via `methodDeclaringFileClass()` (the same resolution Task 7 introduced
-     * for accessor/mutator docblocks). Bare `Model` and abstract targets yield `[]` so the caller
-     * falls through to the reverse-relation map instead of importing a useless base class.
+     * Concrete Model subclasses named by a morphTo method's `@return MorphTo<X|Y, ...>` docblock generic.
+     *
+     * Bare `Model` and abstract targets yield `[]`, so the caller falls through to the
+     * reverse-relation map instead of importing a useless base class.
      *
      * @param  class-string  $modelFqcn
      * @return list<class-string<Model>>
@@ -761,11 +743,10 @@ class ModelAttributeResolver
     }
 
     /**
-     * The morph "name" (e.g. 'imageable') for a MorphTo/MorphOne/MorphMany relation, read from its
-     * getMorphType() column ('imageable_type' minus the '_type' suffix). Building an Eloquent
-     * relation queries nothing — addConstraints() only appends to the query builder — so invoking
-     * it on an unpersisted instance is safe; any failure degrades to null so callers fall back to
-     * the legacy per-child bucket instead of surfacing an exception.
+     * The morph "name" (e.g. 'imageable') for a MorphTo/MorphOne/MorphMany relation.
+     *
+     * Building an Eloquent relation queries nothing — addConstraints() only appends to the query
+     * builder — so calling it on an unpersisted instance is safe.
      */
     protected function relationMorphName(Model $instance, string $relationName): ?string
     {

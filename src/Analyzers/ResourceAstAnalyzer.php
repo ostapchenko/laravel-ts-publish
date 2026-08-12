@@ -244,9 +244,8 @@ class ResourceAstAnalyzer
     /**
      * Record top-level `$var = expr;` statements so property values referencing those variables resolve.
      *
-     * A variable written more than once anywhere in the method is skipped: this flat statement list has no
-     * notion of which write is live at a given return branch (analyzeAllReturnBranches() analyzes each
-     * branch independently), so binding one of them risks a wrong-but-plausible type rather than unknown.
+     * Skips variables written more than once — this flat list can't tell which write is live at a
+     * given return branch, so binding one risks a wrong-but-plausible type instead of unknown.
      *
      * @param  array<Node\Stmt>  $stmts
      */
@@ -301,15 +300,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Collect every local variable name written anywhere in a statement tree, via any assignment or
-     * mutation form, including `foreach` key/value targets and destructuring leaves. `AssignRef` counts
-     * both sides, since `$alias = &$x;` makes any later write to `$alias` mutate `$x` too. By-reference
-     * call arguments (e.g. `preg_match(..., $matches)`) are a known gap — detecting them needs the
-     * callee's signature, which is not statically knowable for dynamic callables.
+     * Collect every local variable name written anywhere in a statement tree (writes, mutations,
+     * foreach targets, closure/arrow params).
      *
-     * Closure and arrow-function parameters count too: they rebind the name, so an outer local of the
-     * same name would otherwise leak into the closure body. A by-value `use ($x)` is not a write — it
-     * carries the outer value in — while `use (&$x)` aliases it, exactly like AssignRef.
+     * By-reference call arguments are a known gap — the callee's signature isn't statically knowable.
      *
      * @param  array<Node>  $stmts
      * @return list<string>
@@ -1074,10 +1068,8 @@ class ResourceAstAnalyzer
     /**
      * Analyze a null-coalescing expression (`$left ?? $right`).
      *
-     * Cannot delegate to analyzeClosureUnion(): coalesce discards the left operand's `null`, so
-     * unioning the raw branch types would render `Order | null | Order`. Only the operands that
-     * actually contribute a member to the result have their FQCN/import channels merged in — a
-     * discarded branch's import must not be emitted, since nothing references it.
+     * Doesn't delegate to analyzeClosureUnion(): that would leave `null` in twice (`Order | null | Order`).
+     * Only operands contributing a result member get their FQCN/import channels merged.
      *
      * @return ValueExpressionResult
      */
@@ -1232,10 +1224,8 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->whenLoaded('relation') or $this->whenLoaded('relation', value, default).
      *
-     * A single-model relation's closure param is also bound in `$varModelBindings`, so a bare
-     * `$param` (not just `$param->prop`) resolves to the related model. A to-many relation is not
-     * bound this way: the param holds the whole collection, not one element, so binding it to the
-     * element model would resolve a bare `$param` to a wrong-but-plausible singular type.
+     * A single-model relation's closure param binds in `$varModelBindings` so a bare `$param` resolves.
+     * To-many relations are deliberately not bound this way — the param holds a collection, not an element.
      *
      * @return ValueExpressionResult
      */
@@ -1498,11 +1488,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult only when every
-     * referenced type can be imported: primitives verbatim; enums via the single slot or
-     * the embedded list; Model classes via modelFqcn/embeddedModelFqcns; TsType custom
-     * imports carried through. A non-Model class token has no published file to import,
-     * so it still rejects the whole result.
+     * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult, or null when any referenced
+     * type can't be imported.
+     *
+     * A non-Model class token has no published file to import, so its presence rejects the whole result.
      *
      * @param  TypeScriptTypeInfo  $tsInfo
      * @return ValueExpressionResult|null
@@ -1906,10 +1895,8 @@ class ResourceAstAnalyzer
     /**
      * Resolve and analyze a $this->method() spread from a trait or the class itself.
      *
-     * $localVarBindings/$resolvingLocalVars/$varModelBindings are scoped to a single method's statement
-     * list, so they are saved, cleared, re-collected for the target method, and restored via `finally` —
-     * a caller's `$data` and a same-named `$data` here are different variables, and the caller may still
-     * be mid-analysis.
+     * $localVarBindings/$resolvingLocalVars/$varModelBindings are saved, cleared, and restored via
+     * `finally`, since a spread can recurse while the caller's own analysis is still mid-flight.
      */
     protected function analyzeThisMethodSpread(string $methodName): ?ResourceAnalysis
     {
@@ -2858,19 +2845,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Build a Pick<Model, …>/Omit<Model, …> reference when every filter key is a column the model interface
-     * actually declares, so that interface (with its TsCasts/@property refinements) stays the single source
-     * of truth. Returns null when any key is not one — callers fall back to inline expansion (e.g. the key
-     * is an accessor/mutator, names a relation instead of a column, or is $hidden and so never emitted).
+     * Build a Pick<Model, …>/Omit<Model, …> reference when every filter key is a declared model column.
      *
-     * Both wrappers target the bare model interface (columns only) unconditionally. This matches
-     * Eloquent's actual runtime behaviour, not just a convenient simplification: HasAttributes::except()
-     * iterates only $this->getAttributes() — relations live in a separate $this->relations property it
-     * never reads — and HasAttributes::mergeAttributeFromAttributeCasts() explicitly refuses to merge a
-     * get-only Attribute cast's cached value back into $this->attributes, so except() can never surface
-     * one even after it has been accessed. Verified empirically in
-     * tests/Feature/ModelOnlyExceptSemanticsTest.php against a real, DB-fetched model with a loaded
-     * relation and touched accessors. See docs/components/resource-ast-analyzer.md.
+     * Both wrappers target the bare model interface unconditionally — Eloquent's except() only ever
+     * reads getAttributes(), so relations and get-only Attribute casts can never leak in regardless.
      *
      * @param  class-string<Model>  $modelFqcn
      * @param  list<string>  $keys
@@ -3135,10 +3113,6 @@ class ResourceAstAnalyzer
     /**
      * Analyze `$this->anyProp->method()` by resolving the method on the wrapped class.
      *
-     * When neither the wrapped class nor the @mixin model declares it, two fallbacks run: a date-cast
-     * receiver reflects the method on Carbon (guarded by carbonMethodReturnsUnimportableStringable()),
-     * then knownMethodRule() covers can()/getKey()/count()/exists().
-     *
      * @return ValueExpressionResult
      */
     protected function analyzeWrappedResourceMethodCall(MethodCall $expr): array
@@ -3213,14 +3187,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Determine whether a Carbon(Immutable) method's declared return type is a concrete class that merely
-     * implements `__toString()` (e.g. `diff()` → CarbonInterval) rather than a genuine `: string` return.
+     * Determine whether a Carbon(Immutable) method returns a __toString()-only class, not a genuine string.
      *
-     * LaravelTsPublish::toTsType()'s step 5b maps any non-Model Stringable class to a bare `string` with
-     * no FQCN attached, so acceptReflectedTypeInfo() cannot tell it from a real string; this inspects the
-     * raw reflected type first, mirroring that step's own condition. Carbon and CarbonImmutable are
-     * allow-listed: their `__toString()` IS the canonical datetime string, unlike CarbonInterval's
-     * human-readable formatting convenience.
+     * Needed since toTsType() erases Stringable classes to a bare `string`, indistinguishable from real ones.
+     * Carbon/CarbonImmutable are excluded — their `__toString()` IS the canonical value, unlike CarbonInterval's.
      */
     protected function carbonMethodReturnsUnimportableStringable(string $carbonClass, string $methodName): bool
     {
@@ -3273,15 +3243,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze a method-call chain rooted at `$this->{manyRelation}` made of identity-preserving collection
-     * ops (take, skip, filter, values, sortBy, ...) plus at most one `map()` or `pluck()`, or terminated by
-     * an argless `first()`/`last()`. A `map()` body is analyzed with the relation's element model bound as
-     * $closureRelationModelClass, and the closure's own first param bound in $varModelBindings so a bare
-     * `$param` (not just `$param->prop`) also resolves.
+     * Analyze a method-call chain on `$this->{manyRelation}` of identity-preserving ops plus at most
+     * one `map()`/`pluck()`, or an argless `first()`/`last()`.
      *
-     * Returns null — deferring to the caller's unknown fallthrough — for any other op, a second map/pluck,
-     * a first()/last() combined with map/pluck (YAGNI), or an unresolvable body. That is why
-     * `$this->items->count()` still reaches knownMethodRule().
+     * Anything else returns null and falls through — e.g. `$this->items->count()` still reaches knownMethodRule().
      *
      * @return ValueExpressionResult|null
      */
@@ -3515,14 +3480,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Late-stage rules for methods whose return type is fixed by Laravel convention: can()/cannot()/canAny()
-     * → boolean, and count()/exists() → number/boolean on a `$this->{manyRelation}` receiver. Applied last,
-     * after every more specific resolution path has had a chance to produce a real type.
+     * Late-stage rules fixed by Laravel convention (can/cannot/canAny → boolean; count/exists → number/boolean).
      *
-     * can() matches by name alone — every plausible receiver (an Authorizable user, the Gate facade, a
-     * policy-backed model) returns bool. count()/exists() and getKey() are receiver-gated instead: those
-     * names are commonly overloaded, and getKey()'s type depends on the receiver model's key type, so it
-     * is limited to `$this->resource->getKey()`, which always means the outer resource's own model.
+     * count()/exists()/getKey() are receiver-gated (unlike can()) since those names are commonly overloaded;
+     * getKey() is further scoped to `$this->resource->getKey()` since its type depends on the receiver's key type.
      *
      * @return ValueExpressionResult|null
      */
@@ -3619,9 +3580,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve a property access on a related model — either an explicitly bound model (a
-     * varModelBindings entry for the receiver variable) or, by default, the ambient whenLoaded
-     * closure's related model.
+     * Resolve a property access on a related model — an explicitly bound model, or by default the
+     * ambient whenLoaded closure's related model.
      *
      * Uses the same resolution chain as model attributes: accessor → cast → DB column type.
      *
@@ -3655,10 +3615,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve a method call (instance or static) on a related model — either an explicitly bound
-     * model (a varModelBindings entry for the receiver variable) or, by default, the ambient
-     * whenLoaded closure's related model. Accepted only when its tokens can be imported;
-     * see acceptReflectedTypeInfo().
+     * Resolve a method call (instance or static) on a related model — an explicitly bound model, or
+     * by default the ambient whenLoaded closure's related model.
+     *
+     * Accepted only when its tokens can be imported; see acceptReflectedTypeInfo().
      *
      * @param  class-string<Model>|null  $modelFqcn
      * @return ValueExpressionResult
@@ -3698,9 +3658,8 @@ class ResourceAstAnalyzer
     /**
      * Analyze a generic `$this->method()` by reflecting its declared return type.
      *
-     * Checks the resource's own methods, then the wrapped class, then the backing model — covering
-     * calls delegated via `__call` or `@mixin`. Each reflection is accepted only when its tokens can
-     * be imported; see acceptReflectedTypeInfo().
+     * Checks own methods, then the wrapped class, then the backing model, to cover calls delegated
+     * via `__call`/`@mixin`.
      *
      * @return ValueExpressionResult
      */
@@ -4034,11 +3993,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Fold union member types plus their contributing branch results into one ValueExpressionResult,
-     * carrying every FQCN and custom-import channel across so no emitted token loses its import.
+     * Fold union member types and their branch results into one ValueExpressionResult, carrying every
+     * FQCN/import channel across so no emitted token loses its import.
      *
-     * Shared by the ternary/closure union and by coalesce, which computes its own member list because
-     * it discards the left operand's null.
+     * Shared by the ternary/closure union and by coalesce, which computes its own member list.
      *
      * @param  list<string>  $types
      * @param  list<ValueExpressionResult>  $branchResults
@@ -4149,11 +4107,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze `$variable->map(fn (TypedClass $item) => [...])` using the closure's typed first parameter
+     * Analyze `$variable->map(fn (TypedClass $item) => [...])` using the closure's typed first param
      * as the element model, wrapping the body result as `elementType[]`.
      *
-     * Returns null when there is no typed Model parameter or the body resolves to unknown, so the
-     * caller falls through to the generic method handler.
+     * Returns null when there's no typed Model parameter, deferring to the generic method handler.
      *
      * @return ValueExpressionResult|null
      */

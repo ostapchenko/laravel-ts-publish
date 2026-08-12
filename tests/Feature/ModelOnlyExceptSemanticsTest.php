@@ -7,18 +7,10 @@ use Workbench\App\Models\Post;
 use Workbench\App\Models\User;
 
 /**
- * Ground-truth check for what Illuminate\Database\Eloquent\Concerns\HasAttributes::only()/except()
- * actually return at runtime, so ResourceAstAnalyzer's Pick<>/Omit<> optimization targets the real
- * Eloquent semantics rather than a guess. See docs/components/resource-ast-analyzer.md.
+ * Ground-truth check for what HasAttributes::only()/except() actually return at runtime, so
+ * ResourceAstAnalyzer's Pick<>/Omit<> optimization targets real Eloquent semantics, not a guess.
  *
- * Ground truth for Post::except([...]) on a DB-fetched instance: exactly Post's real database
- * columns minus the excluded keys — no relation, no accessor (get-only or get+set) not backed by a
- * real column. Confirmed empirically below and matches HasAttributes::except(), which iterates only
- * $this->getAttributes() (the raw attribute array); relations live in $this->relations, a separate
- * property except() never reads, and HasAttributes::mergeAttributeFromAttributeCasts() explicitly
- * refuses to merge a get-only Attribute cast's cached value back into $this->attributes
- * (`if ($attribute->get && ! $attribute->set) { return; }`), so it can never surface either — not
- * even once accessed.
+ * Confirmed below: except() returns real DB columns minus excluded keys, never a relation or unbacked accessor.
  */
 function createPersistedPost(): Post
 {

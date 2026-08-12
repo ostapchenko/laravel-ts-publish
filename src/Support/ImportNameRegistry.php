@@ -10,9 +10,8 @@ use Illuminate\Support\Str;
 /**
  * Assigns collision-free local TypeScript names to imported FQCNs.
  *
- * Transformers register every FQCN they import plus the file's own reserved names;
- * resolve() returns a deterministic FQCN => local-name map where aliases extend
- * namespace segment by segment until unique (numeric suffix as final tiebreak).
+ * resolve() returns a deterministic FQCN => local-name map, extending each alias by namespace
+ * segment until unique (numeric suffix as final tiebreak).
  *
  * @phpstan-type RegistryEntry array{fqcn: string, typeName: string, preferredAlias: string|null}
  */

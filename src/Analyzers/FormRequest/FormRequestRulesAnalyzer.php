@@ -37,11 +37,10 @@ use ReflectionException;
 use Throwable;
 
 /**
- * Internal dot-path trie node for FormRequestRulesAnalyzer's rule composition — not part of this
- * package's public API. Kept in this file rather than a dedicated one since nothing outside the
- * analyzer ever constructs or reads it; a plain class with a self-typed `children` property is
- * the PHPStan-level-10-safe way to express its unbounded depth (a recursive `@phpstan-type` array
- * shape is unsupported here — PHPStan reports "Circular definition detected in type alias").
+ * Internal dot-path trie node for FormRequestRulesAnalyzer's rule composition — not part of the public API.
+ *
+ * A plain class, not a recursive `@phpstan-type` array shape: PHPStan reports "Circular definition
+ * detected in type alias" for the recursive alias form.
  *
  * @phpstan-import-type RuleLeafData from FormRequestRulesAnalyzer
  */
@@ -166,9 +165,8 @@ class FormRequestRulesAnalyzer
     /**
      * Normalize a raw rules array into a list of `FormRequestRuleNode` objects.
      *
-     * Builds a dot-path trie over every rule key and collapses it bottom-up, so
-     * `parent.*.child`/`parent.child` rules compose into their nearest undotted ancestor
-     * instead of surviving as separate flat, quoted keys.
+     * Builds a dot-path trie and collapses it bottom-up, so `parent.*.child`/`parent.child` rules
+     * compose into their nearest undotted ancestor instead of surviving as separate flat keys.
      *
      * @param  array<string, mixed>  $rawRules
      * @return list<FormRequestRuleNode>
@@ -245,10 +243,9 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Collapse a trie node bottom-up into a single composed leaf: an object when it has named
-     * children, an array when its only child is a `*` wildcard, or its own leaf when childless.
-     * A node with both its own rule (e.g. `array`) and children uses the children — the
-     * composed type is strictly more specific than the placeholder the own rule alone would give.
+     * Collapse a trie node bottom-up into a composed leaf: object (named children), array (`*` child), or its own leaf.
+     *
+     * A node with both its own rule and children uses the children — more specific than the own rule's placeholder.
      *
      * @return RuleLeafData
      */
