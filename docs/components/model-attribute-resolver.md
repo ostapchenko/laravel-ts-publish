@@ -1,5 +1,9 @@
 # ModelAttributeResolver
 
+> User-facing docs: [README § Models](../../README.md#models) (see especially the
+> [annotation checklist](../../README.md#annotation-checklist)). Verified by
+> [the type-inference gates](../testing/type-inference-gates.md).
+
 `AbeTwoThree\LaravelTsPublish\ModelAttributeResolver` resolves a model attribute's TypeScript
 type through the accessor → cast → DB type waterfall, and resolves arbitrary method return
 types (relation-filter methods, `$this->method()` resource calls) via

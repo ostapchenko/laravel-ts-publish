@@ -1,5 +1,8 @@
 # FormRequestRulesAnalyzer
 
+> User-facing docs: [README § Form Requests](../../README.md#form-requests). Verified by
+> [the type-inference gates](../testing/type-inference-gates.md).
+
 `AbeTwoThree\LaravelTsPublish\Analyzers\FormRequest\FormRequestRulesAnalyzer` resolves a
 FormRequest's `rules()` array into `FormRequestRuleNode`s ready for interface generation, and
 composes `parent.*.child`/`parent.child` rule keys into their nearest undotted ancestor instead

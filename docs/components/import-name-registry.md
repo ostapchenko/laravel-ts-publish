@@ -1,5 +1,7 @@
 # ImportNameRegistry
 
+> User-facing docs: [README § Models](../../README.md#models). Verified by [the type-inference gates](../testing/type-inference-gates.md).
+
 `AbeTwoThree\LaravelTsPublish\Support\ImportNameRegistry` assigns collision-free local
 TypeScript names to the FQCNs a generated `.ts` file imports. A transformer registers every
 FQCN it needs to import — plus any names the file already declares for itself, via
@@ -92,8 +94,13 @@ with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
   list) resolves enum const aliases independently of the type aliases.
 - **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
   $this->resourceFqcnMap + $this->modelFqcnMap, $constRegistry->resolve())` — the three-way
-  union is safe for the same reason: a class can extend at most one of `Model` or
-  `JsonResource`, and an enum FQCN is neither.
+  union is safe because no FQCN is written into more than one of the three maps. `resourceFqcnMap`
+  is populated only from `analysis->nestedResources` (`JsonResource` subclasses), and
+  `modelFqcnMap` only from `analysis->modelFqcns` and the multi-class accessor branch in
+  `resolveMultiClassAccessorFqcns()` — both restricted, by how the upstream analyzers build
+  their `classFqcns`, to Eloquent model classes. This is a property of *where these maps are
+  populated from*, not something PHP's type system enforces (a class extending both `Model` and
+  `JsonResource` is technically possible; nothing in this codebase creates or expects one).
 
 ### `BroadcastEventTransformer`
 

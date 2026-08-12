@@ -1,5 +1,8 @@
 # ResourceAstAnalyzer
 
+> User-facing docs: [README § API Resources](../../README.md#api-resources). Verified by
+> [the type-inference gates](../testing/type-inference-gates.md).
+
 `AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer` walks a `JsonResource`
 subclass's `toArray()` method as PHP AST (not reflection) and infers a TypeScript type for
 every returned property, following relation chains, closures, casts, and accessor waterfalls

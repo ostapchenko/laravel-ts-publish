@@ -131,7 +131,34 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
 
 ## What the gates do not cover
 
-They read the **committed workbench corpus**, so they only see failures the fixtures actually produce. A
-defect reachable only by a shape no fixture exercises passes both. When adding an inference path, add a
-fixture for the hazardous shape too — several real defects were found only by constructing a fixture and
-regenerating, never by reading the code or running the suite.
+- **Fixture coverage.** They read the **committed workbench corpus**, so they only see failures the
+  fixtures actually produce. A defect reachable only by a shape no fixture exercises passes both. When
+  adding an inference path, add a fixture for the hazardous shape too — several real defects were found
+  only by constructing a fixture and regenerating, never by reading the code or running the suite.
+
+- **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
+  is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,
+  then checks whether that same `(file, scope, property)` key existed in the base snapshot. A property
+  that existed at `BASE_REV` and is simply **gone** at `HEAD` never appears in `h`, so it never enters the
+  loop at all — not as a pass, not as a fail, not as any kind of signal. The gate has no code path that
+  even notices a key vanished.
+
+  This is not theoretical: this branch shipped the first two deliberate property removals the gate has
+  ever seen. Task 13's `$hidden`-exclusion change dropped `user.password` and `user.remember_token` from
+  the generated model interface (matching Laravel's own `toArray()`/`toJson()` serialization — see
+  [What gets published](../../README.md#what-gets-published-hidden-attributes-write-only-accessors)), and
+  the write-only-accessor waterfall dropped `order.search_index` (a set-only mutator with no getter, no
+  docblock generic, and no backing column, so it's correctly omitted rather than emitted as `unknown`).
+  Both regenerated trees were reviewed by hand — reading the diff and confirming each property disappeared
+  for the intended reason — because the gate could not do, and did not do, any part of that verification.
+  A property quietly dropping for the *wrong* reason (a bug, not a deliberate design choice) would pass
+  both gates exactly the same way these did.
+
+  **Practical consequence:** whenever a change might remove a property — excluding more columns, widening
+  `$hidden`, tightening an accessor's visibility, deleting or renaming a workbench fixture — diff the
+  regenerated `workbench/resources/js/types/data` tree by hand (`git diff` on the committed output) and
+  account for every property that disappears. Neither gate substitutes for that review. Teaching the gate
+  to see removals — a second pass keyed the opposite direction (`for k in b if k not in h`), reporting each
+  base-only key as a `REMOVED — verify intentional` line rather than an automatic failure, since removal is
+  often correct — is real, scoped work, deliberately left for a follow-up rather than folded into this
+  documentation-only task.

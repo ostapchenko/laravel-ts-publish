@@ -363,8 +363,8 @@ protected function casts(): array
 - **Any other `Castable`/`CastsAttributes` class carrying arguments** — a custom cast, `AsEncryptedCollection`, etc. — resolves as if the arguments weren't there, i.e. exactly like the bare class.
 
 > [!TIP]
-> Before reaching for `#[TsCasts]`, check whether the generator can already infer the type on its own: a `@return`/`@phpstan-return` docblock on an accessor (generics included, e.g. `Collection<int, LineItem>`), a class-level `@property` tag, or a `@phpstan-type`/`@phpstan-import-type` alias as above, is often enough. All three are read by PHPStan/Larastan too, so they're checked by static analysis in a way a package-specific attribute isn't.
-> 
+> Before reaching for `#[TsCasts]`, prefer — in this order — a parameterized `Attribute<>`/`@return`/`@phpstan-return` docblock on an accessor (generics included, e.g. `Attribute<Collection<int, LineItem>, never>`), a class-level `@property`/`@property-read` tag (including a `@phpstan-type`/`@phpstan-import-type` alias, as above), or a `@return MorphTo<A|B, $this>` generic on a `morphTo()` relation. All of these are read by PHPStan/Larastan too, so they're checked by static analysis in a way a package-specific attribute isn't — and every one is honored by the generator with no extra configuration. See the [annotation checklist](#annotation-checklist) below for the full symptom-first list.
+>
 > `#[TsCasts]` is still the right tool when a shape is genuinely dynamic (keys built at runtime) or the type is owned by the frontend and needs its own import.
 
 ### Typing `morphTo` relations
@@ -436,6 +436,20 @@ class Order extends Model
 `trackingCode` generates as `tracking_code: string | null` in `OrderMutators`; `searchIndex` doesn't appear there at all. A write-only mutator backed by a real column (e.g. one that normalizes a value on save) resolves through the normal column waterfall instead, and is published as a column rather than a mutator.
 
 For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
+
+### Annotation checklist
+
+A symptom-first index of the annotations above (plus one from [API Resources](#api-resources) below) — none of these need `#[TsCasts]`, and every one is read by PHPStan/Larastan too, so the annotation that unlocks the TypeScript type is also checked by static analysis:
+
+| Still generating `unknown`? | Add this | Unlocks |
+| --- | --- | --- |
+| `Attribute<Collection, never>` / `Attribute<array, never>` resolving to `unknown[]` | Parameterize the generic: `Attribute<Collection<int, LineItem>, never>` / `Attribute<array<int, string>, never>` (or `array{...}` for a fixed shape) | The real element type (`LineItem[]` / `string[]`), imported automatically |
+| A bare `'array'`/`'collection'` cast with no shape anywhere else | A class-level `@property`/`@property-read` tag, e.g. `@property array<string, mixed>\|null $settings` | `Record<string, unknown> \| null` (or more specific, if the tag is) instead of `unknown[] \| null` — see [Typing `array` casts with `@property`](#typing-array-casts-with-property) |
+| A JSON shape worth naming once and reusing | `@phpstan-type Name array{...}` on the class that owns it, `@phpstan-import-type Name from ThatClass` + `@property Name $prop` on the model | A named, PHPStan-checked object shape expanded inline, no import of the DTO itself — see [Typing json columns with `@phpstan-type` aliases](#typing-json-columns-with-phpstan-type-aliases) |
+| `AsEnumCollection`/`AsCollection` cast with no argument, resolving to `unknown[]` | Pass the mapped class: `AsEnumCollection::of(Status::class)`, `AsCollection::of(LineItemDto::class)` | The mapped element's real type (enum or DTO shape), suffixed `[]` — see [Typing castable-with-arguments casts](#typing-castable-with-arguments-casts) |
+| `morphTo()` typed `unknown \| null` even though the app knows the possible targets | `@return MorphTo<A\|B, $this>` on the relation method | The narrowed union, every member imported — see [Typing `morphTo` relations](#typing-morphto-relations) |
+| An `Arrayable` DTO accessor/cast generating `unknown[]` | Nothing extra — typed public properties (promoted constructor properties included) are read automatically once `toArray()` has no `@return array{...}` shape of its own | A property-derived object shape instead of `unknown[]` — see [DTO-typed accessors and casts](#dto-typed-accessors-and-casts) |
+| `$this->relation->only([...])`/`->except([...])` losing the related model's own `#[TsCasts]`/`@property` refinements | Nothing extra — automatic whenever every filtered key is a real database column | `Pick<Model, 'a' \| 'b'>` / `Omit<Model, ...>` referencing the model's own generated interface — see [API Resources](#api-resources) |
 
 ## API Resources
 
