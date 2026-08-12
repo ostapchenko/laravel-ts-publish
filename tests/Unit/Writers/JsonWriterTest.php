@@ -92,6 +92,37 @@ test('resources map keys by FQCN so same-basename resources cannot collapse', fu
         ->and($decoded['resources'])->toHaveCount(99);
 });
 
+test('form requests map keys by FQCN and carries the short type name', function () {
+    config()->set('ts-publish.json.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new JsonWriter(new Filesystem);
+    $decoded = json_decode($writer->write($runner), true);
+
+    expect($decoded['formRequests'])->toHaveKey('Workbench\App\Http\Requests\StorePostRequest')
+        ->and($decoded['formRequests']['Workbench\App\Http\Requests\StorePostRequest']['name'])->toBe('StorePostRequest');
+});
+
+test('broadcast events map keys by FQCN and carries the short type name, not the echo channel string', function () {
+    config()->set('ts-publish.json.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new JsonWriter(new Filesystem);
+    $decoded = json_decode($writer->write($runner), true);
+    $event = $decoded['broadcastEvents']['Workbench\App\Events\OrderShipped'];
+
+    expect($decoded['broadcastEvents'])->toHaveKey('Workbench\App\Events\OrderShipped')
+        ->and($event['name'])->toBe('OrderShipped')
+        ->and($event['eventName'])->toBe('OrderShipped')
+        ->and($event['broadcastName'])->not->toBe($event['name']);
+});
+
 test('returns empty string when json output is disabled', function () {
     config()->set('ts-publish.json.enabled', false);
     config()->set('ts-publish.output_to_files', false);

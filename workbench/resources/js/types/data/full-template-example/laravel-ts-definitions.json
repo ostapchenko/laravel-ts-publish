@@ -1,7 +1,7 @@
 {
     "broadcastEvents": {
         "Workbench\\App\\Events\\EnumBroadcastEvent": {
-            "name": ".Workbench.App.Events.EnumBroadcastEvent",
+            "name": "EnumBroadcastEvent",
             "eventName": "EnumBroadcastEvent",
             "broadcastName": ".Workbench.App.Events.EnumBroadcastEvent",
             "properties": [
@@ -18,7 +18,7 @@
             ]
         },
         "Workbench\\App\\Events\\MixedTypesEvent": {
-            "name": ".Workbench.App.Events.MixedTypesEvent",
+            "name": "MixedTypesEvent",
             "eventName": "MixedTypesEvent",
             "broadcastName": ".Workbench.App.Events.MixedTypesEvent",
             "properties": [
@@ -40,7 +40,7 @@
             ]
         },
         "Workbench\\App\\Events\\MultiModelEvent": {
-            "name": ".Workbench.App.Events.MultiModelEvent",
+            "name": "MultiModelEvent",
             "eventName": "MultiModelEvent",
             "broadcastName": ".Workbench.App.Events.MultiModelEvent",
             "properties": [
@@ -57,7 +57,7 @@
             ]
         },
         "Workbench\\App\\Events\\OrderShipped": {
-            "name": ".Workbench.App.Events.OrderShipped",
+            "name": "OrderShipped",
             "eventName": "OrderShipped",
             "broadcastName": ".Workbench.App.Events.OrderShipped",
             "properties": [
@@ -84,7 +84,7 @@
             ]
         },
         "Workbench\\App\\Events\\PostPublishedEvent": {
-            "name": ".Workbench.App.Events.PostPublishedEvent",
+            "name": "PostPublishedEvent",
             "eventName": "PostPublishedEvent",
             "broadcastName": ".Workbench.App.Events.PostPublishedEvent",
             "properties": [
@@ -101,7 +101,7 @@
             ]
         },
         "Workbench\\App\\Events\\PureEnumEvent": {
-            "name": ".Workbench.App.Events.PureEnumEvent",
+            "name": "PureEnumEvent",
             "eventName": "PureEnumEvent",
             "broadcastName": ".Workbench.App.Events.PureEnumEvent",
             "properties": [
@@ -123,7 +123,7 @@
             ]
         },
         "Workbench\\App\\Events\\ReportSynced": {
-            "name": ".Workbench.App.Events.ReportSynced",
+            "name": "ReportSynced",
             "eventName": "ReportSynced",
             "broadcastName": ".Workbench.App.Events.ReportSynced",
             "properties": [
@@ -140,7 +140,7 @@
             ]
         },
         "Workbench\\App\\Events\\ServerCreated": {
-            "name": "server.created",
+            "name": "ServerCreated",
             "eventName": "ServerCreated",
             "broadcastName": "server.created",
             "properties": [
@@ -157,7 +157,7 @@
             ]
         },
         "Workbench\\App\\Events\\TeamMessageSent": {
-            "name": ".Workbench.App.Events.TeamMessageSent",
+            "name": "TeamMessageSent",
             "eventName": "TeamMessageSent",
             "broadcastName": ".Workbench.App.Events.TeamMessageSent",
             "properties": [
@@ -174,7 +174,7 @@
             ]
         },
         "Workbench\\App\\Events\\UserNotification": {
-            "name": ".Workbench.App.Events.UserNotification",
+            "name": "UserNotification",
             "eventName": "UserNotification",
             "broadcastName": ".Workbench.App.Events.UserNotification",
             "properties": [
@@ -196,7 +196,7 @@
             ]
         },
         "Workbench\\App\\Events\\UserRegisteredEvent": {
-            "name": ".Workbench.App.Events.UserRegisteredEvent",
+            "name": "UserRegisteredEvent",
             "eventName": "UserRegisteredEvent",
             "broadcastName": ".Workbench.App.Events.UserRegisteredEvent",
             "properties": [
@@ -213,7 +213,7 @@
             ]
         },
         "Workbench\\App\\Events\\UserSynced": {
-            "name": ".Workbench.App.Events.UserSynced",
+            "name": "UserSynced",
             "eventName": "UserSynced",
             "broadcastName": ".Workbench.App.Events.UserSynced",
             "properties": [
@@ -230,7 +230,7 @@
             ]
         },
         "Workbench\\Crm\\Events\\StatusSynced": {
-            "name": ".Workbench.Crm.Events.StatusSynced",
+            "name": "StatusSynced",
             "eventName": "StatusSynced",
             "broadcastName": ".Workbench.Crm.Events.StatusSynced",
             "properties": [
@@ -247,7 +247,7 @@
             ]
         },
         "Workbench\\Crm\\Events\\UserSynced": {
-            "name": ".Workbench.Crm.Events.UserSynced",
+            "name": "UserSynced",
             "eventName": "UserSynced",
             "broadcastName": ".Workbench.Crm.Events.UserSynced",
             "properties": [

@@ -222,7 +222,7 @@ class JsonWriter
             /** @var BroadcastEventGenerator $generator */
             $transformer = $generator->transformer;
             $data[$transformer->fqcn()] = [
-                'name' => $transformer->broadcastName,
+                'name' => $transformer->eventName,
                 'eventName' => $transformer->eventName,
                 'broadcastName' => $transformer->broadcastName,
                 'properties' => array_map(
