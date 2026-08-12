@@ -236,6 +236,11 @@ class ModelTransformer extends CoreTransformer
         foreach ($attributes as $attribute) {
             $name = $attribute['name'];
 
+            // Matches Laravel's own serialization: a $hidden column never reaches toArray()/toJson().
+            if ($attribute['hidden']) {
+                continue;
+            }
+
             if (isset($this->tsTypeOverrides[$name])) {
                 $this->columns[$name] = ['type' => $this->tsTypeOverrides[$name], 'description' => '', 'optional' => $this->optionalOverrides[$name] ?? false];
 

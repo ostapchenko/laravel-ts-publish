@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Workbench\Accounting\Models\Invoice;
 use Workbench\App\Enums\Status;
 use Workbench\App\Models\Address;
+use Workbench\App\Models\Attachment;
 use Workbench\App\Models\BaseSharedExtendableModel;
 use Workbench\App\Models\Category;
 use Workbench\App\Models\ChildSharedExtendableModel;
@@ -54,12 +55,19 @@ describe('ModelTransformer with User model', function () {
             ->toHaveKey('id')
             ->toHaveKey('name')
             ->toHaveKey('email')
-            ->toHaveKey('password')
             ->toHaveKey('role')
             ->toHaveKey('membership_level');
 
         expect($data->columns['role']['type'])->toBe('RoleType | null');
         expect($data->columns['membership_level']['type'])->toBe('MembershipLevelType | null');
+    });
+
+    test('$hidden columns (password, remember_token) are excluded from User model output', function () {
+        $data = (new ModelTransformer(User::class))->data();
+
+        expect($data->columns)
+            ->not->toHaveKey('password')
+            ->not->toHaveKey('remember_token');
     });
 
     test('resolves DB column type from Attribute accessor get closure', function () {
@@ -1397,6 +1405,20 @@ describe('ModelTransformer with UntypedColumn model (unknown-type fallback paths
 
         // Untyped SQLite columns are nullable and the fallback's 'unknown' carries no null of its own.
         expect($data->columns['nullable_accessor_col']['type'])->toBe('unknown | null');
+    });
+});
+
+describe('ModelTransformer with Attachment model that has a $hidden column', function () {
+    test('a $hidden column is excluded from the generated interface', function () {
+        $data = (new ModelTransformer(Attachment::class))->data();
+
+        expect($data->columns)->not->toHaveKey('internal_notes');
+    });
+
+    test('a non-hidden column is still published', function () {
+        $data = (new ModelTransformer(Attachment::class))->data();
+
+        expect($data->columns)->toHaveKey('filename');
     });
 });
 

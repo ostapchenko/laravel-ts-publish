@@ -9,11 +9,15 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Attachment extends Model
 {
+    /** Internal moderation notes — never published to the frontend. */
+    protected $hidden = ['internal_notes'];
+
     protected $fillable = [
         'attachable_type',
         'attachable_id',
         'filename',
         'size_bytes',
+        'internal_notes',
     ];
 
     protected function casts(): array
