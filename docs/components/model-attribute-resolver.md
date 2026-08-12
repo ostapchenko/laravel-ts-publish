@@ -277,3 +277,27 @@ traits-of-traits via `flattenTraits()`) to find the one whose file matches. Left
 name in a trait-declared accessor's docblock — `@return Attribute<Collection<int, OptionValue>,
 never>` — would resolve against the *consuming* model's imports instead of the trait's, silently
 degrading to `unknown` whenever the model doesn't happen to import the same class.
+
+## `publishedColumnNames()` and the `exclude_hidden` coupling
+
+`databaseColumnNames()` is the raw schema listing (every real column, `$hidden` included).
+`publishedColumnNames()` is the subset that actually reaches the emitted model interface — the
+list a caller must use when naming keys against that interface, e.g. `ResourceAstAnalyzer`
+deciding whether `$this->relation->only(['a', 'b'])` can reference `Pick<Model, 'a' | 'b'>`
+instead of expanding inline (see [ResourceAstAnalyzer § When a Pick/Omit reference is
+emitted](resource-ast-analyzer.md#when-a-pickomit-reference-is-emitted)).
+
+Whether the two lists actually differ is controlled by `ts-publish.models.exclude_hidden`
+(`excludeHiddenAttributes()`), which defaults to `false`: `$hidden` attributes are published by
+default, so `databaseColumnNames()` and `publishedColumnNames()` agree for every model unless the
+setting is turned on. `ModelTransformer::transformColumns()` reads the identical flag through the
+same method to decide whether to skip a `$hidden` attribute when building the interface.
+
+Both call sites must agree, because `Pick<Model, K>` constrains `K extends keyof Model` — TypeScript
+error TS2344 fires if `publishedColumnNames()` ever names a key `transformColumns()` didn't emit.
+`excludeHiddenAttributes()` is the single source of truth both sites read, and it is deliberately
+**not** cached alongside `resolveContext()`'s per-FQCN model context: that cache holds data that's
+inherent to the model (its columns, casts, hidden-array membership) and is safe to memoize for the
+life of the resolver, but the config flag can change between calls (most concretely in a test that
+flips `config()->set('ts-publish.models.exclude_hidden', ...)` between two assertions on the same
+resolver instance) and must be re-read every time rather than trapped in that cache.

@@ -4442,8 +4442,22 @@ test('the customImports map survives every result collector', function () {
         ]);
 });
 
-test('a $hidden filter key falls back to inline expansion instead of Pick<>', function () {
-    // Pick<T, K> constrains K to keyof T, and a $hidden column never reaches the model interface.
+test('a $hidden filter key still gets a Pick<> reference by default, since hidden columns are published', function () {
+    config()->set('ts-publish.models.exclude_hidden', false);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(PostAttachmentFilterResource::class), Post::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props['attachment_public']['type'])->toBe("Pick<Attachment, 'id' | 'filename'>")
+        ->and($props['attachment_hidden']['type'])->toBe("Pick<Attachment, 'id' | 'internal_notes'>");
+});
+
+test('a $hidden filter key falls back to inline expansion instead of Pick<> when exclude_hidden is enabled', function () {
+    // Pick<T, K> constrains K to keyof T, and exclude_hidden keeps a $hidden column out of the model interface.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
     $props = collect(
         new ResourceAstAnalyzer(new ReflectionClass(PostAttachmentFilterResource::class), Post::class)
             ->analyze()->properties,

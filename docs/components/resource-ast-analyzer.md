@@ -25,12 +25,17 @@ for nullsafe calls — whenever **every filter key is a column the model interfa
 declares**, per `ModelAttributeResolver::publishedColumnNames()`.
 
 That gate has to match the *emitted* interface, not just the schema. The raw schema listing
-(`databaseColumnNames()`) is a superset: `ModelTransformer::transformColumns()` skips `$hidden`
-columns, since Laravel never serializes them. `Pick<T, K>` constrains `K extends keyof T`, so
-naming a hidden column there is a hard `TS2344` — `publishedColumnNames()` subtracts them, and
-such a key falls back to inline expansion instead (which is also the more faithful output:
-`Model::only()` resolves through `getAttribute()` and *does* return hidden attributes at
-runtime). `Omit<T, K>` does not constrain `K`, so it would compile either way; the same gate is
+(`databaseColumnNames()`) is a superset only when `ts-publish.models.exclude_hidden` is enabled:
+`ModelTransformer::transformColumns()` then skips `$hidden` columns, matching Laravel's own
+serialization. `Pick<T, K>` constrains `K extends keyof T`, so naming a hidden column there would
+be a hard `TS2344` — `publishedColumnNames()` subtracts them in that case, and such a key falls
+back to inline expansion instead (which is also the more faithful output when the column is
+excluded: `Model::only()` resolves through `getAttribute()` and *does* return hidden attributes at
+runtime). The setting defaults to `false`, so by default hidden columns are published and
+`publishedColumnNames()` includes them like any other column — see
+[ModelAttributeResolver § `publishedColumnNames()` and the `exclude_hidden`
+coupling](model-attribute-resolver.md#publishedcolumnnames-and-the-exclude_hidden-coupling).
+`Omit<T, K>` does not constrain `K`, so it would compile either way; the same gate is
 applied to both for one rule rather than two. A key that is an accessor, mutator, or relation
 name falls back to the inline expansion unchanged —
 `only()` can legitimately request those (Eloquent's `Model::only()` resolves through

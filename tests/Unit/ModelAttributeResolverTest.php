@@ -122,6 +122,16 @@ test('getReflection returns null for non-existent model class', function () {
     expect($resolver->getReflection('App\\Models\\NonExistent'))->toBeNull();
 });
 
+test('publishedColumnNames tracks the exclude_hidden setting', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    config()->set('ts-publish.models.exclude_hidden', false);
+    expect($resolver->publishedColumnNames(User::class))->toContain('password');
+
+    config()->set('ts-publish.models.exclude_hidden', true);
+    expect($resolver->publishedColumnNames(User::class))->not->toContain('password');
+});
+
 test('buildMorphTargetMap builds map from MorphMany inverse relations', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 

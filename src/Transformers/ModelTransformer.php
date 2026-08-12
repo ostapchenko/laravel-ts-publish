@@ -232,12 +232,14 @@ class ModelTransformer extends CoreTransformer
         $attributes = $allAttributes->filter(fn (array $attr) => in_array($attr['name'], $this->dbColumns));
 
         $resolver = resolve(ModelAttributeResolver::class);
+        $excludeHidden = $resolver->excludeHiddenAttributes();
 
         foreach ($attributes as $attribute) {
             $name = $attribute['name'];
 
-            // Matches Laravel's own serialization: a $hidden column never reaches toArray()/toJson().
-            if ($attribute['hidden']) {
+            // Opt-in via ts-publish.models.exclude_hidden: matches Laravel's own serialization, where
+            // a $hidden column never reaches toArray()/toJson(). Off by default for backwards compat.
+            if ($excludeHidden && $attribute['hidden']) {
                 continue;
             }
 

@@ -11,9 +11,12 @@ use Workbench\App\Models\Post;
 /**
  * Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape.
  *
- * `attachment_hidden` is a regression: Attachment::$hidden keeps `internal_notes` out of the emitted
- * model interface, so `Pick<Attachment, 'internal_notes'>` violates `K extends keyof T` (TS2344) —
- * the reference must degrade to inline expansion, which also matches Model::only()'s runtime result.
+ * `attachment_hidden` exercises the ts-publish.models.exclude_hidden coupling: Attachment::$hidden
+ * keeps `internal_notes` out of the emitted model interface only when exclude_hidden is enabled, and
+ * `Pick<Attachment, 'internal_notes'>` would then violate `K extends keyof T` (TS2344) — the reference
+ * must degrade to inline expansion in that case. With the default (exclude_hidden disabled), the
+ * column is published and the Pick<> reference is preferred, matching Model::only()'s runtime result
+ * either way.
  *
  * @mixin Post
  */

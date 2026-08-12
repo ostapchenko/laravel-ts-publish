@@ -487,9 +487,11 @@ class ModelAttributeResolver
     /**
      * Names of the database columns that actually reach the emitted model interface.
      *
-     * ModelTransformer::transformColumns() keeps only attributes that are real columns and skips $hidden
-     * ones, so the raw schema listing is a superset. `Pick<Model, K>` constrains K to keyof Model, so a
-     * caller naming a hidden column would emit uncompilable TypeScript.
+     * When ts-publish.models.exclude_hidden is enabled, ModelTransformer::transformColumns() keeps
+     * only attributes that are real columns and skips $hidden ones, so the raw schema listing is a
+     * superset. `Pick<Model, K>` constrains K to keyof Model, so a caller naming a hidden column
+     * would emit uncompilable TypeScript in that case; when the setting is off (the default), $hidden
+     * columns reach the interface too and are included here as well.
      *
      * @param  class-string  $modelFqcn
      * @return list<string>
@@ -503,8 +505,10 @@ class ModelAttributeResolver
             return $columns; // @codeCoverageIgnore
         }
 
+        $excludeHidden = $this->excludeHiddenAttributes();
+
         $published = $attributes
-            ->reject(fn (array $attr): bool => $attr['hidden'])
+            ->reject(fn (array $attr): bool => $excludeHidden && $attr['hidden'])
             ->pluck('name')
             ->all();
 
@@ -512,6 +516,18 @@ class ModelAttributeResolver
             $columns,
             fn (string $column): bool => in_array($column, $published, true),
         ));
+    }
+
+    /**
+     * Whether Eloquent $hidden attributes should be excluded from published output, per
+     * ts-publish.models.exclude_hidden. Read fresh (never cached alongside the per-FQCN model
+     * context) so both ModelTransformer::transformColumns() and publishedColumnNames() observe a
+     * config change immediately — the single source of truth the two sites must agree on, since a
+     * mismatch either drops a real property or emits a Pick<Model, K> naming a key keyof Model lacks.
+     */
+    public function excludeHiddenAttributes(): bool
+    {
+        return Config::boolean('ts-publish.models.exclude_hidden', false);
     }
 
     /**

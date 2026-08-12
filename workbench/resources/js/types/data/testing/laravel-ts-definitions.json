@@ -3735,6 +3735,10 @@
                     "type": "number"
                 },
                 {
+                    "name": "internal_notes",
+                    "type": "string | null"
+                },
+                {
                     "name": "created_at",
                     "type": "string | null"
                 },
@@ -6175,8 +6179,16 @@
                     "type": "string | null"
                 },
                 {
+                    "name": "password",
+                    "type": "string"
+                },
+                {
                     "name": "options",
                     "type": "Record<string, unknown> | null"
+                },
+                {
+                    "name": "remember_token",
+                    "type": "string | null"
                 },
                 {
                     "name": "created_at",
@@ -9725,7 +9737,7 @@
                 },
                 {
                     "name": "attachment_hidden",
-                    "type": "{ id: number; internal_notes: string | null }",
+                    "type": "Pick<Attachment, 'id' | 'internal_notes'>",
                     "optional": false
                 }
             ]

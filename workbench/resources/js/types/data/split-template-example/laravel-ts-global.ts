@@ -127,6 +127,7 @@ declare global {
             attachable_id: number;
             filename: string;
             size_bytes: number;
+            internal_notes: string | null;
             created_at: string | null;
             updated_at: string | null;
             // Relations
@@ -943,7 +944,9 @@ declare global {
             name: string;
             email: string;
             email_verified_at: string | null;
+            password: string;
             options: Record<string, unknown> | null;
+            remember_token: string | null;
             created_at: string | null;
             updated_at: string | null;
             role: app.enums.RoleType | null;
@@ -2348,15 +2351,18 @@ declare global {
         /**
          * Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape.
          *
-         * `attachment_hidden` is a regression: Attachment::$hidden keeps `internal_notes` out of the emitted
-         * model interface, so `Pick<Attachment, 'internal_notes'>` violates `K extends keyof T` (TS2344) —
-         * the reference must degrade to inline expansion, which also matches Model::only()'s runtime result.
+         * `attachment_hidden` exercises the ts-publish.models.exclude_hidden coupling: Attachment::$hidden
+         * keeps `internal_notes` out of the emitted model interface only when exclude_hidden is enabled, and
+         * `Pick<Attachment, 'internal_notes'>` would then violate `K extends keyof T` (TS2344) — the reference
+         * must degrade to inline expansion in that case. With the default (exclude_hidden disabled), the
+         * column is published and the Pick<> reference is preferred, matching Model::only()'s runtime result
+         * either way.
          */
         export interface PostAttachmentFilterResource {
             id: number;
             attachment: { id: number; filename: string; attachable: app.models.Post };
             attachment_public: Pick<app.models.Attachment, 'id' | 'filename'>;
-            attachment_hidden: { id: number; internal_notes: string | null };
+            attachment_hidden: Pick<app.models.Attachment, 'id' | 'internal_notes'>;
         }
         export interface PostCollection {
             data: PostResource[];

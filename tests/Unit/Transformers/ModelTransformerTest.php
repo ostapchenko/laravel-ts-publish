@@ -62,12 +62,22 @@ describe('ModelTransformer with User model', function () {
         expect($data->columns['membership_level']['type'])->toBe('MembershipLevelType | null');
     });
 
-    test('$hidden columns (password, remember_token) are excluded from User model output', function () {
+    test('hidden attributes are published by default', function () {
+        config()->set('ts-publish.models.exclude_hidden', false);
+
         $data = (new ModelTransformer(User::class))->data();
 
-        expect($data->columns)
-            ->not->toHaveKey('password')
-            ->not->toHaveKey('remember_token');
+        expect($data->columns)->toHaveKey('password')
+            ->and($data->columns)->toHaveKey('remember_token');
+    });
+
+    test('hidden attributes are omitted when exclude_hidden is enabled', function () {
+        config()->set('ts-publish.models.exclude_hidden', true);
+
+        $data = (new ModelTransformer(User::class))->data();
+
+        expect($data->columns)->not->toHaveKey('password')
+            ->and($data->columns)->not->toHaveKey('remember_token');
     });
 
     test('resolves DB column type from Attribute accessor get closure', function () {
@@ -1409,7 +1419,17 @@ describe('ModelTransformer with UntypedColumn model (unknown-type fallback paths
 });
 
 describe('ModelTransformer with Attachment model that has a $hidden column', function () {
-    test('a $hidden column is excluded from the generated interface', function () {
+    test('a $hidden column is published by default', function () {
+        config()->set('ts-publish.models.exclude_hidden', false);
+
+        $data = (new ModelTransformer(Attachment::class))->data();
+
+        expect($data->columns)->toHaveKey('internal_notes');
+    });
+
+    test('a $hidden column is excluded from the generated interface when exclude_hidden is enabled', function () {
+        config()->set('ts-publish.models.exclude_hidden', true);
+
         $data = (new ModelTransformer(Attachment::class))->data();
 
         expect($data->columns)->not->toHaveKey('internal_notes');

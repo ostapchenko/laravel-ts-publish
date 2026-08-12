@@ -8,6 +8,7 @@ export interface Attachment
     attachable_id: number;
     filename: string;
     size_bytes: number;
+    internal_notes: string | null;
     created_at: string | null;
     updated_at: string | null;
 }
