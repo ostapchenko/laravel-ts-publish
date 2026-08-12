@@ -16,5 +16,5 @@ export interface TeamResource
     owner?: UserResource;
     members?: TeamMemberResource[];
     members_count?: number;
-    settings?: unknown[] | null;
+    settings?: Record<string, unknown> | null;
 }

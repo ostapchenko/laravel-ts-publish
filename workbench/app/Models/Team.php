@@ -18,6 +18,7 @@ use Workbench\App\ValueObjects\GridConfigDto;
  * @phpstan-import-type GridConfig from GridConfigDto
  *
  * @property GridConfig|null $grid_config
+ * @property array<string, mixed>|null $settings
  */
 class Team extends Model
 {

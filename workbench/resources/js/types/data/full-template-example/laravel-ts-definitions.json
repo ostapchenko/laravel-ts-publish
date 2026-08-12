@@ -5246,6 +5246,40 @@
                 "type": "string | null"
             }
         ],
+        "PropertyDocblockTraitFixture": [
+            {
+                "name": "id",
+                "type": "number"
+            },
+            {
+                "name": "tags",
+                "type": "string | null"
+            },
+            {
+                "name": "related_users",
+                "type": "string | null"
+            },
+            {
+                "name": "meta_info",
+                "type": "string | null"
+            },
+            {
+                "name": "owner_snapshot",
+                "type": "string | null"
+            },
+            {
+                "name": "created_at",
+                "type": "string | null"
+            },
+            {
+                "name": "updated_at",
+                "type": "string | null"
+            },
+            {
+                "name": "labels",
+                "type": "string[]"
+            }
+        ],
         "ServiceDesk": [
             {
                 "name": "id",
@@ -5655,7 +5689,7 @@
             },
             {
                 "name": "settings",
-                "type": "unknown[] | null"
+                "type": "Record<string, unknown> | null"
             },
             {
                 "name": "grid_config",
@@ -10373,7 +10407,7 @@
             },
             {
                 "name": "settings",
-                "type": "unknown[] | null",
+                "type": "Record<string, unknown> | null",
                 "optional": true
             }
         ],

@@ -22,6 +22,7 @@ export * from './profile';
 export * from './property-docblock-base';
 export * from './property-docblock-child';
 export * from './property-docblock-edge';
+export * from './property-docblock-trait-fixture';
 export * from './service-desk';
 export * from './slug-post';
 export * from './strict-composite-comment';

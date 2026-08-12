@@ -14,7 +14,7 @@ export interface Team
     description: string | null;
     owner_id: number;
     is_active: boolean;
-    settings: unknown[] | null;
+    settings: Record<string, unknown> | null;
     grid_config: { filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null;
     created_at: string | null;
     updated_at: string | null;

@@ -19,6 +19,7 @@ use Workbench\App\Models\Product;
 use Workbench\App\Models\PropertyDocblockBase;
 use Workbench\App\Models\PropertyDocblockChild;
 use Workbench\App\Models\PropertyDocblockEdge;
+use Workbench\App\Models\PropertyDocblockTraitFixture;
 use Workbench\App\Models\Sales\Report\Report as SalesReport;
 use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
@@ -398,6 +399,24 @@ describe('@property docblock refinement', function () {
             ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
 
         expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a refinement that still names unknown is accepted over an entirely vague original', function () {
+        // Team's 'settings' casts to plain 'array' (-> unknown[]); its @property tag types the shape
+        // as Record<string, unknown>, which is more structured than the bare unknown[] it replaces.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'settings');
+
+        expect($info['type'])->toBe('Record<string, unknown> | null');
+    });
+
+    test('trait class docblocks are consulted after the class/parent chain, tolerating a missing $ sigil', function () {
+        // 'labels' is an old-style accessor from the HasLabels trait; only the trait's own class
+        // docblock tags it, and it does so without the `$` sigil (a form found in the wild).
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockTraitFixture::class, 'labels');
+
+        expect($info['type'])->toBe('string[]');
     });
 });
 

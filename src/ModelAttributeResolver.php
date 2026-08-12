@@ -92,6 +92,8 @@ class ModelAttributeResolver
                 $accessorInfo = $this->resolveAccessorType($attributeName, $ctx['instance'], $ctx['reflection']);
 
                 if ($accessorInfo['type'] !== 'unknown') {
+                    $accessorInfo = $this->refineWithPropertyDocblock($ctx['reflection'], $attributeName, $accessorInfo);
+
                     return $this->appendNullable($accessorInfo, $attr['nullable']);
                 }
             } catch (Throwable) { // @codeCoverageIgnore
@@ -164,56 +166,147 @@ class ModelAttributeResolver
     }
 
     /**
-     * Refine a vague resolved type using class-level @property/@property-read
-     * docblock tags (Larastan/ide-helper convention). Child class tags win.
+     * Refine a vague resolved type using class-level @property/@property-read docblock tags
+     * (Larastan/ide-helper convention): first the class/parent chain (child tags win), then each
+     * of those classes' traits, recursively — a trait's own class docblock is consulted last.
      *
      * A tag naming a @phpstan-type/@phpstan-import-type alias expands to that alias's shape.
+     * Public: ModelTransformer's mutator resolution also calls this for accessor-derived types,
+     * since it resolves accessors directly rather than through resolveAttribute()'s own waterfall.
      *
      * @param  ReflectionClass<Model>  $reflection
      * @param  TypeScriptTypeInfo  $tsInfo
      * @return TypeScriptTypeInfo
      */
-    protected function refineWithPropertyDocblock(ReflectionClass $reflection, string $attributeName, array $tsInfo): array
+    public function refineWithPropertyDocblock(ReflectionClass $reflection, string $attributeName, array $tsInfo): array
     {
         if (! LaravelTsPublish::isVagueTsType($tsInfo['type'])) {
             return $tsInfo;
         }
 
-        for ($class = $reflection; $class !== false; $class = $class->getParentClass()) {
-            $doc = $class->getDocComment();
+        foreach ($this->propertyDocblockClasses($reflection) as $class) {
+            $refined = $this->refineFromClassDocblock($class, $attributeName, $tsInfo);
 
-            if ($doc === false) {
-                continue;
-            }
-
-            // PHPDoc generics contain spaces (`array<string, string>`), so the type capture cannot be `\S+`.
-            // Excluding `$` and newlines instead of using `.+?` stops it running through a neighbouring
-            // tag's own `$variable` and description text.
-            if (! preg_match(
-                '/@property(?:-read)?[ \t]+([^$\r\n]+?)[ \t]+\$'.preg_quote($attributeName, '/').'\b/',
-                $doc,
-                $m,
-            )) {
-                continue;
-            }
-
-            $useMap = LaravelTsPublish::parseFileUseStatements($class);
-            $namespace = $class->getNamespaceName();
-
-            $infos = [];
-
-            foreach (LaravelTsPublish::splitPhpDocUnionType($m[1]) as $part) {
-                $infos[] = LaravelTsPublish::resolveDocblockTypePartOrAlias($part, $useMap, $namespace, $class);
-            }
-
-            $resolved = count($infos) === 1 ? $infos[0] : LaravelTsPublish::mergeTypeScriptInfos($infos);
-
-            if (! LaravelTsPublish::isVagueTsType($resolved['type'])) {
-                return $resolved;
+            if ($refined !== null) {
+                return $refined;
             }
         }
 
         return $tsInfo;
+    }
+
+    /**
+     * Classes to search for an @property tag, in priority order: the class/parent chain first
+     * (child wins), then every trait used anywhere in that chain, recursively.
+     *
+     * @param  ReflectionClass<Model>  $reflection
+     * @return list<ReflectionClass<object>>
+     */
+    protected function propertyDocblockClasses(ReflectionClass $reflection): array
+    {
+        /** @var list<ReflectionClass<object>> $chain */
+        $chain = [];
+
+        for ($class = $reflection; $class !== false; $class = $class->getParentClass()) {
+            $chain[] = $class;
+        }
+
+        $traits = [];
+
+        foreach ($chain as $class) {
+            $traits = [...$traits, ...$this->collectTraitsRecursively($class)];
+        }
+
+        return [...$chain, ...$traits];
+    }
+
+    /**
+     * Every trait used by a class, and every trait those traits themselves use.
+     *
+     * @param  ReflectionClass<object>  $class
+     * @return list<ReflectionClass<object>>
+     */
+    protected function collectTraitsRecursively(ReflectionClass $class): array
+    {
+        $traits = [];
+
+        foreach ($class->getTraits() as $trait) {
+            $traits[] = $trait;
+            $traits = [...$traits, ...$this->collectTraitsRecursively($trait)];
+        }
+
+        return $traits;
+    }
+
+    /**
+     * Attempt a refinement from a single class's own (non-inherited) @property/@property-read
+     * docblock tag. Null when the class has no usable tag for this attribute.
+     *
+     * The tag's `$` sigil is optional — a non-standard but real-world convention
+     * (`@property string[] tag_names`) — but the type capture still excludes `$` entirely, so a
+     * genuine `$variable` marker anywhere before the target name still blocks the match from
+     * running through it into a neighbouring tag or description.
+     *
+     * @param  ReflectionClass<object>  $class
+     * @param  TypeScriptTypeInfo  $current
+     * @return TypeScriptTypeInfo|null
+     */
+    protected function refineFromClassDocblock(ReflectionClass $class, string $attributeName, array $current): ?array
+    {
+        $doc = $class->getDocComment();
+
+        if ($doc === false) {
+            return null;
+        }
+
+        if (! preg_match(
+            '/@property(?:-read)?[ \t]+([^$\r\n]+?)[ \t]+\$?'.preg_quote($attributeName, '/').'\b/',
+            $doc,
+            $m,
+        )) {
+            return null;
+        }
+
+        $useMap = LaravelTsPublish::parseFileUseStatements($class);
+        $namespace = $class->getNamespaceName();
+
+        $infos = [];
+
+        foreach (LaravelTsPublish::splitPhpDocUnionType($m[1]) as $part) {
+            $infos[] = LaravelTsPublish::resolveDocblockTypePartOrAlias($part, $useMap, $namespace, $class);
+        }
+
+        $resolved = count($infos) === 1 ? $infos[0] : LaravelTsPublish::mergeTypeScriptInfos($infos);
+
+        return $this->isStrictlyMoreStructured($resolved['type'], $current['type']) ? $resolved : null;
+    }
+
+    /**
+     * Whether a docblock-derived refinement is more structured than the type it would replace.
+     *
+     * A refinement that still names 'unknown' is only accepted when the type it replaces is
+     * entirely vague (a bare untyped array/collection/object, optionally nullable) and the
+     * refinement itself is not equally vague — e.g. `Record<string, unknown>` beats a bare
+     * `unknown[]`, but neither beats the other.
+     */
+    protected function isStrictlyMoreStructured(string $candidate, string $current): bool
+    {
+        if (! LaravelTsPublish::isVagueTsType($candidate)) {
+            return true;
+        }
+
+        return $this->isEntirelyVagueTsType($current) && ! $this->isEntirelyVagueTsType($candidate);
+    }
+
+    /**
+     * Whether a type carries no structure at all, as opposed to merely containing 'unknown'
+     * somewhere within an otherwise structured shape (e.g. `Record<string, unknown>`).
+     */
+    protected function isEntirelyVagueTsType(string $type): bool
+    {
+        $bare = str_ends_with($type, ' | null') ? substr($type, 0, -strlen(' | null')) : $type;
+
+        return in_array($bare, ['unknown', 'unknown[]', 'object', 'unknown[] | Record<string, unknown>'], true);
     }
 
     /**

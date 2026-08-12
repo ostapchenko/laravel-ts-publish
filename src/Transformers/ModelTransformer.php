@@ -495,7 +495,11 @@ class ModelTransformer extends CoreTransformer
     /** @return TypeScriptTypeInfo */
     protected function resolveMutatorType(string $name): array
     {
-        return $this->resolveAccessorType($name, $this->modelInstance, $this->reflectionModel);
+        $accessorInfo = $this->resolveAccessorType($name, $this->modelInstance, $this->reflectionModel);
+
+        // Mutators resolve accessors directly rather than through resolveAttribute()'s own cast/DB
+        // waterfall, so a vague native return type (e.g. old-style `: array`) needs its own refinement pass.
+        return resolve(ModelAttributeResolver::class)->refineWithPropertyDocblock($this->reflectionModel, $name, $accessorInfo);
     }
 
     protected function resolveAccessorDescription(string $name): string

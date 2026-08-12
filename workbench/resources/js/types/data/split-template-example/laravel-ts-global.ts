@@ -688,6 +688,24 @@ declare global {
             updated_at: string | null;
         }
         /**
+         * Exercises ModelAttributeResolver::refineWithPropertyDocblock()'s trait walk: `labels` carries
+         * no tag of its own anywhere in the class/parent chain — only the one declared on the HasLabels
+         * trait this class uses.
+         */
+        export interface PropertyDocblockTraitFixture {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Mutators
+            /** Old-style accessor whose native `array` return type is vague without the trait's docblock. */
+            labels: string[];
+        }
+        /**
          * A help-desk ticket linked to a customer Order and optionally assigned to a CRM agent.
          *
          * Exercises the inline model FQCN collision scenario: two relations to classes with the
@@ -827,7 +845,7 @@ declare global {
             description: string | null;
             owner_id: number;
             is_active: boolean;
-            settings: unknown[] | null;
+            settings: Record<string, unknown> | null;
             grid_config: { filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null;
             created_at: string | null;
             updated_at: string | null;
@@ -2676,7 +2694,7 @@ declare global {
             owner?: UserResource;
             members?: TeamMemberResource[];
             members_count?: number;
-            settings?: unknown[] | null;
+            settings?: Record<string, unknown> | null;
         }
         /**
          * Exercises: ternary operator in various return-value positions.
