@@ -19,7 +19,9 @@ use Workbench\App\Models\Product;
 use Workbench\App\Models\Profile;
 use Workbench\App\Models\PropertyDocblockBase;
 use Workbench\App\Models\PropertyDocblockChild;
+use Workbench\App\Models\PropertyDocblockDescribedTagFixture;
 use Workbench\App\Models\PropertyDocblockEdge;
+use Workbench\App\Models\PropertyDocblockRejectFixture;
 use Workbench\App\Models\PropertyDocblockTraitFixture;
 use Workbench\App\Models\Sales\Report\Report as SalesReport;
 use Workbench\App\Models\Team;
@@ -418,6 +420,27 @@ describe('@property docblock refinement', function () {
             ->resolveAttribute(PropertyDocblockTraitFixture::class, 'labels');
 
         expect($info['type'])->toBe('string[]');
+    });
+
+    test('a $-less tag with a trailing description does not bind an unrelated attribute matching its last word', function () {
+        // The trait's tag reads "@property string[] tag_names Friendly labels list" (no $). Search for
+        // 'list' — an unrelated real accessor whose name is coincidentally the description's last word.
+        // A type capture unbounded by the no-description restriction can walk all the way to "list" and
+        // mistake it for the tag's own property name, producing a bogus concrete type instead of unknown[].
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockDescribedTagFixture::class, 'list');
+
+        expect($info['type'])->toBe('unknown[]');
+    });
+
+    test('a refinement that is itself entirely vague never replaces an already-structured vague type', function () {
+        // 'meta_info' casts to AsArrayObject -> Record<string, unknown>, already more structured than a
+        // bare untyped array/collection. The class's own @property tag names a vaguer bare 'array', so
+        // isStrictlyMoreStructured() must reject it and keep the AsArrayObject-derived type.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockRejectFixture::class, 'meta_info');
+
+        expect($info['type'])->toBe('Record<string, unknown> | null');
     });
 });
 

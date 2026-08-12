@@ -242,10 +242,15 @@ class ModelAttributeResolver
      * Attempt a refinement from a single class's own (non-inherited) @property/@property-read
      * docblock tag. Null when the class has no usable tag for this attribute.
      *
-     * The tag's `$` sigil is optional — a non-standard but real-world convention
-     * (`@property string[] tag_names`) — but the type capture still excludes `$` entirely, so a
-     * genuine `$variable` marker anywhere before the target name still blocks the match from
-     * running through it into a neighbouring tag or description.
+     * Two forms are matched: the documented `@property Type $name` (`$` required, a trailing
+     * description tolerated — the type capture excludes `$` entirely, so a genuine `$variable`
+     * marker anywhere before the target name still blocks a run into a neighbouring tag or
+     * description); and the non-standard, `$`-less `@property Type name` some vendor traits use,
+     * accepted only in that exact undescribed form (name immediately followed by end of line or
+     * the docblock terminator). The `$`-less type capture also excludes a bare space not
+     * following a comma, so it can't span a natural-language description at all — without both
+     * restrictions, a `$`-less tag's trailing description could have its last word mistaken for
+     * the property name and resolved into a confidently wrong concrete type.
      *
      * @param  ReflectionClass<object>  $class
      * @param  TypeScriptTypeInfo  $current
@@ -259,11 +264,12 @@ class ModelAttributeResolver
             return null;
         }
 
-        if (! preg_match(
-            '/@property(?:-read)?[ \t]+([^$\r\n]+?)[ \t]+\$?'.preg_quote($attributeName, '/').'\b/',
-            $doc,
-            $m,
-        )) {
+        $name = preg_quote($attributeName, '/');
+
+        $matched = preg_match('/@property(?:-read)?[ \t]+([^$\r\n]+?)[ \t]+\$'.$name.'\b/', $doc, $m)
+            || preg_match('/@property(?:-read)?[ \t]+((?:[^$\r\n \t,]|,[ \t]*)+)[ \t]+'.$name.'\b(?=[ \t]*(?:\r?\n|\*\/|$))/', $doc, $m);
+
+        if (! $matched) {
             return null;
         }
 

@@ -668,6 +668,23 @@ declare global {
             updated_at: string | null;
         }
         /**
+         * Exercises the `$`-less `@property` tag's no-description restriction: `list` must not be bound
+         * to a bogus type resolved from the trailing description of a different (`$`-less) tag.
+         */
+        export interface PropertyDocblockDescribedTagFixture {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Mutators
+            /** Old-style accessor named after the trailing word of this trait's own $-less tag's description. */
+            list: unknown[];
+        }
+        /**
          * Exercises the guardrails of ModelAttributeResolver::refineWithPropertyDocblock():
          *
          * - `related_users` has only a `@property-write` tag, which describes a setter
@@ -702,6 +719,22 @@ declare global {
             related_users: unknown[] | null;
             meta_info: unknown[] | null;
             owner_snapshot: User | null;
+            created_at: string | null;
+            updated_at: string | null;
+        }
+        /**
+         * Pins ModelAttributeResolver::isStrictlyMoreStructured()'s reject direction: `meta_info` casts
+         * to AsArrayObject (Record<string, unknown>) — already more structured than a bare untyped
+         * array/collection, not "entirely" vague — so the class's own @property tag, which names a
+         * vaguer bare array, must never replace it.
+         */
+        export interface PropertyDocblockRejectFixture {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: string | null;
+            meta_info: Record<string, unknown> | null;
+            owner_snapshot: string | null;
             created_at: string | null;
             updated_at: string | null;
         }
