@@ -28,6 +28,7 @@ use Workbench\App\Http\Resources\ConditionalParamFullClosureResource;
 use Workbench\App\Http\Resources\ConditionalParamMappedResource;
 use Workbench\App\Http\Resources\ConditionalParamPrimitiveResource;
 use Workbench\App\Http\Resources\ControlFlowReturnResource;
+use Workbench\App\Http\Resources\CustomImportChannelResource;
 use Workbench\App\Http\Resources\DelegatingResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
 use Workbench\App\Http\Resources\EmptyResource;
@@ -4416,4 +4417,24 @@ describe('local variable bindings — review follow-up regressions', function ()
             ->and($props['mutual']['type'])->toBe('unknown')
             ->and($props['self']['type'])->toBe('unknown');
     });
+});
+
+// Every emitted type token must arrive with a matching import; these four paths each used to drop one.
+
+test('the customImports map survives every result collector', function () {
+    // analyzeReturnArray() already merged the map; the inline-array, merge() and variable-assignment
+    // collectors dropped it, so their tokens reached the file with no import at all.
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(CustomImportChannelResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    expect($props['inline_meta']['type'])->toBe('{ cfg: MenuSettingsType }')
+        ->and($props['merged_meta']['type'])->toBe('PageMetaType')
+        ->and($props['assigned_meta']['type'])->toBe('WidgetConfigType')
+        ->and($analysis->customImports)->toHaveKeys([
+            '@js/types/settings',
+            '@js/types/page-meta',
+            '@js/types/widget-config',
+        ]);
 });

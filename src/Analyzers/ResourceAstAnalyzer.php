@@ -1862,6 +1862,8 @@ class ResourceAstAnalyzer
         $directEnumFqcns = [];
         /** @var ClassMapType $modelFqcns */
         $modelFqcns = [];
+        /** @var ImportMapType $customImports */
+        $customImports = [];
         /** @var InlineEnumFqcnsMap $inlineEnumFqcns */
         $inlineEnumFqcns = [];
         /** @var InlineModelFqcnsMap $inlineModelFqcns */
@@ -1904,12 +1906,17 @@ class ResourceAstAnalyzer
             foreach ($result['embeddedModelFqcns'] ?? [] as $fqcn) {
                 $inlineModelFqcns[$keyName][] = $fqcn;
             }
+
+            foreach ($result['customImports'] ?? [] as $path => $types) {
+                $customImports[$path] = [...($customImports[$path] ?? []), ...$types];
+            }
         }
 
         return new ResourceAnalysis(
             $properties,
             $enumResources,
             $nestedResources,
+            customImports: $customImports,
             directEnumFqcns: $directEnumFqcns,
             modelFqcns: $modelFqcns,
             inlineEnumFqcns: $inlineEnumFqcns,
@@ -2569,6 +2576,10 @@ class ResourceAstAnalyzer
                     $inlineModelFqcns[$keyName][] = $fqcn;
                 }
 
+                foreach ($result['customImports'] ?? [] as $path => $types) {
+                    $customImports[$path] = [...($customImports[$path] ?? []), ...$types];
+                }
+
                 continue;
             }
 
@@ -3079,6 +3090,12 @@ class ResourceAstAnalyzer
             $result['embeddedResourceFqcns'] = array_values(array_unique(
                 array_values($analysis->nestedResources),
             ));
+        }
+
+        // A #[TsType(import: …)] token inside the inline object is spelled in the emitted type string,
+        // so its import has to travel out with it.
+        if ($analysis->customImports !== []) {
+            $result['customImports'] = $analysis->customImports;
         }
 
         return $result;
