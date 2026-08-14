@@ -10,6 +10,7 @@ use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\Middlewar
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithImportPaths;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithMethodOverridesClass;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithMethodTsCasts;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithOptionalDocblockKey;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithoutShareMethod;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithTsCastsAndDocblock;
 use Laravel\Ranger\Collectors\InertiaSharedData as InertiaSharedDataCollector;
@@ -325,9 +326,47 @@ test('docblock @return array shape provides type overrides when no TsCasts prese
 
     $result = $analyzer->analyze();
 
+    // The outer object still joins with ', ' (buildTypeStringWithOverrides(), untouched by Task 6); the
+    // nested shapes now resolve through resolveArrayShapeString(), so they join with '; ' like everywhere
+    // else that helper is used.
     expect($result)->not->toBeNull()
-        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number, name: string, email: string } | null }, flash: { success: string | null, error: string | null }, appName: string }')
+        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number; name: string; email: string } | null }, flash: { success: string | null; error: string | null }, appName: string }')
         ->and($result['importStatements'])->toBe([]);
+});
+
+test('docblock optional key is emitted once, with its marker', function () {
+    // Regression: the parsed key carries the '?', so matching it against Surveyor's plain 'filters'
+    // used to miss — the prop was emitted from both loops, which TypeScript rejects (TS2300).
+    $data = new ArrayType([
+        'appName' => new MixedType,
+        'filters' => new MixedType,
+    ]);
+
+    $component = new SharedDataComponent($data, false);
+
+    ['analyzer' => $analyzer, 'collector' => $collector] = createAnalyzerWithMockedCollector(MiddlewareWithOptionalDocblockKey::class);
+    $collector->shouldReceive('collect')->andReturn(collect([$component]));
+
+    $result = $analyzer->analyze();
+
+    // appName is also declared optional in the docblock, but its #[TsCasts] entry wins outright —
+    // proving normalization did not let the docblock entry survive as a second key.
+    expect($result)->not->toBeNull()
+        ->and($result['sharedPageProps'])->toBe('{ appName: AppName, filters?: Record<string, string> }');
+});
+
+test('docblock optional key absent from Surveyor props keeps its marker', function () {
+    $data = new ArrayType(['appName' => new MixedType]);
+
+    $component = new SharedDataComponent($data, false);
+
+    ['analyzer' => $analyzer, 'collector' => $collector] = createAnalyzerWithMockedCollector(MiddlewareWithOptionalDocblockKey::class);
+    $collector->shouldReceive('collect')->andReturn(collect([$component]));
+
+    $result = $analyzer->analyze();
+
+    expect($result)->not->toBeNull()
+        ->and($result['sharedPageProps'])->toBe('{ appName: AppName, filters?: Record<string, string> }');
 });
 
 test('TsCasts overrides win over docblock for same key', function () {
@@ -348,7 +387,7 @@ test('TsCasts overrides win over docblock for same key', function () {
     $result = $analyzer->analyze();
 
     expect($result)->not->toBeNull()
-        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number, name: string, email: string } | null }, flash: FlashMessages, appName: string }')
+        ->and($result['sharedPageProps'])->toBe('{ auth: { user: { id: number; name: string; email: string } | null }, flash: FlashMessages, appName: string }')
         ->and($result['importStatements'])->toBe([]);
 });
 

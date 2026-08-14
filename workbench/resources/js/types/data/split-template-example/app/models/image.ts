@@ -4,7 +4,7 @@ import { Status } from '../enums';
 import type { MenuSettingsType } from '@js/types/settings';
 import type { User as CrmUser } from '../../crm/models';
 import type { StatusType } from '../enums';
-import type { Post, Product, User as AppUser } from '.';
+import type { Post, Product, User as ModelsUser } from '.';
 
 /** @see Workbench\App\Models\Image */
 export interface Image
@@ -40,10 +40,10 @@ export interface ImageMutators
     flexible_id: string | number | null;
     optional_label: string | null;
     status_from_docblock: StatusType | null;
-    uploader_from_docblock: AppUser | null;
+    uploader_from_docblock: ModelsUser | null;
     config_from_docblock: MenuSettingsType;
-    data_from_docblock: unknown[];
-    uploaders_from_docblock: AppUser[] | Record<string, AppUser>;
+    data_from_docblock: { title: string; weight: number | null };
+    uploaders_from_docblock: ModelsUser[];
     tree_from_docblock: { label: string; child: unknown[] };
     price_from_docblock: { amount: number; currency: string };
     label_from_docblock: string;
@@ -62,7 +62,7 @@ export interface ImageRelations
 {
     // Relations
     /** Polymorphic parent (Product, Post, User, etc.) */
-    imageable: Post | Product | AppUser | CrmUser;
+    imageable: Post | Product | ModelsUser | CrmUser;
     // Counts
     imageable_count: number;
     // Exists

@@ -13,6 +13,7 @@ use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\ModelInspector;
 use AbeTwoThree\LaravelTsPublish\RelationNullable;
+use AbeTwoThree\LaravelTsPublish\Support\ImportNameRegistry;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\BuildsImportMaps;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ParsesTsExtends;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ResolvesImportConflicts;
@@ -34,6 +35,7 @@ use ReflectionClass;
  * @phpstan-import-type MutatorsList from TsModelDto
  * @phpstan-import-type AppendsList from TsModelDto
  * @phpstan-import-type RelationsList from TsModelDto
+ * @phpstan-import-type EnumPropertyInfo from TsModelDto
  * @phpstan-import-type AttributeInfo from ModelInfo
  * @phpstan-import-type RelationInfo from ModelInfo
  *
@@ -109,13 +111,13 @@ class ModelTransformer extends CoreTransformer
     /** @var array<string, list<string>> */
     public protected(set) array $customImports = [];
 
-    /** @var array<string, array{fqcn: string, nullable: bool}> column_name => enum property info */
+    /** @var array<string, array{fqcn: string, nullable: bool, isCollection: bool}> column_name => enum property info */
     protected array $enumColumnProperties = [];
 
-    /** @var array<string, array{fqcn: string, nullable: bool}> mutator_name => enum property info */
+    /** @var array<string, array{fqcn: string, nullable: bool, isCollection: bool}> mutator_name => enum property info */
     protected array $enumMutatorProperties = [];
 
-    /** @var array<string, array{fqcn: string, nullable: bool}> append_name => enum property info */
+    /** @var array<string, array{fqcn: string, nullable: bool, isCollection: bool}> append_name => enum property info */
     protected array $enumAppendsProperties = [];
 
     /** @var list<string> Attribute names from model's array */
@@ -231,9 +233,16 @@ class ModelTransformer extends CoreTransformer
         $attributes = $allAttributes->filter(fn (array $attr) => in_array($attr['name'], $this->dbColumns));
 
         $resolver = resolve(ModelAttributeResolver::class);
+        $excludeHidden = $resolver->excludeHiddenAttributes();
 
         foreach ($attributes as $attribute) {
             $name = $attribute['name'];
+
+            // Opt-in via ts-publish.models.exclude_hidden: matches Laravel's own serialization, where
+            // a $hidden column never reaches toArray()/toJson(). Off by default for backwards compat.
+            if ($excludeHidden && $attribute['hidden']) {
+                continue;
+            }
 
             if (isset($this->tsTypeOverrides[$name])) {
                 $this->columns[$name] = ['type' => $this->tsTypeOverrides[$name], 'description' => '', 'optional' => $this->optionalOverrides[$name] ?? false];
@@ -269,9 +278,12 @@ class ModelTransformer extends CoreTransformer
             }
 
             if ($typings['enumFqcns'] !== []) {
+                // $type itself may already carry '| null' here: resolveAttribute() appends it
+                // internally before this point, so the suffix check must strip it first.
                 $this->enumColumnProperties[$name] = [
                     'fqcn' => $typings['enumFqcns'][0],
                     'nullable' => $attribute['nullable'],
+                    'isCollection' => str_ends_with(rtrim(str_replace('| null', '', $type)), '[]'),
                 ];
             }
 
@@ -316,6 +328,11 @@ class ModelTransformer extends CoreTransformer
 
             $resolved = $this->resolveMutatorType($name);
 
+            // No getter, no docblock generic, no backing column: nothing to publish for this name.
+            if ($resolved['omit'] ?? false) {
+                continue;
+            }
+
             if ($isAppended) {
                 $this->appends[$name] = ['type' => $resolved['type'], 'description' => $this->resolveAccessorDescription($name), 'optional' => $this->optionalOverrides[$name] ?? false];
             } else {
@@ -337,6 +354,7 @@ class ModelTransformer extends CoreTransformer
                 $enumInfo = [
                     'fqcn' => $resolved['enumFqcns'][0],
                     'nullable' => str_contains($resolved['type'], 'null'),
+                    'isCollection' => str_ends_with(rtrim(str_replace('| null', '', $resolved['type'])), '[]'),
                 ];
 
                 if ($isAppended) {
@@ -414,7 +432,7 @@ class ModelTransformer extends CoreTransformer
             if ($isMorphTo) {
                 /** @var ModelAttributeResolver $resolver */
                 $resolver = resolve(ModelAttributeResolver::class);
-                $morphTargets = $resolver->getMorphToTargets($this->findable);
+                $morphTargets = $resolver->resolveMorphToTargets($this->findable, $relation['name']);
 
                 if ($includedModels !== []) {
                     $morphTargets = array_values(array_filter(
@@ -494,7 +512,11 @@ class ModelTransformer extends CoreTransformer
     /** @return TypeScriptTypeInfo */
     protected function resolveMutatorType(string $name): array
     {
-        return $this->resolveAccessorType($name, $this->modelInstance, $this->reflectionModel);
+        $accessorInfo = $this->resolveAccessorType($name, $this->modelInstance, $this->reflectionModel);
+
+        // Mutators resolve accessors directly rather than through resolveAttribute()'s own cast/DB
+        // waterfall, so a vague native return type (e.g. old-style `: array`) needs its own refinement pass.
+        return resolve(ModelAttributeResolver::class)->refineWithPropertyDocblock($this->reflectionModel, $name, $accessorInfo);
     }
 
     protected function resolveAccessorDescription(string $name): string
@@ -529,73 +551,40 @@ class ModelTransformer extends CoreTransformer
      */
     protected function resolveImportConflicts(): self
     {
-        /** @var array<string, list<array{fqcn: string, kind: 'enum'|'model'}>> $reverseMap */
-        $reverseMap = [];
+        $registry = new ImportNameRegistry;
+        $registry->reserve($this->modelName);
+
+        // A sibling registry resolves const names independently rather than string-slicing the type
+        // alias, which breaks on a numeric tiebreak suffix. The two registries can't see each other, so
+        // a const name equal to another enum's type name still collides — see the docs' known limitation.
+        $constRegistry = new ImportNameRegistry;
 
         foreach ($this->enumFqcnMap as $fqcn => $typeName) {
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'enum'];
+            $registry->register($fqcn, $typeName);
+
+            if (isset($this->enumConstMap[$fqcn])) {
+                $constRegistry->register($fqcn, $this->enumConstMap[$fqcn]);
+            }
         }
 
         foreach ($this->modelFqcnMap as $fqcn => $typeName) {
             if ($fqcn === $this->findable) {
                 continue;
             }
-            $reverseMap[$typeName][] = ['fqcn' => $fqcn, 'kind' => 'model'];
+
+            $relations = $this->modelFqcnRelations[$fqcn] ?? [];
+            $preferred = count($relations) === 1
+                ? Str::studly($relations[0]).$typeName
+                : null;
+
+            $registry->register($fqcn, $typeName, $preferred);
         }
 
-        foreach ($reverseMap as $typeName => $entries) {
-            $needsAlias = count($entries) > 1 || $typeName === $this->modelName;
-
-            if (! $needsAlias) {
-                continue;
-            }
-
-            /** @var list<array{fqcn: string, kind: 'enum'|'model', alias: string, originalName: string}> $candidates */
-            $candidates = [];
-
-            foreach ($entries as $entry) {
-                $fqcn = $entry['fqcn'];
-                $originalName = $entry['kind'] === 'enum'
-                    ? $this->enumFqcnMap[$fqcn]
-                    : $this->modelFqcnMap[$fqcn];
-
-                if ($entry['kind'] === 'model') {
-                    $relations = $this->modelFqcnRelations[$fqcn] ?? [];
-
-                    if (count($relations) === 1) {
-                        $alias = Str::studly($relations[0]).$originalName;
-                    } else {
-                        $alias = $this->computeNamespacePrefix($fqcn).$originalName;
-                    }
-                } else {
-                    $alias = $this->computeNamespacePrefix($fqcn).$originalName;
-                }
-
-                $candidates[] = ['fqcn' => $fqcn, 'kind' => $entry['kind'], 'alias' => $alias, 'originalName' => $originalName];
-            }
-
-            // Relation-derived aliases can collide with each other; namespace prefixes cannot.
-            $aliasCounts = array_count_values(array_column($candidates, 'alias'));
-
-            foreach ($candidates as $i => $candidate) {
-                if ($aliasCounts[$candidate['alias']] > 1) {
-                    $candidates[$i]['alias'] = $this->computeNamespacePrefix($candidate['fqcn']).$candidate['originalName'];
-                }
-            }
-
-            foreach ($candidates as $candidate) {
-                $this->importAliases[$candidate['fqcn']] = $candidate['alias'];
-
-                if ($candidate['kind'] === 'enum' && isset($this->enumConstMap[$candidate['fqcn']])) {
-                    $prefix = $this->computeNamespacePrefix($candidate['fqcn']);
-                    $this->constImportAliases[$candidate['fqcn']] = $prefix.$this->enumConstMap[$candidate['fqcn']];
-                }
-            }
-        }
-
-        if ($this->importAliases !== []) {
-            $this->rewriteTypeReferences();
-        }
+        $this->applyResolvedImportNames(
+            $registry->resolve(),
+            $this->enumFqcnMap + $this->modelFqcnMap,
+            $constRegistry->resolve(),
+        );
 
         return $this;
     }
@@ -782,7 +771,7 @@ class ModelTransformer extends CoreTransformer
     }
 
     /**
-     * @return array<string, array{constName: string, nullable: bool}>
+     * @return array<string, EnumPropertyInfo>
      */
     protected function buildEnumColumns(): array
     {
@@ -792,6 +781,7 @@ class ModelTransformer extends CoreTransformer
             $result[$name] = [
                 'constName' => $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']],
                 'nullable' => $info['nullable'],
+                'isCollection' => $info['isCollection'],
             ];
         }
 
@@ -799,7 +789,7 @@ class ModelTransformer extends CoreTransformer
     }
 
     /**
-     * @return array<string, array{constName: string, nullable: bool}>
+     * @return array<string, EnumPropertyInfo>
      */
     protected function buildEnumMutators(): array
     {
@@ -809,6 +799,7 @@ class ModelTransformer extends CoreTransformer
             $result[$name] = [
                 'constName' => $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']],
                 'nullable' => $info['nullable'],
+                'isCollection' => $info['isCollection'],
             ];
         }
 
@@ -818,7 +809,7 @@ class ModelTransformer extends CoreTransformer
     /**
      * Build the enum appends properties for the Tolki package variant.
      *
-     * @return array<string, array{constName: string, nullable: bool}>
+     * @return array<string, EnumPropertyInfo>
      */
     protected function buildEnumAppends(): array
     {
@@ -828,6 +819,7 @@ class ModelTransformer extends CoreTransformer
             $result[$name] = [
                 'constName' => $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']],
                 'nullable' => $info['nullable'],
+                'isCollection' => $info['isCollection'],
             ];
         }
 

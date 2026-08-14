@@ -6,9 +6,11 @@
 // Read more: https://github.com/abetwothree/laravel-ts-publish
 export {}
 
+import type { PageMetaType } from '@js/types/page-meta';
 import type { ProductMetadata, ProductJsonMetaData } from '@js/types/product';
 import type { MenuSettingsType } from '@js/types/settings';
 import type { PostSnapshot } from '@js/types/snapshots';
+import type { WidgetConfigType } from '@js/types/widget-config';
 import type { Auditable } from '@/types/audit';
 import type { BaseResource } from '@/types/base';
 import type { BroadcastableEvent } from '@/types/broadcast';
@@ -71,6 +73,28 @@ declare global {
         }
     }
     export namespace app.models {
+        /**
+         * Fixture: two morphTos on one model. `causer` (trait-provided, see HasRelatableLinkedRecord) is
+         * narrowed by its docblock generic; `subject` is left bare and resolves via the reverse map —
+         * no model declares a reverse relation for either name, so `subject` stays unknown.
+         */
+        export interface Activity {
+            // Columns
+            id: number;
+            causer_type: string | null;
+            causer_id: number | null;
+            subject_type: string | null;
+            subject_id: number | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            subject: unknown | null;
+            subject_count: number;
+            subject_exists: boolean;
+            causer: User | null;
+            causer_count: number;
+            causer_exists: boolean;
+        }
         export interface Address {
             // Columns
             id: number;
@@ -103,6 +127,7 @@ declare global {
             attachable_id: number;
             filename: string;
             size_bytes: number;
+            internal_notes: string | null;
             created_at: string | null;
             updated_at: string | null;
             // Relations
@@ -307,8 +332,8 @@ declare global {
             status_from_docblock: app.enums.StatusType | null;
             uploader_from_docblock: User | null;
             config_from_docblock: MenuSettingsType;
-            data_from_docblock: unknown[];
-            uploaders_from_docblock: User[] | Record<string, User>;
+            data_from_docblock: { title: string; weight: number | null };
+            uploaders_from_docblock: User[];
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -321,6 +346,19 @@ declare global {
             imageable: Post | Product | User | crm.models.User;
             imageable_count: number;
             imageable_exists: boolean;
+        }
+        export interface Kpi {
+            // Columns
+            id: number;
+            reportable_type: string;
+            reportable_id: number;
+            value: number;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            reportable: app.models.marketing.report.Report | app.models.sales.report.Report;
+            reportable_count: number;
+            reportable_exists: boolean;
         }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
@@ -415,13 +453,17 @@ declare global {
             is_paid: boolean;
             /** Formatted total with currency symbol */
             formatted_total: string;
-            /** Write-only mutator (no getter) for a non-DB column */
-            search_index: unknown;
+            /** Write-only mutator whose docblock still documents what a getter would return. */
+            tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: OrderItem[] | Record<string, OrderItem>;
+            sorted_items: OrderItem[];
+            keyed_items: Record<string, OrderItem>;
             listed_items: OrderItem[];
             /** All items on the order, in their natural database order. */
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
+            summary_items: app.models.admin.Store[];
             // Relations
             user: User;
             user_count: number;
@@ -557,6 +599,8 @@ declare global {
             date_of_birth: string | null;
             website: string | null;
             phone_number: string | null;
+            /** Write-only mutator, no get — but `normalized_phone` is a real column, so it still types the column */
+            normalized_phone: string | null;
             social_links: { twitter?: string; github?: string; linkedin?: string; website?: string };
             settings: { notifications_enabled: boolean; theme: "light" | "dark"; language: string };
             menu_settings: MenuSettingsType | null;
@@ -569,8 +613,6 @@ declare global {
             age: number | null;
             /** Full display name combining user name and bio snippet */
             display_summary: string;
-            /** Write-only mutator — normalizes phone number on set, no get */
-            normalized_phone: unknown;
             /** Old-style mutator for avatar URL capitalization */
             formatted_bio: string;
             // Relations
@@ -610,6 +652,23 @@ declare global {
             updated_at: string | null;
         }
         /**
+         * Exercises the `$`-less `@property` tag's no-description restriction: `list` must not be bound
+         * to a bogus type resolved from the trailing description of a different (`$`-less) tag.
+         */
+        export interface PropertyDocblockDescribedTagFixture {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Mutators
+            /** Old-style accessor named after the trailing word of this trait's own $-less tag's description. */
+            list: unknown[];
+        }
+        /**
          * Exercises the guardrails of ModelAttributeResolver::refineWithPropertyDocblock():
          *
          * - `related_users` has only a `@property-write` tag, which describes a setter
@@ -646,6 +705,42 @@ declare global {
             owner_snapshot: User | null;
             created_at: string | null;
             updated_at: string | null;
+        }
+        /**
+         * Pins ModelAttributeResolver::isStrictlyMoreStructured()'s reject direction: `meta_info` casts
+         * to AsArrayObject (Record<string, unknown>) — vague, but not "entirely" vague (not one of the
+         * four hardcoded literals) — so the class's own @property tag, whose `array<string, array>`
+         * generic resolves to the *differently* vague `Record<string, unknown[]>`, must never replace
+         * it. Both candidate and current genuinely differ in the emitted string, so acceptance vs.
+         * rejection is observable regardless of the nullable `| null` suffix either path would add.
+         */
+        export interface PropertyDocblockRejectFixture {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: string | null;
+            meta_info: Record<string, unknown> | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+        }
+        /**
+         * Exercises ModelAttributeResolver::refineWithPropertyDocblock()'s trait walk: `labels` carries
+         * no tag of its own anywhere in the class/parent chain — only the one declared on the HasLabels
+         * trait this class uses.
+         */
+        export interface PropertyDocblockTraitFixture {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            // Mutators
+            /** Old-style accessor whose native `array` return type is vague without the trait's docblock. */
+            labels: string[];
         }
         /**
          * A help-desk ticket linked to a customer Order and optionally assigned to a CRM agent.
@@ -787,10 +882,14 @@ declare global {
             description: string | null;
             owner_id: number;
             is_active: boolean;
-            settings: unknown[] | null;
+            settings: Record<string, unknown> | null;
+            grid_config: { filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null;
             created_at: string | null;
             updated_at: string | null;
             deleted_at: string | null;
+            week_days: app.enums.StatusType[] | null;
+            grid_configs: { label: string; config: Record<string, unknown> }[] | null;
+            grid_preset: { name: string; locked?: boolean } | null;
             // Mutators
             /** Whether the team has any members */
             has_member: boolean;
@@ -974,6 +1073,40 @@ declare global {
             secondary_contact_id: number | null;
             created_at: string | null;
             updated_at: string | null;
+        }
+    }
+    export namespace app.models.marketing.report {
+        /**
+         * Fixture: same basename AND same parent namespace segment as
+         * Sales\Report\Report — reproduces the eagle MailPrice alias collision.
+         */
+        export interface Report {
+            // Columns
+            id: number;
+            name: string;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            kpis: app.models.Kpi[];
+            kpis_count: number;
+            kpis_exists: boolean;
+        }
+    }
+    export namespace app.models.sales.report {
+        /**
+         * Fixture: same basename AND same parent namespace segment as
+         * Marketing\Report\Report — reproduces the eagle MailPrice alias collision.
+         */
+        export interface Report {
+            // Columns
+            id: number;
+            name: string;
+            created_at: string | null;
+            updated_at: string | null;
+            // Relations
+            kpis: app.models.Kpi[];
+            kpis_count: number;
+            kpis_exists: boolean;
         }
     }
     export namespace blog.models {
@@ -1378,8 +1511,8 @@ declare global {
             payments?: PaymentResource[];
             payments_count?: number;
             notes?: string | null;
-            latest_payment_only: { invoice_id: number; status: accounting.enums.PaymentStatusType; method: app.enums.PaymentMethodType; currency: app.enums.CurrencyType; amount: number; reference: string | null; paid_at: string | null } | null;
-            latest_payment_excluded: { id: number; created_at: string | null; updated_at: string | null; due_notice: accounting.enums.DueAtNoticeType; invoice: accounting.models.Invoice } | null;
+            latest_payment_only: Pick<accounting.models.Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
+            latest_payment_excluded: Omit<accounting.models.Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
         }
         /**
          * Exercises: multiple EnumResource::make from different namespaces (PaymentStatus,
@@ -1436,7 +1569,7 @@ declare global {
             latitude?: number | null;
             longitude?: number | null;
             is_default: boolean;
-            user: { id: number; name: string };
+            user: Pick<app.models.User, 'id' | 'name'>;
             coordinates: GeoPoint;
             bounds: GeoBounds;
         }
@@ -1452,10 +1585,11 @@ declare global {
             priority: app.enums.PriorityType | null;
             priority_new: app.enums.PriorityType | null;
             comments: { id: number; content: string; user: app.models.User }[];
+            comments_limited: Pick<app.models.Comment, 'id' | 'content'>[];
             published: boolean;
             rating_display: number;
             word_count: string;
-            heading_content: unknown[];
+            heading_content: { title: string; summary: string };
             publishable: boolean;
             comments_count: number;
             is_featured: boolean;
@@ -1546,11 +1680,20 @@ declare global {
             tags?: { first_item: string } | { first_item: null };
             retry_result?: { attempted: boolean };
         }
-        /** A closure parameter that shadows a top-level local must not resolve through the outer binding. */
+        /**
+         * A closure parameter that shadows a top-level local resolves through its own scoped binding
+         * (whenLoaded relation / relation-chain element model), and must not leak the outer local's value.
+         *
+         * `outer_member` is a known over-degradation: the write-count shadow guard in
+         * collectWrittenVariableNames() still counts the closure param as a write to `$member`, so the
+         * top-level `$member` local is never bound. Narrowing that guard so a closure-scoped write no
+         * longer counts against the outer local is deferred.
+         */
         export interface ClosureParamShadowResource {
             outer_member: unknown;
-            mapped_members: unknown;
-            loaded_owner?: unknown;
+            mapped_members: app.models.User[];
+            loaded_owner?: app.models.User;
+            loaded_members_bare?: app.models.User[];
         }
         /**
          * Exercises analyzeClosureUnion metadata propagation (enum, model, resource FQCNs)
@@ -1564,6 +1707,15 @@ declare global {
             detail_or_null?: { tag: TagResource; name: string } | null;
             items_or_null?: app.models.OrderItem[] | null;
         }
+        /**
+         * Regression fixture: `??` used to keep the type string of whichever operand won while dropping its
+         * FQCN, so both properties below emitted a token with no import (TS2304). analyzeCoalesce() now
+         * carries the surviving operands' channels through the same merge the ternary union uses.
+         */
+        export interface CoalesceChannelResource {
+            buyer: app.models.User | null;
+            status: app.enums.OrderStatusType;
+        }
         export interface CommentResource {
             id: number;
             content: string;
@@ -1576,8 +1728,9 @@ declare global {
             post?: PostResource;
             post_new?: PostResource;
             post_direct: PostResource;
-            post_limited: { id: number; title: string };
-            post_extended: { id: number; title: string; content: string; user_id: number; status: app.enums.StatusType; published_at: string | null; metadata: unknown[] | null; rating: number | null; category: string; options: Record<string, string> | null; deleted_at: string | null; category_id: number | null; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null; word_count: number | null; reading_time_minutes: number | null; featured_image_url: string | null; is_pinned: boolean; title_display: string | null; excerpt: string | null; reading_time: string; author: app.models.User; categoryRel: app.models.Category | null; comments: app.models.Comment[]; tags: app.models.Tag[]; images: app.models.Image[]; attachment: app.models.Attachment | null } | null;
+            post_limited: Pick<app.models.Post, 'id' | 'title'>;
+            post_extended: Omit<app.models.Post, 'created_at' | 'updated_at'> | null;
+            post_excerpt_only: { id: number; excerpt: string | null };
             post_title?: string;
             post_content?: string | null;
             post_title_display?: string | null;
@@ -1695,6 +1848,19 @@ declare global {
             draft?: boolean;
             total?: number;
             status?: app.enums.OrderStatusType;
+        }
+        /**
+         * Regression fixture: a #[TsType(import: …)] token must reach the emitted file together with its
+         * import from every result collector, not only analyzeReturnArray(). Each shape below reaches a
+         * different collector and used to emit its token with no import at all (TS2304); each uses a
+         * distinct #[TsType] class so no shape can ride on another's import.
+         */
+        export interface CustomImportChannelResource {
+            id: number;
+            inline_meta: { cfg: MenuSettingsType };
+            merged_meta: PageMetaType;
+            assigned_label: string;
+            assigned_meta: WidgetConfigType;
         }
         /** Resource that delegates to parent — tests non-array return guard. */
         export interface DelegatingResource {
@@ -1871,8 +2037,8 @@ declare global {
             status_from_docblock: app.enums.StatusType | null;
             uploader_from_docblock: app.models.User | null;
             config_from_docblock: MenuSettingsType;
-            data_from_docblock: unknown[];
-            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
+            data_from_docblock: { title: string; weight: number | null };
+            uploaders_from_docblock: app.models.User[];
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -1886,7 +2052,7 @@ declare global {
         export interface ImageMorphResource {
             id: number;
             imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
-            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
+            uploaders_from_docblock: app.models.User[];
             imageable_when_loaded?: app.models.Post | app.models.Product | app.models.User | crm.models.User;
         }
         /** Exercises: whenNotNull on multiple nullable columns. */
@@ -1908,6 +2074,13 @@ declare global {
         export interface InlineArrayFqcnResource {
             id: number;
             payload?: { address: AddressResource; items_loaded?: app.models.OrderItem[] } | null;
+        }
+        /**
+         * Fixture: Kpi::reportable() morphs to two Report models sharing basename and parent segment,
+         * reproducing the eagle MailPrice alias collision through a resource instead of a model.
+         */
+        export interface KpiResource {
+            reportable?: app.models.marketing.report.Report | app.models.sales.report.Report;
         }
         /**
          * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the
@@ -1974,10 +2147,13 @@ declare global {
             y: string;
             x: number;
         }
-        /** Exercises collectDirectReturns loop branch in toArray(). */
+        /**
+         * Exercises collectDirectReturns loop branch in toArray(). `$item` is bound to the `items`
+         * relation's element model (OrderItem), so `$item->name` resolves instead of degrading to unknown.
+         */
         export interface LoopReturnResource {
             id: number;
-            first_item_name?: unknown;
+            first_item_name?: string;
             total?: number;
         }
         export interface MediaTypeInstanceOfResource {
@@ -2049,7 +2225,7 @@ declare global {
         }
         export interface OrderCollection {
             data: OrderResource[];
-            total_count: unknown;
+            total_count: number;
         }
         /**
          * Exercises withCount()/withExists() virtual attributes and camelCase
@@ -2101,10 +2277,15 @@ declare global {
             is_paid: boolean;
             formatted_total: string;
             search_index: unknown;
+            tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
+            sorted_items: app.models.OrderItem[];
+            keyed_items: Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
+            summary_items: app.models.admin.Store[];
             user: app.models.User;
             items: app.models.OrderItem[];
         }
@@ -2131,8 +2312,8 @@ declare global {
             product?: ProductResource;
             order?: app.models.Order;
             options?: Record<string, string | number | boolean> | null;
-            order_limited: { id: number; total: number } | null;
-            order_extended: { id: number; ulid: string; user_id: number; status: app.enums.OrderStatusType; payment_method: app.enums.PaymentMethodType | null; currency: app.enums.CurrencyType; subtotal: number; tax: number; discount: number; total: number; shipping_address: unknown[] | null; billing_address: unknown[] | null; notes: string | null; placed_at: string | null; paid_at: string | null; shipped_at: string | null; delivered_at: string | null; cancelled_at: string | null; ip_address: string | null; user_agent: string | null; deleted_at: string | null; item_count: number; is_paid: boolean; formatted_total: string; score_map: Record<string, number>; sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>; listed_items: app.models.OrderItem[]; unsorted_items: unknown[] | Record<string, unknown>; user: app.models.User; items: app.models.OrderItem[] };
+            order_limited: Pick<app.models.Order, 'id' | 'total'> | null;
+            order_extended: Omit<app.models.Order, 'created_at' | 'updated_at'>;
         }
         /** Exercises ...$this->only([...]) spread with additional manual keys. */
         export interface OrderOnlyResource {
@@ -2171,10 +2352,21 @@ declare global {
             notes: string | null;
             search_index: unknown;
         }
-        /** Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape. */
+        /**
+         * Exercises a morphTo reached through a relation filter, where the union lands inside an inline shape.
+         *
+         * `attachment_hidden` exercises the ts-publish.models.exclude_hidden coupling: Attachment::$hidden
+         * keeps `internal_notes` out of the emitted model interface only when exclude_hidden is enabled, and
+         * `Pick<Attachment, 'internal_notes'>` would then violate `K extends keyof T` (TS2344) — the reference
+         * must degrade to inline expansion in that case. With the default (exclude_hidden disabled), the
+         * column is published and the Pick<> reference is preferred, matching Model::only()'s runtime result
+         * either way.
+         */
         export interface PostAttachmentFilterResource {
             id: number;
             attachment: { id: number; filename: string; attachable: app.models.Post };
+            attachment_public: Pick<app.models.Attachment, 'id' | 'filename'>;
+            attachment_hidden: Pick<app.models.Attachment, 'id' | 'internal_notes'>;
         }
         export interface PostCollection {
             data: PostResource[];
@@ -2196,10 +2388,11 @@ declare global {
             priority: app.enums.PriorityType | null;
             priority_new: app.enums.PriorityType | null;
             comments: { id: number; content: string; user: app.models.User }[];
+            comments_limited: Pick<app.models.Comment, 'id' | 'content'>[];
             published: boolean;
             rating_display: number;
             word_count: string;
-            heading_content: unknown[];
+            heading_content: { title: string; summary: string };
             publishable: boolean;
             comments_count: number;
             is_featured: boolean;
@@ -2278,6 +2471,16 @@ declare global {
             fake_relation?: unknown;
         }
         /**
+         * Regression fixture: analyzeThisMethodCall() spread a reflected TypeScriptTypeInfo straight into its
+         * result, whose enumFqcns/classFqcns keys no dispatcher reads — so both properties emitted a token
+         * with no import (TS2304). The reflection now goes through acceptReflectedTypeInfo() like every other
+         * reflected path. Both methods are `: mixed` so the @return docblock is what resolves them.
+         */
+        export interface ReflectedMethodChannelResource {
+            fallback_status: app.enums.StatusType;
+            fallback_owner: app.models.User;
+        }
+        /**
          * Exercises collection method chains rooted at a many-relation
          * ($this->members->take(5)->map(...)->values()).
          */
@@ -2292,7 +2495,9 @@ declare global {
             member_formatted: unknown;
             member_mapped_fcc: unknown;
             member_plucked_fcc: unknown;
-            first_member: unknown;
+            first_member: app.models.User | null;
+            members_after_load: app.models.User[];
+            first_member_after_load: app.models.User | null;
             members_sorted: app.models.User[] | Record<string, app.models.User>;
             members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
             members_tail: app.models.User[] | Record<string, app.models.User>;
@@ -2462,10 +2667,15 @@ declare global {
             is_paid: boolean;
             formatted_total: string;
             search_index: unknown;
+            tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
+            sorted_items: app.models.OrderItem[];
+            keyed_items: Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
+            summary_items: app.models.admin.Store[];
             user: app.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2498,10 +2708,15 @@ declare global {
             is_paid: boolean;
             formatted_total: string;
             search_index: unknown;
+            tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: app.models.OrderItem[] | Record<string, app.models.OrderItem>;
+            sorted_items: app.models.OrderItem[];
+            keyed_items: Record<string, app.models.OrderItem>;
             listed_items: app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
+            state_ids: number[] | null;
+            capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
+            summary_items: app.models.admin.Store[];
             user: app.models.User;
             items: app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2513,14 +2728,19 @@ declare global {
             status_const: app.enums.StatusType;
             items: OrderItemResource[];
             default_status: app.enums.StatusType;
-            located_order: unknown;
+            located_order: app.models.Order;
             new_items: OrderItemResource[];
-            menu_settings: unknown;
-            status_or_priority: unknown;
+            menu_settings: MenuSettingsType;
+            status_or_priority: app.enums.StatusType | app.enums.PriorityType;
             void_return: unknown;
             never_return: unknown;
             mixed_return: unknown;
-            order_or_status: unknown;
+            order_or_status: app.models.Order | app.enums.StatusType;
+            money_value: unknown;
+            page_meta_ternary: PageMetaType | null;
+            widget_config_coalesce: WidgetConfigType;
+            autocomplete: { value: number; label: string };
+            summaries: { key: string; label: string }[];
         }
         /** Exercises: whenCounted on two polymorphic relations. */
         export interface TagResource {
@@ -2562,7 +2782,7 @@ declare global {
             owner?: UserResource;
             members?: TeamMemberResource[];
             members_count?: number;
-            settings?: unknown[] | null;
+            settings?: Record<string, unknown> | null;
         }
         /**
          * Exercises: ternary operator in various return-value positions.
@@ -2825,39 +3045,19 @@ declare global {
     export namespace app.http.requests {
         export interface ArrayRulesRequest {
             tags?: string[];
-            "tags.*"?: string;
             selected_ids: number[];
-            "selected_ids.*"?: number;
             roles: string[];
-            "roles.*"?: string;
             allowed_roles: string[];
-            "allowed_roles.*"?: string;
             sku_codes: string[];
-            "sku_codes.*"?: string;
             airports: string[];
-            "airports.*"?: string;
             primary_airport: string;
             config: unknown[];
             ordered_items: string[];
-            "ordered_items.*"?: string;
-            limited_choices?: string[] | null;
-            "limited_choices.*"?: string | null;
+            limited_choices?: (string | null)[] | null;
             required_answers: string[];
-            "required_answers.*"?: string;
             coordinates: number[];
-            "coordinates.*"?: number;
-            products: unknown[];
-            "products.*.name"?: string;
-            "products.*.price"?: number;
-            "products.*.quantity"?: number;
-            "products.*.categories"?: string[];
-            "products.*.categories.*"?: string;
-            "products.*.is_available"?: boolean;
-            order: unknown[];
-            "order.id"?: string;
-            "order.items"?: unknown[];
-            "order.items.*.product_id"?: number;
-            "order.items.*.quantity"?: number;
+            products: { name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null; contact_email: string }[];
+            order: { id: string; items: { product_id: number; quantity: number }[] };
         }
         export interface BooleanRulesRequest {
             terms_accepted?: boolean;
@@ -2905,6 +3105,18 @@ declare global {
             report: File;
             exact_size_file?: File | null;
         }
+        export interface NestedEdgeCasesRequest {
+            options?: { default?: string } & Record<string, string>;
+            meta?: Record<string, never>;
+            empties?: never[];
+            "v1.0": string;
+            items?: { name: string }[];
+            variants?: ({ name: string } | { email: string })[];
+            markers?: ('>a' | 'b')[];
+            quoted?: 'it\'s' | 'b';
+            buckets?: ({ name?: string } & Record<string, string>)[];
+            settings?: { color?: string } & Record<string, never>;
+        }
         export interface NumberRulesRequest {
             score: number;
             price: number;
@@ -2944,7 +3156,7 @@ declare global {
             team_id?: unknown;
             state?: unknown;
             zones: 'first-zone' | 'second-zone';
-            "airports.*"?: 'NYC' | 'LIT';
+            airports?: ('NYC' | 'LIT')[];
             toppings: string;
             role_id_prohibited?: unknown;
             role_id_callback?: unknown;
@@ -2956,7 +3168,7 @@ declare global {
             role_id_required_unless_callback: unknown;
             title: string;
             email_unique: unknown;
-            "addresses.*.id"?: unknown;
+            addresses?: { id?: unknown }[];
             photo: File;
             quantity: number;
             accent_color?: 'red' | 'blue';
@@ -2969,7 +3181,6 @@ declare global {
             rating?: number | bigint | null;
             email: string;
             tags?: string[];
-            "tags.*"?: string;
         }
         export interface StringRulesRequest {
             website: string;
@@ -3047,7 +3258,7 @@ declare global {
             full_address: string | null;
             mobile: string | null;
             contact_method: string | null;
-            permissions: unknown[];
+            permissions: { read: unknown; write: unknown };
             optional_preference?: string;
             is_authenticated: boolean;
             role: string;
@@ -3105,6 +3316,10 @@ declare global {
             role: app.enums.RoleType;
             visibility: app.enums.VisibilityType;
             action: string;
+        }
+        export interface ReportSynced {
+            salesReport: Partial<app.models.sales.report.Report>;
+            marketingReport: Partial<app.models.marketing.report.Report>;
         }
         export interface ServerCreated {
             serverId: number;

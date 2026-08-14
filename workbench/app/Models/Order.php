@@ -11,12 +11,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
+use Workbench\App\Concerns\HasSummaries;
 use Workbench\App\Enums\Currency;
 use Workbench\App\Enums\OrderStatus;
 use Workbench\App\Enums\PaymentMethod;
+use Workbench\App\ValueObjects\CapabilitiesDto;
 
 class Order extends Model
 {
+    use HasSummaries;
     use SoftDeletes;
 
     protected $fillable = [
@@ -122,6 +125,18 @@ class Order extends Model
         );
     }
 
+    /**
+     * Write-only mutator whose docblock still documents what a getter would return.
+     *
+     * @return Attribute<?string, string>
+     */
+    protected function trackingCode(): Attribute
+    {
+        return Attribute::make(
+            set: fn (string $value): string => strtoupper($value),
+        );
+    }
+
     /** @phpstan-return Attribute<array<string, int>, never> */
     protected function scoreMap(): Attribute
     {
@@ -132,6 +147,12 @@ class Order extends Model
     protected function sortedItems(): Attribute
     {
         return Attribute::get(fn (): Collection => $this->items->sortBy('id')->values());
+    }
+
+    /** @return Attribute<Collection<string, OrderItem>, never> */
+    protected function keyedItems(): Attribute
+    {
+        return Attribute::get(fn (): Collection => $this->items->keyBy('sku'));
     }
 
     /** @return Attribute<list<OrderItem>, never> */
@@ -148,5 +169,39 @@ class Order extends Model
     protected function unsortedItems(): Attribute
     {
         return Attribute::get(fn (): Collection => $this->items);
+    }
+
+    /** @return array{value: int, label: string} */
+    public function asAutoCompleteOption(): array
+    {
+        return ['value' => (int) $this->getKey(), 'label' => (string) $this->notes];
+    }
+
+    /** @return list<array{key: string, label: string}> */
+    public function presetSummaries(): array
+    {
+        return [['key' => 'a', 'label' => 'A']];
+    }
+
+    /**
+     * A vague `: array` signature must not override a docblock that only narrows a single key.
+     *
+     * @return array{value: int, label: string}
+     */
+    public function primaryLabel(): string
+    {
+        return (string) $this->notes;
+    }
+
+    /** @return Attribute<?array<int, int>, never> */
+    protected function stateIds(): Attribute
+    {
+        return Attribute::get(fn () => null);
+    }
+
+    /** @return Attribute<CapabilitiesDto|null, never> */
+    protected function capabilities(): Attribute
+    {
+        return Attribute::get(fn (): ?CapabilitiesDto => null);
     }
 }

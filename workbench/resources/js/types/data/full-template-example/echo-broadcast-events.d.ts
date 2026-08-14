@@ -4,6 +4,7 @@ import type { MultiModelEvent } from './app/events/MultiModelEvent';
 import type { OrderShipped } from './app/events/OrderShipped';
 import type { PostPublishedEvent } from './app/events/PostPublishedEvent';
 import type { PureEnumEvent } from './app/events/PureEnumEvent';
+import type { ReportSynced } from './app/events/ReportSynced';
 import type { ServerCreated } from './app/events/ServerCreated';
 import type { StatusSynced } from './crm/events/StatusSynced';
 import type { TeamMessageSent } from './app/events/TeamMessageSent';
@@ -20,6 +21,7 @@ declare module "@laravel/echo" {
         ".Workbench.App.Events.OrderShipped": OrderShipped;
         ".Workbench.App.Events.PostPublishedEvent": PostPublishedEvent;
         ".Workbench.App.Events.PureEnumEvent": PureEnumEvent;
+        ".Workbench.App.Events.ReportSynced": ReportSynced;
         "server.created": ServerCreated;
         ".Workbench.Crm.Events.StatusSynced": StatusSynced;
         ".Workbench.App.Events.TeamMessageSent": TeamMessageSent;

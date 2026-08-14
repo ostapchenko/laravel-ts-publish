@@ -3,6 +3,7 @@ import { type AsEnum } from '@tolki/ts';
 import { Currency, OrderStatus, PaymentMethod } from '../enums';
 import type { CurrencyType, OrderStatusType, PaymentMethodType } from '../enums';
 import type { OrderItem, User } from '.';
+import type { Store } from './admin';
 
 /** @see Workbench\App\Models\Order */
 export interface Order
@@ -48,13 +49,17 @@ export interface OrderMutators
     is_paid: boolean;
     /** Formatted total with currency symbol */
     formatted_total: string;
-    /** Write-only mutator (no getter) for a non-DB column */
-    search_index: unknown;
+    /** Write-only mutator whose docblock still documents what a getter would return. */
+    tracking_code: string | null;
     score_map: Record<string, number>;
-    sorted_items: OrderItem[] | Record<string, OrderItem>;
+    sorted_items: OrderItem[];
+    keyed_items: Record<string, OrderItem>;
     listed_items: OrderItem[];
     /** All items on the order, in their natural database order. */
     unsorted_items: unknown[] | Record<string, unknown>;
+    state_ids: number[] | null;
+    capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
+    summary_items: Store[];
 }
 
 export interface OrderRelations

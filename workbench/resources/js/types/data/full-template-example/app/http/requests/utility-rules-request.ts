@@ -46,7 +46,7 @@ export interface UtilityRulesRequest {
     mobile: string | null;
     /** @metadata required-conditionally */
     contact_method: string | null;
-    permissions: unknown[];
+    permissions: { read: unknown; write: unknown };
     optional_preference?: string;
     is_authenticated: boolean;
     role: string;

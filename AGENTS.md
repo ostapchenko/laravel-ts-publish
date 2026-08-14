@@ -64,6 +64,8 @@ declare(strict_types=1);
 
 ## How to write comments
 
+This applies to all files outside of the `workbench` directory.
+
 ### Comment length
 
 Outright, choose no comments if the code is self explanatory. If a comment is needed, it should be short and to the point.

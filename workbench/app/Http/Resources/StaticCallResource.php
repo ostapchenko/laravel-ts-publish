@@ -30,30 +30,47 @@ class StaticCallResource extends JsonResource
             'items' => OrderItemCollection::make($this->items),
             // Proves acceptReflectedTypeInfo() plumbs a directly-returned enum's FQCN.
             'default_status' => UrlService::defaultStatus(),
-            // Proves acceptReflectedTypeInfo() degrades a directly-returned, non-enum
-            // class (no dispatch path for an import) to unknown rather than emitting
-            // a TS token nothing imports.
+            // Proves acceptReflectedTypeInfo() plumbs a directly-returned Model's FQCN
+            // through the modelFqcn slot, importing the model interface.
             'located_order' => UrlService::locateOrder(1),
             // new SomeCollection(...) — mirrors the ::make() case above via the same
             // collectedResourceClass() helper, from analyzeNewResource() this time.
             'new_items' => new OrderItemCollection($this->items),
-            // Proves acceptReflectedTypeInfo() degrades a #[TsType(import: ...)]-annotated
-            // class return: its import lives only in customImports, which this
-            // general-reflection branch has no dispatch path for.
+            // Proves acceptReflectedTypeInfo() carries a #[TsType(import: ...)]-annotated
+            // class return's import through the new customImports slot.
             'menu_settings' => UrlService::menuSettings(),
-            // Proves acceptReflectedTypeInfo() degrades a multi-enum union return: only
-            // enumFqcns[0] could be plumbed through directEnumFqcn's single slot, so
-            // accepting it would silently drop the import for the other enum.
+            // Proves acceptReflectedTypeInfo() plumbs a multi-enum union return through
+            // embeddedEnumFqcns, since directEnumFqcn is a single slot.
             'status_or_priority' => UrlService::statusOrPriority(),
             // Proves acceptReflectedTypeInfo() degrades void/never/mixed returns instead
             // of emitting syntactically-valid-but-nonsense property types.
             'void_return' => UrlService::voidReturn(),
             'never_return' => UrlService::neverReturn(),
             'mixed_return' => UrlService::mixedReturn(),
-            // Proves acceptReflectedTypeInfo() rejects a class token even when an enum is
-            // also present in the same union — the classFqcns guard must not be shadowed
-            // by an earlier-returning enumFqcns branch.
+            // Proves acceptReflectedTypeInfo() plumbs a model+enum union through both
+            // embeddedModelFqcns and embeddedEnumFqcns off the same result.
             'order_or_status' => UrlService::orderOrStatus(),
+            // Proves acceptReflectedTypeInfo() still rejects a non-Model class result:
+            // no published file exists to import OpaqueHandle from.
+            'money_value' => UrlService::moneyValue(),
+            // Proves a ternary branch's customImports survive analyzeClosureUnion()'s merge
+            // instead of being dropped alongside the other propagated FQCN channels. Uses a
+            // #[TsType] class distinct from MenuSettings so the regression test can't pass by
+            // riding on the plain `menu_settings` property's own contribution above.
+            'page_meta_ternary' => $this->notes
+                ? UrlService::pageMeta()
+                : null,
+            // Proves the *used* operand's customImports survive analyzeCoalesce()'s merge — the
+            // left branch degrades to unknown and is discarded, so only the right branch's
+            // import may end up in the emitted file. A third distinct #[TsType] class for the
+            // same isolation reason as page_meta_ternary above.
+            'widget_config_coalesce' => UrlService::moneyValue() ?? UrlService::widgetConfig(),
+            // Proves methodOrDocblockReturnTypes() defers a vague `: array` signature to a precise
+            // @return array{...} docblock shape instead of emitting unknown[] (Task 6).
+            'autocomplete' => $this->resource->asAutoCompleteOption(),
+            // Proves a docblock array{...} shape nested inside list<> resolves through the same
+            // shape resolver instead of degrading to unknown[][] (Task 6).
+            'summaries' => $this->resource->presetSummaries(),
         ];
     }
 }

@@ -64,7 +64,20 @@ answer was neither `string` nor `unknown` but `ShipmentStatusType`.
 ## `unimportable-token-gate.sh`
 
 Runs `npx tsc --noEmit` over the generated tree and counts "cannot find name" diagnostics — TS2304, plus
-TS2552 (`Did you mean…`), which TypeScript emits instead when a similarly-named global exists.
+TS2552 (`Did you mean…`), which TypeScript emits instead when a similarly-named global exists — together
+with TS2300 (`Duplicate identifier`) and TS2344 (`does not satisfy the constraint`).
+
+TS2300 catches a different failure shape than the other two: not a token emitted *without* an import, but
+two *different* imports resolving to the *same* local name. This is exactly how the MailPrice collision
+manifested — two unrelated `MailPrice` models both aliased to `MailPriceMailPrice`, because the old aliasing
+algorithm derived an alias from a single namespace segment and two classes happened to share both their
+basename and that segment. `ImportNameRegistry` (`docs/components/import-name-registry.md`) exists to make
+that impossible, and this gate is the standing check that it stays that way.
+
+TS2344 is a third shape: the token is imported and unique, but named somewhere its own type rejects it —
+the case that motivated adding it was `Pick<Model, K>` built from raw schema columns while the model
+interface omits `$hidden` ones, so `K extends keyof T` failed. See
+`docs/components/resource-ast-analyzer.md`.
 
 ```bash
 .github/scripts/unimportable-token-gate.sh          # report only
@@ -72,13 +85,13 @@ TS2552 (`Did you mean…`), which TypeScript emits instead when a similarly-name
 ```
 
 ```
-TS2304/TS2552 (cannot find name) in generated tree: 14
+TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 14
    8   CustomObject
    2   ExtendableInterface
    2   Coordinate
    1   PostAttributes
    1   AddressResource
-PASS - no new unimportable tokens (baseline 14)
+PASS - no new unimportable or colliding tokens (baseline 14)
 ```
 
 ### The baseline
@@ -123,7 +136,50 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
 
 ## What the gates do not cover
 
-They read the **committed workbench corpus**, so they only see failures the fixtures actually produce. A
-defect reachable only by a shape no fixture exercises passes both. When adding an inference path, add a
-fixture for the hazardous shape too — several real defects were found only by constructing a fixture and
-regenerating, never by reading the code or running the suite.
+- **Fixture coverage.** They read the **committed workbench corpus**, so they only see failures the
+  fixtures actually produce. A defect reachable only by a shape no fixture exercises passes both. When
+  adding an inference path, add a fixture for the hazardous shape too — several real defects were found
+  only by constructing a fixture and regenerating, never by reading the code or running the suite.
+
+- **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
+  is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,
+  then checks whether that same `(file, scope, property)` key existed in the base snapshot. A property
+  that existed at `BASE_REV` and is simply **gone** at `HEAD` never appears in `h`, so it never enters the
+  loop at all — not as a pass, not as a fail, not as any kind of signal. The gate has no code path that
+  even notices a key vanished.
+
+  This is not theoretical: this branch shipped the first base-only keys the gate has ever seen, both from
+  the write-only-accessor waterfall (`cb7c302`). `order.search_index` was dropped outright — a set-only
+  mutator with no getter, no docblock generic, and no backing column, so it is correctly omitted rather
+  than emitted as `unknown`. `profile.normalized_phone` was *moved*: in the three split-template trees it
+  left `ProfileMutators` and reappeared in `Profile`, where the same-named column types it
+  `string | null` instead of `unknown`. Because keys are scoped by enclosing interface, a relocation is a
+  removal plus an addition, and the gate is blind to exactly the half that would tell you a property left
+  its old home. (In `full-template-example` the same change is fully visible — one interface holds both
+  sections, so the key never moved and the gate simply saw `unknown` become `string | null`. Whether a
+  change is observable can depend on the template, which is its own reason not to treat a green gate as
+  coverage.)
+
+  What did **not** ship is a `$hidden` removal, and it is worth being precise about that, because it is
+  the change most likely to be misremembered as one. `config/ts-publish.php` ships
+  `'exclude_hidden' => false`, so hidden attributes are published by default: `user.password` and
+  `user.remember_token` are both still present, in all four committed trees. The setting is the opt-in
+  that *would* remove them — turn it on and those two properties leave `User` on the next regeneration,
+  matching Laravel's own `toArray()`/`toJson()` serialization (see
+  [What gets published](https://tolki.abe.dev/ts/models.html#what-gets-published-hidden-attributes-write-only-accessors)).
+  No workbench example enables it, so the committed corpus exercises the permissive branch only and the
+  gate has never actually been shown a `$hidden`-driven removal — a second reason not to lean on it here.
+
+  Every regenerated tree was reviewed by hand — reading the diff and confirming each property disappeared
+  for the intended reason — because the gate could not do, and did not do, any part of that verification.
+  A property quietly dropping for the *wrong* reason (a bug, not a deliberate design choice) would pass
+  both gates exactly the same way these did.
+
+  **Practical consequence:** whenever a change might remove a property — excluding more columns, widening
+  `$hidden`, tightening an accessor's visibility, deleting or renaming a workbench fixture — diff the
+  regenerated `workbench/resources/js/types/data` tree by hand (`git diff` on the committed output) and
+  account for every property that disappears. Neither gate substitutes for that review. Teaching the gate
+  to see removals — a second pass keyed the opposite direction (`for k in b if k not in h`), reporting each
+  base-only key as a `REMOVED — verify intentional` line rather than an automatic failure, since removal is
+  often correct — is real, scoped work, deliberately left for a follow-up rather than folded into this
+  documentation-only task.

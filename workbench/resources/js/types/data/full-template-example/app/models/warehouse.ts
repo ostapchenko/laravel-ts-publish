@@ -1,13 +1,13 @@
 import { type AsEnum } from '@tolki/ts';
 
 import { Status as CrmStatus } from '../../crm/enums';
-import { Color, Priority, Status as AppStatus } from '../enums';
+import { Color, Priority, Status as EnumsStatus } from '../enums';
 import type { MenuSettingsType } from '@js/types/settings';
 import type { Auditable } from '@/types/audit';
 import type { HasTimestamps } from '@/types/common';
 import type { StatusType as CrmStatusType } from '../../crm/enums';
 import type { User as CrmUser } from '../../crm/models';
-import type { ColorType, PriorityType, StatusType as AppStatusType } from '../enums';
+import type { ColorType, PriorityType, StatusType as EnumsStatusType } from '../enums';
 import type { Coordinate } from '../value-objects';
 import type { User as ManagerUser } from '.';
 
@@ -20,7 +20,7 @@ export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" |
     /** Write-only accessor on DB column 'phone' — normalizes on set, no get */
     phone: string | null;
     coordinate_data: Coordinate | null;
-    status: AppStatusType | null;
+    status: EnumsStatusType | null;
     color: ColorType | null;
     priority: PriorityType | null;
     manager_id: number | null;
@@ -34,9 +34,9 @@ export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" |
     last_user_activity_by: CrmUser | ManagerUser | null;
     last_user_activity_by_typed: CrmUser | ManagerUser | null;
     last_user_activity_by_typed_short: CrmUser | ManagerUser | null;
-    review_priority: AppStatusType | PriorityType | null;
-    review_priority_typed: AppStatusType | PriorityType | null;
-    review_priority_typed_short: AppStatusType | PriorityType | null;
+    review_priority: EnumsStatusType | PriorityType | null;
+    review_priority_typed: EnumsStatusType | PriorityType | null;
+    review_priority_typed_short: EnumsStatusType | PriorityType | null;
     /** Non-column accessor returning a plain class (Coordinate) */
     location: Coordinate;
     /** Non-column accessor returning CRM Status enum — creates name conflict with column 'status' */
@@ -57,11 +57,11 @@ export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" |
 
 export interface WarehouseResource extends Omit<Warehouse, 'status' | 'color' | 'priority' | 'review_priority' | 'review_priority_typed' | 'review_priority_typed_short' | 'current_crm_status'>
 {
-    status: AsEnum<typeof AppStatus> | null;
+    status: AsEnum<typeof EnumsStatus> | null;
     color: AsEnum<typeof Color> | null;
     priority: AsEnum<typeof Priority> | null;
-    review_priority: AsEnum<typeof AppStatus> | null;
-    review_priority_typed: AsEnum<typeof AppStatus> | null;
-    review_priority_typed_short: AsEnum<typeof AppStatus> | null;
+    review_priority: AsEnum<typeof EnumsStatus> | null;
+    review_priority_typed: AsEnum<typeof EnumsStatus> | null;
+    review_priority_typed_short: AsEnum<typeof EnumsStatus> | null;
     current_crm_status: AsEnum<typeof CrmStatus> | null;
 }

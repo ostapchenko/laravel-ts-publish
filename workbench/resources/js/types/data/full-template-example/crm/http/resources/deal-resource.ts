@@ -1,10 +1,10 @@
 import { type AsEnum } from '@tolki/ts';
 
-import { Status as AppStatus } from '../../../app/enums';
+import { Status as EnumsStatus } from '../../../app/enums';
 import { Status as CrmStatus } from '../../enums';
-import type { StatusType as AppStatusType } from '../../../app/enums';
-import type { UserResource as AppUserResource } from '../../../app/http/resources';
-import type { User as AppUser } from '../../../app/models';
+import type { StatusType as EnumsStatusType } from '../../../app/enums';
+import type { UserResource as ResourcesUserResource } from '../../../app/http/resources';
+import type { User as ModelsUser } from '../../../app/models';
 import type { StatusType as CrmStatusType } from '../../enums';
 import type { User as CrmUser } from '../../models';
 import type { UserResource as CrmUserResource } from '.';
@@ -22,13 +22,13 @@ export interface DealResource
     id: number;
     title: string;
     value: number;
-    status: AppStatusType;
-    status_enum: AsEnum<typeof AppStatus>;
+    status: EnumsStatusType;
+    status_enum: AsEnum<typeof EnumsStatus>;
     crm_status: CrmStatusType;
     crm_enum: AsEnum<typeof CrmStatus>;
     customer?: CrmUser;
-    admin?: AppUser;
+    admin?: ModelsUser;
     customer_resource?: CrmUserResource;
-    admin_resource?: AppUserResource;
+    admin_resource?: ResourcesUserResource;
     closed_at?: string | null;
 }

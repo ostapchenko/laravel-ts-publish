@@ -1,3 +1,7 @@
+import { type AsEnum } from '@tolki/ts';
+
+import { Status } from '../enums';
+import type { StatusType } from '../enums';
 import type { User } from '.';
 
 /** @see Workbench\App\Models\Team */
@@ -9,10 +13,19 @@ export interface Team
     description: string | null;
     owner_id: number;
     is_active: boolean;
-    settings: unknown[] | null;
+    settings: Record<string, unknown> | null;
+    grid_config: { filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null;
     created_at: string | null;
     updated_at: string | null;
     deleted_at: string | null;
+    week_days: StatusType[] | null;
+    grid_configs: { label: string; config: Record<string, unknown> }[] | null;
+    grid_preset: { name: string; locked?: boolean } | null;
+}
+
+export interface TeamResource extends Omit<Team, 'week_days'>
+{
+    week_days: AsEnum<typeof Status>[] | null;
 }
 
 export interface TeamMutators
@@ -39,3 +52,5 @@ export interface TeamRelations
 }
 
 export interface TeamAll extends Team, TeamMutators, TeamRelations {}
+
+export interface TeamAllResource extends TeamResource, TeamMutators, TeamRelations {}

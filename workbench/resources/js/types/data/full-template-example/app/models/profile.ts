@@ -12,6 +12,8 @@ export interface Profile
     date_of_birth: string | null;
     website: string | null;
     phone_number: string | null;
+    /** Write-only mutator, no get — but `normalized_phone` is a real column, so it still types the column */
+    normalized_phone: string | null;
     social_links: { twitter?: string; github?: string; linkedin?: string; website?: string };
     settings: { notifications_enabled: boolean; theme: "light" | "dark"; language: string };
     menu_settings: MenuSettingsType | null;
@@ -24,8 +26,6 @@ export interface Profile
     age: number | null;
     /** Full display name combining user name and bio snippet */
     display_summary: string;
-    /** Write-only mutator — normalizes phone number on set, no get */
-    normalized_phone: unknown;
     /** Old-style mutator for avatar URL capitalization */
     formatted_bio: string;
     // Relations

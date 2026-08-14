@@ -6,6 +6,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
+use Workbench\Accounting\Models\Payment;
 use Workbench\App\Enums\OrderStatus;
 use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Role;
@@ -19,6 +20,7 @@ use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureParamShadowResource;
 use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
+use Workbench\App\Http\Resources\CoalesceChannelResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\CommonResource;
 use Workbench\App\Http\Resources\ConditionalParamArrayResource;
@@ -27,6 +29,7 @@ use Workbench\App\Http\Resources\ConditionalParamFullClosureResource;
 use Workbench\App\Http\Resources\ConditionalParamMappedResource;
 use Workbench\App\Http\Resources\ConditionalParamPrimitiveResource;
 use Workbench\App\Http\Resources\ControlFlowReturnResource;
+use Workbench\App\Http\Resources\CustomImportChannelResource;
 use Workbench\App\Http\Resources\DelegatingResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
 use Workbench\App\Http\Resources\EmptyResource;
@@ -61,11 +64,13 @@ use Workbench\App\Http\Resources\OrderItemResource;
 use Workbench\App\Http\Resources\OrderOnlyResource;
 use Workbench\App\Http\Resources\OrderResource;
 use Workbench\App\Http\Resources\OrderSummaryResource;
+use Workbench\App\Http\Resources\PostAttachmentFilterResource;
 use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\QuirkyResource;
+use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
 use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\SpreadJsonBaseResource;
@@ -195,7 +200,7 @@ describe('ResourceAstAnalyzer with PostResource', function () {
             ->and($prop['optional'])->toBeFalse();
     });
 
-    test('(array) cast resolves to unknown[]', function () {
+    test('(array) cast of an inline array literal preserves its shape', function () {
         $reflection = new ReflectionClass(PostResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Post::class);
         $analysis = $analyzer->analyze();
@@ -203,7 +208,7 @@ describe('ResourceAstAnalyzer with PostResource', function () {
         $prop = collect($analysis->properties)->firstWhere('name', 'heading_content');
 
         expect($prop)->not->toBeNull()
-            ->and($prop['type'])->toBe('unknown[]')
+            ->and($prop['type'])->toBe('{ title: string; summary: string }')
             ->and($prop['optional'])->toBeFalse();
     });
 
@@ -610,8 +615,16 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['member_plucked_fcc']['type'])->toBe('unknown');
     });
 
-    test('an unsupported op in the chain keeps current unknown behavior', function () {
-        expect($this->props['first_member']['type'])->toBe('unknown');
+    test('first() as the outermost op yields the element type or null', function () {
+        expect($this->props['first_member']['type'])->toBe('User | null')
+            ->and($this->props['first_member']['optional'])->toBeFalse();
+    });
+
+    // load()/loadMissing() are identity ops: they don't break sequential keys, and don't block
+    // the first()/last() terminal recognition that walks past them.
+    test('load() is an identity op that preserves sequential keys and the first() terminal', function () {
+        expect($this->props['members_after_load']['type'])->toBe('User[]')
+            ->and($this->props['first_member_after_load']['type'])->toBe('User | null');
     });
 
     // A Collection whose keys are gapped or reordered json_encodes to an object, not an array.
@@ -819,50 +832,47 @@ describe('ResourceAstAnalyzer with InvoiceResource', function () {
         expect($status['optional'])->toBeTrue();
     });
 
-    test('latest_payment_only resolves inline type from accessor-returned model', function () {
+    test('latest_payment_only references the Payment model via Pick', function () {
+        // latest_payment is an accessor returning Payment; every only() key is a plain Payment column, so
+        // the analyzer references the emitted Payment model interface instead of an inline shape.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'latest_payment_only');
 
-        expect($prop['type'])
-            ->not->toBe('unknown')
-            ->toContain('invoice_id: number')
-            ->toContain('| null');
+        expect($prop['type'])->toBe(
+            "Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
+        );
     });
 
-    test('latest_payment_excluded resolves inline type from accessor-returned model', function () {
+    test('latest_payment_excluded references the Payment model via Omit', function () {
+        // Every except() key is also a plain Payment column, so this references the model interface too.
+        // Omit<Payment, ...> targets the bare (columns-only) Payment interface, matching Eloquent's actual
+        // Model::except() runtime behavior — it never returns dueNotice (a mutator) or invoice (a
+        // relation) regardless of the excluded keys, see tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'latest_payment_excluded');
 
-        expect($prop['type'])
-            ->not->toBe('unknown')
-            ->toContain('id: number')
-            ->toContain('| null');
+        expect($prop['type'])->toBe(
+            "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
+        );
     });
 
-    test('has enum imports from accessor model filter (latest_payment_only)', function () {
-        $reflection = new ReflectionClass(InvoiceResource::class);
-        $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
-        $analysis = $analyzer->analyze();
-
-        expect($analysis->directEnumFqcns)
-            ->toHaveKey('Workbench\Accounting\Enums\PaymentStatus')
-            ->toHaveKey('Workbench\App\Enums\PaymentMethod')
-            ->toHaveKey('Workbench\App\Enums\Currency');
-    });
-
-    test('has model imports from accessor model filter (latest_payment_excluded)', function () {
+    test('Pick/Omit accessor model filters register the Payment modelFqcn for import', function () {
+        // Superseded the old embedded enum/model FQCN assertions (PaymentStatus/PaymentMethod/Currency and
+        // a self-keyed Invoice FQCN embedded within the old inline shape): the resource now only needs to
+        // import Payment itself — its own generated file already carries those enum and model imports.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
         expect($analysis->modelFqcns)
-            ->toHaveKey('Workbench\Accounting\Models\Invoice');
+            ->toHaveKey('latest_payment_only', Payment::class)
+            ->toHaveKey('latest_payment_excluded', Payment::class);
     });
 });
 
@@ -969,47 +979,111 @@ describe('ResourceAstAnalyzer with OrderItemResource', function () {
         expect($order['type'])->toBe('Order');
     });
 
-    test('test order_limited only has id, total or null', function () {
+    test('order_limited only() with all-column keys references the Order model via Pick', function () {
+        // order_limited = $this->order?->only('id', 'total') — both keys are plain Order columns, so the
+        // analyzer now references the emitted Order model interface instead of re-deriving an inline shape.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
         $orderLimited = collect($analysis->properties)->firstWhere('name', 'order_limited');
 
-        expect($orderLimited['type'])->toBe('{ id: number; total: number } | null');
+        expect($orderLimited['type'])->toBe("Pick<Order, 'id' | 'total'> | null");
     });
 
-    test('test order_extended does not have created_at & updated_at', function () {
+    test('order_extended except() with all-column keys references the Order model via Omit', function () {
+        // order_extended = $this->order->except('created_at', 'updated_at') — both excluded keys are plain
+        // Order columns, so the emitted type omits them from the (columns-only) Order model interface.
+        // Order also has mutators (item_count, sorted_items, ...) and relations (user, items), but
+        // Model::except() never returns those at runtime regardless — see
+        // tests/Feature/ModelOnlyExceptSemanticsTest.php — so Omit<Order, ...> matches ground truth, and
+        // the old inline expansion (which used to include them) was the inaccurate one.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
         $orderExtended = collect($analysis->properties)->firstWhere('name', 'order_extended');
 
-        expect($orderExtended['type'])
-            ->not->toContain('created_at')
-            ->not->toContain('updated_at');
+        expect($orderExtended['type'])->toBe("Omit<Order, 'created_at' | 'updated_at'>");
     });
 
-    test('has enum imports from inline relation filter (order_extended)', function () {
-        $reflection = new ReflectionClass(OrderItemResource::class);
-        $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
-        $analysis = $analyzer->analyze();
-
-        expect($analysis->directEnumFqcns)
-            ->toHaveKey('Workbench\App\Enums\OrderStatus')
-            ->toHaveKey('Workbench\App\Enums\PaymentMethod')
-            ->toHaveKey('Workbench\App\Enums\Currency');
-    });
-
-    test('has model imports from inline relation filter (order_extended)', function () {
+    test('Pick/Omit relation filters register the Order modelFqcn for import', function () {
+        // Superseded the old embedded enum/model FQCN assertions: the inline expansion used to pull in
+        // OrderStatus/PaymentMethod/Currency and the User/OrderItem FQCNs embedded within it directly.
+        // Now the resource only needs to import Order itself.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
         expect($analysis->modelFqcns)
-            ->toHaveKey('Workbench\App\Models\User')
-            ->toHaveKey('Workbench\App\Models\OrderItem');
+            ->toHaveKey('order_limited', Order::class)
+            ->toHaveKey('order_extended', Order::class);
+    });
+});
+
+describe('relation filters reference the emitted model interface', function () {
+    test('only() on a belongsTo with all-column keys emits Pick of the model', function () {
+        // CommentResource: post_limited = $this->post->only(['id', 'title']) — both keys are plain
+        // Post columns, so the analyzer references the Post model interface instead of an inline shape.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['post_limited']['type'])->toBe("Pick<Post, 'id' | 'title'>");
+    });
+
+    test('except() on a nullsafe belongsTo with all-column keys emits Omit of the model, nullable', function () {
+        // CommentResource: post_extended = $this->post?->except(['created_at', 'updated_at']). Post has
+        // mutators (title_display, excerpt, ...) and relations (author, comments, ...) beyond its columns,
+        // but Omit<Post, ...> targets the (columns-only) Post interface unconditionally — that matches
+        // Eloquent's actual Model::except() runtime behavior, which never returns a mutator or relation
+        // regardless of the excluded keys. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['post_extended']['type'])->toStartWith('Omit<Post, ')
+            ->and($props['post_extended']['type'])->toContain("'created_at'")
+            ->and($props['post_extended']['type'])->toContain("'updated_at'")
+            ->and($props['post_extended']['type'])->toEndWith('| null');
+    });
+
+    test('post_limited and post_extended register Post as their modelFqcn for import', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $analysis = $analyzer->analyze();
+
+        expect($analysis->modelFqcns)
+            ->toHaveKey('post_limited', Post::class)
+            ->toHaveKey('post_extended', Post::class);
+    });
+
+    test('only() keeps keys quoted and unions them', function () {
+        // OrderItemResource: order_extended = $this->order->except('created_at', 'updated_at') — variadic
+        // args, not nullsafe, so no ' | null' suffix on this one (order_limited covers the nullsafe case).
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(OrderItemResource::class), OrderItem::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['order_extended']['type'])->toMatch("/^Omit<Order, '[a-z_]+'( \| '[a-z_]+')*>$/");
+    });
+
+    test('hasMany relation with all-column only() keys emits Pick with the [] suffix', function () {
+        // PostResource: comments_limited = $this->comments->only(['id', 'content']) — HasMany, so the
+        // many-relation [] suffix is preserved on top of the Pick<> reference.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(PostResource::class), Post::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['comments_limited']['type'])->toBe("Pick<Comment, 'id' | 'content'>[]");
+    });
+
+    test('a filter key that is an accessor still falls back to inline expansion', function () {
+        // CommentResource: post_excerpt_only = $this->post->only(['id', 'excerpt']) — 'excerpt' is an
+        // Attribute accessor on Post with no backing column, so the whole filter falls back to inline
+        // (the result must NOT be a Pick/Omit reference).
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['post_excerpt_only']['type'])
+            ->not->toContain('Pick<')
+            ->not->toContain('Omit<')
+            ->toBe('{ id: number; excerpt: string | null }');
     });
 });
 
@@ -1985,11 +2059,12 @@ describe('ResourceAstAnalyzer with OrderCollection (explicit $collects)', functi
             ->and($this->analysis->nestedResources['data'])->toBe(OrderResource::class);
     });
 
-    test('resolves other properties as unknown when no model backing', function () {
+    test('resolves $this->collection->count() to number', function () {
         $totalCount = collect($this->analysis->properties)->firstWhere('name', 'total_count');
 
         expect($totalCount)->not->toBeNull()
-            ->and($totalCount['type'])->toBe('unknown');
+            ->and($totalCount['type'])->toBe('number')
+            ->and($totalCount['optional'])->toBeFalse();
     });
 });
 
@@ -2984,7 +3059,7 @@ describe('ResourceAstAnalyzer with LoopReturnResource (collectDirectReturns loop
         $props = collect($this->analysis->properties);
 
         expect($props->firstWhere('name', 'id')['type'])->toBe('number')
-            ->and($props->firstWhere('name', 'first_item_name')['type'])->toBe('unknown')
+            ->and($props->firstWhere('name', 'first_item_name')['type'])->toBe('string')
             ->and($props->firstWhere('name', 'total')['type'])->toBe('number');
     });
 });
@@ -4047,24 +4122,24 @@ describe('static call inference', function () {
         expect($this->props['default_status']['type'])->toContain('Status');
     });
 
-    test('static call declared to return a non-enum class degrades to unknown', function () {
-        // A return type backed by an arbitrary class has no FQCN dispatch path out of analyzeStaticCall's
-        // general-reflection branch, so accepting its token would emit an import-less TS reference.
-        expect($this->props['located_order']['type'])->toBe('unknown');
+    test('static call declared to return a Model resolves via modelFqcn', function () {
+        // A single-Model classFqcns entry now dispatches through the modelFqcn slot instead of degrading.
+        expect($this->props['located_order']['type'])->toBe('Order');
     });
 
     test('new ResourceCollection(...) resolves to collected resource array', function () {
         expect($this->props['new_items']['type'])->toBe('OrderItemResource[]');
     });
 
-    test('static call declared to return a #[TsType]-annotated class degrades to unknown', function () {
-        // #[TsType] classes register only in customImports, which this branch cannot dispatch into imports.
-        expect($this->props['menu_settings']['type'])->toBe('unknown');
+    test('static call declared to return a #[TsType]-annotated class resolves via customImports', function () {
+        // #[TsType] classes register only in customImports, now carried through on the result.
+        expect($this->props['menu_settings']['type'])->toBe('MenuSettingsType');
     });
 
-    test('static call declared to return a multi-enum union degrades to unknown', function () {
-        // directEnumFqcn carries a single FQCN, so a Status|Priority union would drop the second import.
-        expect($this->props['status_or_priority']['type'])->toBe('unknown');
+    test('static call declared to return a multi-enum union resolves via embeddedEnumFqcns', function () {
+        // directEnumFqcn carries a single FQCN, so a Status|Priority union dispatches through the list slot.
+        expect($this->props['status_or_priority']['type'])->toContain('StatusType')
+            ->and($this->props['status_or_priority']['type'])->toContain('PriorityType');
     });
 
     test('static call declared void/never/mixed degrades to unknown', function () {
@@ -4073,10 +4148,89 @@ describe('static call inference', function () {
         }
     });
 
-    test('static call declared to return an enum-plus-class union degrades to unknown', function () {
-        // classFqcns and enumFqcns can both be non-empty for one TypeScriptTypeInfo (Order|Status), so the
-        // classFqcns guard must fire first or the enum branch accepts and drops the Order import.
-        expect($this->props['order_or_status']['type'])->toBe('unknown');
+    test('static call declared to return an enum-plus-model union resolves via both channels', function () {
+        // classFqcns and enumFqcns can both be non-empty for one TypeScriptTypeInfo (Order|Status); both
+        // must dispatch off the same result (embeddedModelFqcns and embeddedEnumFqcns) rather than one
+        // guard shadowing the other.
+        expect($this->props['order_or_status']['type'])->toContain('Order')
+            ->and($this->props['order_or_status']['type'])->toContain('StatusType');
+    });
+
+    test('static call declared to return a non-Model class still degrades to unknown', function () {
+        // A return type backed by an arbitrary, non-Model class has no dispatch path for its import
+        // (no published file exists for OpaqueHandle), so the whole result is still rejected.
+        expect($this->props['money_value']['type'])->toBe('unknown');
+    });
+});
+
+describe('vague array signature docblock shapes resolved via $this->resource->method()', function () {
+    beforeEach(function () {
+        $this->props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(StaticCallResource::class), Order::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+    });
+
+    test('$this->resource->asAutoCompleteOption() resolves the @return array{...} shape, not unknown[]', function () {
+        expect($this->props['autocomplete']['type'])->toBe('{ value: number; label: string }');
+    });
+
+    test('$this->resource->presetSummaries() resolves list<array{...}> to an object array', function () {
+        expect($this->props['summaries']['type'])->toBe('{ key: string; label: string }[]');
+    });
+});
+
+describe('reflected static-call types dispatch their imports', function () {
+    beforeEach(function () {
+        $this->analysis = new ResourceAstAnalyzer(
+            new ReflectionClass(StaticCallResource::class), Order::class,
+        )->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('a model return type resolves with its FQCN plumbed', function () {
+        expect($this->props['located_order']['type'])->toBe('Order')
+            ->and($this->analysis->modelFqcns)->toHaveKey('located_order');
+    });
+
+    test('a TsType custom import carries through', function () {
+        expect($this->props['menu_settings']['type'])->toBe('MenuSettingsType')
+            ->and($this->analysis->customImports)->toHaveKey('@js/types/settings');
+    });
+
+    test('an enum union resolves with both enums plumbed', function () {
+        expect($this->props['status_or_priority']['type'])->toContain('StatusType')
+            ->and($this->props['status_or_priority']['type'])->toContain('PriorityType')
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('status_or_priority');
+    });
+
+    test('a model|enum union resolves with both channels plumbed', function () {
+        expect($this->props['order_or_status']['type'])->toContain('Order')
+            ->and($this->props['order_or_status']['type'])->toContain('StatusType');
+    });
+
+    test('a DTO return type still degrades to unknown', function () {
+        expect($this->props['money_value']['type'] ?? 'unknown')->toBe('unknown');
+    });
+
+    test('a TsType custom import survives a ternary merge with a null branch', function () {
+        // analyzeTernary() routes through analyzeClosureUnion(), which previously propagated every
+        // other FQCN channel (modelFqcn, directEnumFqcn, embedded lists) but not customImports.
+        // page_meta_ternary uses a #[TsType] class distinct from the plain menu_settings property's
+        // MenuSettings, so this assertion can't pass by riding on that unrelated property's import.
+        expect($this->props['page_meta_ternary']['type'])->toBe('PageMetaType | null')
+            ->and($this->analysis->customImports)->toHaveKey('@js/types/page-meta')
+            ->and($this->analysis->customImports['@js/types/page-meta'])->toContain('PageMetaType');
+    });
+
+    test('a TsType custom import survives a coalesce merge with a discarded left branch', function () {
+        // analyzeCoalesce() previously rebuilt its result from scratch, dropping every channel; the
+        // left branch here degrades to unknown and is discarded, so only the right branch's import
+        // may end up in the emitted file. widget_config_coalesce uses a third distinct #[TsType]
+        // class so this assertion is isolated from both menu_settings and page_meta_ternary.
+        expect($this->props['widget_config_coalesce']['type'])->toBe('WidgetConfigType')
+            ->and($this->analysis->customImports)->toHaveKey('@js/types/widget-config')
+            ->and($this->analysis->customImports['@js/types/widget-config'])->toContain('WidgetConfigType');
     });
 });
 
@@ -4150,15 +4304,19 @@ describe('local variable bindings', function () {
         expect($this->props['shadowed']['type'])->toBe('unknown');
     });
 
-    // A closure parameter rebinds the name, so a same-named top-level local must not resolve inside it.
-    test('a closure or arrow-function parameter shadowing an outer local drops the binding', function () {
+    // A closure parameter rebinds the name: it resolves against its own bound model (whenLoaded
+    // relation / chain element), and must not leak that binding into a same-named outer local.
+    test('a closure or arrow-function parameter shadowing an outer local binds to its own model, not the outer local', function () {
         $props = collect(
             (new ResourceAstAnalyzer(new ReflectionClass(ClosureParamShadowResource::class), Team::class))
                 ->analyze()->properties,
         )->keyBy('name');
 
-        expect($props['mapped_members']['type'])->toBe('unknown')
-            ->and($props['loaded_owner']['type'])->toBe('unknown')
+        expect($props['mapped_members']['type'])->toBe('User[]')
+            ->and($props['loaded_owner']['type'])->toBe('User')
+            // outer_member: write-count shadow protection in collectWrittenVariableNames() still
+            // counts the closure param as a write, so the outer $member local stays unbound. See
+            // task-11-brief.md's "outer_member note" — narrowing that protection is deferred.
             ->and($props['outer_member']['type'])->toBe('unknown');
     });
 
@@ -4170,6 +4328,47 @@ describe('local variable bindings', function () {
         )->keyBy('name');
 
         expect($props['key']['type'])->toBe('string');
+    });
+});
+
+describe('variable-to-model bindings', function () {
+    test('whenLoaded closure param binds to the relation target', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(ClosureParamShadowResource::class), Team::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['loaded_owner']['type'])->toBe('User')
+            ->and($props['mapped_members']['type'])->toBe('User[]')
+            // Deferred — see task-11-brief.md's "outer_member note".
+            ->and($props['outer_member']['type'])->toBe('unknown');
+    });
+
+    // 'members' is a to-many relation: the closure param holds the whole collection, not one
+    // element, so a bare return resolves to the collection type `User[]` — never the singular
+    // element model `User`.
+    test('whenLoaded closure param binds to the collection type for a to-many relation', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(ClosureParamShadowResource::class), Team::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['loaded_members_bare']['type'])->toBe('User[]');
+        expect($props['loaded_members_bare']['type'])->not->toBe('User');
+    });
+
+    test('relation chain first() yields the element or null', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(RelationChainResource::class), Team::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['first_member']['type'])->toBe('User | null');
+    });
+
+    test('foreach over a many-relation binds the loop variable', function () {
+        $props = collect((new ResourceAstAnalyzer(
+            new ReflectionClass(LoopReturnResource::class), Order::class,
+        ))->analyze()->properties)->keyBy('name');
+
+        expect($props['first_item_name']['type'])->toBe('string');
     });
 });
 
@@ -4222,4 +4421,74 @@ describe('local variable bindings — review follow-up regressions', function ()
             ->and($props['mutual']['type'])->toBe('unknown')
             ->and($props['self']['type'])->toBe('unknown');
     });
+});
+
+// Every emitted type token must arrive with a matching import; these four paths each used to drop one.
+
+test('the customImports map survives every result collector', function () {
+    // analyzeReturnArray() already merged the map; the inline-array, merge() and variable-assignment
+    // collectors dropped it, so their tokens reached the file with no import at all.
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(CustomImportChannelResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    expect($props['inline_meta']['type'])->toBe('{ cfg: MenuSettingsType }')
+        ->and($props['merged_meta']['type'])->toBe('PageMetaType')
+        ->and($props['assigned_meta']['type'])->toBe('WidgetConfigType')
+        ->and($analysis->customImports)->toHaveKeys([
+            '@js/types/settings',
+            '@js/types/page-meta',
+            '@js/types/widget-config',
+        ]);
+});
+
+test('a $hidden filter key still gets a Pick<> reference by default, since hidden columns are published', function () {
+    config()->set('ts-publish.models.exclude_hidden', false);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(PostAttachmentFilterResource::class), Post::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props['attachment_public']['type'])->toBe("Pick<Attachment, 'id' | 'filename'>")
+        ->and($props['attachment_hidden']['type'])->toBe("Pick<Attachment, 'id' | 'internal_notes'>");
+});
+
+test('a $hidden filter key falls back to inline expansion instead of Pick<> when exclude_hidden is enabled', function () {
+    // Pick<T, K> constrains K to keyof T, and exclude_hidden keeps a $hidden column out of the model interface.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(PostAttachmentFilterResource::class), Post::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props['attachment_public']['type'])->toBe("Pick<Attachment, 'id' | 'filename'>")
+        ->and($props['attachment_hidden']['type'])->toBe('{ id: number; internal_notes: string | null }');
+});
+
+test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(CoalesceChannelResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    expect($props['buyer']['type'])->toBe('User | null')
+        ->and($analysis->modelFqcns)->toContain(User::class)
+        ->and($props['status']['type'])->toBe('OrderStatusType')
+        ->and($analysis->directEnumFqcns)->toContain(OrderStatus::class);
+});
+
+test('a reflected $this->method() return dispatches its enum and model FQCNs', function () {
+    // The raw [...$tsInfo] spread carried enumFqcns/classFqcns, which no dispatcher reads.
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(ReflectedMethodChannelResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    expect($props['fallback_status']['type'])->toBe('StatusType')
+        ->and($analysis->directEnumFqcns)->toContain(Status::class)
+        ->and($props['fallback_owner']['type'])->toBe('User')
+        ->and($analysis->modelFqcns)->toContain(User::class);
 });

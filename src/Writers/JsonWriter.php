@@ -69,15 +69,13 @@ class JsonWriter
         return (string) json_encode($data, JSON_PRETTY_PRINT);
     }
 
-    /** @return array<string, list<array{name: string, type: string}>> */
+    /** @return array<class-string, array{name: string, properties: list<array{name: string, type: string}>}> */
     protected function createJsonForModels(Runner $runner): array
     {
         $transformers = $runner->modelGenerators->map(fn (ModelGenerator $g) => $g->transformer);
         $data = [];
 
         foreach ($transformers as $transformer) {
-            $data[$transformer->modelName] = [];
-
             $columns = array_map(fn ($entry, $col) => [
                 'name' => $col,
                 'type' => $entry['type'],
@@ -108,13 +106,16 @@ class JsonWriter
                 'type' => 'boolean',
             ], $transformer->relations, array_keys($transformer->relations));
 
-            $data[$transformer->modelName] = [
-                ...$columns,
-                ...$appends,
-                ...$mutators,
-                ...$relations,
-                ...$relationCounts,
-                ...$relationExists,
+            $data[$transformer->fqcn()] = [
+                'name' => $transformer->modelName,
+                'properties' => [
+                    ...$columns,
+                    ...$appends,
+                    ...$mutators,
+                    ...$relations,
+                    ...$relationCounts,
+                    ...$relationExists,
+                ],
             ];
         }
 
@@ -122,7 +123,8 @@ class JsonWriter
     }
 
     /**
-     * @return array<string, array{
+     * @return array<class-string, array{
+     *  name: string,
      *  cases: CasesList,
      *  caseKinds: CaseKindsList,
      *  caseTypes: CaseTypesList,
@@ -138,7 +140,8 @@ class JsonWriter
         $data = [];
 
         foreach ($transformers as $transformer) {
-            $data[$transformer->enumName] = [
+            $data[$transformer->fqcn()] = [
+                'name' => $transformer->enumName,
                 'cases' => $transformer->cases,
                 'caseKinds' => $transformer->caseKinds,
                 'caseTypes' => $transformer->caseTypes,
@@ -150,7 +153,12 @@ class JsonWriter
         return $data;
     }
 
-    /** @return array<string, list<array{name: string, type: string, optional: bool}>|array{typeAlias: string}> */
+    /**
+     * @return array<class-string, array{name: string, typeAlias: string}|array{
+     *  name: string,
+     *  properties: list<array{name: string, type: string, optional: bool}>
+     * }>
+     */
     protected function createJsonForResources(Runner $runner): array
     {
         $transformers = $runner->resourceGenerators->map(fn (ResourceGenerator $g) => $g->transformer);
@@ -158,17 +166,20 @@ class JsonWriter
 
         foreach ($transformers as $transformer) {
             if ($transformer->typeAlias !== null) {
-                $data[$transformer->resourceName] = ['typeAlias' => $transformer->typeAlias];
+                $data[$transformer->fqcn()] = ['name' => $transformer->resourceName, 'typeAlias' => $transformer->typeAlias];
             } else {
-                $data[$transformer->resourceName] = array_map(
-                    fn (array $prop, string $name) => [
-                        'name' => $name,
-                        'type' => $prop['type'],
-                        'optional' => $prop['optional'],
-                    ],
-                    $transformer->properties,
-                    array_keys($transformer->properties),
-                );
+                $data[$transformer->fqcn()] = [
+                    'name' => $transformer->resourceName,
+                    'properties' => array_map(
+                        fn (array $prop, string $name) => [
+                            'name' => $name,
+                            'type' => $prop['type'],
+                            'optional' => $prop['optional'],
+                        ],
+                        $transformer->properties,
+                        array_keys($transformer->properties),
+                    ),
+                ];
             }
         }
 
@@ -176,7 +187,7 @@ class JsonWriter
     }
 
     /**
-     * @return array<string, array{isDynamic: bool, fields: list<FormRequestFieldData>}>
+     * @return array<class-string, array{name: string, isDynamic: bool, fields: list<FormRequestFieldData>}>
      */
     protected function createJsonForFormRequests(Runner $runner): array
     {
@@ -185,7 +196,8 @@ class JsonWriter
         foreach ($runner->formRequestGenerators as $generator) {
             /** @var FormRequestGenerator $generator */
             $transformer = $generator->transformer;
-            $data[$transformer->typeName] = [
+            $data[$transformer->fqcn()] = [
+                'name' => $transformer->typeName,
                 'isDynamic' => $transformer->isDynamic,
                 'fields' => $transformer->fields,
             ];
@@ -195,7 +207,12 @@ class JsonWriter
     }
 
     /**
-     * @return array<string, array{eventName: string, broadcastName: string, properties: list<array{name: string, type: string, optional: bool}>}>
+     * @return array<class-string, array{
+     *  name: string,
+     *  eventName: string,
+     *  broadcastName: string,
+     *  properties: list<array{name: string, type: string, optional: bool}>
+     * }>
      */
     protected function createJsonForBroadcastEvents(Runner $runner): array
     {
@@ -204,7 +221,8 @@ class JsonWriter
         foreach ($runner->broadcastEventGenerators as $generator) {
             /** @var BroadcastEventGenerator $generator */
             $transformer = $generator->transformer;
-            $data[$transformer->broadcastName] = [
+            $data[$transformer->fqcn()] = [
+                'name' => $transformer->eventName,
                 'eventName' => $transformer->eventName,
                 'broadcastName' => $transformer->broadcastName,
                 'properties' => array_map(

@@ -1,4 +1,5 @@
 import type { GeoBounds, GeoPoint } from '@/types/geo';
+import type { User } from '../../models';
 
 /**
  * Mailing address resource
@@ -19,7 +20,7 @@ export interface Address
     latitude?: number | null;
     longitude?: number | null;
     is_default: boolean;
-    user: { id: number; name: string };
+    user: Pick<User, 'id' | 'name'>;
     coordinates: GeoPoint;
     bounds: GeoBounds;
 }

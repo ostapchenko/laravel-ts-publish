@@ -9,7 +9,13 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Workbench\App\Models\Team;
 
 /**
- * A closure parameter that shadows a top-level local must not resolve through the outer binding.
+ * A closure parameter that shadows a top-level local resolves through its own scoped binding
+ * (whenLoaded relation / relation-chain element model), and must not leak the outer local's value.
+ *
+ * `outer_member` is a known over-degradation: the write-count shadow guard in
+ * collectWrittenVariableNames() still counts the closure param as a write to `$member`, so the
+ * top-level `$member` local is never bound. Narrowing that guard so a closure-scoped write no
+ * longer counts against the outer local is deferred.
  *
  * @mixin Team
  */
@@ -29,6 +35,9 @@ class ClosureParamShadowResource extends JsonResource
             'loaded_owner' => $this->whenLoaded('owner', function ($owner) {
                 return $owner;
             }),
+            // 'members' is a to-many relation: the closure param holds the whole collection, not one
+            // element, so it resolves to the collection type `User[]` — never the bare element `User`.
+            'loaded_members_bare' => $this->whenLoaded('members', fn ($members) => $members),
         ];
     }
 }

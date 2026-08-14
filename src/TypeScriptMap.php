@@ -41,11 +41,13 @@ class TypeScriptMap
             AsUri::class => 'string',
             AsBinary::class => 'string',
             AsFluent::class => 'object',
-            AsArrayObject::class => 'unknown[]',
+            AsArrayObject::class => 'Record<string, unknown>',
             AsCollection::class => 'unknown[]',
-            AsEncryptedArrayObject::class => 'unknown[]',
+            // The three As*ArrayObject casts all hydrate an ArrayObject, which serializes as a
+            // JSON object — not an array — so they share AsArrayObject's shape.
+            AsEncryptedArrayObject::class => 'Record<string, unknown>',
             AsEncryptedCollection::class => 'unknown[]',
-            AsEnumArrayObject::class => 'unknown[]',
+            AsEnumArrayObject::class => 'Record<string, unknown>',
             AsEnumCollection::class => 'unknown[]',
             EloquentCollection::class => 'Record<string, unknown>',
             Collection::class => 'unknown[] | Record<string, unknown>',
@@ -112,6 +114,9 @@ class TypeScriptMap
             'cidr' => 'string',
             'macaddr' => 'string',
             'macaddr8' => 'string',
+
+            // Postgres full-text search vector
+            'tsvector' => 'string',
 
             'null' => 'null',
             'mixed' => 'unknown',

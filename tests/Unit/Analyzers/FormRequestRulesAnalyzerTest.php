@@ -10,6 +10,7 @@ use Workbench\App\Http\Requests\BooleanRulesRequest;
 use Workbench\App\Http\Requests\DateRulesRequest;
 use Workbench\App\Http\Requests\DynamicRequest;
 use Workbench\App\Http\Requests\FileRulesRequest;
+use Workbench\App\Http\Requests\NestedEdgeCasesRequest;
 use Workbench\App\Http\Requests\RuleClassRequest;
 use Workbench\App\Http\Requests\StorePostRequest;
 use Workbench\App\Http\Requests\StringRulesRequest;
@@ -221,43 +222,32 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('number[]');
         });
 
-        it('infers string[] for nullable array field with wildcard string rule', function () {
+        it('folds a nullable wildcard element into the array element type', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(ArrayRulesRequest::class);
 
             $node = collect($nodes)->firstWhere('fieldPath', 'limited_choices');
             expect($node)->not->toBeNull();
-            expect($node->tsType)->toBe('string[]');
+            expect($node->tsType)->toBe('(string | null)[]');
             expect($node->isNullable)->toBeTrue();
         });
 
-        it('infers string[] for nested wildcard array field', function () {
+        it('leaves a non-nullable wildcard element unparenthesized', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(ArrayRulesRequest::class);
 
-            $node = collect($nodes)->firstWhere('fieldPath', 'products.*.categories');
+            $node = collect($nodes)->firstWhere('fieldPath', 'required_answers');
             expect($node)->not->toBeNull();
             expect($node->tsType)->toBe('string[]');
         });
 
-        it('forces dot-notation and wildcard paths to always be optional regardless of required rule', function () {
+        it('never emits a dotted or wildcarded field path at the top level', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(ArrayRulesRequest::class);
 
-            // Wildcard element path with required validator — must be optional
-            $tagsWildcard = collect($nodes)->firstWhere('fieldPath', 'tags.*');
-            expect($tagsWildcard)->not->toBeNull();
-            expect($tagsWildcard->isRequired)->toBeFalse();
-
-            // Deep dot-notation path with required validator — must be optional
-            $orderId = collect($nodes)->firstWhere('fieldPath', 'order.id');
-            expect($orderId)->not->toBeNull();
-            expect($orderId->isRequired)->toBeFalse();
-
-            // Deep nested wildcard with required validator — must be optional
-            $productName = collect($nodes)->firstWhere('fieldPath', 'products.*.name');
-            expect($productName)->not->toBeNull();
-            expect($productName->isRequired)->toBeFalse();
+            foreach ($nodes as $node) {
+                expect($node->fieldPath)->not->toContain('.');
+            }
         });
 
         it('maps Rule::anyOf with all-string inner rules to string type', function () {
@@ -378,6 +368,212 @@ describe('FormRequestRulesAnalyzer', function () {
             // Second call: static request → isDynamic must reset to false
             $analyzer->analyze(StorePostRequest::class);
             expect($analyzer->isDynamic)->toBeFalse();
+        });
+    });
+
+    describe('nested array rule composition', function () {
+        it('composes parent.*.child rules into a typed element object', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $products = collect($nodes)->firstWhere('fieldPath', 'products');
+            expect($products)->not->toBeNull();
+            expect($products->tsType)
+                ->toContain('name: string')
+                ->toContain('price: number')
+                ->toContain('quantity: number')
+                ->toContain('categories: string[]')
+                ->toContain('is_available: boolean')
+                ->toEndWith('[]');
+            expect($products->isRequired)->toBeTrue();
+        });
+
+        it('marks a nested child without a required rule as an optional, nullable key', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $products = collect($nodes)->firstWhere('fieldPath', 'products');
+            expect($products->tsType)->toContain('notes?: string | null');
+        });
+
+        it('recursively nests dotted parents and arrayifies wildcard segments', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $order = collect($nodes)->firstWhere('fieldPath', 'order');
+            expect($order)->not->toBeNull();
+            expect($order->tsType)->toBe('{ id: string; items: { product_id: number; quantity: number }[] }');
+            expect($order->isRequired)->toBeTrue();
+        });
+
+        it('drops flat composed keys once folded into their parent', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $fieldPaths = array_map(fn ($n) => $n->fieldPath, $nodes);
+
+            expect($fieldPaths)
+                ->not->toContain('products.*.name')
+                ->not->toContain('products.*.categories')
+                ->not->toContain('products.*.categories.*')
+                ->not->toContain('order.id')
+                ->not->toContain('order.items')
+                ->not->toContain('order.items.*.product_id')
+                ->not->toContain('tags.*')
+                ->not->toContain('roles.*');
+        });
+
+        it('keeps one-level wildcard scalar composition unchanged: roles.* -> roles: string[]', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $roles = collect($nodes)->firstWhere('fieldPath', 'roles');
+            expect($roles)->not->toBeNull();
+            expect($roles->tsType)->toBe('string[]');
+            expect($roles->isRequired)->toBeTrue();
+
+            $tags = collect($nodes)->firstWhere('fieldPath', 'tags');
+            expect($tags)->not->toBeNull();
+            expect($tags->tsType)->toBe('string[]');
+            expect($tags->isRequired)->toBeFalse();
+        });
+
+        it('composes required_array_keys into a keyed unknown object when there are no wildcard children', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $permissions = collect($nodes)->firstWhere('fieldPath', 'permissions');
+            expect($permissions)->not->toBeNull();
+            expect($permissions->tsType)->toBe('{ read: unknown; write: unknown }');
+            expect($permissions->isRequired)->toBeTrue();
+        });
+
+        it('hoists a nested field JSDoc annotation onto the composed parent', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'order');
+            expect($node)->not->toBeNull();
+            expect($node->jsDocMetadata)->toContain('@format uuid order.id');
+        });
+
+        it('keeps wildcard segments in the hoisted metadata path', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'products');
+            expect($node)->not->toBeNull();
+            expect($node->jsDocMetadata)->toContain('@format email products.*.contact_email');
+        });
+
+        it('drops a prohibited nested field and its descendants from the hoisted metadata', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'order');
+            expect($node)->not->toBeNull();
+            expect($node->jsDocMetadata)->not->toContain('@format uuid order.secret.token');
+            expect($node->tsType)->not->toContain('secret');
+        });
+    });
+
+    describe('composition edge cases', function () {
+        it('intersects a wildcard with its named siblings instead of emitting a "*" key', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'options');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('{ default?: string } & Record<string, string>');
+            expect($node->tsType)->not->toContain('"*"');
+        });
+
+        it('types an all-prohibited object as an empty record, not "{  }"', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'meta');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('Record<string, never>');
+        });
+
+        it('types an array with a prohibited element as never[]', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'empties');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('never[]');
+        });
+
+        it('treats an escaped dot as a literal attribute name, not a path separator', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $paths = array_map(fn ($n) => $n->fieldPath, $nodes);
+            expect($paths)->toContain('v1.0');
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'v1.0');
+            expect($node->tsType)->toBe('string');
+            expect($node->isRequired)->toBeTrue();
+        });
+
+        it('composes explicit numeric indices as an array element, not a "0" key', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'items');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('{ name: string }[]');
+            expect($node->tsType)->not->toContain('"0"');
+        });
+
+        it('parenthesizes a union of differently-shaped numeric indices before array-wrapping', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'variants');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('({ name: string } | { email: string })[]');
+            expect($node->tsType)->not->toBe('{ name: string } | { email: string }[]');
+        });
+
+        it('does not let a bracket character inside an "in:" literal unbalance the union scan', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'markers');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe("('>a' | 'b')[]");
+            expect($node->tsType)->not->toBe("'>a' | 'b'[]");
+        });
+
+        it('parenthesizes a top-level intersection before array-wrapping', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'buckets');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('({ name?: string } & Record<string, string>)[]');
+            expect($node->tsType)->not->toBe('{ name?: string } & Record<string, string>[]');
+        });
+
+        it('escapes an apostrophe inside an "in:" value instead of breaking out of the TS literal', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'quoted');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe("'it\\'s' | 'b'");
+        });
+
+        it('types a mixed node with a prohibited wildcard element as never, not the residual type', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'settings');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('{ color?: string } & Record<string, never>');
         });
     });
 

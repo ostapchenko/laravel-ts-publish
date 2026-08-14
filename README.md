@@ -304,29 +304,17 @@ Key capabilities:
 - **Split or full templates** — `models.template` controls whether properties/mutators/relations are generated as separate interfaces (default) or combined into one `model-full` interface.
 - **Smart nullable relations** — singular relations (`HasOne`, `BelongsTo`, `MorphOne`, ...) are automatically typed with `| null` based on the relation type and foreign key nullability, with a config to override the strategy per relation type.
 - **`#[TsCasts]` / `#[TsType]`** — override or add TypeScript types for columns, mutators, relations, or an entire custom cast class, including custom types imported from your own files.
+- **Annotate instead of configuring** — `@property` / `@property-read` tags, `@phpstan-type` aliases, `Attribute<>` generics, `@return MorphTo<A|B, $this>`, `AsEnumCollection::of()` / `AsCollection::of()`, and an `Arrayable` DTO's own typed properties all sharpen a column's type with no `#[TsCasts]` needed — and PHPStan/Larastan check the same annotations. See [Typing attributes without `#[TsCasts]`](https://tolki.abe.dev/ts/models.html#typing-attributes-without-tscasts).
+- **`$hidden` and write-only accessors** — hidden attributes publish by default (`models.exclude_hidden` opts out); a write-only `Attribute::make(set:)` resolves from its `@return Attribute<Get, Set>` generic, then a same-named column, then is omitted rather than emitted as `unknown`.
 - **`#[TsExclude]`** — exclude an entire model, or a specific accessor/relation, from the output.
 - **PHPDoc-aware** — class, column, mutator, and relation doc blocks are carried over as JSDoc comments automatically.
 - **Enum-typed columns** also generate a matching `{Model}Resource` interface using `AsEnum<>`, for when you've resolved a raw enum column to a full enum instance (e.g. via `Status.from(user.status)`).
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and resources.
 
-### Typing `array` casts with `@property`
-
-A column cast to `'array'` (or any other cast the accessor → cast → DB waterfall can't type more precisely) generates as `unknown[]`. Rather than reaching for `#[TsCasts]`, add a class-level `@property`/`@property-read` docblock tag naming the real shape — the same convention PHPStan/Larastan already read — and it wins wherever the resolved type would otherwise stay vague:
-
-```php
-/**
- * @property array<int, string>|null $to
- * @property array<string, string>|null $headers
- */
-class Message extends Model { ... }
-```
-
-`$to` and `$headers` now generate as `string[] | null` and `Record<string, string> | null` instead of `unknown[] | null` — and it types the same property for PHPStan/Larastan too. The tag only takes effect when the waterfall's own result is vague, so it never overrides a type already resolved specifically (an accessor's return type, an enum cast, a custom `CastsAttributes` class, etc.), and a subclass's own tag wins over one declared on a parent.
-
 > [!TIP]
-> Before reaching for `#[TsCasts]`, check whether the generator can already infer the type on its own: a `@return`/`@phpstan-return` docblock on an accessor (generics included, e.g. `Collection<int, LineItem>`), or a class-level `@property` tag as above, is often enough. Both are read by PHPStan/Larastan too, so they're checked by static analysis in a way a package-specific attribute isn't.
-> 
-> `#[TsCasts]` is still the right tool when a shape is genuinely dynamic (keys built at runtime) or the type is owned by the frontend and needs its own import.
+> Still seeing `unknown`? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) is a symptom-first index of the docblock tag that fixes each case — all of them read by PHPStan/Larastan too.
+>
+> If you still continue to see `unknown`, open an issue with code samples of your PHP code and the generated TypeScript output so we can investigate.
 
 For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
@@ -373,6 +361,7 @@ Key capabilities:
 - **`#[TsResource]` / `#[TsCasts]` / `#[TsExclude]`** — override the interface name/model/description, override or add property types, or exclude a resource entirely. See [Excluding with TsExclude](#excluding-with-tsexclude).
 - **Smart nullable relations** — the same nullability-detection strategy used by [models](#models), with config to override the strategy per relation type.
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and models.
+- **Relation `only()` / `except()`** — `$this->relation->only([...])` now references the generated model type via `Pick<Model, 'a' | 'b'>` (and `Omit<Model, ...>` for `except()`) whenever every filtered key is a real database column, keeping the model's `#[TsCasts]`/`@property` refinements instead of losing them to a re-derived inline shape.
 
 For every supported `toArray()` pattern, the full attribute reference, and nullable-relation strategies, see the full [API Resources documentation](https://tolki.abe.dev/ts/api-resources.html).
 
@@ -429,6 +418,7 @@ class StorePostRequest extends FormRequest
             'rating' => ['nullable', 'numeric'],
             'tags' => ['array'],
             'tags.*' => ['string'],
+            'order.items.*.sku' => ['required', 'string'],
         ];
     }
 }
@@ -437,12 +427,13 @@ class StorePostRequest extends FormRequest
 ```typescript
 import type { StorePostRequest } from '@js/types/data/form-requests';
 
-// { title: string; rating?: number | null; tags?: string[]; "tags.*"?: string; }
+// { title: string; rating?: number | null; tags?: string[]; order?: { items?: { sku: string }[] }; }
 ```
 
 Key capabilities:
 
-- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type, including nested/wildcard (`tags.*`) array element rules.
+- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type.
+- **Nested/wildcard composition** — `parent.*.child` and `parent.child` dot-notation rules compose recursively into their nearest undotted ancestor (`tags.*` → `tags: string[]`, `order.items.*.sku` → `order?: { items?: { sku: string }[] }`) instead of surviving as separate flat, quoted keys. Declaring the parent's own rules (e.g. `'order' => ['required', 'array']`) makes the composed key required instead of optional.
 - **Presence & nullability** — `required`/`sometimes` control whether a field is optional (`?`), `nullable` adds `| null`, and `missing`/`prohibited` fields are excluded from the interface entirely.
 - **`#[TsCasts]`** — override or add field types on the request class itself, the same attribute used by models and resources.
 - **`#[TsExtends]`** — extend shared interfaces, the same mechanism used by models and resources. See [Extending Interfaces](#extending-interfaces-with-tsextends--configs).
@@ -852,6 +843,19 @@ When `globals.enabled` is enabled, a global declaration file is created that mak
     'namespace' => 'enums',
 ],
 ```
+
+When `json.enabled` is enabled, a `laravel-ts-definitions.json` file is written alongside the generated `.ts` files, containing every collected model, enum, resource, form request, and broadcast event as structured data (columns, cases, properties, and so on) rather than TypeScript source:
+
+```php
+// config/ts-publish.php
+
+'json' => [
+    'enabled' => true,
+    'filename' => 'laravel-ts-definitions.json',
+],
+```
+
+The file has one top-level object per feature — `models`, `enums`, `resources`, `formRequests`, `broadcastEvents` — and **every one of those objects is keyed by the fully-qualified class name** of the PHP class it was generated from (e.g. `"Workbench\\App\\Models\\User"`), not by its short class name. Each entry also carries a `name` field with the short type name that used to be the map's key. Keying by FQCN is deliberate: two classes that share a basename in different namespaces (`App\Models\User` and `Crm\Models\User`, for instance) are common in larger apps, and a short-name key would silently overwrite one with the other. If you parse this file, key your lookups by FQCN and read `name` for display purposes — **this is a breaking change** for anything written against an older bare-name-keyed version of this file.
 
 The JSON output from `watcher.enabled` is designed to work with build tools and file watchers (like the [@tolki/ts Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html)) that need to know which PHP source files were collected so they can trigger a re-publish when those files change.
 

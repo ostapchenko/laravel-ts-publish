@@ -201,12 +201,14 @@ return [
     |
     | 'relationship_case': Case style for relationship names ('snake', 'camel', or 'pascal').
     | 'nullable_relations': When enabled, singular relations generate types with | null.
+    | 'exclude_hidden': When enabled, Eloquent $hidden attributes are omitted
     */
 
     'models' => [
         'enabled' => true,
         'relationship_case' => 'snake',
         'nullable_relations' => true,
+        'exclude_hidden' => false,
         'namespace' => 'models',
         'template' => 'laravel-ts-publish::model-split',
         'relation_nullability_map' => [

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\FormRequest;
 
+use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use BackedEnum;
 use Illuminate\Auth\GenericUser;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Request;
@@ -34,15 +36,28 @@ use Illuminate\Validation\ValidationRuleParser;
 use ReflectionClass;
 use ReflectionException;
 use Throwable;
+use UnitEnum;
 
 /**
  * Analyzes a FormRequest's `rules()` method and normalizes the result into a tree for interface generation.
  *
  * `rules()` is invoked against an empty HTTP context; one that reads request state throws and degrades to
  * a dynamic `Record<string, unknown>`.
+ *
+ * @phpstan-type RuleLeafData = array{
+ *     tsType: string,
+ *     isRequired: bool,
+ *     isNullable: bool,
+ *     isProhibited: bool,
+ *     jsDocMetadata: list<string>,
+ *     requiredArrayKeys: list<string>,
+ * }
  */
 class FormRequestRulesAnalyzer
 {
+    /** Sentinel standing in for an escaped `\.` while a rule key is split on its real separators. */
+    private const DOT_PLACEHOLDER = "\x00ltsp-dot\x00";
+
     /**
      * Whether the rules could not be resolved statically.
      */
@@ -129,62 +144,330 @@ class FormRequestRulesAnalyzer
     /**
      * Normalize a raw rules array into a list of `FormRequestRuleNode` objects.
      *
+     * Builds a dot-path trie and collapses it bottom-up, so `parent.*.child`/`parent.child` rules
+     * compose into their nearest undotted ancestor instead of surviving as separate flat keys.
+     *
      * @param  array<string, mixed>  $rawRules
      * @return list<FormRequestRuleNode>
      */
     protected function normalizeRules(array $rawRules): array
     {
-        /** @var array<string, string> $wildcardElementTypes */
-        $wildcardElementTypes = [];
+        $trie = $this->buildRuleTrie($rawRules);
 
-        foreach ($rawRules as $fieldPath => $ruleDefinition) {
-            /** @var string $fieldPath */
-            if (str_ends_with($fieldPath, '.*')) {
-                $parentPath = substr($fieldPath, 0, -2);
-                $parsedWildcard = $this->parseFieldRules($ruleDefinition);
-                $wildcardType = $this->resolveTsType($parsedWildcard);
-
-                if ($wildcardType !== 'unknown') {
-                    $wildcardElementTypes[$parentPath] = $wildcardType;
-                }
-            }
-        }
-
-        /** @var array<string, FormRequestRuleNode> $nodes */
         $nodes = [];
 
-        foreach ($rawRules as $fieldPath => $ruleDefinition) {
-            /** @var string $fieldPath */
-            $parsedRules = $this->parseFieldRules($ruleDefinition);
+        foreach ($trie->children as $fieldPath => $childNode) {
+            $composed = $this->composeTrieNode($childNode);
 
-            $tsType = $this->resolveTsType($parsedRules);
-
-            if ($tsType === 'unknown[]' && isset($wildcardElementTypes[$fieldPath])) {
-                $tsType = $wildcardElementTypes[$fieldPath].'[]';
-            }
-
-            $isRequired = $this->isRequired($parsedRules);
-            $isNullable = $this->isNullable($parsedRules);
-            $isProhibited = $this->isProhibited($parsedRules);
-            $isSometimes = $this->isSometimes($parsedRules);
-            $jsDocMetadata = $this->resolveJsDocMetadata($parsedRules);
-
-            // Dotted paths constrain nested values, not root-level keys a caller can supply, so never required.
-            if (str_contains($fieldPath, '.')) {
-                $isRequired = false;
-            }
-
-            $nodes[$fieldPath] = new FormRequestRuleNode(
-                fieldPath: $fieldPath,
-                tsType: $tsType,
-                isRequired: $isRequired && ! $isSometimes,
-                isNullable: $isNullable,
-                isProhibited: $isProhibited,
-                jsDocMetadata: $jsDocMetadata,
+            $nodes[] = new FormRequestRuleNode(
+                fieldPath: (string) $fieldPath,
+                tsType: $composed['tsType'],
+                isRequired: $composed['isRequired'],
+                isNullable: $composed['isNullable'],
+                isProhibited: $composed['isProhibited'],
+                jsDocMetadata: [
+                    ...$composed['jsDocMetadata'],
+                    ...$this->collectChildJsDoc($childNode->children, (string) $fieldPath),
+                ],
             );
         }
 
-        return array_values($nodes);
+        return $nodes;
+    }
+
+    /**
+     * Build a dot-path trie from raw rules: a `*` segment marks "array of this node", any
+     * other segment nests an object key. A node's own rule data lives at the exact path it
+     * was declared on; intermediate ancestors created only to reach a deeper path have none.
+     *
+     * @param  array<string, mixed>  $rawRules
+     */
+    protected function buildRuleTrie(array $rawRules): FormRequestRuleTrieNode
+    {
+        $root = new FormRequestRuleTrieNode;
+
+        foreach ($rawRules as $fieldPath => $ruleDefinition) {
+            /** @var string $fieldPath */
+            $leaf = $this->buildLeafData($this->parseFieldRules($ruleDefinition));
+
+            $node = $root;
+
+            $escaped = str_replace('\\.', self::DOT_PLACEHOLDER, $fieldPath);
+
+            foreach (explode('.', $escaped) as $rawSegment) {
+                $segment = str_replace(self::DOT_PLACEHOLDER, '.', $rawSegment);
+
+                if (! isset($node->children[$segment])) {
+                    $node->children[$segment] = new FormRequestRuleTrieNode;
+                }
+
+                $node = $node->children[$segment];
+            }
+
+            $node->own = $leaf;
+        }
+
+        return $root;
+    }
+
+    /**
+     * Build the composable leaf data for a single field's parsed rules.
+     *
+     * @param  list<array{0: mixed, 1: list<mixed>}>  $parsedRules
+     * @return RuleLeafData
+     */
+    protected function buildLeafData(array $parsedRules): array
+    {
+        return [
+            'tsType' => $this->resolveTsType($parsedRules),
+            'isRequired' => $this->isRequired($parsedRules) && ! $this->isSometimes($parsedRules),
+            'isNullable' => $this->isNullable($parsedRules),
+            'isProhibited' => $this->isProhibited($parsedRules),
+            'jsDocMetadata' => $this->resolveJsDocMetadata($parsedRules),
+            'requiredArrayKeys' => $this->resolveRequiredArrayKeys($parsedRules),
+        ];
+    }
+
+    /**
+     * Collapse a trie node bottom-up into a composed leaf: object (named children), array (`*` child), or its own leaf.
+     *
+     * A node with both its own rule and children uses the children — more specific than the own rule's placeholder.
+     *
+     * @return RuleLeafData
+     */
+    protected function composeTrieNode(FormRequestRuleTrieNode $node): array
+    {
+        $children = $node->children;
+        $own = $node->own;
+
+        if ($children === [] && $own !== null && $own['requiredArrayKeys'] !== []) {
+            $children = $this->syntheticRequiredArrayKeyChildren($own['requiredArrayKeys']);
+        }
+
+        if ($children === []) {
+            return $own ?? $this->emptyLeaf();
+        }
+
+        if ($this->allKeysAreNumeric($children)) {
+            return $this->composeIndexedNode($children, $own);
+        }
+
+        if (array_key_exists('*', $children)) {
+            $wildcard = $children['*'];
+            unset($children['*']);
+
+            return $children === []
+                ? $this->composeArrayNode($wildcard, $own)
+                : $this->composeMixedNode($children, $wildcard, $own);
+        }
+
+        return $this->composeObjectNode($children, $own);
+    }
+
+    /**
+     * Compose an array-typed node: the `*` child's composed type suffixed `[]`. Required, nullable,
+     * prohibited, and JSDoc describe the array itself; the element's own nullability folds into the
+     * element type, so a nullable element reads `(string | null)[]`.
+     *
+     * @param  RuleLeafData|null  $own
+     * @return RuleLeafData
+     */
+    protected function composeArrayNode(FormRequestRuleTrieNode $wildcardChild, ?array $own): array
+    {
+        $element = $this->composeTrieNode($wildcardChild);
+        $elementType = $element['tsType'].($element['isNullable'] ? ' | null' : '');
+        $tsType = $element['isProhibited'] ? 'never[]' : $this->arrayWrapType($elementType);
+
+        return [
+            'tsType' => $tsType,
+            'isRequired' => $own !== null && $own['isRequired'],
+            'isNullable' => $own !== null && $own['isNullable'],
+            'isProhibited' => $own !== null && $own['isProhibited'],
+            'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
+            'requiredArrayKeys' => [],
+        ];
+    }
+
+    /**
+     * Compose a node carrying both a `*` child and named children — Laravel's way of describing a map
+     * whose values share a rule and whose some keys are pinned. Emitted as the named object shape
+     * intersected with an index signature, which is always valid TS even when the two types differ.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children  the named children, `*` already removed
+     * @param  RuleLeafData|null  $own
+     * @return RuleLeafData
+     */
+    protected function composeMixedNode(array $children, FormRequestRuleTrieNode $wildcardChild, ?array $own): array
+    {
+        $object = $this->composeObjectNode($children, $own);
+        $element = $this->composeTrieNode($wildcardChild);
+        $elementType = $element['isProhibited']
+            ? 'never'
+            : $element['tsType'].($element['isNullable'] ? ' | null' : '');
+
+        return [
+            ...$object,
+            'tsType' => $object['tsType'].' & Record<string, '.$elementType.'>',
+        ];
+    }
+
+    /**
+     * Whether every child key is an explicit numeric index (`items.0.name`), which describes a list
+     * rather than an object — `{ "0": T }` is a type no real JSON array is assignable to.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children
+     */
+    protected function allKeysAreNumeric(array $children): bool
+    {
+        if ($children === []) {
+            return false;
+        }
+
+        foreach (array_keys($children) as $key) {
+            if (preg_match('/^\d+$/', (string) $key) !== 1) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Compose numerically-indexed children into an array of the union of their shapes, so
+     * `items.0.name` reads `{ name: string }[]` instead of an unusable `{ "0": ... }` object.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children
+     * @param  RuleLeafData|null  $own
+     * @return RuleLeafData
+     */
+    protected function composeIndexedNode(array $children, ?array $own): array
+    {
+        $elementTypes = [];
+
+        foreach ($children as $childNode) {
+            $element = $this->composeTrieNode($childNode);
+
+            if ($element['isProhibited']) {
+                continue;
+            }
+
+            $elementTypes[] = $element['tsType'].($element['isNullable'] ? ' | null' : '');
+        }
+
+        $elementTypes = array_values(array_unique($elementTypes));
+
+        return [
+            'tsType' => $elementTypes === [] ? 'never[]' : $this->arrayWrapType(implode(' | ', $elementTypes)),
+            'isRequired' => $own !== null && $own['isRequired'],
+            'isNullable' => $own !== null && $own['isNullable'],
+            'isProhibited' => $own !== null && $own['isProhibited'],
+            'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
+            'requiredArrayKeys' => [],
+        ];
+    }
+
+    /**
+     * Compose an object-typed node from its named children into an inline `{ k: T; k2?: T2 }` type.
+     * A prohibited child is dropped entirely — it can never legally appear in the payload — and a node
+     * whose children are all prohibited becomes `Record<string, never>`, i.e. "no keys allowed".
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children
+     * @param  RuleLeafData|null  $own
+     * @return RuleLeafData
+     */
+    protected function composeObjectNode(array $children, ?array $own): array
+    {
+        $parts = [];
+
+        foreach ($children as $key => $childNode) {
+            $child = $this->composeTrieNode($childNode);
+
+            if ($child['isProhibited']) {
+                continue;
+            }
+
+            $childType = $child['tsType'].($child['isNullable'] ? ' | null' : '');
+            $optional = $child['isRequired'] ? '' : '?';
+
+            $parts[] = LaravelTsPublish::validJsObjectKey((string) $key).$optional.': '.$childType;
+        }
+
+        return [
+            'tsType' => $parts === [] ? 'Record<string, never>' : '{ '.implode('; ', $parts).' }',
+            'isRequired' => $own !== null && $own['isRequired'],
+            'isNullable' => $own !== null && $own['isNullable'],
+            'isProhibited' => $own !== null && $own['isProhibited'],
+            'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
+            'requiredArrayKeys' => [],
+        ];
+    }
+
+    /**
+     * Collect descendants' JSDoc metadata, each suffixed with the full rule key it was declared on,
+     * so `@format uuid` on `order.id` still reaches the reader as `@format uuid order.id` on `order`.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children
+     * @return list<string>
+     */
+    protected function collectChildJsDoc(array $children, string $prefix): array
+    {
+        $collected = [];
+
+        foreach ($children as $key => $child) {
+            $path = $prefix.'.'.$key;
+
+            if ($child->own !== null && $child->own['isProhibited']) {
+                continue;
+            }
+
+            if ($child->own !== null) {
+                foreach ($child->own['jsDocMetadata'] as $entry) {
+                    $collected[] = $entry.' '.$path;
+                }
+            }
+
+            $collected = [...$collected, ...$this->collectChildJsDoc($child->children, $path)];
+        }
+
+        return $collected;
+    }
+
+    /**
+     * Synthesize pseudo-children for `required_array_keys:a,b` on a leaf array with no real
+     * children, so its known keys compose into a typed object instead of staying `unknown[]`.
+     *
+     * @param  list<string>  $keys
+     * @return array<string, FormRequestRuleTrieNode>
+     */
+    protected function syntheticRequiredArrayKeyChildren(array $keys): array
+    {
+        $children = [];
+
+        foreach ($keys as $key) {
+            $node = new FormRequestRuleTrieNode;
+            $node->own = $this->emptyLeaf(isRequired: true);
+            $children[$key] = $node;
+        }
+
+        return $children;
+    }
+
+    /**
+     * The default leaf for a trie node reached with no own rule and no children — unreachable
+     * in practice, since every node exists only because it is on the path to a declared rule.
+     *
+     * @return RuleLeafData
+     */
+    protected function emptyLeaf(bool $isRequired = false): array
+    {
+        return [
+            'tsType' => 'unknown',
+            'isRequired' => $isRequired,
+            'isNullable' => false,
+            'isProhibited' => false,
+            'jsDocMetadata' => [],
+            'requiredArrayKeys' => [],
+        ];
     }
 
     /**
@@ -328,7 +611,7 @@ class FormRequestRulesAnalyzer
         }
 
         $literals = array_map(
-            fn (mixed $v): string => is_string($v) ? "'{$v}'" : (is_int($v) || is_float($v) ? (string) $v : ''),
+            fn (mixed $v): string => LaravelTsPublish::toJsLiteral($v),
             array_filter($values, fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
@@ -343,7 +626,7 @@ class FormRequestRulesAnalyzer
     protected function resolveInFromParams(array $params): string
     {
         $literals = array_map(
-            fn (mixed $v): string => is_string($v) ? "'{$v}'" : (is_int($v) || is_float($v) ? (string) $v : ''),
+            fn (mixed $v): string => LaravelTsPublish::toJsLiteral($v),
             array_filter($params, fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
@@ -388,33 +671,33 @@ class FormRequestRulesAnalyzer
 
         $enumReflection = new ReflectionClass($enumClass);
 
-        if (! $enumReflection->isEnum() || ! $enumReflection->implementsInterface(\BackedEnum::class)) {
+        if (! $enumReflection->isEnum() || ! $enumReflection->implementsInterface(BackedEnum::class)) {
             return 'string';
         }
 
         $cases = $enumReflection->getMethod('cases')->invoke(null);
 
-        /** @var \BackedEnum[] $cases */
+        /** @var BackedEnum[] $cases */
 
-        /** @var \UnitEnum[] $only */
+        /** @var UnitEnum[] $only */
         $only = $reflection->getProperty('only')->getValue($rule);
-        /** @var \UnitEnum[] $except */
+        /** @var UnitEnum[] $except */
         $except = $reflection->getProperty('except')->getValue($rule);
 
         if ($only !== []) {
             $cases = array_values(array_filter(
                 $cases,
-                fn (\BackedEnum $case): bool => in_array($case, $only, true),
+                fn (BackedEnum $case): bool => in_array($case, $only, true),
             ));
         } elseif ($except !== []) {
             $cases = array_values(array_filter(
                 $cases,
-                fn (\BackedEnum $case): bool => ! in_array($case, $except, true),
+                fn (BackedEnum $case): bool => ! in_array($case, $except, true),
             ));
         }
 
         $values = array_map(
-            fn (\BackedEnum $case): string => is_string($case->value) ? "'{$case->value}'" : (string) $case->value,
+            fn (BackedEnum $case): string => LaravelTsPublish::toJsLiteral($case),
             $cases,
         );
 
@@ -494,6 +777,31 @@ class FormRequestRulesAnalyzer
     }
 
     /**
+     * Resolve the keys declared by a `required_array_keys:a,b` rule, if present.
+     *
+     * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
+     * @return list<string>
+     */
+    protected function resolveRequiredArrayKeys(array $rules): array
+    {
+        foreach ($rules as [$rule, $params]) {
+            if (! is_string($rule)) {
+                continue;
+            }
+
+            // ValidationRuleParser::parse() returns PascalCase names (required_array_keys → RequiredArrayKeys).
+            $pascalToSnake = preg_replace('/[A-Z]/', '_$0', lcfirst($rule));
+            $ruleLower = strtolower(is_string($pascalToSnake) ? $pascalToSnake : $rule);
+
+            if ($ruleLower === 'required_array_keys') {
+                return array_values(array_filter($params, 'is_string'));
+            }
+        }
+
+        return [];
+    }
+
+    /**
      * Resolve JSDoc metadata annotations for a field.
      *
      * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
@@ -551,5 +859,44 @@ class FormRequestRulesAnalyzer
         }
 
         return $metadata;
+    }
+
+    /**
+     * Suffix a type with `[]`, parenthesizing when a top-level `|` or `&` is present: TypeScript binds
+     * `[]` tighter than both, so `A | B[]` parses as `A | (B[])`. Depth- and quote-aware — a separator
+     * inside a `{ ... }` shape or a `'literal'` belongs to that member, not to the outer type.
+     */
+    private function arrayWrapType(string $type): string
+    {
+        return $this->hasTopLevelSeparator($type) ? '('.$type.')[]' : $type.'[]';
+    }
+
+    /**
+     * Whether a `|` or `&` appears outside every `{}`, `<>`, `()` and `[]` nesting level, ignoring
+     * quoted literals whose contents are opaque.
+     */
+    private function hasTopLevelSeparator(string $type): bool
+    {
+        $depth = 0;
+        $length = strlen($type);
+        $inQuote = false;
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $type[$i];
+
+            if ($char === "'") {
+                $inQuote = ! $inQuote;
+            } elseif ($inQuote) {
+                continue;
+            } elseif ($char === '{' || $char === '<' || $char === '(' || $char === '[') {
+                $depth++;
+            } elseif ($char === '}' || $char === '>' || $char === ')' || $char === ']') {
+                $depth = max(0, $depth - 1);
+            } elseif (($char === '|' || $char === '&') && $depth === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

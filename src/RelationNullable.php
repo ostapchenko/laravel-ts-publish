@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish;
 
+use AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,12 +16,13 @@ use Illuminate\Support\Collection;
  * using the configured RelationMap strategies and DB-level column inspection.
  *
  * @phpstan-type RelationEntry = array{name: string, type: string, related: class-string<Model>}
- * @phpstan-type AttributeEntry = array{name: string, type: string|null, cast: string|null, nullable: bool}
+ *
+ * @phpstan-import-type AttributeInfo from ModelInfo
  */
 class RelationNullable
 {
     /**
-     * @param  Collection<int, AttributeEntry>|null  $attributes
+     * @param  Collection<int, AttributeInfo>|null  $attributes
      */
     public function __construct(
         protected ?Model $modelInstance = null,

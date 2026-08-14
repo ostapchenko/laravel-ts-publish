@@ -47,11 +47,10 @@ describe('StorePostRequest fields', function () {
             ->and($field['isRequired'])->toBeFalse();
     });
 
-    it('tags wildcard field is string', function () {
+    it('tags.* no longer appears as a flat field once composed into tags', function () {
         $field = collect($this->transformer->fields)->firstWhere('fieldPath', 'tags.*');
 
-        expect($field)->not->toBeNull()
-            ->and($field['tsType'])->toBe('string');
+        expect($field)->toBeNull();
     });
 });
 
@@ -247,13 +246,18 @@ describe('ArrayRulesRequest fields', function () {
             ->and($field['isRequired'])->toBeTrue();
     });
 
-    it('order.id nested field is optional string with @format uuid', function () {
-        $field = collect($this->transformer->fields)->firstWhere('fieldPath', 'order.id');
+    it('order field composes its dotted and wildcard children into a nested type', function () {
+        $field = collect($this->transformer->fields)->firstWhere('fieldPath', 'order');
 
         expect($field)->not->toBeNull()
-            ->and($field['tsType'])->toBe('string')
-            ->and($field['isRequired'])->toBeFalse()
-            ->and($field['jsDocMetadata'])->toContain('@format uuid');
+            ->and($field['tsType'])->toBe('{ id: string; items: { product_id: number; quantity: number }[] }')
+            ->and($field['isRequired'])->toBeTrue();
+    });
+
+    it('order.id no longer appears as a flat field once composed into order', function () {
+        $field = collect($this->transformer->fields)->firstWhere('fieldPath', 'order.id');
+
+        expect($field)->toBeNull();
     });
 });
 

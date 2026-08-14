@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Transformers\Concerns;
 
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Str;
-
 /**
  * Shared import conflict resolution helpers for transformers.
  */
@@ -48,30 +45,37 @@ trait ResolvesImportConflicts
     }
 
     /**
-     * Compute a distinguishing namespace prefix for alias generation.
-     *
-     * @param  list<string>  $skip  Namespace segments to skip (e.g. ['Models', 'Enums', 'App'])
+     * Rewrite property type references to use aliased names; each transformer implements this
+     * against its own property shape.
      */
-    protected function computeNamespacePrefix(string $fqcn, array $skip = ['Models', 'Enums', 'App']): string
+    abstract protected function rewriteTypeReferences(): void;
+
+    /**
+     * Apply a registry's resolved names to the alias maps, then rewrite type references when
+     * anything was actually aliased.
+     *
+     * @param  array<string, string>  $resolved  FQCN => final local type name
+     * @param  array<string, string>  $typeNames  FQCN => unaliased TypeScript type name
+     * @param  array<string, string>  $constNames  FQCN => final local const name (empty when the caller has no const imports)
+     */
+    protected function applyResolvedImportNames(array $resolved, array $typeNames, array $constNames = []): void
     {
-        $namespace = Str::beforeLast($fqcn, '\\');
+        foreach ($resolved as $fqcn => $localName) {
+            $typeName = $typeNames[$fqcn] ?? null;
 
-        $prefix = Config::string('ts-publish.namespace_strip_prefix', '');
+            if ($typeName === null || $localName === $typeName) {
+                continue;
+            }
 
-        if ($prefix !== '' && str_starts_with($namespace, $prefix)) {
-            $namespace = substr($namespace, strlen($prefix));
-        }
+            $this->importAliases[$fqcn] = $localName;
 
-        $segments = array_filter(explode('\\', $namespace));
-
-        foreach (array_reverse($segments) as $segment) {
-            if (! in_array($segment, $skip, true)) {
-                return Str::studly($segment);
+            if (isset($constNames[$fqcn]) && $constNames[$fqcn] !== $this->enumConstMap[$fqcn]) {
+                $this->constImportAliases[$fqcn] = $constNames[$fqcn];
             }
         }
 
-        $first = reset($segments);
-
-        return $first !== false ? Str::studly($first) : '';
+        if ($this->importAliases !== []) {
+            $this->rewriteTypeReferences();
+        }
     }
 }

@@ -9,12 +9,15 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Workbench\Accounting\Models\Invoice;
 use Workbench\App\Enums\Status;
 use Workbench\App\Models\Address;
+use Workbench\App\Models\Attachment;
 use Workbench\App\Models\BaseSharedExtendableModel;
 use Workbench\App\Models\Category;
 use Workbench\App\Models\ChildSharedExtendableModel;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\ExcludableModel;
 use Workbench\App\Models\Image;
+use Workbench\App\Models\Kpi;
+use Workbench\App\Models\Marketing\Report\Report as MarketingReport;
 use Workbench\App\Models\ModelWithNestedTraitExtends;
 use Workbench\App\Models\ModelWithParentExtends;
 use Workbench\App\Models\ModelWithTraitExtends;
@@ -22,10 +25,12 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
 use Workbench\App\Models\Profile;
+use Workbench\App\Models\Sales\Report\Report as SalesReport;
 use Workbench\App\Models\StrictCompositeComment;
 use Workbench\App\Models\StrictTaskAssignment;
 use Workbench\App\Models\Tag;
 use Workbench\App\Models\TaskAssignment;
+use Workbench\App\Models\Team;
 use Workbench\App\Models\TrackingEvent;
 use Workbench\App\Models\UntypedColumn;
 use Workbench\App\Models\User;
@@ -51,12 +56,29 @@ describe('ModelTransformer with User model', function () {
             ->toHaveKey('id')
             ->toHaveKey('name')
             ->toHaveKey('email')
-            ->toHaveKey('password')
             ->toHaveKey('role')
             ->toHaveKey('membership_level');
 
         expect($data->columns['role']['type'])->toBe('RoleType | null');
         expect($data->columns['membership_level']['type'])->toBe('MembershipLevelType | null');
+    });
+
+    test('hidden attributes are published by default', function () {
+        config()->set('ts-publish.models.exclude_hidden', false);
+
+        $data = (new ModelTransformer(User::class))->data();
+
+        expect($data->columns)->toHaveKey('password')
+            ->and($data->columns)->toHaveKey('remember_token');
+    });
+
+    test('hidden attributes are omitted when exclude_hidden is enabled', function () {
+        config()->set('ts-publish.models.exclude_hidden', true);
+
+        $data = (new ModelTransformer(User::class))->data();
+
+        expect($data->columns)->not->toHaveKey('password')
+            ->and($data->columns)->not->toHaveKey('remember_token');
     });
 
     test('resolves DB column type from Attribute accessor get closure', function () {
@@ -280,6 +302,21 @@ describe('ModelTransformer with Order model that has complex TsCasts and multipl
     });
 });
 
+describe('ModelTransformer with Order model write-only mutators', function () {
+    test('a set-only mutator with no docblock generic and no backing column is omitted entirely', function () {
+        $data = (new ModelTransformer(Order::class))->data();
+
+        expect($data->mutators)->not->toHaveKey('search_index');
+    });
+
+    test('a set-only mutator with a documented Get generic still appears with that type', function () {
+        $data = (new ModelTransformer(Order::class))->data();
+
+        expect($data->mutators)->toHaveKey('tracking_code')
+            ->and($data->mutators['tracking_code']['type'])->toBe('string | null');
+    });
+});
+
 describe('ModelTransformer filename generation', function () {
     test('filename returns kebab-cased model name', function () {
         expect((new ModelTransformer(User::class))->filename())->toBe('user');
@@ -303,12 +340,13 @@ describe('ModelTransformer with Profile model that has property-level TsCasts, w
         expect($data->columns['settings']['type'])->toBe('{ notifications_enabled: boolean; theme: "light" | "dark"; language: string }');
     });
 
-    test('transforms Profile model write-only mutator as unknown', function () {
+    test('transforms Profile model write-only mutator through its backing column, not as a mutator', function () {
         $data = (new ModelTransformer(Profile::class))->data();
 
-        // normalizedPhone is set-only on the fixture — no get.
-        expect($data->mutators)->toHaveKey('normalized_phone')
-            ->and($data->mutators['normalized_phone']['type'])->toBe('unknown');
+        // normalizedPhone is set-only — no get — but 'normalized_phone' is a real, nullable column.
+        expect($data->mutators)->not->toHaveKey('normalized_phone')
+            ->and($data->columns)->toHaveKey('normalized_phone')
+            ->and($data->columns['normalized_phone']['type'])->toBe('string | null');
     });
 
     test('transforms Profile model old-style mutator', function () {
@@ -439,13 +477,15 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
         // Deal casts status to App\Enums\Status and crm_status to Crm\Enums\Status — both become StatusType.
+        // App\Enums is entirely skip-listed segments, so the registry falls back to the raw,
+        // nearest segment ('Enums'); Crm\Enums keeps its one non-skip segment ('Crm').
         $data = (new ModelTransformer(Deal::class))->data();
 
-        expect($data->columns['status']['type'])->toBe('AppStatusType');
+        expect($data->columns['status']['type'])->toBe('EnumsStatusType');
         expect($data->columns['crm_status']['type'])->toBe('CrmStatusType');
 
         $allImports = array_merge(...array_values($data->typeImports));
-        expect($allImports)->toContain('StatusType as AppStatusType')
+        expect($allImports)->toContain('StatusType as EnumsStatusType')
             ->and($allImports)->toContain('StatusType as CrmStatusType');
     });
 
@@ -490,28 +530,13 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
         }
     });
 
-    test('computeNamespacePrefix returns meaningful namespace segment', function () {
-        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
-
-        $transformer = new ModelTransformer(Deal::class);
-
-        $method = new ReflectionMethod($transformer, 'computeNamespacePrefix');
-
-        // Crm\Models\User → strip 'Workbench\', skip 'Models' → 'Crm'
-        expect($method->invoke($transformer, 'Workbench\\Crm\\Models\\User'))->toBe('Crm');
-
-        // App\Models\User → strip 'Workbench\', skip 'Models' & 'App' → 'App' (fallback to first)
-        expect($method->invoke($transformer, 'Workbench\\App\\Models\\User'))->toBe('App');
-
-        // Accounting\Enums\InvoiceStatus → strip 'Workbench\', skip 'Enums' → 'Accounting'
-        expect($method->invoke($transformer, 'Workbench\\Accounting\\Enums\\InvoiceStatus'))->toBe('Accounting');
-    });
-
     test('falls back to namespace-based alias when relation-based aliases collide', function () {
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
         // Both App\User and Crm\User declare morphMany(Image, 'imageable'), so the relation-based
         // alias is 'ImageableUser' for each and the namespace-based fallback has to break the tie.
+        // App\Models is entirely skip-listed, so the registry falls back to the raw, nearest
+        // segment ('Models'); Crm\Models keeps its one non-skip segment ('Crm').
         resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
             User::class,
             CrmUser::class,
@@ -522,12 +547,73 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
 
         $data = (new ModelTransformer(Image::class))->data();
 
-        expect($data->relations['imageable']['type'])->toBe('Post | Product | AppUser | CrmUser');
+        expect($data->relations['imageable']['type'])->toBe('Post | Product | ModelsUser | CrmUser');
 
         $allImports = array_merge(...array_values($data->typeImports));
-        expect($allImports)->toContain('User as AppUser')
+        expect($allImports)->toContain('User as ModelsUser')
             ->and($allImports)->toContain('User as CrmUser')
             ->and($allImports)->not->toContain('User as ImageableUser');
+    });
+});
+
+describe('ModelTransformer import alias resolution for same basename and same parent segment', function () {
+    test('same basename and same parent segment produce distinct aliases', function () {
+        // Kpi::reportable() morphs to both Report models; their nearest namespace segment is
+        // identically 'Report', reproducing the eagle MailPrice collision at depth 1.
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            Kpi::class,
+            SalesReport::class,
+            MarketingReport::class,
+        ]);
+
+        $data = (new ModelTransformer(Kpi::class))->data();
+
+        expect($data->relations['reportable']['type'])
+            ->toContain('SalesReportReport')
+            ->toContain('MarketingReportReport');
+
+        $allImports = array_merge(...array_values($data->typeImports));
+        expect($allImports)->toContain('Report as SalesReportReport')
+            ->and($allImports)->toContain('Report as MarketingReportReport');
+
+        preg_match_all('/as (\w+)/', implode(' ', $allImports), $matches);
+        expect($matches[1])->toBe(array_unique($matches[1]));
+    });
+
+    test('const alias stays sane when the type alias hits the numeric tiebreak', function () {
+        // Two distinct enum FQCNs whose namespace is entirely skip-listed except one shared
+        // segment ('V1'): both alias to 'V1StatusType' at depth 1, exhaust immediately (a
+        // single segment), and fall to ImportNameRegistry's numeric tiebreak — 'V1StatusType'
+        // and 'V1StatusType2'. The const alias must not be derived by slicing that string:
+        // substr('V1StatusType2', 0, strlen('V1StatusType2') - strlen('StatusType')) is 'V1S',
+        // producing the nonsense const alias 'V1SStatus' instead of mirroring 'V1Status2'.
+        $enumsFqcn = 'App\\Enums\\V1\\Status';
+        $modelsFqcn = 'App\\Models\\V1\\Status';
+
+        $transformer = new ModelTransformer(User::class);
+
+        (new ReflectionProperty($transformer, 'modelName'))->setValue($transformer, 'User');
+        (new ReflectionProperty($transformer, 'enumFqcnMap'))->setValue($transformer, [
+            $enumsFqcn => 'StatusType',
+            $modelsFqcn => 'StatusType',
+        ]);
+        (new ReflectionProperty($transformer, 'enumConstMap'))->setValue($transformer, [
+            $enumsFqcn => 'Status',
+            $modelsFqcn => 'Status',
+        ]);
+
+        (new ReflectionMethod($transformer, 'resolveImportConflicts'))->invoke($transformer);
+
+        $typeAliases = (new ReflectionProperty($transformer, 'importAliases'))->getValue($transformer);
+        $constAliases = (new ReflectionProperty($transformer, 'constImportAliases'))->getValue($transformer);
+
+        expect($typeAliases[$enumsFqcn])->toBe('V1StatusType')
+            ->and($typeAliases[$modelsFqcn])->toBe('V1StatusType2');
+
+        expect($constAliases[$enumsFqcn])->toBe('V1Status')
+            ->and($constAliases[$modelsFqcn])->toBe('V1Status2');
+
+        expect(array_values($constAliases))->toBe(array_unique(array_values($constAliases)));
     });
 });
 
@@ -586,9 +672,9 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toHaveKey('visibility')
             ->toHaveKey('priority');
 
-        expect($data->enumColumns['status'])->toBe(['constName' => 'Status', 'nullable' => false]);
-        expect($data->enumColumns['visibility'])->toBe(['constName' => 'Visibility', 'nullable' => true]);
-        expect($data->enumColumns['priority'])->toBe(['constName' => 'Priority', 'nullable' => true]);
+        expect($data->enumColumns['status'])->toBe(['constName' => 'Status', 'nullable' => false, 'isCollection' => false]);
+        expect($data->enumColumns['visibility'])->toBe(['constName' => 'Visibility', 'nullable' => true, 'isCollection' => false]);
+        expect($data->enumColumns['priority'])->toBe(['constName' => 'Priority', 'nullable' => true, 'isCollection' => false]);
     });
 
     test('enumColumns is empty when enums_use_tolki_package is disabled', function () {
@@ -620,7 +706,7 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toHaveKey('status')
             ->toHaveKey('crm_status');
 
-        expect($data->enumColumns['status']['constName'])->toBe('AppStatus');
+        expect($data->enumColumns['status']['constName'])->toBe('EnumsStatus');
         expect($data->enumColumns['crm_status']['constName'])->toBe('CrmStatus');
     });
 
@@ -652,7 +738,7 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
         $data = (new ModelTransformer(Deal::class))->data();
 
         $allValueImports = array_merge(...array_values($data->valueImports));
-        expect($allValueImports)->toContain('Status as AppStatus')
+        expect($allValueImports)->toContain('Status as EnumsStatus')
             ->and($allValueImports)->toContain('Status as CrmStatus');
     });
 
@@ -683,6 +769,20 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toContain('Status')
             ->toContain('Visibility')
             ->toContain('Priority');
+    });
+
+    test('enumColumns marks an AsEnumCollection column as a collection', function () {
+        $data = (new ModelTransformer(Team::class))->data();
+
+        expect($data->enumColumns['week_days'])
+            ->toBe(['constName' => 'Status', 'nullable' => true, 'isCollection' => true]);
+    });
+
+    test('enumColumns marks a scalar enum column as not a collection', function () {
+        $data = (new ModelTransformer(Post::class))->data();
+
+        expect($data->enumColumns['status'])
+            ->toBe(['constName' => 'Status', 'nullable' => false, 'isCollection' => false]);
     });
 });
 
@@ -725,11 +825,11 @@ describe('ModelTransformer with Warehouse model', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
         // The status column casts to App\Enums\Status, the appended current_crm_status to Crm\Enums\Status.
-        expect($data->columns['status']['type'])->toBe('AppStatusType | null');
+        expect($data->columns['status']['type'])->toBe('EnumsStatusType | null');
         expect($data->appends['current_crm_status']['type'])->toBe('CrmStatusType | null');
     });
 
-    test('uses computeNamespacePrefix for model referenced by 2+ relations', function () {
+    test('uses namespace-based alias for model referenced by 2+ relations', function () {
         config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
 
         $data = (new ModelTransformer(Warehouse::class))->data();
@@ -1258,11 +1358,11 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
         expect($data->typeImports['@js/types/settings'])->toContain('MenuSettingsType');
     });
 
-    test('dataFromDocblock resolves Arrayable class to unknown[]', function () {
+    test('dataFromDocblock resolves Arrayable class without a shape docblock from its typed properties', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
         expect($data->mutators)->toHaveKey('data_from_docblock')
-            ->and($data->mutators['data_from_docblock']['type'])->toBe('unknown[]');
+            ->and($data->mutators['data_from_docblock']['type'])->toBe('{ title: string; weight: number | null }');
     });
 
     test('priceFromDocblock resolves Arrayable class with a shape docblock to an inline object type', function () {
@@ -1333,6 +1433,30 @@ describe('ModelTransformer with UntypedColumn model (unknown-type fallback paths
     });
 });
 
+describe('ModelTransformer with Attachment model that has a $hidden column', function () {
+    test('a $hidden column is published by default', function () {
+        config()->set('ts-publish.models.exclude_hidden', false);
+
+        $data = (new ModelTransformer(Attachment::class))->data();
+
+        expect($data->columns)->toHaveKey('internal_notes');
+    });
+
+    test('a $hidden column is excluded from the generated interface when exclude_hidden is enabled', function () {
+        config()->set('ts-publish.models.exclude_hidden', true);
+
+        $data = (new ModelTransformer(Attachment::class))->data();
+
+        expect($data->columns)->not->toHaveKey('internal_notes');
+    });
+
+    test('a non-hidden column is still published', function () {
+        $data = (new ModelTransformer(Attachment::class))->data();
+
+        expect($data->columns)->toHaveKey('filename');
+    });
+});
+
 describe('ModelTransformer alias occurrence handling', function () {
     beforeEach(function () {
         resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
@@ -1340,12 +1464,11 @@ describe('ModelTransformer alias occurrence handling', function () {
         ]);
     });
 
-    // A widened container names its element in both arms; aliasing only the first left the second bare.
-    test('an aliased element is replaced in every arm of a widened collection type', function () {
+    // Collection<int, X> narrows to a bare array; aliasing must still rename that single arm's element.
+    test('an aliased element is replaced in a docblock-narrowed collection type', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
-        expect($data->mutators['uploaders_from_docblock']['type'])
-            ->toBe('WorkbenchUser[] | Record<string, WorkbenchUser>');
+        expect($data->mutators['uploaders_from_docblock']['type'])->toBe('WorkbenchUser[]');
     });
 
     test('a same-basename morph union still gets one replacement per aliasing pass', function () {

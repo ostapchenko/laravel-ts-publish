@@ -26,7 +26,8 @@ class HandleInertiaRequests extends Middleware
      *          success: string|null,
      *          error: string|null
      *      },
-     *      appName: string
+     *      appName: string,
+     *      filters?: array<string, string>
      *  }
      */
     public function share(Request $request): array
@@ -44,6 +45,9 @@ class HandleInertiaRequests extends Middleware
                 'error' => fn () => $request->session()->get('error'),
             ],
             'appName' => config('app.name'),
+            // Optional docblock key: the '?' rides on the parsed map key, so the override lookup has
+            // to strip it or the prop is emitted twice (TS2300).
+            'filters' => (array) $request->query('filters', []),
         ]);
     }
 }

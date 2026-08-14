@@ -77,6 +77,8 @@ class ArrayRulesRequest extends FormRequest
             'products.*.categories' => ['required', 'array'],
             'products.*.categories.*' => ['required', 'string'],
             'products.*.is_available' => ['required', 'boolean'],
+            'products.*.notes' => ['nullable', 'string'],
+            'products.*.contact_email' => ['required', 'email'],
 
             // Deep nesting example
             'order' => ['required', 'array'],
@@ -84,6 +86,8 @@ class ArrayRulesRequest extends FormRequest
             'order.items' => ['required', 'array', 'min:1'],
             'order.items.*.product_id' => ['required', 'integer'],
             'order.items.*.quantity' => ['required', 'integer', 'min:1'],
+            'order.secret' => ['prohibited'],
+            'order.secret.token' => ['required', 'uuid'],
         ];
     }
 }

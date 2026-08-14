@@ -15,6 +15,7 @@ return new class extends Migration
             $table->morphs('attachable');
             $table->string('filename');
             $table->unsignedBigInteger('size_bytes');
+            $table->text('internal_notes')->nullable();
             $table->timestamps();
         });
     }

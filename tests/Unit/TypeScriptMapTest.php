@@ -3,6 +3,13 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\TypeScriptMap;
+use Illuminate\Database\Eloquent\Casts\AsArrayObject;
+use Illuminate\Database\Eloquent\Casts\AsCollection;
+use Illuminate\Database\Eloquent\Casts\AsEncryptedArrayObject;
+use Illuminate\Database\Eloquent\Casts\AsEncryptedCollection;
+use Illuminate\Database\Eloquent\Casts\AsEnumArrayObject;
+use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
+use Illuminate\Database\Eloquent\Casts\AsStringable;
 use Illuminate\Support\Collection;
 
 beforeEach(function () {
@@ -97,3 +104,24 @@ test('maps network column types to string', function (string $dbType) {
 
     expect($map[$dbType])->toBe('string');
 })->with(['inet', 'cidr', 'macaddr', 'macaddr8']);
+
+test('maps tsvector columns to string', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['tsvector'])->toBe('string');
+});
+
+test('maps bare castable classes to their TS shapes', function (string $castableClass, string $expected) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[strtolower($castableClass)])->toBe($expected);
+})->with([
+    [AsArrayObject::class, 'Record<string, unknown>'],
+    // Both sibling ArrayObject casts hydrate an ArrayObject too, so they must not read as arrays.
+    [AsEncryptedArrayObject::class, 'Record<string, unknown>'],
+    [AsEnumArrayObject::class, 'Record<string, unknown>'],
+    [AsStringable::class, 'string'],
+    [AsCollection::class, 'unknown[]'],
+    [AsEncryptedCollection::class, 'unknown[]'],
+    [AsEnumCollection::class, 'unknown[]'],
+]);

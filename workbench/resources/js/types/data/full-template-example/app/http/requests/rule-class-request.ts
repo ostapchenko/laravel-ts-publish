@@ -21,7 +21,7 @@ export interface RuleClassRequest {
     /** @constraint exists */
     state?: unknown;
     zones: 'first-zone' | 'second-zone';
-    "airports.*"?: 'NYC' | 'LIT';
+    airports?: ('NYC' | 'LIT')[];
     toppings: string;
     /** @metadata prohibited-if conditional */
     role_id_prohibited?: unknown;
@@ -42,7 +42,7 @@ export interface RuleClassRequest {
     title: string;
     /** @constraint unique */
     email_unique: unknown;
-    "addresses.*.id"?: unknown;
+    addresses?: { id?: unknown }[];
     photo: File;
     quantity: number;
     accent_color?: 'red' | 'blue';

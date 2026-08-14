@@ -1,5 +1,6 @@
 import type { CurrencyType, OrderStatusType, PaymentMethodType, RoleType } from '../../enums';
 import type { OrderItem, User } from '../../models';
+import type { Store } from '../../models/admin';
 
 /** @see Workbench\App\Http\Resources\SpreadWithGuardDoubleClosureReturnResource */
 export interface SpreadWithGuardDoubleClosureReturnResource
@@ -31,10 +32,15 @@ export interface SpreadWithGuardDoubleClosureReturnResource
     is_paid: boolean;
     formatted_total: string;
     search_index: unknown;
+    tracking_code: string | null;
     score_map: Record<string, number>;
-    sorted_items: OrderItem[] | Record<string, OrderItem>;
+    sorted_items: OrderItem[];
+    keyed_items: Record<string, OrderItem>;
     listed_items: OrderItem[];
     unsorted_items: unknown[] | Record<string, unknown>;
+    state_ids: number[] | null;
+    capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
+    summary_items: Store[];
     user: User;
     items: OrderItem[];
     customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;

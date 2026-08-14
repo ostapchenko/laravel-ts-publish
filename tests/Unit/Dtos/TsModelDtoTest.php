@@ -32,7 +32,7 @@ describe('TsModelDto', function () {
                 '../enums' => ['Status'],
             ],
             enumColumns: [
-                'status' => ['constName' => 'Status', 'nullable' => false],
+                'status' => ['constName' => 'Status', 'nullable' => false, 'isCollection' => false],
             ],
             enumMutators: [],
         );

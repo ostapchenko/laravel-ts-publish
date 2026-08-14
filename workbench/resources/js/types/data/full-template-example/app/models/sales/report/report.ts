@@ -1,0 +1,22 @@
+import type { Kpi } from '../..';
+
+/**
+ * Fixture: same basename AND same parent namespace segment as
+ * Marketing\Report\Report — reproduces the eagle MailPrice alias collision.
+ *
+ * @see Workbench\App\Models\Sales\Report\Report
+ */
+export interface Report
+{
+    // Columns
+    id: number;
+    name: string;
+    created_at: string | null;
+    updated_at: string | null;
+    // Relations
+    kpis: Kpi[];
+    // Counts
+    kpis_count: number;
+    // Exists
+    kpis_exists: boolean;
+}

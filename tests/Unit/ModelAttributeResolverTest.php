@@ -5,16 +5,26 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Workbench\App\Models\Activity;
+use Workbench\App\Models\Admin\Store;
 use Workbench\App\Models\Attachment;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
+use Workbench\App\Models\Kpi;
+use Workbench\App\Models\Marketing\Report\Report as MarketingReport;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
+use Workbench\App\Models\Profile;
 use Workbench\App\Models\PropertyDocblockBase;
 use Workbench\App\Models\PropertyDocblockChild;
+use Workbench\App\Models\PropertyDocblockDescribedTagFixture;
 use Workbench\App\Models\PropertyDocblockEdge;
+use Workbench\App\Models\PropertyDocblockRejectFixture;
+use Workbench\App\Models\PropertyDocblockTraitFixture;
+use Workbench\App\Models\Sales\Report\Report as SalesReport;
+use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
 
 test('resolveAttribute returns empty info for non-existent model class', function () {
@@ -112,6 +122,16 @@ test('getReflection returns null for non-existent model class', function () {
     expect($resolver->getReflection('App\\Models\\NonExistent'))->toBeNull();
 });
 
+test('publishedColumnNames tracks the exclude_hidden setting', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    config()->set('ts-publish.models.exclude_hidden', false);
+    expect($resolver->publishedColumnNames(User::class))->toContain('password');
+
+    config()->set('ts-publish.models.exclude_hidden', true);
+    expect($resolver->publishedColumnNames(User::class))->not->toContain('password');
+});
+
 test('buildMorphTargetMap builds map from MorphMany inverse relations', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
@@ -123,7 +143,7 @@ test('buildMorphTargetMap builds map from MorphMany inverse relations', function
     ]);
 
     // User, Post, and Product all have morphMany(Image::class, 'imageable')
-    $targets = $resolver->getMorphToTargets(Image::class);
+    $targets = $resolver->getMorphToTargets(Image::class, 'imageable');
 
     expect($targets)->toBe([Post::class, Product::class, User::class]);
 });
@@ -137,13 +157,13 @@ test('getMorphToTargets returns empty array when no inverse relations exist', fu
         Image::class,
     ]);
 
-    expect($resolver->getMorphToTargets(CompositeComment::class))->toBe([]);
+    expect($resolver->getMorphToTargets(CompositeComment::class, 'commentable'))->toBe([]);
 });
 
 test('getMorphToTargets returns empty array when map is not built', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    expect($resolver->getMorphToTargets(Image::class))->toBe([]);
+    expect($resolver->getMorphToTargets(Image::class, 'imageable'))->toBe([]);
 });
 
 test('buildMorphTargetMap skips non-existent model classes', function () {
@@ -155,9 +175,27 @@ test('buildMorphTargetMap skips non-existent model classes', function () {
         Image::class,
     ]);
 
-    $targets = $resolver->getMorphToTargets(Image::class);
+    $targets = $resolver->getMorphToTargets(Image::class, 'imageable');
 
     expect($targets)->toBe([User::class]);
+});
+
+test('getMorphToTargets falls back to the legacy childFqcn bucket for an unmatched morph name', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    $resolver->buildMorphTargetMap([
+        User::class,
+        Post::class,
+        Product::class,
+        Image::class,
+    ]);
+
+    // 'imageable' is Image's real morph name; a name no relation was ever keyed under still
+    // resolves — via the plain childFqcn bucket — to the same aggregate, proving the keyed
+    // lookup degrades gracefully rather than losing the union entirely.
+    expect($resolver->getMorphToTargets(Image::class, 'not-a-real-morph-name'))
+        ->toBe($resolver->getMorphToTargets(Image::class, 'imageable'))
+        ->toBe([Post::class, Product::class, User::class]);
 });
 
 test('resolveRelation returns union type for MorphTo when targets exist', function () {
@@ -198,11 +236,54 @@ test('morph target map includes parents declaring custom MorphOne subclasses', f
     expect($info['type'])->toContain('Post');
 });
 
+test('a bare @return MorphTo<Model, $this> generic is not narrowing and falls through to the reverse map', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    // Kpi::reportable() carries `@return MorphTo<Model, $this>` — the useless, non-narrowing
+    // kind — so it must still resolve via the reverse scan of Sales/Marketing Report's
+    // morphMany('reportable'), not degrade to 'unknown' and not emit a literal 'Model' token.
+    $resolver->buildMorphTargetMap([Kpi::class, SalesReport::class, MarketingReport::class]);
+
+    $result = $resolver->resolveRelation(Kpi::class, 'reportable');
+
+    expect($result['morphFqcns'])->toBe([MarketingReport::class, SalesReport::class])
+        ->and($result['type'])->not->toContain('Model')
+        ->and($result['type'])->not->toBe('unknown');
+});
+
+describe('morphTo docblock generics', function () {
+    test('a concrete generic types the relation without any reverse relation', function () {
+        // causer() is declared on the HasRelatableLinkedRecord trait (mirroring eagle's own
+        // shape) with no reverse morphMany anywhere pointing at Activity — only the docblock
+        // generic can type it.
+        $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'causer');
+
+        expect($info['type'])->toContain('User')
+            ->and($info['morphFqcns'])->toBe([User::class]);
+    });
+
+    test('a bare Model generic still resolves through the reverse map', function () {
+        $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'subject');
+
+        expect($info['type'])->not->toContain('User'); // not polluted by causer
+    });
+
+    test('two morphTos on one model do not share a target union', function () {
+        $resolver = resolve(ModelAttributeResolver::class);
+        $resolver->buildMorphTargetMap([Activity::class, Kpi::class, SalesReport::class, MarketingReport::class]);
+
+        $causer = $resolver->resolveRelation(Activity::class, 'causer');
+        $subject = $resolver->resolveRelation(Activity::class, 'subject');
+
+        expect($causer['type'])->not->toBe($subject['type']);
+    });
+});
+
 test('attributeDocblockReturnTypes captures nested generic getter type', function () {
     $method = new ReflectionMethod(Order::class, 'sortedItems');
     $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
 
-    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>')
+    expect($info['type'])->toBe('OrderItem[]')
         ->and($info['classFqcns'])->toBe([OrderItem::class]);
 });
 
@@ -210,7 +291,29 @@ test('accessor with vague closure type is refined by Attribute docblock generics
     $info = resolve(ModelAttributeResolver::class)
         ->resolveAttribute(Order::class, 'sorted_items');
 
-    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>');
+    expect($info['type'])->toBe('OrderItem[]');
+});
+
+test('Collection<int, X> narrows to an array, matching array<int, X>', function () {
+    $info = resolve(ModelAttributeResolver::class)->resolveAttribute(Order::class, 'sorted_items');
+
+    expect($info['type'])->toBe('OrderItem[]');
+});
+
+test('Collection<string, X> resolves to a keyed record', function () {
+    $info = resolve(ModelAttributeResolver::class)->resolveAttribute(Order::class, 'keyed_items');
+
+    expect($info['type'])->toBe('Record<string, OrderItem>');
+});
+
+test('trait-declared accessor generics resolve through the trait file imports, not the model file', function () {
+    // summaryItems() is declared on the HasSummaries trait, which imports Store; Order itself
+    // never imports Store and lives in a different namespace, so only the trait file's use-map can resolve it.
+    $info = resolve(ModelAttributeResolver::class)
+        ->resolveAttribute(Order::class, 'summary_items');
+
+    expect($info['type'])->toBe('Store[]')
+        ->and($info['classFqcns'])->toBe([Store::class]);
 });
 
 test('accessor with @phpstan-return docblock resolves through docblock', function () {
@@ -295,6 +398,16 @@ describe('@property docblock refinement', function () {
             ->and($info['classFqcns'])->toBe([User::class]);
     });
 
+    test('an imported @phpstan-type alias in @property resolves to its shape, keeping optional keys', function () {
+        // grid_config's @property tags a GridConfig alias imported from GridConfigDto via
+        // @phpstan-import-type; the alias must expand inline rather than degrade to unknown[].
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'grid_config');
+
+        expect($info['type'])
+            ->toBe('{ filters?: Record<string, unknown>; sorts?: string[]; columns?: string[] } | null');
+    });
+
     test('an unrecognized generic container degrades to the pre-existing vague type instead of partial-matching', function () {
         // 'tags' is tagged `@property LengthAwarePaginator<int, OrderItem>|null`, a container shape that
         // stays unwrapped; left un-degraded, toTsType()'s partial matching reads the inner "int" as 'number'.
@@ -311,6 +424,88 @@ describe('@property docblock refinement', function () {
             ->resolveAttribute(PropertyDocblockEdge::class, 'related_users');
 
         expect($info['type'])->toBe('unknown[] | null');
+    });
+
+    test('a refinement that still names unknown is accepted over an entirely vague original', function () {
+        // Team's 'settings' casts to plain 'array' (-> unknown[]); its @property tag types the shape
+        // as Record<string, unknown>, which is more structured than the bare unknown[] it replaces.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'settings');
+
+        expect($info['type'])->toBe('Record<string, unknown> | null');
+    });
+
+    test('trait class docblocks are consulted after the class/parent chain, tolerating a missing $ sigil', function () {
+        // 'labels' is an old-style accessor from the HasLabels trait; only the trait's own class
+        // docblock tags it, and it does so without the `$` sigil (a form found in the wild).
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockTraitFixture::class, 'labels');
+
+        expect($info['type'])->toBe('string[]');
+    });
+
+    test('a $-less tag with a trailing description does not bind an unrelated attribute matching its last word', function () {
+        // The trait's tag reads "@property string[] tag_names Friendly labels list" (no $). Search for
+        // 'list' — an unrelated real accessor whose name is coincidentally the description's last word.
+        // A type capture unbounded by the no-description restriction can walk all the way to "list" and
+        // mistake it for the tag's own property name, producing a bogus concrete type instead of unknown[].
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockDescribedTagFixture::class, 'list');
+
+        expect($info['type'])->toBe('unknown[]');
+    });
+
+    test('a refinement that is itself vague-but-not-entirely-vague never replaces an already-structured vague type', function () {
+        // 'meta_info' casts to AsArrayObject -> Record<string, unknown>: vague, but not one of the four
+        // "entirely vague" literals. The class's own @property tag resolves to the differently-vague
+        // Record<string, unknown[]> (also not one of the four) — isEntirelyVagueTsType(current) is false
+        // for both sides, so isStrictlyMoreStructured() must reject and keep the AsArrayObject-derived type.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(PropertyDocblockRejectFixture::class, 'meta_info');
+
+        expect($info['type'])->toBe('Record<string, unknown> | null');
+    });
+});
+
+describe('write-only accessor waterfall', function () {
+    test('a set-only mutator with a documented Get generic resolves to that type', function () {
+        // Order::trackingCode has no getter closure, but its docblock still names Attribute<?string, string>.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'tracking_code');
+
+        expect($info['type'])->toBe('string | null');
+    });
+
+    test('a set-only mutator backed by a real column resolves through the DB waterfall', function () {
+        // Profile::normalizedPhone has no getter and no docblock generic, but 'normalized_phone' is a real column.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Profile::class, 'normalized_phone');
+
+        expect($info['type'])->toBe('string | null');
+    });
+
+    test('a set-only mutator with no docblock generic and no backing column resolves to unknown', function () {
+        // Order::searchIndex has neither a getter, a docblock generic, nor a matching DB column.
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Order::class, 'search_index');
+
+        expect($info['type'])->toBe('unknown');
+    });
+});
+
+describe('castable-with-arguments casts', function () {
+    test('AsEnumCollection::of(Status) resolves through the waterfall to a nullable enum array', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'week_days');
+
+        expect($info['type'])->toBe('StatusType[] | null');
+    });
+
+    test('AsCollection::of(GridConfigDto) resolves through the waterfall to a nullable shape array', function () {
+        $info = resolve(ModelAttributeResolver::class)
+            ->resolveAttribute(Team::class, 'grid_configs');
+
+        expect($info['type'])->toBe('{ label: string; config: Record<string, unknown> }[] | null');
     });
 });
 

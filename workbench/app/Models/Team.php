@@ -4,12 +4,24 @@ declare(strict_types=1);
 
 namespace Workbench\App\Models;
 
+use Illuminate\Database\Eloquent\Casts\AsCollection;
+use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Workbench\App\Enums\Status;
+use Workbench\App\ValueObjects\GridConfigDto;
 
+/**
+ * @phpstan-import-type GridConfig from GridConfigDto
+ * @phpstan-import-type GridPreset from GridConfigDto
+ *
+ * @property GridConfig|null $grid_config
+ * @property GridPreset|null $grid_preset
+ * @property array<string, mixed>|null $settings
+ */
 class Team extends Model
 {
     use SoftDeletes;
@@ -21,6 +33,10 @@ class Team extends Model
         'owner_id',
         'is_active',
         'settings',
+        'grid_config',
+        'grid_preset',
+        'week_days',
+        'grid_configs',
     ];
 
     protected function casts(): array
@@ -28,6 +44,10 @@ class Team extends Model
         return [
             'is_active' => 'boolean',
             'settings' => 'array',
+            'grid_config' => 'array',
+            'grid_preset' => 'array',
+            'week_days' => AsEnumCollection::class.':'.Status::class,
+            'grid_configs' => AsCollection::of(GridConfigDto::class),
         ];
     }
 

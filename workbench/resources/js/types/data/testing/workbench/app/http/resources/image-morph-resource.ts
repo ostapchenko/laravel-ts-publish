@@ -10,6 +10,6 @@ export interface ImageMorphResource
 {
     id: number;
     imageable: Post | Product | WorkbenchUser | CrmUser;
-    uploaders_from_docblock: WorkbenchUser[] | Record<string, WorkbenchUser>;
+    uploaders_from_docblock: WorkbenchUser[];
     imageable_when_loaded?: Post | Product | WorkbenchUser | CrmUser;
 }

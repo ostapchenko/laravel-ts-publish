@@ -4,6 +4,7 @@ export * from './MultiModelEvent';
 export * from './OrderShipped';
 export * from './PostPublishedEvent';
 export * from './PureEnumEvent';
+export * from './ReportSynced';
 export * from './ServerCreated';
 export * from './TeamMessageSent';
 export * from './UserNotification';
