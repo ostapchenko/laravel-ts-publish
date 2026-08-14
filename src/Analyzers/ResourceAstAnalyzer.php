@@ -834,22 +834,22 @@ class ResourceAstAnalyzer
 
         if ($this->isThisMethodCall($expr, 'whenCounted')) {
             /** @var MethodCall $expr */
-            return ['type' => 'number', 'optional' => ! $this->hasExplicitDefaultArg($expr, 2)];
+            return $this->applyConditionalDefault(['type' => 'number', 'optional' => false], $expr, 2);
         }
 
         if ($this->isThisMethodCall($expr, 'whenAggregated')) {
             /** @var MethodCall $expr */
-            return ['type' => 'number', 'optional' => ! $this->hasExplicitDefaultArg($expr, 4)];
+            return $this->applyConditionalDefault(['type' => 'number', 'optional' => false], $expr, 4);
         }
 
         if ($this->isThisMethodCall($expr, 'whenPivotLoaded')) {
             /** @var MethodCall $expr */
-            return ['type' => 'unknown', 'optional' => ! $this->hasExplicitDefaultArg($expr, 2)];
+            return $this->applyConditionalDefault($this->unknownResult(), $expr, 2);
         }
 
         if ($this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
             /** @var MethodCall $expr */
-            return ['type' => 'unknown', 'optional' => ! $this->hasExplicitDefaultArg($expr, 3)];
+            return $this->applyConditionalDefault($this->unknownResult(), $expr, 3);
         }
 
         // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
@@ -1196,6 +1196,41 @@ class ResourceAstAnalyzer
     }
 
     /**
+     * Fold a conditional method's explicit default into its value arm's result.
+     *
+     * Laravel always emits the key once a default is passed, so the property becomes required — but only a
+     * type covering both arms can back that, so an arm with no usable type keeps the property optional.
+     *
+     * @param  ValueExpressionResult  $value
+     * @return ValueExpressionResult
+     */
+    protected function applyConditionalDefault(array $value, MethodCall $call, int $index): array
+    {
+        if (! $this->hasExplicitDefaultArg($call, $index)) {
+            return [...$value, 'optional' => true];
+        }
+
+        $default = $this->analyzeValueExpression($call->getArgs()[$index]->value);
+
+        // An unresolved default can't back a required type, so the property keeps forcing a presence check.
+        if ($default['type'] === 'unknown') {
+            return [...$value, 'optional' => true];
+        }
+
+        // `unknown` already covers the default; narrowing to the default alone would drop the value arm.
+        if ($value['type'] === 'unknown') {
+            return [...$value, 'optional' => false];
+        }
+
+        $members = array_values(array_unique([
+            ...explode(' | ', $value['type']),
+            ...explode(' | ', $default['type']),
+        ]));
+
+        return [...$this->mergeUnionChannels($members, [$value, $default]), 'optional' => false];
+    }
+
+    /**
      * Analyze $this->when(condition, value) — the value is the second arg.
      *
      * @return ValueExpressionResult
@@ -1215,26 +1250,7 @@ class ResourceAstAnalyzer
 
             $this->closureParamExprBindings = $previousBindings;
 
-            $inner['optional'] = ! $this->hasExplicitDefaultArg($call, 2);
-
-            if (! $inner['optional'] && isset($args[2])) {
-                $default = $this->analyzeValueExpression($args[2]->value);
-
-                $members = [];
-
-                foreach ([$inner['type'], $default['type']] as $type) {
-                    if ($type !== 'unknown') {
-                        array_push($members, ...explode(' | ', $type));
-                    }
-                }
-
-                $types = $members === [] ? ['unknown'] : array_values(array_unique($members));
-
-                $inner = $this->mergeUnionChannels($types, [$inner, $default]);
-                $inner['optional'] = false;
-            }
-
-            return $inner;
+            return $this->applyConditionalDefault($inner, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
@@ -1253,13 +1269,13 @@ class ResourceAstAnalyzer
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $attrName = $args[0]->value->value;
             $info = $this->resolveModelAttributeTypeInfo($attrName);
-            $result = ['type' => $info['type'], 'optional' => ! $this->hasExplicitDefaultArg($call, 2)];
+            $result = ['type' => $info['type'], 'optional' => false];
 
             if ($info['enumFqcn'] !== null) {
                 $result['directEnumFqcn'] = $info['enumFqcn'];
             }
 
-            return $result;
+            return $this->applyConditionalDefault($result, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
@@ -1280,13 +1296,13 @@ class ResourceAstAnalyzer
         }
 
         $info = $this->resolveModelAttributeTypeInfo($args[0]->value->value);
-        $result = ['type' => $info['type'], 'optional' => ! $this->hasExplicitDefaultArg($call, 2)];
+        $result = ['type' => $info['type'], 'optional' => false];
 
         if ($info['enumFqcn'] !== null) {
             $result['directEnumFqcn'] = $info['enumFqcn'];
         }
 
-        return $result;
+        return $this->applyConditionalDefault($result, $call, 2);
     }
 
     /**
@@ -1298,13 +1314,12 @@ class ResourceAstAnalyzer
     protected function analyzeWhenExistsLoaded(MethodCall $call): array
     {
         $args = $call->getArgs();
-        $optional = ! $this->hasExplicitDefaultArg($call, 2);
 
         if ($args === [] || ! $args[0]->value instanceof String_) {
-            return [...$this->unknownResult(), 'optional' => $optional]; // @codeCoverageIgnore
+            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
         }
 
-        return ['type' => 'boolean', 'optional' => $optional];
+        return $this->applyConditionalDefault(['type' => 'boolean', 'optional' => false], $call, 2);
     }
 
     /**
@@ -1350,26 +1365,7 @@ class ResourceAstAnalyzer
             $value['type'] = 'null';
         }
 
-        if (! $this->hasExplicitDefaultArg($call, 1)) {
-            return [...$value, 'optional' => true];
-        }
-
-        $default = $this->analyzeValueExpression($args[1]->value);
-
-        // Split each arm into its own union members before deduping — the default is analyzed independently
-        // of the value's guard, so its own type can overlap the value's. An 'unknown' arm carries no real
-        // information (analyzeCoalesce treats a coalesce operand's 'unknown' the same way), so it's dropped.
-        $members = [];
-
-        foreach ([$value['type'], $default['type']] as $type) {
-            if ($type !== 'unknown') {
-                array_push($members, ...explode(' | ', $type));
-            }
-        }
-
-        $types = $members === [] ? ['unknown'] : array_values(array_unique($members));
-
-        return [...$this->mergeUnionChannels($types, [$value, $default]), 'optional' => false];
+        return $this->applyConditionalDefault($value, $call, 1);
     }
 
     /**
@@ -1427,15 +1423,13 @@ class ResourceAstAnalyzer
                 $this->varCollectionBindings = $previousVarCollectionBindings;
             }
 
-            $inner['optional'] = ! $this->hasExplicitDefaultArg($call, 2);
-
-            return $inner;
+            return $this->applyConditionalDefault($inner, $call, 2);
         }
 
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $relationName = $args[0]->value->value;
             $info = $this->resolveModelRelationTypeInfo($relationName);
-            $result = ['type' => $info['type'], 'optional' => ! $this->hasExplicitDefaultArg($call, 2)];
+            $result = ['type' => $info['type'], 'optional' => false];
 
             if ($info['modelFqcn'] !== null) {
                 $result['modelFqcn'] = $info['modelFqcn'];
@@ -1445,7 +1439,7 @@ class ResourceAstAnalyzer
                 $result['embeddedModelFqcns'] = $info['morphFqcns'];
             }
 
-            return $result;
+            return $this->applyConditionalDefault($result, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
@@ -1473,26 +1467,7 @@ class ResourceAstAnalyzer
 
             $this->closureParamExprBindings = $previousBindings;
 
-            $inner['optional'] = ! $this->hasExplicitDefaultArg($call, 2);
-
-            if (! $inner['optional'] && isset($args[2])) {
-                $default = $this->analyzeValueExpression($args[2]->value);
-
-                $members = [];
-
-                foreach ([$inner['type'], $default['type']] as $type) {
-                    if ($type !== 'unknown') {
-                        array_push($members, ...explode(' | ', $type));
-                    }
-                }
-
-                $types = $members === [] ? ['unknown'] : array_values(array_unique($members));
-
-                $inner = $this->mergeUnionChannels($types, [$inner, $default]);
-                $inner['optional'] = false;
-            }
-
-            return $inner;
+            return $this->applyConditionalDefault($inner, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore

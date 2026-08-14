@@ -37,7 +37,7 @@ trait FiltersModelAttributes
     protected function analyzeThisAttributeFilter(MethodCall $call): ?ResourceAnalysis
     {
         if (! ($call->var instanceof Variable && $call->var->name === 'this' && $call->name instanceof Identifier)) {
-            return null; // @codeCoverageIgnore
+            return null;
         }
 
         $methodName = $call->name->toString();

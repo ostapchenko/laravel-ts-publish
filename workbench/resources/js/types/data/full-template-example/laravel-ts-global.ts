@@ -1777,8 +1777,9 @@ declare global {
             user_profile_avatar_url: string | null;
         }
         /**
-         * Exercises the conditional family's third default argument. An explicit default means the key can
-         * never be missing, so the property is required and its type unions both arms.
+         * Exercises the conditional family's default argument. An explicit default means the key is always
+         * present, so the property is required and the default's own type is unioned into the emitted type;
+         * a default whose type cannot be resolved leaves the property optional instead.
          */
         export interface ConditionalDefaultsResource {
             not_null_no_default?: string;
@@ -1790,19 +1791,21 @@ declare global {
             not_null_spread_default?: string;
             when_no_default?: string;
             when_with_default: string | number;
-            has_with_default: string;
-            loaded_with_default: app.models.User;
-            counted_with_default: number;
+            has_with_default: string | number;
+            loaded_with_default: app.models.User | null;
+            counted_with_default: number | string;
             aggregated_no_default?: number;
-            aggregated_with_default: number;
+            aggregated_with_default: number | string;
             pivot_loaded_no_default?: unknown;
             pivot_loaded_with_default: unknown;
             pivot_loaded_as_no_default?: unknown;
             pivot_loaded_as_with_default: unknown;
             unless_no_default?: string;
-            unless_with_default: string;
+            unless_with_default: string | number;
             appended_no_default?: string;
+            appended_with_default: string | number;
             exists_no_default?: boolean;
+            exists_with_default: boolean | string;
             transform_no_default?: boolean;
             transform_with_default: boolean | number;
             merge_unless_label?: string;
@@ -1849,7 +1852,7 @@ declare global {
             user_summary?: { id: number; email: string };
             items_mapped?: { id: number; name: string; quantity: number }[];
             user_resource?: UserResource;
-            status_resource: app.enums.OrderStatusType;
+            status_resource?: app.enums.OrderStatusType;
             shipping_safe?: { name: string; email: string } | null;
         }
         /**

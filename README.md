@@ -319,6 +319,12 @@ Key capabilities:
 
 For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
+> [!IMPORTANT]
+> Two column type mappings changed, and both can break an existing frontend:
+>
+> - A bare `tinyint` (`tinyInteger()`) is now [`number`](https://tolki.abe.dev/ts/models.html#numbers) — only `tinyint(1)`, which is what Laravel's `boolean()` emits on MySQL/SQLite, stays [`boolean`](https://tolki.abe.dev/ts/models.html#booleans). A genuine small-integer column that was silently `boolean` becomes `number`.
+> - The three `As*ArrayObject` casts are now [`unknown[] | Record<string, unknown>`](https://tolki.abe.dev/ts/models.html#arrays-objects) rather than `Record<string, unknown>` alone, because a list payload serializes as a JSON array. Code like `Object.keys(x.meta)` no longer compiles without narrowing first.
+
 ## API Resources
 
 This package generates TypeScript interfaces from your Laravel [API Resources](https://laravel.com/docs/eloquent-resources) (`JsonResource` classes) by statically analyzing the `toArray()` method — no need to hand-maintain a separate type for what your API already returns.

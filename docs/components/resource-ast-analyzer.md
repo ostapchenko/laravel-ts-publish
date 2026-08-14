@@ -345,39 +345,34 @@ handlers for the same reason.
 
 When no explicit default is present, the property is `optional: true` and its type is just the (possibly
 null-stripped) value arm — matching every pre-existing single-argument fixture (`ProductResource`,
-`ImageResource`, `AddressResource`, …). When an explicit default *is* present, the key can never be a
-`MissingValue`, so `optional` becomes `false`, and the default's own type — analyzed independently via
+`ImageResource`, `AddressResource`, …). When an explicit default *is* present, both the `optional` flag and
+the union are decided by the shared `applyConditionalDefault()` helper described
+[below](#every-handler-unions-the-default-arm-in-through-applyconditionaldefault), which `whenNotNull()` and
+`whenNull()` reach with `$index: 1`. The default's own type is analyzed independently via
 `analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
-wins at runtime — is unioned into the value's via `mergeUnionChannels()`. Both arms are split on their own
-`' | '` members and deduplicated before merging (mirroring `analyzeClosureUnion()`'s approach), so a
-same-typed default collapses to one type instead of a redundant `number | number`, and an `unknown` arm (an
-unresolvable closure body passed as the default) is dropped rather than unioned in literally — mirroring how
-`analyzeCoalesce()` treats an `unknown` operand.
+wins at runtime.
 
-### Dropping an `unknown` arm is a deliberate policy, not an incidental side effect
+### An `unknown` arm is treated asymmetrically, and deliberately so
 
-The `unknown`-filtering above (`ResourceAstAnalyzer.php`, inside `analyzeWhenPossiblyNull()`) is recorded
-here explicitly because it is easy to mistake for defensive scaffolding and simplify away in a later
-refactor — it is load-bearing. It fires whenever `analyzeValueExpression()` fails to resolve **either**
-arm (not just the default; a value arm that resolves to `unknown` is dropped exactly the same way), and it
-has two justifications, not one:
+The two arms are not interchangeable when one of them fails to resolve, and the difference is recorded here
+because it is easy to mistake for defensive scaffolding and "simplify" into one branch:
 
-- **Precedent.** `analyzeCoalesce()` already treats an `unknown` operand as "no information" rather than a
-  real union member, and `analyzeClosureUnion()` does the same for an `unknown` return branch. Unioning
-  `unknown` in literally here would be the odd one out.
-- **`T | unknown` collapses to `unknown` in TypeScript.** The honest alternative — emitting the raw,
-  un-filtered union when one arm can't be resolved — wouldn't degrade gracefully to a *partial* type; it
-  would degrade the *whole property* to `unknown`, which is exactly the outcome this package's own
-  no-type-regressions-to-`unknown` discipline exists to prevent. Filtering the unresolvable arm out is what
-  keeps a resolvable sibling arm's type surfacing at all.
+- **An unresolved *default* is dropped from the type, and keeps the property optional.** Precedent for the
+  drop: `analyzeCoalesce()` already treats an `unknown` operand as "no information" rather than a real union
+  member, and `analyzeClosureUnion()` does the same for an `unknown` return branch. Unioning `unknown` in
+  literally would collapse the *whole property* to `unknown` — exactly what this package's
+  no-type-regressions-to-`unknown` discipline exists to prevent — so the resolvable sibling arm's type is
+  what surfaces. But that surviving type is not something a *required* property can be pinned on, so
+  `optional` stays `true` and the consumer is still forced through a presence check.
+- **An unresolved *value* arm collapses the union to `unknown`, required.** Here there is no narrower type
+  to preserve: dropping the value arm and emitting the default's type alone would claim a type for whatever
+  the value arm can still return at runtime.
 
-The one fixture that currently exercises this (`ConditionalParamFullClosureResource::status_resource` —
-`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })`) is correct only
-because `Order::$status` happens to be non-nullable, so the value arm alone is authoritative regardless.
-The *policy* doesn't depend on that coincidence — it would fire identically if the value arm were nullable
-too, dropping whichever arm fails to resolve — but there is no fixture yet exercising the value-arm-unknown
-direction or the both-unknown fallback (`analyzeWhenPossiblyNull()` returns bare `unknown` when neither arm
-resolves). Both remain correct by inspection of the shared code path, not by a dedicated test.
+`ConditionalParamFullClosureResource::status_resource` —
+`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })` — exercises the
+first case: the closure param is unbound, its `EnumResource::make($status)` resolves to `unknown`, so the
+property emits `OrderStatusType` and stays optional. `ConditionalDefaultsResource::pivot_loaded_with_default`
+exercises the second, via `whenPivotLoaded()`'s hard-coded `unknown` value arm.
 
 ### A model-level `#[TsCasts]` override can mask this fix in the final output
 
@@ -408,37 +403,44 @@ emitted `optional`. The default sits at a **different argument index per method*
 | `whenAggregated` | `($relationship, $column, $aggregate, $value, $default)` | 4 |
 | `transform` | `($value, $callback, $default)` | 2 |
 
-Every handler's `optional` is `! $this->hasExplicitDefaultArg($call, N)` for its own `N`. As with
-`whenNotNull()`/`whenNull()`, `hasExplicitDefaultArg()` is purely positional: Laravel distinguishes an
+Every handler passes its own `N` to `applyConditionalDefault()`, which asks
+`hasExplicitDefaultArg($call, N)` first. That check is purely positional: Laravel distinguishes an
 omitted argument from an explicitly-passed `null` via `func_num_args()`, not `=== null`, so a
-`ConstFetch(null)` at the default position still counts as a real default
-(`whenLoaded('user', fn ($user) => $user, null)` is required, not optional — see
-`loaded_with_default` in `ConditionalDefaultsResource`). A named or spread argument at the default
-position makes position meaningless, so the helper bails out to `false` — the property behaves as if no
-default were passed at all.
+`ConstFetch(null)` at the default position still counts as a real default —
+`whenLoaded('user', fn ($user) => $user, null)` is required and typed `User | null`, not optional and typed
+`User` (see `loaded_with_default` in `ConditionalDefaultsResource`). A named or spread argument at the
+default position makes position meaningless, so the helper bails out to `false` — the property behaves as
+if no default were passed at all.
 
-### Only `analyzeWhen()` and `analyzeTransform()` union the default arm into the type
+### Every handler unions the default arm in, through `applyConditionalDefault()`
 
-The settled rule for a value that genuinely reads the default's type (`analyzeWhen()`, `analyzeTransform()`,
-and `analyzeWhenPossiblyNull()` above) is the same one documented above for `whenNotNull()`/`whenNull()`:
-when a default is present, the emitted type is the union of the value arm and the default arm, each
-split on their own `' | '` members and deduplicated via `mergeUnionChannels()`, with `optional`
-re-asserted to `false` after the merge (`mergeUnionChannels()` resets it). This is not cosmetic — a
-default like `Status::Draft` or `UserResource::make(...)` carries an import channel that only
-`mergeUnionChannels()` preserves; concatenating type strings by hand would emit a type name with no
+`applyConditionalDefault($value, $call, $index)` is the single vehicle for the whole family: every
+handler builds its value arm, then hands it over with its own default index. It union-merges the two
+arms' `' | '` members, deduplicates them, and folds their import channels via `mergeUnionChannels()`,
+re-asserting `optional` to `false` afterwards (`mergeUnionChannels()` resets it). The merge is not
+cosmetic — a default like `Status::Draft` or `UserResource::make(...)` carries an import channel that
+only `mergeUnionChannels()` preserves; concatenating type strings by hand would emit a type name with no
 import and trip the unimportable-token gate.
 
-`analyzeWhenHas()`, `analyzeWhenAppended()`, `analyzeWhenLoaded()`, `analyzeWhenExistsLoaded()`, and the
-four inline handlers (`whenCounted()`, `whenAggregated()`, `whenPivotLoaded()`, `whenPivotLoadedAs()`) flip
-**only** `optional`; they do not union the default's type in. This is consistent with what each already
-does independently of this task: `whenHas()`/`whenAppended()`'s type comes from the model attribute's
-declared type (`resolveModelAttributeTypeInfo()`), never from analyzing the value or default arguments;
-`whenLoaded()`'s type comes from the value/closure argument alone; `whenExistsLoaded()` is hard-coded to
-the `{relation}_exists` flag's type regardless of its arguments; and the four inline handlers never analyze
-their arguments at all — `whenCounted()` and `whenAggregated()` are hard-coded `number`,
-`whenPivotLoaded()`/`whenPivotLoadedAs()` are hard-coded `unknown`. Unioning a default's type into any of
-these would require analyzing arguments none of them currently look at, which is out of scope for making
-the property merely required.
+Making the property required is only sound if the emitted type covers *both* arms, so the helper has two
+escape hatches, each returning early:
+
+- **The default resolves to `unknown`.** Nothing backs a required narrow type, so the value arm's type is
+  kept and `optional` stays `true` — the consumer is forced through a presence check rather than handed a
+  type the runtime can violate. The `'unknown'` arm is still dropped from the *type* rather than unioned in
+  literally, the same treatment `analyzeCoalesce()` gives an `'unknown'` operand.
+- **The value arm is `unknown`.** `unknown` already admits every value the default can produce, so the
+  union collapses back to `unknown` and the property is required. Narrowing to the default's type alone
+  would drop whatever the value arm can still return. This is the `whenPivotLoaded()` /
+  `whenPivotLoadedAs()` case, whose value arm is a hard-coded `unknown` the handler never inspects.
+
+Routing the whole family through one helper replaced three near-identical inline merge blocks and closed a
+soundness hole: `analyzeWhenHas()`, `analyzeWhenAppended()`, `analyzeWhenLoaded()` and
+`analyzeWhenExistsLoaded()`, plus the `whenCounted()`/`whenAggregated()` inline arms, used to flip **only**
+`optional` and emit the value arm's type alone. `$this->whenLoaded('user', fn ($user) => $user, null)` was
+emitted as a required `User`, so a consumer could dereference the very `null` Laravel returns when the
+relation is not loaded. Note that `whenLoaded()`, `whenHas()` and `whenAppended()` do already analyze
+`$args[0]`/`$args[1]`, so reading one more argument was never the obstacle it was once described as.
 
 ### `whenPivotLoaded()`/`whenPivotLoadedAs()` need separate `if` branches, not a combined one
 
@@ -473,7 +475,9 @@ analyzing `$value`. This matters because Laravel's `whenAppended()` does **not**
 into a `$value` closure the way `whenHas()`/`whenLoaded()`/`whenCounted()`/`whenAggregated()`/
 `whenExistsLoaded()` do — it calls `value($value)` with zero arguments, not `value($value, $resolved)` — so
 a `$value` closure parameter has nothing bound to it in Laravel's own implementation. Typing from the
-attribute name sidesteps that distinction entirely.
+attribute name sidesteps that distinction entirely. The *default* at index 2 is still analyzed and unioned
+in by `applyConditionalDefault()` — it is a plain eagerly-evaluated argument, not a closure needing a
+binding.
 
 ### `whenExistsLoaded()` resolves to the generated `{relation}_exists` flag — and must agree with `ModelTransformer`
 
@@ -482,7 +486,8 @@ attribute name sidesteps that distinction entirely.
 properties (the `_exists` suffix → `boolean` fallback, mirroring `_count` → `number`).
 `analyzeWhenExistsLoaded()` emits that same `boolean`, deliberately: a resource and the model it wraps
 disagreeing about the type of the same underlying flag is exactly the kind of divergence this package
-exists to prevent.
+exists to prevent. An explicit default still unions its own type alongside that `boolean`, since the
+runtime can return it in place of the flag.
 
 ### `transform()` types from the callback's return, not `$value`'s
 
@@ -491,8 +496,8 @@ exists to prevent.
 `$value`'s own type, is what the property carries. `analyzeTransform()` mirrors `analyzeWhen()`'s
 value-argument handling but analyzes `$args[1]` (the callback) instead of `$args[0]`, binding the
 callback's first parameter to `$args[0]`'s `$this->prop` expression via `bindClosureParamsFromCondition()`
-the same way `analyzeWhen()` binds a value closure to its condition, then unions in the default at index 2
-exactly like `analyzeWhen()` does.
+the same way `analyzeWhen()` binds a value closure to its condition, then hands the result to
+`applyConditionalDefault()` with index 2, exactly like `analyzeWhen()` does.
 
 ## `#[Collects]` resolution is Laravel-version-guarded
 

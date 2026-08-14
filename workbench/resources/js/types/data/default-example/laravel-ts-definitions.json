@@ -8159,17 +8159,17 @@
                 },
                 {
                     "name": "has_with_default",
-                    "type": "string",
+                    "type": "string | number",
                     "optional": false
                 },
                 {
                     "name": "loaded_with_default",
-                    "type": "User",
+                    "type": "User | null",
                     "optional": false
                 },
                 {
                     "name": "counted_with_default",
-                    "type": "number",
+                    "type": "number | string",
                     "optional": false
                 },
                 {
@@ -8179,7 +8179,7 @@
                 },
                 {
                     "name": "aggregated_with_default",
-                    "type": "number",
+                    "type": "number | string",
                     "optional": false
                 },
                 {
@@ -8209,7 +8209,7 @@
                 },
                 {
                     "name": "unless_with_default",
-                    "type": "string",
+                    "type": "string | number",
                     "optional": false
                 },
                 {
@@ -8218,9 +8218,19 @@
                     "optional": true
                 },
                 {
+                    "name": "appended_with_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
                     "name": "exists_no_default",
                     "type": "boolean",
                     "optional": true
+                },
+                {
+                    "name": "exists_with_default",
+                    "type": "boolean | string",
+                    "optional": false
                 },
                 {
                     "name": "transform_no_default",
@@ -8330,7 +8340,7 @@
                 {
                     "name": "status_resource",
                     "type": "OrderStatusType",
-                    "optional": false
+                    "optional": true
                 },
                 {
                     "name": "shipping_safe",

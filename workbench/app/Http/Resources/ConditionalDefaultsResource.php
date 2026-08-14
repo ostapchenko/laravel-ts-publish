@@ -9,8 +9,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Workbench\App\Models\Address;
 
 /**
- * Exercises the conditional family's third default argument. An explicit default means the key can
- * never be missing, so the property is required and its type unions both arms.
+ * Exercises the conditional family's default argument. An explicit default means the key is always
+ * present, so the property is required and the default's own type is unioned into the emitted type;
+ * a default whose type cannot be resolved leaves the property optional instead.
  *
  * @mixin Address
  */
@@ -45,18 +46,21 @@ class ConditionalDefaultsResource extends JsonResource
             // apart from a no-op, since deduping collapses it back to a single member either way.
             'when_with_default' => $this->when($this->id > 0, $this->full_address, 0),
 
-            'has_with_default' => $this->whenHas('full_address', $this->full_address, 'fallback'),
+            // Every with-default case below pairs a value arm with a *differently*-typed default, so the
+            // union is observable: a handler that only flipped `optional` would emit the value arm alone.
+            'has_with_default' => $this->whenHas('full_address', $this->full_address, 0),
             'loaded_with_default' => $this->whenLoaded('user', fn ($user) => $user, null),
-            'counted_with_default' => $this->whenCounted('user', null, 0),
+            'counted_with_default' => $this->whenCounted('user', null, 'none'),
 
             // whenAggregated's default sits at index 4 — the riskiest index in the family, since it's
             // the only one not at position 2 or 3. Neither this handler nor the pivot ones below inspect
             // the relation/table/aggregate arguments at all (their type is a fixed 'number'/'unknown'),
             // so no real aggregate or pivot relation needs to exist on the model for this to be meaningful.
             'aggregated_no_default' => $this->whenAggregated('items', 'price', 'sum', null),
-            'aggregated_with_default' => $this->whenAggregated('items', 'price', 'sum', null, 0),
+            'aggregated_with_default' => $this->whenAggregated('items', 'price', 'sum', null, 'none'),
 
-            // whenPivotLoaded's default sits at index 2.
+            // whenPivotLoaded's default sits at index 2. A pivot value arm is a hard-coded `unknown`,
+            // which already covers the default, so the union collapses back to `unknown` — required.
             'pivot_loaded_no_default' => $this->whenPivotLoaded('team_user', null),
             'pivot_loaded_with_default' => $this->whenPivotLoaded('team_user', null, 0),
 
@@ -66,9 +70,11 @@ class ConditionalDefaultsResource extends JsonResource
             'pivot_loaded_as_with_default' => $this->whenPivotLoadedAs('membership', 'team_user', null, 0),
 
             'unless_no_default' => $this->unless($this->id > 0, $this->full_address),
-            'unless_with_default' => $this->unless($this->id > 0, $this->full_address, 'fallback'),
+            'unless_with_default' => $this->unless($this->id > 0, $this->full_address, 0),
             'appended_no_default' => $this->whenAppended('full_address'),
+            'appended_with_default' => $this->whenAppended('full_address', $this->full_address, 0),
             'exists_no_default' => $this->whenExistsLoaded('user'),
+            'exists_with_default' => $this->whenExistsLoaded('user', null, 'absent'),
 
             // transform() types from the callback's return, not $value's — the callback here returns a
             // boolean while $value (full_address) is string|null, so a wrong implementation would show up.

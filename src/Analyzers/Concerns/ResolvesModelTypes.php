@@ -149,11 +149,8 @@ trait ResolvesModelTypes
                 continue;
             }
 
-            // Only for the implicit paths ($excludeHidden true — except()/whole-model): a non-column
-            // attribute Model::except()/toArray() could never produce is a write-only mutator that
-            // ModelTransformer::transformMutators() itself omits. Model::only() resolves through
-            // getAttribute() instead, which *does* return the key (as null) for that same mutator,
-            // so an explicitly-named key must never be dropped here.
+            // Only the implicit paths (except()/whole-model) may drop a write-only mutator: Model::only()
+            // resolves through getAttribute(), which does return the key, so a named one must survive.
             $isOmittedMutator = $excludeHidden
                 && ! in_array($attr['name'], $dbColumns, true)
                 && $resolver->isOmittedMutator($modelClass, $attr['name']);

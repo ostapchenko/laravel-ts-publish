@@ -378,12 +378,6 @@ describe('toTsType bare-name fallback for sized native types', function () {
         expect($this->service->toTsType('tinyint')['type'])->toBe('number');
     });
 
-    // The only row here where deleting step 1a changes the answer: every row above also matches
-    // by accident via step 7's substring scan once its map entry exists. Here "point" contains
-    // "int", which step 7 would hit before any spatial key, wrongly giving 'number' without 1a.
-    test('a spatial type with an embedded SRID is not hijacked by the "int" substring inside its subtype', function () {
-        expect($this->service->toTsType('geometry(point,4326)')['type'])->toBe('unknown');
-    });
 });
 
 describe('toTsType Step 3 judgment calls: vector, geometry/geography, set', function () {
@@ -391,9 +385,10 @@ describe('toTsType Step 3 judgment calls: vector, geometry/geography, set', func
         expect($this->service->toTsType('vector')['type'])->toBe('number[]');
     });
 
-    test('geometry and geography resolve to unknown, the honest answer for a driver-dependent shape', function (string $native) {
+    test('geometry and geography resolve to unknown, never hijacked by the "int" inside their SRID subtype', function (string $native) {
         // Asserted on the parameterized form Postgres emits: the bare name would pass on the
-        // fall-through default alone, so it cannot tell a map hit from a missing entry.
+        // fall-through default alone, so it cannot tell a map hit from a missing entry. It is also
+        // what step 1a earns — "point" contains "int", which step 7's substring scan would hit first.
         expect($this->service->toTsType($native)['type'])->toBe('unknown');
     })->with(['geometry(point,4326)', 'geography(point,4326)']);
 
