@@ -469,3 +469,10 @@ value-argument handling but analyzes `$args[1]` (the callback) instead of `$args
 callback's first parameter to `$args[0]`'s `$this->prop` expression via `bindClosureParamsFromCondition()`
 the same way `analyzeWhen()` binds a value closure to its condition, then unions in the default at index 2
 exactly like `analyzeWhen()` does.
+
+## `#[Collects]` resolution is Laravel-version-guarded
+
+`collectedResourceClass()` checks for `Illuminate\Http\Resources\Attributes\Collects` behind
+`class_exists()` rather than a `use` import, because the package still supports Laravel 12 releases
+that don't ship the attribute. See [Version-guarded Laravel
+classes](../laravel-version-guards.md) for the full registry and when this guard can be removed.

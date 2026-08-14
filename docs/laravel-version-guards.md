@@ -1,0 +1,47 @@
+# Version-guarded Laravel classes
+
+This package supports `illuminate/contracts: ^13.0||^12.0`. A class that exists only in the newer
+release cannot be `use`-imported — the import is resolved at class-load time and fatals on the older
+one. Such classes are referenced by string FQCN behind `class_exists()` instead.
+
+Every one of those references is listed here. **Adding a guarded reference without adding a row is a
+test failure** (`tests/Unit/LaravelVersionGuardsTest.php`).
+
+When the support floor rises above a row's minimum version, that row's guard is dead: replace the
+string with a `use` import, delete the `class_exists()` branch, drop the `->skip()` from its tests,
+and remove the row.
+
+| Class | Min Laravel | Guarded at | Tests skipped at | Convert when floor ≥ |
+| --- | --- | --- | --- | --- |
+| `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php` | `12.29.0` |
+| `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php`, `src/Analyzers/Inertia/InertiaPageAnalyzer.php` | none | `13.0.0` |
+
+## How each minimum version was established
+
+The installed vendor tree is `13.24`, so Laravel 12's tree cannot be read locally. Both rows were
+verified empirically against `laravel/framework`'s GitHub tags via the contents API
+(`GET /repos/laravel/framework/contents/{path}?ref={tag}`), which reflects exactly what shipped in
+each release — more reliable than changelog prose.
+
+- **`UseResource`**: binary-searched across all 112 published `v12.*` tags for
+  `src/Illuminate/Database/Eloquent/Attributes/UseResource.php`. Absent through `v12.28.1`, present
+  starting `v12.29.0` (released 2025-09-16, landed via laravel/framework#56966) and at every release
+  since, including `v13.0.0`. This is an exact minimum, not a range.
+- **`Collects`**: the entire `src/Illuminate/Http/Resources/Attributes` directory 404s at both
+  `v12.0.0` and `v12.66.0` (the newest published 12.x at research time) — the directory does not
+  exist anywhere in the 12.x line. It exists at `v13.0.0` (released 2026-03-17). Recorded as `13.0.0`
+  because that is the first tag proven to contain it; no 12.x release was found to carry it.
+
+The same method was applied ahead of time to the five attributes Tasks 9 and 10 are expected to add
+in `Illuminate\Database\Eloquent\Attributes` (`Table`, `Hidden`, `Visible`, `Appends`, `Connection`)
+plus `Illuminate\Http\Resources\Attributes\PreserveKeys`: all six are absent at `v12.66.0` and present
+at `v13.0.0`, the same shape as `Collects`. They do not get rows here yet — no guard for them exists
+in `src/` — but whichever task adds the guard can record `Min Laravel: 13.0.0` / `Convert when floor
+≥: 13.0.0` without re-deriving it.
+
+## Not in this registry
+
+String FQCNs that exist for reasons other than version support, and must not be converted:
+
+- `src/RelationMap.php` — builds a relation class name dynamically from a type string.
+- `src/Analyzers/SurveyorTypeMapper.php` — maps always-present framework classes by name.

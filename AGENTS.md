@@ -106,6 +106,8 @@ function exampleFunction(array $param1, string $param2): Collection {
 
 Always use imports for classes. Never inline them like `\ReflectionEnum` without importing it at the top of the file. This makes it clear where the class is coming from and makes the code more readable. Use the class by doing `use ReflectionEnum;` at the top of the file.
 
+A Laravel class absent from a supported Laravel version must instead be referenced by string FQCN behind `class_exists()`, recorded in [docs/laravel-version-guards.md](./docs/laravel-version-guards.md).
+
 ## Methods & properties organization in classes
 
 When writing methods & properties in a class they should be ordered in the following way unless organized in a specific way for another reason. The order is as follows:
