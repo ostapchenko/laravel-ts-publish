@@ -1575,7 +1575,23 @@
                 },
                 {
                     "fieldPath": "config",
-                    "tsType": "unknown[]",
+                    "tsType": "{ timezone?: unknown }",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "preferences",
+                    "tsType": "{ theme?: unknown; locale?: unknown }",
+                    "isRequired": false,
+                    "isNullable": true,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "shipping",
+                    "tsType": "{ method?: 'standard' | 'express' | null; address: unknown }",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,

@@ -448,6 +448,36 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($permissions->isRequired)->toBeTrue();
         });
 
+        it('composes in_array_keys into a keyed object with optional keys', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $config = collect($nodes)->firstWhere('fieldPath', 'config');
+            expect($config)->not->toBeNull();
+            expect($config->tsType)->toBe('{ timezone?: unknown }');
+            expect($config->isRequired)->toBeTrue();
+        });
+
+        it('composes array:k1,k2 into a keyed object with optional keys', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $preferences = collect($nodes)->firstWhere('fieldPath', 'preferences');
+            expect($preferences)->not->toBeNull();
+            expect($preferences->tsType)->toBe('{ theme?: unknown; locale?: unknown }');
+            expect($preferences->isRequired)->toBeFalse();
+        });
+
+        it('merges required_array_keys synthesis with a real declared child, real child winning the collision', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $shipping = collect($nodes)->firstWhere('fieldPath', 'shipping');
+            expect($shipping)->not->toBeNull();
+            expect($shipping->tsType)->toBe("{ method?: 'standard' | 'express' | null; address: unknown }");
+            expect($shipping->isRequired)->toBeTrue();
+        });
+
         it('hoists a nested field JSDoc annotation onto the composed parent', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(ArrayRulesRequest::class);

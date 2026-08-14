@@ -50,7 +50,7 @@ use UnitEnum;
  *     isNullable: bool,
  *     isProhibited: bool,
  *     jsDocMetadata: list<string>,
- *     requiredArrayKeys: list<string>,
+ *     syntheticArrayKeys: array<string, bool>,
  * }
  */
 class FormRequestRulesAnalyzer
@@ -224,7 +224,7 @@ class FormRequestRulesAnalyzer
             'isNullable' => $this->isNullable($parsedRules),
             'isProhibited' => $this->isProhibited($parsedRules),
             'jsDocMetadata' => $this->resolveJsDocMetadata($parsedRules),
-            'requiredArrayKeys' => $this->resolveRequiredArrayKeys($parsedRules),
+            'syntheticArrayKeys' => $this->resolveSyntheticArrayKeys($parsedRules),
         ];
     }
 
@@ -232,6 +232,7 @@ class FormRequestRulesAnalyzer
      * Collapse a trie node bottom-up into a composed leaf: object (named children), array (`*` child), or its own leaf.
      *
      * A node with both its own rule and children uses the children — more specific than the own rule's placeholder.
+     * Synthesized key-list children merge in rather than replace, with a real declared child winning a name collision.
      *
      * @return RuleLeafData
      */
@@ -240,8 +241,8 @@ class FormRequestRulesAnalyzer
         $children = $node->children;
         $own = $node->own;
 
-        if ($children === [] && $own !== null && $own['requiredArrayKeys'] !== []) {
-            $children = $this->syntheticRequiredArrayKeyChildren($own['requiredArrayKeys']);
+        if ($own !== null && $own['syntheticArrayKeys'] !== []) {
+            $children += $this->syntheticArrayKeyChildren($own['syntheticArrayKeys']);
         }
 
         if ($children === []) {
@@ -284,7 +285,7 @@ class FormRequestRulesAnalyzer
             'isNullable' => $own !== null && $own['isNullable'],
             'isProhibited' => $own !== null && $own['isProhibited'],
             'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
-            'requiredArrayKeys' => [],
+            'syntheticArrayKeys' => [],
         ];
     }
 
@@ -362,7 +363,7 @@ class FormRequestRulesAnalyzer
             'isNullable' => $own !== null && $own['isNullable'],
             'isProhibited' => $own !== null && $own['isProhibited'],
             'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
-            'requiredArrayKeys' => [],
+            'syntheticArrayKeys' => [],
         ];
     }
 
@@ -398,7 +399,7 @@ class FormRequestRulesAnalyzer
             'isNullable' => $own !== null && $own['isNullable'],
             'isProhibited' => $own !== null && $own['isProhibited'],
             'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
-            'requiredArrayKeys' => [],
+            'syntheticArrayKeys' => [],
         ];
     }
 
@@ -433,19 +434,20 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Synthesize pseudo-children for `required_array_keys:a,b` on a leaf array with no real
-     * children, so its known keys compose into a typed object instead of staying `unknown[]`.
+     * Synthesize pseudo-children for a leaf array's `required_array_keys`/`in_array_keys`/`array:` keys,
+     * so they compose into a typed object instead of staying `unknown[]`. Each key's own required-ness
+     * came from `resolveSyntheticArrayKeys()`; a real declared child with the same name wins the merge.
      *
-     * @param  list<string>  $keys
+     * @param  array<string, bool>  $keys  key name => whether the declaring rule requires it
      * @return array<string, FormRequestRuleTrieNode>
      */
-    protected function syntheticRequiredArrayKeyChildren(array $keys): array
+    protected function syntheticArrayKeyChildren(array $keys): array
     {
         $children = [];
 
-        foreach ($keys as $key) {
+        foreach ($keys as $key => $isRequired) {
             $node = new FormRequestRuleTrieNode;
-            $node->own = $this->emptyLeaf(isRequired: true);
+            $node->own = $this->emptyLeaf(isRequired: $isRequired);
             $children[$key] = $node;
         }
 
@@ -466,7 +468,7 @@ class FormRequestRulesAnalyzer
             'isNullable' => false,
             'isProhibited' => false,
             'jsDocMetadata' => [],
-            'requiredArrayKeys' => [],
+            'syntheticArrayKeys' => [],
         ];
     }
 
@@ -777,13 +779,18 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Resolve the keys declared by a `required_array_keys:a,b` rule, if present.
+     * Resolve the keys declared by `required_array_keys:a,b`, `in_array_keys:a,b`, or `array:a,b`,
+     * mapped to whether Laravel's validator guarantees that key's presence. `required_array_keys`
+     * demands every listed key; the other two never guarantee a single key, so theirs come back optional.
      *
      * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
-     * @return list<string>
+     * @return array<string, bool> key name => whether the declaring rule requires it
      */
-    protected function resolveRequiredArrayKeys(array $rules): array
+    protected function resolveSyntheticArrayKeys(array $rules): array
     {
+        $requiredKeys = [];
+        $optionalKeys = [];
+
         foreach ($rules as [$rule, $params]) {
             if (! is_string($rule)) {
                 continue;
@@ -793,12 +800,16 @@ class FormRequestRulesAnalyzer
             $pascalToSnake = preg_replace('/[A-Z]/', '_$0', lcfirst($rule));
             $ruleLower = strtolower(is_string($pascalToSnake) ? $pascalToSnake : $rule);
 
+            $keys = array_values(array_filter($params, 'is_string'));
+
             if ($ruleLower === 'required_array_keys') {
-                return array_values(array_filter($params, 'is_string'));
+                $requiredKeys = [...$requiredKeys, ...$keys];
+            } elseif (in_array($ruleLower, ['in_array_keys', 'array'], true)) {
+                $optionalKeys = [...$optionalKeys, ...$keys];
             }
         }
 
-        return [];
+        return array_fill_keys($requiredKeys, true) + array_fill_keys($optionalKeys, false);
     }
 
     /**

@@ -11,7 +11,9 @@ export interface ArrayRulesRequest {
     sku_codes: string[];
     airports: string[];
     primary_airport: string;
-    config: unknown[];
+    config: { timezone?: unknown };
+    preferences?: { theme?: unknown; locale?: unknown } | null;
+    shipping: { method?: 'standard' | 'express' | null; address: unknown };
     ordered_items: string[];
     limited_choices?: (string | null)[] | null;
     required_answers: string[];
