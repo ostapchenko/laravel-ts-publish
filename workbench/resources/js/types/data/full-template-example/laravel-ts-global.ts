@@ -1764,10 +1764,16 @@ declare global {
             not_null_named_default?: string;
             not_null_spread_default?: string;
             when_no_default?: string;
-            when_with_default: string;
+            when_with_default: string | number;
             has_with_default: string;
             loaded_with_default: app.models.User;
             counted_with_default: number;
+            aggregated_no_default?: number;
+            aggregated_with_default: number;
+            pivot_loaded_no_default?: unknown;
+            pivot_loaded_with_default: unknown;
+            pivot_loaded_as_no_default?: unknown;
+            pivot_loaded_as_with_default: unknown;
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method.

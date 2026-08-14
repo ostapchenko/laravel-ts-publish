@@ -3907,11 +3907,45 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — explicit defa
         expect($props['loaded_with_default']['optional'])->toBeFalse();
     });
 
+    // A same-typed default (e.g. another string) can't distinguish real union logic from a no-op, since
+    // deduping collapses either result back to a single member. The default here is deliberately a
+    // different type (number) so the merged type is only 'string | number' if the union code actually ran.
     it('unions the default arm into the emitted type', function () {
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 
-        expect($props['when_with_default']['type'])->toContain('string');
+        expect($props['when_with_default']['type'])->toBe('string | number');
+    });
+
+    // whenAggregated's default sits at index 4 — the family's outlier index, verified against
+    // ConditionallyLoadsAttributes.php. Neither of the two states alone would catch an off-by-one at this
+    // index; asserting both together (rather than only the "with default" case) is what makes this
+    // discriminating.
+    it('makes whenAggregated required only when its index-4 default is passed', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['aggregated_no_default']['optional'])->toBeTrue()
+            ->and($props['aggregated_with_default']['optional'])->toBeFalse();
+    });
+
+    // whenPivotLoaded's default sits at index 2.
+    it('makes whenPivotLoaded required only when its index-2 default is passed', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['pivot_loaded_no_default']['optional'])->toBeTrue()
+            ->and($props['pivot_loaded_with_default']['optional'])->toBeFalse();
+    });
+
+    // whenPivotLoadedAs's default sits at index 3 — one higher than whenPivotLoaded, because of its
+    // leading $accessor argument. This is exactly the pair the combined `if` branch used to conflate.
+    it('makes whenPivotLoadedAs required only when its index-3 default is passed', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['pivot_loaded_as_no_default']['optional'])->toBeTrue()
+            ->and($props['pivot_loaded_as_with_default']['optional'])->toBeFalse();
     });
 });
 

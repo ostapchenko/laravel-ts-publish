@@ -8081,7 +8081,7 @@
                 },
                 {
                     "name": "when_with_default",
-                    "type": "string",
+                    "type": "string | number",
                     "optional": false
                 },
                 {
@@ -8097,6 +8097,36 @@
                 {
                     "name": "counted_with_default",
                     "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "aggregated_no_default",
+                    "type": "number",
+                    "optional": true
+                },
+                {
+                    "name": "aggregated_with_default",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "pivot_loaded_no_default",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "pivot_loaded_with_default",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "pivot_loaded_as_no_default",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "pivot_loaded_as_with_default",
+                    "type": "unknown",
                     "optional": false
                 }
             ]
