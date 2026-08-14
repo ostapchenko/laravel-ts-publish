@@ -1,7 +1,7 @@
 # ModelAttributeResolver
 
 > User-facing docs: [README § Models](../../README.md#models) (see especially the
-> [annotation checklist](../../README.md#annotation-checklist)). Verified by
+> [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist)). Verified by
 > [the type-inference gates](../testing/type-inference-gates.md).
 
 `AbeTwoThree\LaravelTsPublish\ModelAttributeResolver` resolves a model attribute's TypeScript

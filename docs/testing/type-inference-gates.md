@@ -151,7 +151,7 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
   This is not theoretical: this branch shipped the first two deliberate property removals the gate has
   ever seen. Task 13's `$hidden`-exclusion change dropped `user.password` and `user.remember_token` from
   the generated model interface (matching Laravel's own `toArray()`/`toJson()` serialization — see
-  [What gets published](../../README.md#what-gets-published-hidden-attributes-write-only-accessors)), and
+  [What gets published](https://tolki.abe.dev/ts/models.html#what-gets-published-hidden-attributes-write-only-accessors)), and
   the write-only-accessor waterfall dropped `order.search_index` (a set-only mutator with no getter, no
   docblock generic, and no backing column, so it's correctly omitted rather than emitted as `unknown`).
   Both regenerated trees were reviewed by hand — reading the diff and confirming each property disappeared
