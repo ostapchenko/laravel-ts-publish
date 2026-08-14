@@ -248,6 +248,10 @@ class FormRequestRulesAnalyzer
             return $own ?? $this->emptyLeaf();
         }
 
+        if ($this->allKeysAreNumeric($children)) {
+            return $this->composeIndexedNode($children, $own);
+        }
+
         if (array_key_exists('*', $children)) {
             $wildcard = $children['*'];
             unset($children['*']);
@@ -302,6 +306,61 @@ class FormRequestRulesAnalyzer
         return [
             ...$object,
             'tsType' => $object['tsType'].' & Record<string, '.$elementType.'>',
+        ];
+    }
+
+    /**
+     * Whether every child key is an explicit numeric index (`items.0.name`), which describes a list
+     * rather than an object — `{ "0": T }` is a type no real JSON array is assignable to.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children
+     */
+    protected function allKeysAreNumeric(array $children): bool
+    {
+        if ($children === []) {
+            return false;
+        }
+
+        foreach (array_keys($children) as $key) {
+            if (preg_match('/^\d+$/', (string) $key) !== 1) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Compose numerically-indexed children into an array of the union of their shapes, so
+     * `items.0.name` reads `{ name: string }[]` instead of an unusable `{ "0": ... }` object.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children
+     * @param  RuleLeafData|null  $own
+     * @return RuleLeafData
+     */
+    protected function composeIndexedNode(array $children, ?array $own): array
+    {
+        $elementTypes = [];
+
+        foreach ($children as $childNode) {
+            $element = $this->composeTrieNode($childNode);
+
+            if ($element['isProhibited']) {
+                continue;
+            }
+
+            $elementTypes[] = $element['tsType'].($element['isNullable'] ? ' | null' : '');
+        }
+
+        $elementTypes = array_values(array_unique($elementTypes));
+
+        return [
+            'tsType' => $elementTypes === [] ? 'never[]' : $this->arrayWrapType(implode(' | ', $elementTypes)),
+            'isRequired' => $own !== null && $own['isRequired'],
+            'isNullable' => $own !== null && $own['isNullable'],
+            'isProhibited' => $own !== null && $own['isProhibited'],
+            'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
+            'requiredArrayKeys' => [],
         ];
     }
 

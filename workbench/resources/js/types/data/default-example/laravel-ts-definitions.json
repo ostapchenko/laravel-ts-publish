@@ -2026,6 +2026,14 @@
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "items",
+                    "tsType": "{ name: string }[]",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
                 }
             ]
         },

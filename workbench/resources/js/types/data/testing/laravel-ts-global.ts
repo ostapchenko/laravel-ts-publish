@@ -3104,6 +3104,7 @@ declare global {
             meta?: Record<string, never>;
             empties?: never[];
             "v1.0": string;
+            items?: { name: string }[];
         }
         export interface NumberRulesRequest {
             score: number;

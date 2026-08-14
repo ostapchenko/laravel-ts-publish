@@ -33,6 +33,10 @@ class NestedEdgeCasesRequest extends FormRequest
 
             // Escaped dot — Laravel reads this as one attribute literally named `v1.0`.
             'v1\.0' => ['required', 'string'],
+
+            // Explicit numeric indices — a list, not an object with a "0" key.
+            'items' => ['array'],
+            'items.0.name' => ['required', 'string'],
         ];
     }
 }

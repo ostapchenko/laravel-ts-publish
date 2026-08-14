@@ -9,4 +9,5 @@ export interface NestedEdgeCasesRequest {
     meta?: Record<string, never>;
     empties?: never[];
     "v1.0": string;
+    items?: { name: string }[];
 }
