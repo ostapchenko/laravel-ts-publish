@@ -368,7 +368,7 @@ For every supported `toArray()` pattern, the full attribute reference, and nulla
 
 ## Routes
 
-This package publishes a lightweight, functional route helper for every controller action in your app — matching the feature set of [Laravel Wayfinder](https://github.com/laravel/wayfinder), but with all the URL-building, parameter-binding, query-string, and form-spoofing logic tucked away inside a single `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) instead of being generated inline for every route.
+This package publishes a lightweight, functional route helper for every controller action in your app, with all the URL-building, parameter-binding, query-string, and form-spoofing logic tucked away inside a single `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) instead of being generated inline for every route. It's inspired by [Laravel Wayfinder](https://github.com/laravel/wayfinder) but doesn't yet match its feature set: no named-route tree (`route('posts.index')` → `posts.index()`), no generation for closure or non-controller routes, and no per-route response typing beyond Inertia.
 
 ```typescript
 // resources/js/types/data/app/http/controllers/post-controller.ts (generated)

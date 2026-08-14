@@ -351,7 +351,7 @@ sites that already made `protected $table = '...'` etc. work before Laravel 13 e
   for which table name.
 - `ModelTransformer::initInstance()` (`src/Transformers/ModelTransformer.php:184`) calls
   `$this->modelInstance->getAppends()` — honours `#[Appends]`.
-- `ModelAttributeResolver` (`src/ModelAttributeResolver.php:467`) calls
+- `ModelAttributeResolver` (`src/ModelAttributeResolver.php:487`) calls
   `$ctx['instance']->getTable()` and `getConnection()` again when resolving a column's type.
 - `ModelInspector::getAttributes()` (Laravel's own, in `vendor/laravel/framework/.../ModelInspector.php`,
   which `AbeTwoThree\LaravelTsPublish\ModelInspector` extends) calls `attributeIsHidden($column,
