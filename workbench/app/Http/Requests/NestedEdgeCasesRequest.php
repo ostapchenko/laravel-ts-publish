@@ -47,11 +47,19 @@ class NestedEdgeCasesRequest extends FormRequest
             'markers' => ['array'],
             'markers.*' => ['in:>a,b'],
 
+            // An apostrophe inside an "in:" value must be escaped, not interpolated raw into the literal.
+            'quoted' => ["in:it's,b"],
+
             // A mixed node as an array element — the intersection must be parenthesized.
             'buckets' => ['array'],
             'buckets.*' => ['array'],
             'buckets.*.*' => ['string'],
             'buckets.*.name' => ['string'],
+
+            // A prohibited wildcard beside a named sibling — the index signature must type as never.
+            'settings' => ['array'],
+            'settings.*' => ['prohibited'],
+            'settings.color' => ['string'],
         ];
     }
 }

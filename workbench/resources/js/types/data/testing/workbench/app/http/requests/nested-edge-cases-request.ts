@@ -13,5 +13,7 @@ export interface NestedEdgeCasesRequest {
     /** @format email variants.1.email */
     variants?: ({ name: string } | { email: string })[];
     markers?: ('>a' | 'b')[];
+    quoted?: 'it\'s' | 'b';
     buckets?: ({ name?: string } & Record<string, string>)[];
+    settings?: { color?: string } & Record<string, never>;
 }

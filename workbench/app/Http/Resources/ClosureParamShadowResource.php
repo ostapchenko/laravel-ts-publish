@@ -14,7 +14,8 @@ use Workbench\App\Models\Team;
  *
  * `outer_member` is a known over-degradation: the write-count shadow guard in
  * collectWrittenVariableNames() still counts the closure param as a write to `$member`, so the
- * top-level `$member` local is never bound. Narrowing that guard is deferred (see task-11-brief.md).
+ * top-level `$member` local is never bound. Narrowing that guard so a closure-scoped write no
+ * longer counts against the outer local is deferred.
  *
  * @mixin Team
  */

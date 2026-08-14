@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\Config;
 
 /**
  * Shared enum FQCN/const tracking properties for transformers.
+ *
+ * @phpstan-type EnumPropertyFqcnInfo = array{fqcn: string, nullable: bool, isCollection?: bool}
+ * @phpstan-type EnumPropertyFqcnMap = array<string, EnumPropertyFqcnInfo>
  */
 trait TracksEnumImports
 {
@@ -31,7 +34,10 @@ trait TracksEnumImports
     /**
      * Return the enum property info array for this transformer.
      *
-     * @return array<string, array{fqcn: string, nullable: bool}>
+     * `isCollection` is only present on implementations that need to distinguish a single
+     * enum value from an enum collection (e.g. ModelTransformer); others omit the key.
+     *
+     * @return EnumPropertyFqcnMap
      */
     abstract protected function enumProperties(): array;
 

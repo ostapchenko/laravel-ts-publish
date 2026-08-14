@@ -557,6 +557,24 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('({ name?: string } & Record<string, string>)[]');
             expect($node->tsType)->not->toBe('{ name?: string } & Record<string, string>[]');
         });
+
+        it('escapes an apostrophe inside an "in:" value instead of breaking out of the TS literal', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'quoted');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe("'it\\'s' | 'b'");
+        });
+
+        it('types a mixed node with a prohibited wildcard element as never, not the residual type', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'settings');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('{ color?: string } & Record<string, never>');
+        });
     });
 
     describe('auth state restoration', function () {

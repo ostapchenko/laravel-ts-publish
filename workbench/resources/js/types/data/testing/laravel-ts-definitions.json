@@ -2054,8 +2054,24 @@
                     "jsDocMetadata": []
                 },
                 {
+                    "fieldPath": "quoted",
+                    "tsType": "'it\\'s' | 'b'",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
                     "fieldPath": "buckets",
                     "tsType": "({ name?: string } & Record<string, string>)[]",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "settings",
+                    "tsType": "{ color?: string } & Record<string, never>",
                     "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,

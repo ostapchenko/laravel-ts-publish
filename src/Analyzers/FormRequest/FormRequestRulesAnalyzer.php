@@ -301,7 +301,9 @@ class FormRequestRulesAnalyzer
     {
         $object = $this->composeObjectNode($children, $own);
         $element = $this->composeTrieNode($wildcardChild);
-        $elementType = $element['tsType'].($element['isNullable'] ? ' | null' : '');
+        $elementType = $element['isProhibited']
+            ? 'never'
+            : $element['tsType'].($element['isNullable'] ? ' | null' : '');
 
         return [
             ...$object,
@@ -609,7 +611,7 @@ class FormRequestRulesAnalyzer
         }
 
         $literals = array_map(
-            fn (mixed $v): string => is_string($v) ? "'{$v}'" : (is_int($v) || is_float($v) ? (string) $v : ''),
+            fn (mixed $v): string => LaravelTsPublish::toJsLiteral($v),
             array_filter($values, fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
@@ -624,7 +626,7 @@ class FormRequestRulesAnalyzer
     protected function resolveInFromParams(array $params): string
     {
         $literals = array_map(
-            fn (mixed $v): string => is_string($v) ? "'{$v}'" : (is_int($v) || is_float($v) ? (string) $v : ''),
+            fn (mixed $v): string => LaravelTsPublish::toJsLiteral($v),
             array_filter($params, fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
@@ -695,7 +697,7 @@ class FormRequestRulesAnalyzer
         }
 
         $values = array_map(
-            fn (BackedEnum $case): string => is_string($case->value) ? "'{$case->value}'" : (string) $case->value,
+            fn (BackedEnum $case): string => LaravelTsPublish::toJsLiteral($case),
             $cases,
         );
 

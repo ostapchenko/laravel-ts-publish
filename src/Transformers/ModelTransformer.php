@@ -35,6 +35,7 @@ use ReflectionClass;
  * @phpstan-import-type MutatorsList from TsModelDto
  * @phpstan-import-type AppendsList from TsModelDto
  * @phpstan-import-type RelationsList from TsModelDto
+ * @phpstan-import-type EnumPropertyInfo from TsModelDto
  * @phpstan-import-type AttributeInfo from ModelInfo
  * @phpstan-import-type RelationInfo from ModelInfo
  *
@@ -770,7 +771,7 @@ class ModelTransformer extends CoreTransformer
     }
 
     /**
-     * @return array<string, array{constName: string, nullable: bool, isCollection: bool}>
+     * @return array<string, EnumPropertyInfo>
      */
     protected function buildEnumColumns(): array
     {
@@ -788,7 +789,7 @@ class ModelTransformer extends CoreTransformer
     }
 
     /**
-     * @return array<string, array{constName: string, nullable: bool, isCollection: bool}>
+     * @return array<string, EnumPropertyInfo>
      */
     protected function buildEnumMutators(): array
     {
@@ -808,7 +809,7 @@ class ModelTransformer extends CoreTransformer
     /**
      * Build the enum appends properties for the Tolki package variant.
      *
-     * @return array<string, array{constName: string, nullable: bool, isCollection: bool}>
+     * @return array<string, EnumPropertyInfo>
      */
     protected function buildEnumAppends(): array
     {

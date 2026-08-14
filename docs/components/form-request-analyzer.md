@@ -18,8 +18,9 @@ to reach a deeper path (e.g. `order` when only `order.id` was declared) have non
 
 Laravel lets an attribute contain a *literal* dot by escaping it (`'v1\.0'`), so the split is not
 a bare `explode('.')`: `buildRuleTrie()` first replaces every `\.` with the `DOT_PLACEHOLDER`
-sentinel (`"\x00ltsp-dot\x00"`, a byte sequence no rule key can legitimately contain), explodes on
-the real separators, then restores the placeholder to `.` inside each segment. `'v1\.0'` therefore
+sentinel (`"\x00ltsp-dot\x00"`, a fixed byte sequence no realistic rule key contains — unlike
+Laravel's own placeholder, which is randomized per validator instance, this one is a constant),
+explodes on the real separators, then restores the placeholder to `.` inside each segment. `'v1\.0'` therefore
 becomes one trie node named `v1.0`, not two named `v1` and `0`.
 
 The trie node itself is a small internal class ([`FormRequestRuleTrieNode`](../../src/Analyzers/FormRequest/FormRequestRuleTrieNode.php)),

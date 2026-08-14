@@ -1686,7 +1686,8 @@ declare global {
          *
          * `outer_member` is a known over-degradation: the write-count shadow guard in
          * collectWrittenVariableNames() still counts the closure param as a write to `$member`, so the
-         * top-level `$member` local is never bound. Narrowing that guard is deferred (see task-11-brief.md).
+         * top-level `$member` local is never bound. Narrowing that guard so a closure-scoped write no
+         * longer counts against the outer local is deferred.
          */
         export interface ClosureParamShadowResource {
             outer_member: unknown;
@@ -3112,7 +3113,9 @@ declare global {
             items?: { name: string }[];
             variants?: ({ name: string } | { email: string })[];
             markers?: ('>a' | 'b')[];
+            quoted?: 'it\'s' | 'b';
             buckets?: ({ name?: string } & Record<string, string>)[];
+            settings?: { color?: string } & Record<string, never>;
         }
         export interface NumberRulesRequest {
             score: number;
