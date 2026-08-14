@@ -185,6 +185,21 @@ class LaravelTsPublish
             return $result;
         }
 
+        // 1a. Bare-name fallback: a sized native DB type ("varchar(255)", "decimal(10,2)",
+        //     "tinyint(4)") has no exact entry, but the name before '(' usually does. A literal
+        //     parameterized key like "tinyint(1)" is still caught by step 1 above, so it can't be shadowed.
+        $parenPos = strpos($lower, '(');
+
+        if ($parenPos !== false && $parenPos > 0) {
+            $bareMapping = $typesMap[substr($lower, 0, $parenPos)] ?? null;
+
+            if ($bareMapping !== null) {
+                $result['type'] = is_string($bareMapping) ? $bareMapping : $bareMapping();
+
+                return $result;
+            }
+        }
+
         // 1b. Castable-with-arguments cast strings: "CastClass:arg1,arg2". The head must be
         //     an existing class so DB strings like "decimal:2" never enter this branch.
         $colonPos = strpos($phpType, ':');

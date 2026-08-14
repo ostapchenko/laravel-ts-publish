@@ -173,6 +173,14 @@ The `AsCollection` branch only trusts an inline `{...}` shape or an enum as the 
 class token has no import channel, so that case degrades to `unknown[]` rather than emit an identifier nothing
 imports.
 
+## The DB-native type map is keyed on the grammar's output, not the migration method
+
+When a column has no cast, `resolveAttribute()` falls to `LaravelTsPublish::toTsType($attr['type'])`
+with `ModelInspector`'s raw `Schema::getColumns()` value — the native string a schema grammar emits
+(`tinyint(1)`, `character varying(255)`), never the migration method name (`boolean()`, `string()`) —
+so `vendor/laravel/framework/.../Schema/Grammars/*Grammar.php`, not vendor SQL documentation or the
+`$table->column()` method list, is the authoritative source for a new `TypeScriptMap` entry.
+
 ## `@property` refinement: search order, trait walk, and the acceptance rule
 
 `refineWithPropertyDocblock(ReflectionClass $reflection, string $attributeName, array $tsInfo):

@@ -6,9 +6,9 @@ export interface CustomKeyPost
     title: string;
     content: string;
     user_id: number;
-    status: number;
+    status: boolean;
     published_at: string | null;
-    metadata: unknown | null;
+    metadata: string | null;
     rating: number | null;
     category: string;
     options: string | null;
@@ -21,5 +21,6 @@ export interface CustomKeyPost
     word_count: number | null;
     reading_time_minutes: number | null;
     featured_image_url: string | null;
-    is_pinned: number;
+    is_pinned: boolean;
+    geo_location: unknown | null;
 }

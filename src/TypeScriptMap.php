@@ -55,11 +55,13 @@ class TypeScriptMap
 
             // Array types
             'array' => 'unknown[]',
+            'iterable' => 'unknown[]',
 
             // Number types
             'bigint' => 'number',
             'decimal' => 'number',
             'double' => 'number',
+            'double precision' => 'number',
             'float' => 'number',
             'integer' => 'number',
             'numeric' => 'number',
@@ -69,11 +71,22 @@ class TypeScriptMap
             'year' => 'number',
             'real' => 'number',
             'number' => 'number',
+            'money' => 'number',
+            'smallmoney' => 'number',
+            'serial' => 'number',
+            'bigserial' => 'number',
+            'smallserial' => 'number',
+            // A genuine small integer (MySQL/SQL Server tinyInteger()) — the display-width-1
+            // convention that means boolean instead is its own exact key, in Boolean types below.
+            'tinyint' => 'number',
 
             // Boolean types
             'bool' => 'boolean',
             'boolean' => 'boolean',
-            'tinyint' => 'boolean',
+            'bit' => 'boolean',
+            // $table->boolean() emits tinyint(1) on MySQL/SQLite; the display width is what marks
+            // it boolean rather than a genuine tinyint (see 'tinyint' above).
+            'tinyint(1)' => 'boolean',
 
             // JSON types
             'json' => 'object',
@@ -89,11 +102,30 @@ class TypeScriptMap
             'mediumtext' => 'string',
             'string' => 'string',
             'text' => 'string',
+            'tinytext' => 'string',
             'varchar' => 'string',
+            'nvarchar' => 'string',
+            'nchar' => 'string',
+            'ntext' => 'string',
+            'image' => 'string',
+            'xml' => 'string',
+            'interval' => 'string',
             'encrypted' => 'string',
             'uuid' => 'string',
+            'uniqueidentifier' => 'string',
             'guid' => 'string',
             'hashed' => 'string',
+            // MySQL returns a matched SET as a comma-joined string, not an array.
+            'set' => 'string',
+
+            // Binary types
+            'binary' => 'string',
+            'varbinary' => 'string',
+            'blob' => 'string',
+            'bytea' => 'string',
+            'tinyblob' => 'string',
+            'mediumblob' => 'string',
+            'longblob' => 'string',
 
             // Date and time types
             'date' => fn () => $this->validateDate(),
@@ -109,6 +141,9 @@ class TypeScriptMap
             'time' => 'string',
             'timetz' => 'string',
             'timestamptz' => 'string',
+            'datetimeoffset' => 'string',
+            'datetime2' => 'string',
+            'smalldatetime' => 'string',
 
             // Network address types (Postgres inet/cidr/macaddr, MySQL equivalents)
             'inet' => 'string',
@@ -118,6 +153,14 @@ class TypeScriptMap
 
             // Postgres full-text search vector
             'tsvector' => 'string',
+
+            // Spatial types — raw WKB is a binary string, ST_AsGeoJSON() is an object, and Laravel
+            // returns whichever the driver defaults to, so 'unknown' is honest rather than a guess.
+            'geometry' => 'unknown',
+            'geography' => 'unknown',
+
+            // Vector types — pgvector and MySQL 9 both serialize a vector as a JSON array of floats.
+            'vector' => 'number[]',
 
             'null' => 'null',
             'mixed' => 'unknown',

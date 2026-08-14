@@ -125,3 +125,69 @@ test('maps bare castable classes to their TS shapes', function (string $castable
     [AsEncryptedCollection::class, 'unknown[]'],
     [AsEnumCollection::class, 'unknown[]'],
 ]);
+
+test('maps bare iterable to unknown[], matching the bare array entry', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['iterable'])->toBe('unknown[]');
+});
+
+test('maps a genuine bare tinyint to number, not boolean', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['tinyint'])->toBe('number');
+});
+
+test('maps the tinyint(1) display-width convention to boolean', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['tinyint(1)'])->toBe('boolean');
+});
+
+test('maps new binary types to string', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('string');
+})->with(['binary', 'varbinary', 'blob', 'bytea', 'tinyblob', 'mediumblob', 'longblob']);
+
+test('maps new legacy string types to string', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('string');
+})->with(['tinytext', 'nvarchar', 'nchar', 'ntext', 'image', 'xml', 'interval', 'uniqueidentifier']);
+
+test('maps set to string, not an array', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['set'])->toBe('string');
+});
+
+test('maps new number types to number', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('number');
+})->with(['money', 'smallmoney', 'serial', 'bigserial', 'smallserial', 'double precision']);
+
+test('maps bit to boolean', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['bit'])->toBe('boolean');
+});
+
+test('maps new date/time native types to string', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('string');
+})->with(['datetimeoffset', 'datetime2', 'smalldatetime']);
+
+test('maps geometry and geography to unknown', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('unknown');
+})->with(['geometry', 'geography']);
+
+test('maps vector to number[]', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['vector'])->toBe('number[]');
+});

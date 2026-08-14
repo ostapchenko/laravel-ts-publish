@@ -4226,7 +4226,7 @@
                 },
                 {
                     "name": "status",
-                    "type": "number"
+                    "type": "boolean"
                 },
                 {
                     "name": "published_at",
@@ -4234,7 +4234,7 @@
                 },
                 {
                     "name": "metadata",
-                    "type": "unknown | null"
+                    "type": "string | null"
                 },
                 {
                     "name": "rating",
@@ -4286,7 +4286,11 @@
                 },
                 {
                     "name": "is_pinned",
-                    "type": "number"
+                    "type": "boolean"
+                },
+                {
+                    "name": "geo_location",
+                    "type": "unknown | null"
                 }
             ]
         },
@@ -5197,6 +5201,10 @@
                     "type": "boolean"
                 },
                 {
+                    "name": "geo_location",
+                    "type": "unknown | null"
+                },
+                {
                     "name": "title_display",
                     "type": "string | null"
                 },
@@ -5813,7 +5821,7 @@
                 },
                 {
                     "name": "status",
-                    "type": "number"
+                    "type": "boolean"
                 },
                 {
                     "name": "published_at",
@@ -5821,7 +5829,7 @@
                 },
                 {
                     "name": "metadata",
-                    "type": "unknown | null"
+                    "type": "string | null"
                 },
                 {
                     "name": "rating",
@@ -5873,7 +5881,11 @@
                 },
                 {
                     "name": "is_pinned",
-                    "type": "number"
+                    "type": "boolean"
+                },
+                {
+                    "name": "geo_location",
+                    "type": "unknown | null"
                 }
             ]
         },
@@ -6511,7 +6523,7 @@
                 },
                 {
                     "name": "status",
-                    "type": "number"
+                    "type": "boolean"
                 },
                 {
                     "name": "published_at",
@@ -6519,7 +6531,7 @@
                 },
                 {
                     "name": "metadata",
-                    "type": "unknown | null"
+                    "type": "string | null"
                 },
                 {
                     "name": "rating",
@@ -6571,7 +6583,11 @@
                 },
                 {
                     "name": "is_pinned",
-                    "type": "number"
+                    "type": "boolean"
+                },
+                {
+                    "name": "geo_location",
+                    "type": "unknown | null"
                 }
             ]
         },

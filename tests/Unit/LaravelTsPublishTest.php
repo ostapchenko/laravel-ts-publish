@@ -345,9 +345,10 @@ describe('toTsType substring fallback restriction', function () {
     test('real DB and cast type strings still resolve through the fallback', function (string $input, string $expected) {
         expect($this->service->toTsType($input)['type'])->toBe($expected);
     })->with([
-        // Known-wrong: 'tinyint(1)' contains 'int', and TypeScriptMap orders 'int' => 'number' before
-        // 'tinyint' => 'boolean', so step 7 matches 'int' first. Flip to 'boolean' when that ordering is fixed.
-        ['tinyint(1)', 'number'],
+        // 'tinyint(1)' is Laravel's boolean() column on MySQL/SQLite (step 1's exact-match now
+        // catches the literal parameterized key before the 'int' substring can).
+        ['tinyint(1)', 'boolean'],
+        ['tinyint(4)', 'number'],
         ['varchar(255)', 'string'],
         ['numeric(10,2)', 'number'],
         ['decimal:2', 'number'],
@@ -361,6 +362,57 @@ describe('toTsType substring fallback restriction', function () {
         ['double precision', 'number'],
     ]);
 });
+
+describe('toTsType bare-name fallback for sized native types', function () {
+    test('a sized type with no exact entry resolves via the name before the paren', function (string $input, string $expected) {
+        expect($this->service->toTsType($input)['type'])->toBe($expected);
+    })->with([
+        // 'binary' has no accidental substring in any existing key, so this only resolves once
+        // both the map entry and the bare-name fallback exist — the clearest before/after case.
+        ['binary(255)', 'string'],
+        ['varbinary(255)', 'string'],
+        ['nvarchar(max)', 'string'],
+        ["set('a','b')", 'string'],
+        ['vector(1536)', 'number[]'],
+    ]);
+
+    test('a bare tinyint with no width is a genuine small integer', function () {
+        expect($this->service->toTsType('tinyint')['type'])->toBe('number');
+    });
+});
+
+describe('toTsType Step 3 judgment calls: vector, geometry/geography, set', function () {
+    test('vector resolves to number[]', function () {
+        expect($this->service->toTsType('vector')['type'])->toBe('number[]');
+    });
+
+    test('geometry and geography resolve to unknown, the honest answer for a driver-dependent shape', function (string $native) {
+        expect($this->service->toTsType($native)['type'])->toBe('unknown');
+    })->with(['geometry', 'geography']);
+
+    test('set resolves to string, not string[] — MySQL returns a comma-joined value', function () {
+        expect($this->service->toTsType('set')['type'])->toBe('string');
+    });
+});
+
+test('maps every native type a Laravel schema grammar can emit', function (string $native, string $expected) {
+    expect((new LaravelTsPublish)->toTsType($native)['type'])->toBe($expected);
+})->with([
+    ['tinytext', 'string'],
+    ['blob', 'string'],
+    ['bytea', 'string'],
+    ['varbinary', 'string'],
+    ['uniqueidentifier', 'string'],
+    ['nvarchar', 'string'],
+    ['ntext', 'string'],
+    ['money', 'number'],
+    ['bit', 'boolean'],
+    ['xml', 'string'],
+    ['interval', 'string'],
+    ['serial', 'number'],
+    ['bigserial', 'number'],
+    ['double precision', 'number'],
+]);
 
 describe('Arrayable DTO shape inference', function () {
     test('Arrayable with array-shape toArray docblock resolves to inline object type', function () {
