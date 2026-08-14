@@ -2109,6 +2109,33 @@ describe('rewriteAsEnumToType', function () {
 
         expect($result)->toBe('enums.StatusType | null');
     });
+
+    test('collapses an adjacent AsEnum<typeof X> | XType pair to one qualified token', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Status> | StatusType',
+            ['Status' => 'enums.StatusType'],
+        );
+
+        expect($result)->toBe('enums.StatusType');
+    });
+
+    test('collapses the mixed pair and keeps a trailing null arm', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Priority> | PriorityType | null',
+            ['Priority' => 'enums.PriorityType'],
+        );
+
+        expect($result)->toBe('enums.PriorityType | null');
+    });
+
+    test('does not collapse a bare type name that only coincidentally shares a prefix', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Status> | StatusTypeExtra',
+            ['Status' => 'enums.StatusType'],
+        );
+
+        expect($result)->toBe('enums.StatusType | StatusTypeExtra');
+    });
 });
 
 /**

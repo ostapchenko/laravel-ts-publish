@@ -1930,14 +1930,28 @@ class LaravelTsPublish
      * Used when rendering resource properties in the globals file, where `typeof namespace.Member`
      * is illegal — namespace members are type-only (interfaces), not runtime values.
      *
+     * A "mixed" property (the same enum reached via both `EnumResource::make()` and direct model
+     * access) emits `AsEnum<typeof X> | XType` adjacently — those are two distinct, non-redundant
+     * tokens per-file, where `AsEnum<typeof X>` and `XType` are both real, differently-imported
+     * types. In the globals file there is no `AsEnum` import; both tokens collapse to the same
+     * qualified name, so the pair is folded into one occurrence instead of qualifyGlobalType()
+     * independently re-qualifying the bare `XType` half into a literal duplicate.
+     *
      * @param  string  $typeStr  The TypeScript type string to rewrite.
      * @param  array<string, string>  $constToTypeMap  constAlias => 'namespace.TypeName'
      */
     public function rewriteAsEnumToType(string $typeStr, array $constToTypeMap): string
     {
         foreach ($constToTypeMap as $constAlias => $qualifiedTypeName) {
-            $pattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>/';
-            $typeStr = preg_replace($pattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
+            $lastDot = strrpos($qualifiedTypeName, '.');
+            $bareTypeName = $lastDot === false ? $qualifiedTypeName : substr($qualifiedTypeName, $lastDot + 1);
+
+            $pairPattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>\s*\|\s*'
+                .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
+            $typeStr = preg_replace($pairPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
+
+            $singlePattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>/';
+            $typeStr = preg_replace($singlePattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
         }
 
         return $typeStr;

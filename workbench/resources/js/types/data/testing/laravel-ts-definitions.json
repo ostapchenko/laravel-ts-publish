@@ -8058,6 +8058,21 @@
                     "name": "null_with_default",
                     "type": "null | string",
                     "optional": false
+                },
+                {
+                    "name": "not_null_explicit_null_default",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "not_null_named_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "not_null_spread_default",
+                    "type": "string",
+                    "optional": true
                 }
             ]
         },

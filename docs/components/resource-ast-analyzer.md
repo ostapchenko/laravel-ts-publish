@@ -239,6 +239,31 @@ same-typed default collapses to one type instead of a redundant `number | number
 unresolvable closure body passed as the default) is dropped rather than unioned in literally — mirroring how
 `analyzeCoalesce()` treats an `unknown` operand.
 
+### Dropping an `unknown` arm is a deliberate policy, not an incidental side effect
+
+The `unknown`-filtering above (`ResourceAstAnalyzer.php`, inside `analyzeWhenPossiblyNull()`) is recorded
+here explicitly because it is easy to mistake for defensive scaffolding and simplify away in a later
+refactor — it is load-bearing. It fires whenever `analyzeValueExpression()` fails to resolve **either**
+arm (not just the default; a value arm that resolves to `unknown` is dropped exactly the same way), and it
+has two justifications, not one:
+
+- **Precedent.** `analyzeCoalesce()` already treats an `unknown` operand as "no information" rather than a
+  real union member, and `analyzeClosureUnion()` does the same for an `unknown` return branch. Unioning
+  `unknown` in literally here would be the odd one out.
+- **`T | unknown` collapses to `unknown` in TypeScript.** The honest alternative — emitting the raw,
+  un-filtered union when one arm can't be resolved — wouldn't degrade gracefully to a *partial* type; it
+  would degrade the *whole property* to `unknown`, which is exactly the outcome this package's own
+  no-type-regressions-to-`unknown` discipline exists to prevent. Filtering the unresolvable arm out is what
+  keeps a resolvable sibling arm's type surfacing at all.
+
+The one fixture that currently exercises this (`ConditionalParamFullClosureResource::status_resource` —
+`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })`) is correct only
+because `Order::$status` happens to be non-nullable, so the value arm alone is authoritative regardless.
+The *policy* doesn't depend on that coincidence — it would fire identically if the value arm were nullable
+too, dropping whichever arm fails to resolve — but there is no fixture yet exercising the value-arm-unknown
+direction or the both-unknown fallback (`analyzeWhenPossiblyNull()` returns bare `unknown` when neither arm
+resolves). Both remain correct by inspection of the shared code path, not by a dedicated test.
+
 ### A model-level `#[TsCasts]` override can mask this fix in the final output
 
 `AddressExtendsResource`/`AddressMixinResource` both call `whenNotNull($this->latitude)` — the value-arm fix

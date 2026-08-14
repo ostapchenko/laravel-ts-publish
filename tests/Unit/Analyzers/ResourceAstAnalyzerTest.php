@@ -3785,27 +3785,39 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
     // whenNotNull($this->status, function ($status) {...}) — the closure param is unbound (whenNotNull's
     // default isn't a callback), so its own EnumResource::make($status) call resolves to 'unknown' and is
     // dropped from the union, leaving just the value arm. The explicit 2nd argument still makes it required.
+    //
+    // Policy pin: an 'unknown' arm carries no real information and is dropped rather than unioned in
+    // literally — the same treatment analyzeCoalesce() gives an 'unknown' operand (:1117-1124) and
+    // analyzeClosureUnion() gives an 'unknown' branch (:4032-4034). This case is correct only because
+    // Order::$status happens to be non-nullable, i.e. the value arm alone is authoritative here — the
+    // policy itself doesn't depend on that; it fires whenever analyzeValueExpression() fails to resolve
+    // either arm, regardless of which one.
     test('full closure param → EnumResource::make resolves to non-unknown type, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('OrderStatusType')
+            ->and($prop['type'])->not->toContain('unknown')
             ->and($prop['optional'])->toBeFalse();
     });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// whenNotNull closure param binding — ConditionalParamPrimitiveResource
+// whenNotNull()'s default arm is analyzed on its own, never as a callback bound to the value —
+// ConditionalParamPrimitiveResource
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNotNull param binding', function () {
+describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNotNull default-arm resolution', function () {
     beforeEach(function () {
         $reflection = new ReflectionClass(ConditionalParamPrimitiveResource::class);
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) → number (not string | null)
-    test('whenNotNull() arrow fn param → strlen() resolves to number not string|null', function () {
+    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) — $notes is NOT bound to the value (there is
+    // no callback form); the default arm is analyzed on its own, and strlen()'s return type resolves via PHP
+    // reflection regardless of its argument. Value (string, from notes) unions with default (number),
+    // required — not the old buggy `number`-alone, optional reading.
+    test('whenNotNull() default arm resolves independently of the value — string | number, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length');
 
         expect($prop)->not->toBeNull()
@@ -3841,6 +3853,35 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — whenNotNull/w
 
         expect($props['not_null_same_type_default']['type'])->toBe('number')
             ->and($props['not_null_same_type_default']['optional'])->toBeFalse();
+    });
+
+    // hasExplicitDefaultArg() contract — pinned per brief: position is the only signal, since Laravel
+    // distinguishes an omitted argument from an explicitly-passed `null` via func_num_args(), not `=== null`.
+    it('treats an explicit null at the default position as a real default', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_explicit_null_default']['type'])->toBe('string | null')
+            ->and($props['not_null_explicit_null_default']['optional'])->toBeFalse();
+    });
+
+    // A named argument makes position meaningless, so hasExplicitDefaultArg() bails to false — the default
+    // is not unioned in, and the property behaves exactly as if only the value argument had been passed.
+    it('bails out on a named default argument, back to value-arm-only and optional', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_named_default']['type'])->toBe('string')
+            ->and($props['not_null_named_default']['optional'])->toBeTrue();
+    });
+
+    // Same bail-out for a spread argument at the default position.
+    it('bails out on a spread default argument, back to value-arm-only and optional', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_spread_default']['type'])->toBe('string')
+            ->and($props['not_null_spread_default']['optional'])->toBeTrue();
     });
 });
 

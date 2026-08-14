@@ -1760,6 +1760,9 @@ declare global {
             not_null_with_default: string | number;
             not_null_same_type_default: number;
             null_with_default: null | string;
+            not_null_explicit_null_default: string | null;
+            not_null_named_default?: string;
+            not_null_spread_default?: string;
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method.
@@ -2540,9 +2543,9 @@ declare global {
             status_when_make?: app.enums.StatusType;
             status_when_arrow?: app.enums.StatusType;
             visibility_when_full?: app.enums.VisibilityType | null;
-            priority_when_not_null_make: app.enums.PriorityType | app.enums.PriorityType | null;
-            status_when_not_null_arrow: app.enums.StatusType | app.enums.StatusType;
-            visibility_when_not_null_full: app.enums.VisibilityType | app.enums.VisibilityType | null;
+            priority_when_not_null_make: app.enums.PriorityType | null;
+            status_when_not_null_arrow: app.enums.StatusType;
+            visibility_when_not_null_full: app.enums.VisibilityType | null;
             status_ternary_null: app.enums.StatusType | null;
             status_ternary_both: app.enums.StatusType;
             status_or_visibility_ternary: app.enums.StatusType | app.enums.VisibilityType | null;
@@ -2820,7 +2823,7 @@ declare global {
         export interface TernaryResource {
             status_or_null: app.enums.StatusType | null;
             status_or_status: app.enums.StatusType;
-            status_resource_or_type: app.enums.StatusType | app.enums.StatusType;
+            status_resource_or_type: app.enums.StatusType;
             status_or_visibility: app.enums.StatusType | app.enums.VisibilityType | null;
             category_or_null: CategoryResource | null;
             category_or_category: CategoryResource;
