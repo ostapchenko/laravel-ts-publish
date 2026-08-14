@@ -15,7 +15,7 @@ and remove the row.
 | --- | --- | --- | --- | --- |
 | `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php` | `12.29.0` |
 | `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php`, `src/Analyzers/Inertia/InertiaPageAnalyzer.php` | none | `13.0.0` |
-| `Illuminate\Http\Resources\Attributes\PreserveKeys` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php` | none | `13.0.0` |
+| `Illuminate\Http\Resources\Attributes\PreserveKeys` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php` | `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Table` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Hidden` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Visible` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
