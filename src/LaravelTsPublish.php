@@ -1927,15 +1927,8 @@ class LaravelTsPublish
     /**
      * Replace `AsEnum<typeof ConstAlias>` patterns with the pre-computed type alias.
      *
-     * Used when rendering resource properties in the globals file, where `typeof namespace.Member`
-     * is illegal — namespace members are type-only (interfaces), not runtime values.
-     *
-     * A "mixed" property (the same enum reached via both `EnumResource::make()` and direct model
-     * access) emits `AsEnum<typeof X> | XType` adjacently — those are two distinct, non-redundant
-     * tokens per-file, where `AsEnum<typeof X>` and `XType` are both real, differently-imported
-     * types. In the globals file there is no `AsEnum` import; both tokens collapse to the same
-     * qualified name, so the pair is folded into one occurrence instead of qualifyGlobalType()
-     * independently re-qualifying the bare `XType` half into a literal duplicate.
+     * In the globals file there is no `AsEnum` import, so `AsEnum<typeof X>` and `XType` collapse to
+     * the same qualified name — the pair must be folded first to avoid emitting a literal duplicate.
      *
      * @param  string  $typeStr  The TypeScript type string to rewrite.
      * @param  array<string, string>  $constToTypeMap  constAlias => 'namespace.TypeName'
