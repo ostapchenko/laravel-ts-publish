@@ -78,6 +78,7 @@ export * from './relation-chain-resource';
 export * from './resource-wrapped-enum-resource';
 export * from './routable-resource';
 export * from './service-desk-resource';
+export * from './shadowed-closure-param-resource';
 export * from './spread-json-base-resource';
 export * from './spread-with-closure-resource';
 export * from './spread-with-guard-clause-closure-resource';

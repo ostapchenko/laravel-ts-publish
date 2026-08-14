@@ -77,6 +77,7 @@ use Workbench\App\Http\Resources\QuirkyResource;
 use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
 use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
+use Workbench\App\Http\Resources\ShadowedClosureParamResource;
 use Workbench\App\Http\Resources\SpreadJsonBaseResource;
 use Workbench\App\Http\Resources\SpreadWithClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
@@ -4567,10 +4568,29 @@ describe('local variable bindings', function () {
 
         expect($props['mapped_members']['type'])->toBe('User[]')
             ->and($props['loaded_owner']['type'])->toBe('User')
-            // outer_member: write-count shadow protection in collectWrittenVariableNames() still
-            // counts the closure param as a write, so the outer $member local stays unbound. See
-            // task-11-brief.md's "outer_member note" — narrowing that protection is deferred.
-            ->and($props['outer_member']['type'])->toBe('unknown');
+            // The shadowing closure param no longer suppresses the outer $member local's own binding.
+            ->and($props['outer_member']['type'])->toBe('string');
+    });
+
+    test('binds a top-level local that a closure parameter merely shadows', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(ClosureParamShadowResource::class), Team::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['outer_member']['type'])->toBe('string');
+    });
+
+    // Guards the regression narrowing collectWrittenVariableNames() alone would introduce: with no
+    // scoped binding for the closure param, the outer local must stay unknown, not leak through.
+    test('does not leak an outer local into a closure that shadows its name', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(ShadowedClosureParamResource::class), Team::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['outer']['type'])->toBe('string')
+            ->and($props['shadowed']['type'])->toBe('unknown');
     });
 
     // Order has the default int key; UuidPost covers getKey()'s string-keyed branch.
@@ -4592,8 +4612,7 @@ describe('variable-to-model bindings', function () {
 
         expect($props['loaded_owner']['type'])->toBe('User')
             ->and($props['mapped_members']['type'])->toBe('User[]')
-            // Deferred — see task-11-brief.md's "outer_member note".
-            ->and($props['outer_member']['type'])->toBe('unknown');
+            ->and($props['outer_member']['type'])->toBe('string');
     });
 
     // 'members' is a to-many relation: the closure param holds the whole collection, not one

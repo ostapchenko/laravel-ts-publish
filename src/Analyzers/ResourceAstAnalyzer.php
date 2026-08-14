@@ -328,7 +328,7 @@ class ResourceAstAnalyzer
 
     /**
      * Collect every local variable name written anywhere in a statement tree (writes, mutations,
-     * foreach targets, closure/arrow params).
+     * foreach targets, closure by-ref uses).
      *
      * By-reference call arguments are a known gap — the callee's signature isn't statically knowable.
      *
@@ -349,8 +349,7 @@ class ResourceAstAnalyzer
                 || $node instanceof PreDec
                 || $node instanceof PostDec
                 || $node instanceof Foreach_
-                || $node instanceof ClosureExpr
-                || $node instanceof ArrowFunction,
+                || $node instanceof ClosureExpr,
         );
 
         /** @var list<string> $names */
@@ -373,16 +372,10 @@ class ResourceAstAnalyzer
                 if ($node->keyVar !== null) {
                     $targets[] = $node->keyVar;
                 }
-            } elseif ($node instanceof ClosureExpr || $node instanceof ArrowFunction) {
-                foreach ($node->params as $param) {
-                    $targets[] = $param->var;
-                }
-
-                if ($node instanceof ClosureExpr) {
-                    foreach ($node->uses as $use) {
-                        if ($use->byRef) {
-                            $targets[] = $use->var;
-                        }
+            } elseif ($node instanceof ClosureExpr) {
+                foreach ($node->uses as $use) {
+                    if ($use->byRef) {
+                        $targets[] = $use->var;
                     }
                 }
             }
@@ -759,21 +752,37 @@ class ResourceAstAnalyzer
         $closureReturns = $this->resolveClosureReturnExpressions($expr);
 
         if ($closureReturns !== []) {
-            $bodyResult = count($closureReturns) === 1
-                ? $this->analyzeValueExpression($closureReturns[0])
-                : $this->analyzeClosureUnion($closureReturns);
+            // A param merely shadows a same-named outer local for this body — it must not resolve
+            // through the outer binding just because no scoped binding (e.g. whenLoaded) claimed it.
+            $previousLocalVarBindings = $this->localVarBindings;
 
-            if ($bodyResult['type'] !== 'unknown') {
+            if ($expr instanceof ArrowFunction || $expr instanceof ClosureExpr) {
+                foreach ($expr->params as $param) {
+                    if ($param->var instanceof Variable && is_string($param->var->name)) {
+                        unset($this->localVarBindings[$param->var->name]);
+                    }
+                }
+            }
+
+            try {
+                $bodyResult = count($closureReturns) === 1
+                    ? $this->analyzeValueExpression($closureReturns[0])
+                    : $this->analyzeClosureUnion($closureReturns);
+
+                if ($bodyResult['type'] !== 'unknown') {
+                    return $bodyResult;
+                }
+
+                $annotationResult = $this->resolveClosureAstReturnType($expr);
+
+                if ($annotationResult !== null) {
+                    return [...$annotationResult, 'optional' => false];
+                }
+
                 return $bodyResult;
+            } finally {
+                $this->localVarBindings = $previousLocalVarBindings;
             }
-
-            $annotationResult = $this->resolveClosureAstReturnType($expr);
-
-            if ($annotationResult !== null) {
-                return [...$annotationResult, 'optional' => false];
-            }
-
-            return $bodyResult;
         }
 
         if ($this->isThisMethodCall($expr, 'when')) {

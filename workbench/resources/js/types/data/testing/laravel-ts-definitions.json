@@ -7811,7 +7811,7 @@
             "properties": [
                 {
                     "name": "outer_member",
-                    "type": "unknown",
+                    "type": "string",
                     "optional": false
                 },
                 {
@@ -10692,6 +10692,21 @@
                     "name": "order_requester",
                     "type": "{ user: WorkbenchUser } | null",
                     "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\ShadowedClosureParamResource": {
+            "name": "ShadowedClosureParamResource",
+            "properties": [
+                {
+                    "name": "outer",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "shadowed",
+                    "type": "unknown",
+                    "optional": true
                 }
             ]
         },

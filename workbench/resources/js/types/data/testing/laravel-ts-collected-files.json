@@ -149,6 +149,7 @@
     "app\/Http\/Resources\/ResourceWrappedEnumResource.php",
     "app\/Http\/Resources\/RoutableResource.php",
     "app\/Http\/Resources\/ServiceDeskResource.php",
+    "app\/Http\/Resources\/ShadowedClosureParamResource.php",
     "app\/Http\/Resources\/SpreadJsonBaseResource.php",
     "app\/Http\/Resources\/SpreadWithClosureResource.php",
     "app\/Http\/Resources\/SpreadWithGuardClauseClosureResource.php",

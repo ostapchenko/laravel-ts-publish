@@ -1690,15 +1690,12 @@ declare global {
         }
         /**
          * A closure parameter that shadows a top-level local resolves through its own scoped binding
-         * (whenLoaded relation / relation-chain element model), and must not leak the outer local's value.
-         *
-         * `outer_member` is a known over-degradation: the write-count shadow guard in
-         * collectWrittenVariableNames() still counts the closure param as a write to `$member`, so the
-         * top-level `$member` local is never bound. Narrowing that guard so a closure-scoped write no
-         * longer counts against the outer local is deferred.
+         * (whenLoaded relation / relation-chain element model) for the closure's body only, and must not
+         * leak the outer local's value. Outside the closure, `outer_member` proves the shadowing param no
+         * longer suppresses the top-level `$member` local's own binding.
          */
         export interface ClosureParamShadowResource {
-            outer_member: unknown;
+            outer_member: string;
             mapped_members: app.models.User[];
             loaded_owner?: app.models.User;
             loaded_members_bare?: app.models.User[];
@@ -2606,6 +2603,16 @@ declare global {
             title: string;
             crm_agent: crm.models.User | null;
             order_requester: { user: app.models.User } | null;
+        }
+        /**
+         * Guards against the regression narrowing collectWrittenVariableNames() could introduce: a closure
+         * param must shadow its outer local only inside a scope that actually binds it. `when()`'s condition
+         * here isn't a `$this->prop` test, so bindClosureParamsFromCondition() binds nothing, and `shadowed`
+         * must stay unknown rather than leaking the outer `$slug` local's type.
+         */
+        export interface ShadowedClosureParamResource {
+            outer: string;
+            shadowed?: unknown;
         }
         /** Resource spreading parent::toArray() from JsonResource base with extra keys. */
         export interface SpreadJsonBaseResource {

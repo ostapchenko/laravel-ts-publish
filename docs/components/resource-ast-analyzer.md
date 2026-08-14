@@ -154,13 +154,31 @@ against its **own** binding and can never leak into, or be leaked into by, the o
 `ClosureParamShadowResource` in the workbench: a top-level `$member` and a `map(fn ($member) =>
 $member)` closure param share a name, and each site resolves independently.
 
-`outer_member` in that same fixture is a known, accepted gap: `collectWrittenVariableNames()`
-still counts every closure parameter as a write (needed to protect `$localVarBindings`, an
-unrelated, unscoped mechanism, from a *different* shadowing hazard), so a top-level local shadowed
-by a closure param stays unbound rather than resolving to its own top-level expression. Fixing
-that is out of scope here — narrowing which closures count as writes would require statically
-predicting whether a given closure will actually receive a `$varModelBindings` entry, which risks
-the exact wrong-but-plausible leak this mechanism exists to prevent.
+### Closure params vs. `$localVarBindings`
+
+`collectWrittenVariableNames()` used to count every closure/arrow-function *parameter* as a write
+to the enclosing name pool, so a top-level `$member = $this->slug;` reused as a `map(fn ($member)
+=> $member)` param elsewhere in the same method looked written twice, and `collectLocalVarBindings()`
+(which only binds names written exactly once) never bound `$member` — even at the top-level site the
+closure never touches. `outer_member` in `ClosureParamShadowResource` demonstrated the gap. Now
+`collectWrittenVariableNames()` only counts assignments, mutations, `foreach` targets, and a
+`Closure`'s by-ref `use (&$x)` clause; closure/arrow params are no longer collected there.
+
+That narrowing alone would have introduced a *worse* defect: a closure parameter shadowing an outer
+local, inside a construct with no scoped binding for it (none of the three `$varModelBindings`
+sources above, e.g. `when()`'s condition isn't a `$this->prop` test), would resolve through the
+outer `$localVarBindings` entry when analyzing the closure body — turning an honest `unknown` into
+a confidently wrong `string`. To prevent that, the generic closure/arrow-function descent in
+`analyzeValueExpression()` saves `$localVarBindings`, unsets any entry whose name matches one of the
+closure's own parameters, analyzes the body, and restores the snapshot in a `finally` — so a param
+with no binding of its own degrades to `unknown` inside the closure, never the outer local's value.
+
+`ShadowedClosureParamResource` in the workbench exists to hold that second half of the fix: its
+`$slug = $this->slug;` followed by `$this->when($request->user() !== null, fn ($slug) => $slug)`
+has a condition that isn't a `$this->prop` test, so `bindClosureParamsFromCondition()` binds nothing
+for the closure's `$slug`. The closure-descent suppression above is the only thing keeping `shadowed`
+at `unknown` rather than leaking the outer `$slug`'s `string` type — narrow the write count without
+it, and `shadowed` silently becomes `string`; this fixture's test is what catches that regression.
 
 ### What deliberately stays unbound
 
