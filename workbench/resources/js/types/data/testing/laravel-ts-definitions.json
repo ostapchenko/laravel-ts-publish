@@ -2034,6 +2034,16 @@
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "variants",
+                    "tsType": "({ name: string } | { email: string })[]",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": [
+                        "@format email variants.1.email"
+                    ]
                 }
             ]
         },

@@ -3105,6 +3105,7 @@ declare global {
             empties?: never[];
             "v1.0": string;
             items?: { name: string }[];
+            variants?: ({ name: string } | { email: string })[];
         }
         export interface NumberRulesRequest {
             score: number;

@@ -37,6 +37,11 @@ class NestedEdgeCasesRequest extends FormRequest
             // Explicit numeric indices — a list, not an object with a "0" key.
             'items' => ['array'],
             'items.0.name' => ['required', 'string'],
+
+            // Two numeric indices with different shapes — the union must be parenthesized.
+            'variants' => ['array'],
+            'variants.0.name' => ['required', 'string'],
+            'variants.1.email' => ['required', 'email'],
         ];
     }
 }

@@ -527,6 +527,16 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('{ name: string }[]');
             expect($node->tsType)->not->toContain('"0"');
         });
+
+        it('parenthesizes a union of differently-shaped numeric indices before array-wrapping', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'variants');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('({ name: string } | { email: string })[]');
+            expect($node->tsType)->not->toBe('{ name: string } | { email: string }[]');
+        });
     });
 
     describe('auth state restoration', function () {

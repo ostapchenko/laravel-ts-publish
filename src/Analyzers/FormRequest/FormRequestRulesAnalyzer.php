@@ -860,16 +860,35 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Suffix a type with `[]`, parenthesizing a union first: TypeScript binds `[]` tighter than
-     * `|`, so `'a' | 'b'[]` parses as `'a' | ('b'[])`, not `('a' | 'b')[]`. A bare `{ ... }` object
-     * literal never needs the parens, even when a property inside it is itself a union.
+     * Suffix a type with `[]`, parenthesizing when a top-level `|` is present: TypeScript binds `[]`
+     * tighter than `|`, so `'a' | 'b'[]` parses as `'a' | ('b'[])`. A `|` nested inside a `{ ... }`
+     * shape belongs to that shape, so it must not trigger the parens.
      */
     private function arrayWrapType(string $type): string
     {
-        if (str_starts_with($type, '{') && str_ends_with($type, '}')) {
-            return $type.'[]';
+        return $this->hasTopLevelUnion($type) ? '('.$type.')[]' : $type.'[]';
+    }
+
+    /**
+     * Whether a `|` appears outside every `{}`, `<>`, `()` and `[]` nesting level.
+     */
+    private function hasTopLevelUnion(string $type): bool
+    {
+        $depth = 0;
+        $length = strlen($type);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $type[$i];
+
+            if ($char === '{' || $char === '<' || $char === '(' || $char === '[') {
+                $depth++;
+            } elseif ($char === '}' || $char === '>' || $char === ')' || $char === ']') {
+                $depth--;
+            } elseif ($char === '|' && $depth === 0) {
+                return true;
+            }
         }
 
-        return str_contains($type, '|') ? '('.$type.')[]' : $type.'[]';
+        return false;
     }
 }
