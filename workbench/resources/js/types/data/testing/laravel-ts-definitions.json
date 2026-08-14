@@ -10208,6 +10208,26 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysCollection": {
+            "name": "PreserveKeysCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "Record<string, TeamResource>",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysPropertyCollection": {
+            "name": "PreserveKeysPropertyCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "Record<string, TeamResource>",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\ProductResource": {
             "name": "ProductResource",
             "properties": [

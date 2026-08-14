@@ -15,11 +15,20 @@ and remove the row.
 | --- | --- | --- | --- | --- |
 | `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php` | `12.29.0` |
 | `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php`, `src/Analyzers/Inertia/InertiaPageAnalyzer.php` | none | `13.0.0` |
+| `Illuminate\Http\Resources\Attributes\PreserveKeys` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php` | none | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Table` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Hidden` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Visible` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Appends` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Connection` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
+
+The `PreserveKeys` row's guard covers only the `#[PreserveKeys]` *attribute* form, read via
+`ReflectionClass::getAttributes()` in `collectionPreservesKeys()`. Laravel's older
+`public $preserveKeys = true;` *property* form needs no guard at all: it's read via
+`ReflectionClass::getDefaultProperties()`, which works identically on every supported version, so
+that branch of `collectionPreservesKeys()` is never conditional. If the floor rises and this row is
+converted, only the attribute branch becomes a plain `use` import — the property branch is already
+unconditional and does not change.
 
 The five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows have no `src/` guard because
 nothing in this package resolves them: Laravel applies them itself in `Model::__construct()`, and
@@ -53,8 +62,7 @@ The same method was applied ahead of time to five attributes in `Illuminate\Data
 all six are absent at `v12.66.0` and present at `v13.0.0`, the same shape as `Collects`. Task 9 used
 this finding directly — recording `Min Laravel: 13.0.0` / `Convert when floor ≥: 13.0.0` for the
 five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows above without re-deriving it.
-`PreserveKeys` doesn't have a row yet — no guard for it exists anywhere in the codebase — but
-whichever task adds one can use the same `13.0.0` finding.
+Task 10 used the same finding for the `PreserveKeys` row above, once its `src/` guard was added.
 
 ## Scanner coverage and blind spots
 

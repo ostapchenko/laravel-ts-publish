@@ -1593,7 +1593,7 @@ class ResourceAstAnalyzer
             if ($collected !== null) {
                 return [
                     ...$result,
-                    'type' => class_basename($collected).'[]',
+                    'type' => $this->wrapCollectionElementType(class_basename($collected), new ReflectionClass($className)),
                     'optional' => $this->hasConditionalArgument($call),
                     'resourceFqcn' => $collected,
                 ];
@@ -1614,7 +1614,7 @@ class ResourceAstAnalyzer
             ];
         }
 
-        // SomeResource::collection(...) — array of nested resource
+        // SomeResource::collection(...) — array or keyed record of nested resource
         if ($this->isResourceClass($className) && $methodName === 'collection') {
             $resourceName = class_basename($className);
             $optional = $this->hasConditionalArgument($call);
@@ -1622,7 +1622,7 @@ class ResourceAstAnalyzer
             /** @var class-string $className */
             return [
                 ...$result,
-                'type' => $resourceName.'[]',
+                'type' => $this->wrapCollectionElementType($resourceName, new ReflectionClass($className)),
                 'optional' => $optional,
                 'resourceFqcn' => $className,
             ];
@@ -1694,6 +1694,40 @@ class ResourceAstAnalyzer
         }
 
         return null;
+    }
+
+    /**
+     * Whether a resource collection keeps its source keys, making the payload a JSON object rather
+     * than an array. Laravel honours the attribute and the property equally.
+     *
+     * @template T of object
+     *
+     * @param  ReflectionClass<T>  $reflection
+     */
+    protected function collectionPreservesKeys(ReflectionClass $reflection): bool
+    {
+        $attribute = 'Illuminate\Http\Resources\Attributes\PreserveKeys';
+
+        if (class_exists($attribute) && $reflection->getAttributes($attribute) !== []) {
+            return true;
+        }
+
+        return ($reflection->getDefaultProperties()['preserveKeys'] ?? false) === true;
+    }
+
+    /**
+     * Wrap a collected element type as `Record<string, R>` when the reflected class preserves its
+     * keys, or as `R[]` otherwise — the single point every collection-typing call site shares.
+     *
+     * @template T of object
+     *
+     * @param  ReflectionClass<T>  $reflection
+     */
+    protected function wrapCollectionElementType(string $elementType, ReflectionClass $reflection): string
+    {
+        return $this->collectionPreservesKeys($reflection)
+            ? "Record<string, {$elementType}>"
+            : $elementType.'[]';
     }
 
     /**
@@ -1779,7 +1813,7 @@ class ResourceAstAnalyzer
             if ($collected !== null) {
                 return [
                     ...$result,
-                    'type' => class_basename($collected).'[]',
+                    'type' => $this->wrapCollectionElementType(class_basename($collected), new ReflectionClass($className)),
                     'optional' => $this->hasConditionalNewArgument($expr),
                     'resourceFqcn' => $collected,
                 ];
@@ -2878,8 +2912,8 @@ class ResourceAstAnalyzer
     /**
      * Build a ResourceAnalysis for a ResourceCollection subclass that has no toArray() method.
      *
-     * A non-empty $wrap key produces a `{ data: SingularResource[] }` shape; a null $wrap sets
-     * flatTypeAlias so the writer emits `export type X = SingularResource[]`.
+     * A non-empty $wrap key produces `{ data: R[] }`, keyed as `Record<string, R>` when the collection
+     * preserves keys; a null $wrap makes that same element type the flatTypeAlias directly.
      */
     protected function buildCollectionDelegatedAnalysis(): ResourceAnalysis
     {
@@ -2901,10 +2935,10 @@ class ResourceAstAnalyzer
             }
         }
 
-        $singularBaseName = class_basename($singular);
+        $elementType = $this->wrapCollectionElementType(class_basename($singular), $this->resourceReflection);
 
         if ($wrapKey === null || $wrapKey === '') {
-            return new ResourceAnalysis(flatTypeAlias: $singularBaseName.'[]', flatTypeAliasFqcn: $singular);
+            return new ResourceAnalysis(flatTypeAlias: $elementType, flatTypeAliasFqcn: $singular);
         }
 
         $key = $wrapKey ? $wrapKey : 'data';
@@ -2912,7 +2946,7 @@ class ResourceAstAnalyzer
         return new ResourceAnalysis(
             properties: [[
                 'name' => $key,
-                'type' => $singularBaseName.'[]',
+                'type' => $elementType,
                 'optional' => false,
                 'description' => '',
             ]],
@@ -2921,8 +2955,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze $this->collection in a ResourceCollection, resolving it
-     * to the singular resource type as an array.
+     * Analyze $this->collection in a ResourceCollection, resolving it to the singular resource
+     * type as an array, or a keyed record when the collection preserves keys.
      *
      * @return ValueExpressionResult
      */
@@ -2937,7 +2971,7 @@ class ResourceAstAnalyzer
 
         return [
             ...$result,
-            'type' => class_basename($singular).'[]',
+            'type' => $this->wrapCollectionElementType(class_basename($singular), $this->resourceReflection),
             'resourceFqcn' => $singular,
         ];
     }

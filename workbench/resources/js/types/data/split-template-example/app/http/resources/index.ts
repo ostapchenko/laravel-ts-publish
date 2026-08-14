@@ -69,6 +69,8 @@ export * from './post-attachment-filter-resource';
 export * from './post-collection';
 export * from './post-flat-collection';
 export * from './post-resource';
+export * from './preserve-keys-collection';
+export * from './preserve-keys-property-collection';
 export * from './product-resource';
 export * from './profile-resource';
 export * from './property-docblock-edge-resource';

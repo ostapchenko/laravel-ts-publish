@@ -72,6 +72,8 @@ use Workbench\App\Http\Resources\PostAttachmentFilterResource;
 use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
+use Workbench\App\Http\Resources\PreserveKeysCollection;
+use Workbench\App\Http\Resources\PreserveKeysPropertyCollection;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\QuirkyResource;
 use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
@@ -3501,6 +3503,33 @@ describe('ResourceAstAnalyzer with PostFlatCollection ($wrap = null, no toArray)
 
     test('has no properties (type alias skips interface shape)', function () {
         expect($this->analysis->properties)->toBeEmpty();
+    });
+});
+
+describe('ResourceAstAnalyzer with PreserveKeysCollection (#[PreserveKeys] attribute)', function () {
+    test('emits a keyed record for a collection carrying #[PreserveKeys]', function () {
+        $reflection = new ReflectionClass(PreserveKeysCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('Record<string, TeamResource>');
+    })->skip(
+        ! class_exists('Illuminate\Http\Resources\Attributes\PreserveKeys'),
+        'PreserveKeys attribute requires Laravel 13+',
+    );
+});
+
+describe('ResourceAstAnalyzer with PreserveKeysPropertyCollection ($preserveKeys property)', function () {
+    test('emits a keyed record for a collection setting $preserveKeys', function () {
+        $reflection = new ReflectionClass(PreserveKeysPropertyCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('Record<string, TeamResource>');
     });
 });
 

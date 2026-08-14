@@ -2476,6 +2476,20 @@ declare global {
             category_table_name?: string;
         }
         /**
+         * A collection that keeps its source keys, so the payload is a JSON object rather than an array.
+         * Uses Laravel 13's #[PreserveKeys] attribute.
+         */
+        export interface PreserveKeysCollection {
+            data: Record<string, TeamResource>;
+        }
+        /**
+         * A collection that keeps its source keys, so the payload is a JSON object rather than an array.
+         * Uses the property form, which predates the attribute and works on Laravel 12.
+         */
+        export interface PreserveKeysPropertyCollection {
+            data: Record<string, TeamResource>;
+        }
+        /**
          * Exercises: multiple whenAggregated (sum/min/max), whenNotNull, when,
          * whenCounted, two mergeWhen blocks, Resource::collection x2.
          */

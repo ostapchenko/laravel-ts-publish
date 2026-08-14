@@ -476,3 +476,35 @@ exactly like `analyzeWhen()` does.
 `class_exists()` rather than a `use` import, because the package still supports Laravel 12 releases
 that don't ship the attribute. See [Version-guarded Laravel
 classes](../laravel-version-guards.md) for the full registry and when this guard can be removed.
+
+## `#[PreserveKeys]`/`$preserveKeys` flip a collection's element type to `Record<string, R>`
+
+A `ResourceCollection` normally serializes as a JSON array, so a collected element type gets a `[]`
+suffix. Laravel honours two ways of opting a collection out of that: the `#[PreserveKeys]` class
+attribute (Laravel 13+) and the older `public $preserveKeys = true;` property (every supported
+version). Either one makes Laravel keep the collection's original keys, so the payload is a JSON
+object instead — `collectionPreservesKeys()` checks both, and `wrapCollectionElementType()` is the
+single point that turns that boolean into `Record<string, R>` instead of `R[]`.
+
+Every collection-typing call site routes through `wrapCollectionElementType()`, at six emission
+points across two paths:
+
+- **`SomeResource::collection(...)` / `SomeCollection::make()`/`::collection()` / `new
+  SomeCollection(...)`, referenced inside another resource's `toArray()`** — three sites, in
+  `analyzeStaticCall()` (two: the named-collection branch and the plain-resource branch) and
+  `analyzeNewResource()` (one).
+- **A `ResourceCollection` with no `toArray()` override, delegating to `$this->collection`** —
+  three sites, in `buildCollectionDelegatedAnalysis()` (the `flatTypeAlias` branch and the
+  wrapped-`data`-key branch, which share one computed element type) and `analyzeCollectionProperty()`
+  (the `$this->collection` property read).
+
+That count is exactly what a future change to any of these methods is liable to get wrong — a site
+that's missed silently keeps emitting `R[]`, and nothing catches it until a fixture exercises that
+exact call shape with `#[PreserveKeys]` or `$preserveKeys` set.
+
+The reflection target passed to `wrapCollectionElementType()` differs by site to match what Laravel
+itself reflects on at runtime: for `SomeResource::collection(...)`, Laravel's `JsonResource::collection()`
+checks `static::class` — the singular resource being called on, not a separate collection class — so
+that site reflects on the resource. Every other site reflects on the `ResourceCollection` subclass
+itself, since that's what Laravel instantiates and reflects on for `make()`, `new`, and the
+collection-delegated path.

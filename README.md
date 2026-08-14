@@ -356,7 +356,7 @@ Key capabilities:
 
 - **Model-aware type resolution** — property types come from the backing Eloquent model's database schema and casts, with the model resolved via `#[TsResource(model:)]`, `@mixin`, naming convention, or `#[UseResource]`.
 - **Conditional methods** — `when()`, `unless()`, `whenLoaded()`, `whenHas()`, `whenAppended()`, `whenNotNull()`, `whenCounted()`, `whenAggregated()`, `whenExistsLoaded()`, `whenPivotLoaded()`, and `transform()` all become optional (`?`) properties, and passing an explicit default makes the property required.
-- **Nested & collection resources** — `SomeResource::make()` / `::collection()` (or `new SomeResource(...)`) resolve to imported resource types, including self-references.
+- **Nested & collection resources** — `SomeResource::make()` / `::collection()` (or `new SomeResource(...)`) resolve to imported resource types, including self-references; a collection carrying `#[PreserveKeys]` or `$preserveKeys = true` emits `Record<string, R>` instead of `R[]`.
 - **`merge()` / `mergeWhen()` / `mergeUnless()`, parent `toArray()` spreads, trait method spreads, and a bare `return $this->method()` (resolved transitively, the same as its `...$this->method()` spread form)** — all contribute properties, with types resolved from PHPDoc `@return array{...}` shapes or `#[TsCasts]`.
 - **`EnumResource::make()`** — exposes an enum-cast property as `AsEnum<typeof Enum>` with automatic imports.
 - **`#[TsResource]` / `#[TsCasts]` / `#[TsExclude]`** — override the interface name/model/description, override or add property types, or exclude a resource entirely. See [Excluding with TsExclude](#excluding-with-tsexclude).
