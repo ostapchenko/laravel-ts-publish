@@ -15,6 +15,7 @@ use Workbench\App\Enums\Visibility;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
+use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
@@ -1632,6 +1633,21 @@ describe('ResourceAstAnalyzer with mutually recursive spread methods', function 
     });
 });
 
+describe('ResourceAstAnalyzer with a bare method-call return', function () {
+    it('resolves a toArray that returns a method call, transitively', function () {
+        $reflection = new ReflectionClass(BareMethodReturnResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Team::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props)->toHaveKey('id')
+            ->and($props['id']['type'])->toBe('number')
+            ->and($props)->toHaveKey('slug')
+            ->and($props['slug']['type'])->toBe('string');
+    });
+});
+
 describe('ResourceAstAnalyzer non-array return', function () {
     test('returns empty analysis for non-array non-parent return', function () {
         $reflection = new ReflectionClass(NonArrayReturnResource::class);
@@ -2232,15 +2248,16 @@ describe('ResourceAstAnalyzer with variable-return trait method spreads', functi
             ->toContain('elseBranch');
     });
 
-    test('returns empty analysis for method call return (not array or variable)', function () {
+    test('resolves a spread method whose return is itself a method call, transitively', function () {
         $reflection = new ReflectionClass(VarReturnSpreadResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, User::class);
         $analysis = $analyzer->analyze();
 
-        // includeFromMethodCall() returns a method call, not an array literal or variable.
-        $names = array_column($analysis->properties, 'name');
+        // includeFromMethodCall() returns $this->includeNonAnalyzable(), which now resolves.
+        $dynamic = collect($analysis->properties)->firstWhere('name', 'dynamic');
 
-        expect($names)->not->toContain('dynamic');
+        expect($dynamic)->not->toBeNull()
+            ->and($dynamic['type'])->toBe('string');
     });
 
     test('marks conditional base array assignment properties as optional', function () {

@@ -7578,6 +7578,21 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\BareMethodReturnResource": {
+            "name": "BareMethodReturnResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "slug",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\BaseSharedResource": {
             "name": "BaseSharedResource",
             "properties": []
@@ -11932,6 +11947,11 @@
                     "name": "elseBranch",
                     "type": "string",
                     "optional": true
+                },
+                {
+                    "name": "dynamic",
+                    "type": "string",
+                    "optional": false
                 },
                 {
                     "name": "conditionalBaseKey",

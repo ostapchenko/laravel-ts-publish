@@ -1618,6 +1618,14 @@ declare global {
             flag?: string | null;
             extra: Record<string, unknown>;
         }
+        /**
+         * toArray() returns a method call directly rather than spreading it into an array literal, and that
+         * method in turn returns another — the transitive case.
+         */
+        export interface BareMethodReturnResource {
+            id: number;
+            slug: string;
+        }
         /** Parent resource that uses SharedExtendsInterface — tests BFS dedup when child also uses the same trait. */
         export interface BaseSharedResource extends SharedInterface {
         }
@@ -2920,6 +2928,7 @@ declare global {
             ifBranch?: string;
             elseifBranch?: string;
             elseBranch?: string;
+            dynamic: string;
             conditionalBaseKey?: string;
             foundB?: boolean;
             foreachKey?: string;

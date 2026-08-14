@@ -251,7 +251,20 @@ class ResourceAstAnalyzer
 
         // return $this->only([...]) or return $this->except([...])
         if ($returnStmt->expr instanceof MethodCall) {
-            return $this->analyzeThisAttributeFilter($returnStmt->expr) ?? new ResourceAnalysis;
+            $filtered = $this->analyzeThisAttributeFilter($returnStmt->expr);
+
+            if ($filtered !== null) {
+                return $filtered;
+            }
+
+            // return $this->someMethod() — resolve it the same way an array-literal spread would.
+            if ($returnStmt->expr->var instanceof Variable
+                && $returnStmt->expr->var->name === 'this'
+                && $returnStmt->expr->name instanceof Identifier) {
+                return $this->analyzeThisMethodSpread($returnStmt->expr->name->toString()) ?? new ResourceAnalysis;
+            }
+
+            return new ResourceAnalysis;
         }
 
         return new ResourceAnalysis;
@@ -2136,6 +2149,16 @@ class ResourceAstAnalyzer
             } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Variable
                 && is_string($returnStmt->expr->name)) {
                 $analysis = $this->resolveVariableReturnAnalysis($targetMethod->stmts, $returnStmt->expr->name);
+            } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof MethodCall) {
+                $filtered = $this->analyzeThisAttributeFilter($returnStmt->expr);
+
+                if ($filtered !== null) {
+                    $analysis = $filtered;
+                } elseif ($returnStmt->expr->name instanceof Identifier) {
+                    $analysis = $this->analyzeThisMethodSpread($returnStmt->expr->name->toString()) ?? new ResourceAnalysis;
+                } else {
+                    $analysis = new ResourceAnalysis; // @codeCoverageIgnore
+                }
             } else {
                 $analysis = new ResourceAnalysis;
             }

@@ -190,6 +190,32 @@ through the existing spread path with no special setup — see `MutuallyRecursiv
 the workbench and the corresponding test in `ResourceAstAnalyzerTest`. The guard is load-bearing, not
 defensive: it fixes a crash that was previously trivial to trigger, not a theoretical one.
 
+## A bare `return $this->method()` resolves transitively
+
+`analyze()`'s fallback path used to route every non-array `MethodCall` return through
+`analyzeThisAttributeFilter()`, which returns `null` for any method name outside `['only', 'except']`
+— so `return $this->data();` produced an empty interface even though the array-literal spread form,
+`return [...$this->data()];`, already worked. `analyze()` now falls back to
+`analyzeThisMethodSpread($methodName)` when the attribute-filter path declines, resolving the bare
+return the same way a `...$this->method()` spread already did.
+
+`analyzeThisMethodSpread()`'s own return dispatch gained a matching `MethodCall` arm, so a method that
+returns another method call (`data()` returning `$this->nested()`) recurses instead of degrading to an
+empty analysis. `only()`/`except()` are still resolved first at each level via
+`analyzeThisAttributeFilter()`, so a `return $this->only([...])` reached transitively keeps working
+exactly as a direct one does.
+
+Because `ReflectionMethod::getFileName()` resolves to wherever a method is *declared* — the resource
+itself, a trait it uses, or a parent class — this recursion reaches trait- and parent-declared methods
+for free; `analyzeThisMethodSpread()` already re-parses that declaring file for the direct spread case,
+so no extra resolution step was needed to make the transitive case work.
+
+A cycle (`a()` returning `$this->b()`, `b()` returning `$this->a()`) is not a new risk: the recursion
+goes through the same `$visitedSpreadMethods` guard described above, so it degrades to an empty
+analysis on re-entry rather than recursing until memory runs out. See `BareMethodReturnResource` in
+the workbench and the corresponding test in `ResourceAstAnalyzerTest` for the transitive case
+(`toArray()` → `data()` → `nested()`).
+
 ## `whenNotNull()`/`whenNull()` read `($value, $default)`, not a callback
 
 `analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull)` handles both `$this->whenNotNull($value,
