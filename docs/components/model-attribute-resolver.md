@@ -309,3 +309,47 @@ which model a resource belongs to — checks for `Illuminate\Database\Eloquent\A
 behind `class_exists()` rather than a `use` import, because the package still supports Laravel 12
 releases older than 12.29 that don't ship the attribute. See [Version-guarded Laravel
 classes](../laravel-version-guards.md) for the full registry and when this guard can be removed.
+
+## Laravel 13's `#[Table]`/`#[Hidden]`/`#[Visible]`/`#[Appends]`/`#[Connection]` work for free
+
+These five Laravel 13 class attributes change how a model reports its table, its hidden/visible
+columns, its appended accessors and its connection — and this package needed **no dedicated code**
+to honour any of them. Laravel resolves each attribute itself, inside `Model::__construct()`, via
+`initializeModelAttributes()` (`#[Table]`, `#[Connection]`) and the `#[Initialize]`-marked
+`initializeHidesAttributes()` (`#[Hidden]`, `#[Visible]`) and `initializeHasAttributes()`
+(`#[Appends]`) — by the time this package ever sees a model, the attribute has already been folded
+into that instance's ordinary state (`$table`/`$connection`/`$hidden`/`$visible`/`$appends`).
+
+This package only ever reads that state back through plain instance calls, the same four call
+sites that already made `protected $table = '...'` etc. work before Laravel 13 existed:
+
+- `ModelTransformer::initInstance()` (`src/Transformers/ModelTransformer.php:182`) calls
+  `$this->modelInstance->getConnection()->getSchemaBuilder()->getColumnListing($this->modelInstance->getTable())`
+  — honours `#[Table]` and `#[Connection]` together, since both feed into which schema is queried
+  for which table name.
+- `ModelTransformer::initInstance()` (`src/Transformers/ModelTransformer.php:184`) calls
+  `$this->modelInstance->getAppends()` — honours `#[Appends]`.
+- `ModelAttributeResolver` (`src/ModelAttributeResolver.php:467`) calls
+  `$ctx['instance']->getTable()` and `getConnection()` again when resolving a column's type.
+- `ModelInspector::getAttributes()` (Laravel's own, in `vendor/laravel/framework/.../ModelInspector.php`,
+  which `AbeTwoThree\LaravelTsPublish\ModelInspector` extends) calls `attributeIsHidden($column,
+  $model)` against the **made instance** it inspects — `count($model->getHidden())` /
+  `count($model->getVisible())` — honouring `#[Hidden]` and `#[Visible]` identically to the
+  property-based conventions, because by then there is no distinction left to make.
+
+**This is fragile in one specific way: it depends on working through instances, not static
+reflection.** If a future refactor reads `#[Table]`/`#[Hidden]`/etc. directly off the class via
+`ReflectionClass::getAttributes()` instead of asking a constructed instance for `getTable()` /
+`getHidden()` / `getAppends()`, these five attributes stop working silently — the tests in
+`ModelTransformerTest.php` would start failing, but nothing in their names or diffs points back to
+this coupling. If you are that refactor: keep going through an instance, or update this section.
+
+No `src/` code references these five attribute classes at all, so unlike `#[UseResource]` and
+`#[Collects]` (see the section above), they need no `class_exists()` guard in `src/` and no
+`use`-import ban there either. The workbench fixture models `use`-import `Table`/`Hidden`/
+`Appends`/`Visible`/`Connection` normally, the same as any Laravel 13 application would — a `use`
+statement is a compile-time alias, not an autoload, so it is inert on Laravel 12 for exactly the
+same reason `getAttributes()` metadata is inert there: nothing calls `newInstance()` on it. Their
+`class_exists()` reference lives only in each attribute's `->skip()` test guard in
+`ModelTransformerTest.php`. See [Version-guarded Laravel
+classes](../laravel-version-guards.md) for the test-only guard rows this implies.

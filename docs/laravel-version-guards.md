@@ -15,13 +15,29 @@ and remove the row.
 | --- | --- | --- | --- | --- |
 | `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php` | `12.29.0` |
 | `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php`, `src/Analyzers/Inertia/InertiaPageAnalyzer.php` | none | `13.0.0` |
+| `Illuminate\Database\Eloquent\Attributes\Table` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
+| `Illuminate\Database\Eloquent\Attributes\Hidden` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
+| `Illuminate\Database\Eloquent\Attributes\Visible` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
+| `Illuminate\Database\Eloquent\Attributes\Appends` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
+| `Illuminate\Database\Eloquent\Attributes\Connection` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
+
+The five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows have no `src/` guard because
+nothing in this package resolves them: Laravel applies them itself in `Model::__construct()`, and
+this package only ever reads the results back through model instance calls
+(`getTable()`, `getAppends()`, the inspector's `attributeIsHidden()`) — see
+[docs/components/model-attribute-resolver.md](./components/model-attribute-resolver.md). Their
+`class_exists()` reference lives solely in the `->skip()` guard on each attribute's test in
+`ModelTransformerTest.php`; the scanner below does not scan `tests/`, so it cannot see these guards
+and the enforcement test neither depends on nor is satisfied by these five rows. They are recorded
+here anyway per the "test-only guards still earn a row" rule: each is a live version guard — the
+`->skip()` — that must be dropped along with its row once the Laravel 12 floor rises to `13.0.0`.
 
 ## How each minimum version was established
 
-The installed vendor tree is `13.24`, so Laravel 12's tree cannot be read locally. Both rows were
-verified empirically against `laravel/framework`'s GitHub tags via the contents API
-(`GET /repos/laravel/framework/contents/{path}?ref={tag}`), which reflects exactly what shipped in
-each release — more reliable than changelog prose.
+The installed vendor tree is `13.24`, so Laravel 12's tree cannot be read locally. `UseResource`
+and `Collects` were verified empirically against `laravel/framework`'s GitHub tags via the contents
+API (`GET /repos/laravel/framework/contents/{path}?ref={tag}`), which reflects exactly what shipped
+in each release — more reliable than changelog prose.
 
 - **`UseResource`**: binary-searched across all 112 published `v12.*` tags for
   `src/Illuminate/Database/Eloquent/Attributes/UseResource.php`. Absent through `v12.28.1`, present
@@ -32,12 +48,13 @@ each release — more reliable than changelog prose.
   exist anywhere in the 12.x line. It exists at `v13.0.0` (released 2026-03-17). Recorded as `13.0.0`
   because that is the first tag proven to contain it; no 12.x release was found to carry it.
 
-The same method was applied ahead of time to the five attributes Tasks 9 and 10 are expected to add
-in `Illuminate\Database\Eloquent\Attributes` (`Table`, `Hidden`, `Visible`, `Appends`, `Connection`)
-plus `Illuminate\Http\Resources\Attributes\PreserveKeys`: all six are absent at `v12.66.0` and present
-at `v13.0.0`, the same shape as `Collects`. They do not get rows here yet — no guard for them exists
-in `src/` — but whichever task adds the guard can record `Min Laravel: 13.0.0` / `Convert when floor
-≥: 13.0.0` without re-deriving it.
+The same method was applied ahead of time to five attributes in `Illuminate\Database\Eloquent\Attributes`
+(`Table`, `Hidden`, `Visible`, `Appends`, `Connection`) plus `Illuminate\Http\Resources\Attributes\PreserveKeys`:
+all six are absent at `v12.66.0` and present at `v13.0.0`, the same shape as `Collects`. Task 9 used
+this finding directly — recording `Min Laravel: 13.0.0` / `Convert when floor ≥: 13.0.0` for the
+five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows above without re-deriving it.
+`PreserveKeys` doesn't have a row yet — no guard for it exists anywhere in the codebase — but
+whichever task adds one can use the same `13.0.0` finding.
 
 ## Scanner coverage and blind spots
 

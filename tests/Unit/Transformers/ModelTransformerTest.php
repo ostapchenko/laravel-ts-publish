@@ -6,6 +6,8 @@ use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\Transformers\ModelTransformer;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 use Workbench\Accounting\Models\Invoice;
 use Workbench\App\Enums\Status;
 use Workbench\App\Models\Address;
@@ -17,6 +19,9 @@ use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\ExcludableModel;
 use Workbench\App\Models\Image;
 use Workbench\App\Models\Kpi;
+use Workbench\App\Models\Laravel13Attributes;
+use Workbench\App\Models\Laravel13Connection;
+use Workbench\App\Models\Laravel13Visible;
 use Workbench\App\Models\Marketing\Report\Report as MarketingReport;
 use Workbench\App\Models\ModelWithNestedTraitExtends;
 use Workbench\App\Models\ModelWithParentExtends;
@@ -1477,3 +1482,72 @@ describe('ModelTransformer alias occurrence handling', function () {
         expect($data->relations['imageable']['type'])->toBe('Post | Product | WorkbenchUser | CrmUser');
     });
 })->group('transformer');
+
+describe('ModelTransformer with Laravel13Attributes model using #[Table], #[Appends] and #[Hidden]', function () {
+    test('reads the table name from the #[Table] attribute', function () {
+        $data = (new ModelTransformer(Laravel13Attributes::class))->data();
+
+        expect($data->columns)->toHaveKey('id');
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\Table'),
+        'Table attribute requires Laravel 13+',
+    );
+
+    test('reads appended accessors from the #[Appends] attribute', function () {
+        $data = (new ModelTransformer(Laravel13Attributes::class))->data();
+
+        expect($data->appends)->toHaveKey('label');
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\Appends'),
+        'Appends attribute requires Laravel 13+',
+    );
+
+    test('#[Hidden] feeds exclude_hidden the same way $hidden does', function () {
+        config()->set('ts-publish.models.exclude_hidden', true);
+
+        $data = (new ModelTransformer(Laravel13Attributes::class))->data();
+
+        expect($data->columns)->not->toHaveKey('secret_token');
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\Hidden'),
+        'Hidden attribute requires Laravel 13+',
+    );
+});
+
+describe('ModelTransformer with Laravel13Visible model using the #[Visible] attribute', function () {
+    // $visible is an allowlist: kept on its own model, away from the #[Hidden] fixture and any
+    // resource fixture, since it marks every unlisted column hidden and would otherwise make
+    // those assertions meaningless.
+    test('#[Visible] marks every unlisted column hidden, same as $hidden does for exclude_hidden', function () {
+        config()->set('ts-publish.models.exclude_hidden', true);
+
+        $data = (new ModelTransformer(Laravel13Visible::class))->data();
+
+        expect($data->columns)->toHaveKey('name')
+            ->and($data->columns)->not->toHaveKey('other_col');
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\Visible'),
+        'Visible attribute requires Laravel 13+',
+    );
+});
+
+describe('ModelTransformer with Laravel13Connection model using the #[Connection] attribute', function () {
+    // The column listing is read through the attribute-selected connection, not the default one:
+    // a table that exists only there proves the attribute actually routed the lookup.
+    test('reads columns from the connection named by the #[Connection] attribute', function () {
+        // The connection itself is registered globally in TestCase (this model is collected on
+        // every full model pass); only its table, created here, is specific to this test.
+        Schema::connection('laravel13_secondary')->dropIfExists('laravel13_connections');
+        Schema::connection('laravel13_secondary')->create('laravel13_connections', function (Blueprint $table) {
+            $table->id();
+            $table->string('routed_via_connection');
+        });
+
+        $data = (new ModelTransformer(Laravel13Connection::class))->data();
+
+        expect($data->columns)->toHaveKey('routed_via_connection');
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\Connection'),
+        'Connection attribute requires Laravel 13+',
+    );
+});

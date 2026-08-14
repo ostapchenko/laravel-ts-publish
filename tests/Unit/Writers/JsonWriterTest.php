@@ -56,8 +56,8 @@ test('every discovered model appears in the definitions json', function () {
     $writer = new JsonWriter(new Filesystem);
     $decoded = json_decode($writer->write($runner), true);
 
-    // 52 discovered models (see ModelsFinderTest); the old bare-name keying yielded 49.
-    expect($decoded['models'])->toHaveCount(52);
+    // 55 discovered models (see ModelsFinderTest); the old bare-name keying yielded 49.
+    expect($decoded['models'])->toHaveCount(55);
 });
 
 test('enums map keys by FQCN so same-basename enums cannot collapse', function () {

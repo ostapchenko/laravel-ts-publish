@@ -360,6 +360,26 @@ declare global {
             reportable_count: number;
             reportable_exists: boolean;
         }
+        /** Exercises Laravel 13's #[Table], #[Hidden] and #[Appends] class attributes. */
+        export interface Laravel13Attributes {
+            // Columns
+            id: number;
+            name: string;
+            secret_token: string;
+            // Mutators
+            /** A computed accessor published as an append only because #[Appends] adds it to getAppends(). */
+            label: string;
+        }
+        /** Exercises Laravel 13's #[Connection] class attribute. */
+        export interface Laravel13Connection {
+        }
+        /** Exercises Laravel 13's #[Visible] class attribute (an allowlist). */
+        export interface Laravel13Visible {
+            // Columns
+            id: number;
+            name: string;
+            other_col: string;
+        }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
             id: number;

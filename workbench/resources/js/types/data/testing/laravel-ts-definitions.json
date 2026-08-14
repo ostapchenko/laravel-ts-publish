@@ -4573,6 +4573,48 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\Laravel13Attributes": {
+            "name": "Laravel13Attributes",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                },
+                {
+                    "name": "secret_token",
+                    "type": "string"
+                },
+                {
+                    "name": "label",
+                    "type": "string"
+                }
+            ]
+        },
+        "Workbench\\App\\Models\\Laravel13Connection": {
+            "name": "Laravel13Connection",
+            "properties": []
+        },
+        "Workbench\\App\\Models\\Laravel13Visible": {
+            "name": "Laravel13Visible",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                },
+                {
+                    "name": "other_col",
+                    "type": "string"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\Marketing\\Report\\Report": {
             "name": "Report",
             "properties": [
