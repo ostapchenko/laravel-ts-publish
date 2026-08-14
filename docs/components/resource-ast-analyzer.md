@@ -189,3 +189,62 @@ limit was exhausted (a 512 MB limit fails after roughly 22,000 stack frames). Th
 through the existing spread path with no special setup — see `MutuallyRecursiveSpreadResource` in
 the workbench and the corresponding test in `ResourceAstAnalyzerTest`. The guard is load-bearing, not
 defensive: it fixes a crash that was previously trivial to trigger, not a theoretical one.
+
+## `whenNotNull()`/`whenNull()` read `($value, $default)`, not a callback
+
+`analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull)` handles both `$this->whenNotNull($value,
+$default)` and `$this->whenNull($value, $default)`. Both delegate to `ConditionallyLoadsAttributes::when()`
+(`vendor/laravel/framework/.../Http/Resources/ConditionallyLoadsAttributes.php`): `whenNotNull($value,
+$default)` is `$this->when(! is_null($value), $value, $default)`, and `whenNull($value, $default)` is
+`$this->when(is_null($value), $value, $default)`. Argument 0 is always the value returned on the
+condition's success arm; argument 1, when passed, is the default returned on the failure arm. Neither
+argument is ever a callback bound to the other — `value()` invokes a Closure passed as `$value`/`$default`
+with **zero** arguments, never with the sibling argument as a parameter.
+
+An earlier version of this handler's docblocks claimed a callback form ("whenNotNull($this->value,
+$callback) — resolve the callback expression type") that Laravel does not have, and the implementation
+matched that wrong docblock: it read `$args[1]` unconditionally and returned that as the property's type.
+So `whenNotNull($this->description, 0)` (`description: string | null`) emitted `?number` — the default's
+type alone — instead of `string | number, required`. The fix was checked against
+`ConditionallyLoadsAttributes.php` directly rather than assumed; see that trait for the exact
+`func_num_args()` gating this handler mirrors.
+
+### Which arm each analysis path reads
+
+- **`whenNotNull()`** (`stripNull: true`) analyzes argument 0, then strips a trailing `| null` from its
+  type via `stripNullArm()`: the `! is_null($value)` guard on the success arm proves that arm unreachable,
+  so `whenNotNull($this->description)` emits `?string`, not `?string | null`.
+- **`whenNull()`** (`stripNull: false`) forces argument 0's contribution to the literal string `'null'`
+  instead of analyzing it — the success arm always returns `null` when the guard holds, so the value's own
+  type is irrelevant to what the property can be.
+
+### The default argument controls both `optional` and the union
+
+`hasExplicitDefaultArg(MethodCall $call, int $index)` decides whether argument 1 was passed at all — purely
+positionally, since Laravel distinguishes an omitted argument from an explicitly-passed `null` via
+`func_num_args()`, not via `$value === null`. A `ConstFetch(null)` at the default position
+(`whenNotNull($x, null)`) counts as an explicit default: `func_num_args() === 2` there too, so the key
+survives at runtime as `null`, not as a missing key. Named or spread arguments make position meaningless,
+so both bail the helper out to `false` rather than guessing — it is reused as-is by later conditional-family
+handlers for the same reason.
+
+When no explicit default is present, the property is `optional: true` and its type is just the (possibly
+null-stripped) value arm — matching every pre-existing single-argument fixture (`ProductResource`,
+`ImageResource`, `AddressResource`, …). When an explicit default *is* present, the key can never be a
+`MissingValue`, so `optional` becomes `false`, and the default's own type — analyzed independently via
+`analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
+wins at runtime — is unioned into the value's via `mergeUnionChannels()`. Both arms are split on their own
+`' | '` members and deduplicated before merging (mirroring `analyzeClosureUnion()`'s approach), so a
+same-typed default collapses to one type instead of a redundant `number | number`, and an `unknown` arm (an
+unresolvable closure body passed as the default) is dropped rather than unioned in literally — mirroring how
+`analyzeCoalesce()` treats an `unknown` operand.
+
+### A model-level `#[TsCasts]` override can mask this fix in the final output
+
+`AddressExtendsResource`/`AddressMixinResource` both call `whenNotNull($this->latitude)` — the value-arm fix
+alone makes that `latitude?: number` at the analyzer level. It doesn't reach the generated `.ts`: `Address`
+carries a model-level `#[TsCasts(['latitude' => ...])]` override, and
+`ResourceTransformer::applyOverrides()` applies model-level `#[TsCasts]` *after* AST analysis, so it wins
+regardless of what this handler determines. That is expected, unrelated behavior, not a regression — verify
+the value-arm/default-arm split against a fixture whose properties carry no `#[TsCasts]` override (e.g.
+`ConditionalDefaultsResource`, or `AddressResource`'s `line_2`) rather than against `latitude`/`longitude`.

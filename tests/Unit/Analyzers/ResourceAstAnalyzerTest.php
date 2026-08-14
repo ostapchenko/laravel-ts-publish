@@ -23,6 +23,7 @@ use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
 use Workbench\App\Http\Resources\CoalesceChannelResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\CommonResource;
+use Workbench\App\Http\Resources\ConditionalDefaultsResource;
 use Workbench\App\Http\Resources\ConditionalParamArrayResource;
 use Workbench\App\Http\Resources\ConditionalParamEnumResource;
 use Workbench\App\Http\Resources\ConditionalParamFullClosureResource;
@@ -3754,13 +3755,15 @@ describe('ResourceAstAnalyzer with ConditionalParamArrayResource — issue #38 c
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // whenNull() with arrow fn → string fallback when value is null
-    test('whenNull() arrow fn → string resolves to string not unknown', function () {
+    // whenNull($this->notes, fn () => 'no notes') — the success arm proves the value null, and the
+    // default is a genuine explicit default, so the key is required and unions null with the arrow fn's
+    // string return.
+    test('whenNull() arrow fn → unions null with the string default, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_when_null');
 
         expect($prop)->not->toBeNull()
-            ->and($prop['type'])->toBe('string')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['type'])->toBe('null | string')
+            ->and($prop['optional'])->toBeFalse();
     });
 });
 
@@ -3779,13 +3782,15 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // The condition is `$this->status !== null` — a boolean expression, so the $status param binds to true.
-    test('full closure param → EnumResource::make resolves to non-unknown type', function () {
+    // whenNotNull($this->status, function ($status) {...}) — the closure param is unbound (whenNotNull's
+    // default isn't a callback), so its own EnumResource::make($status) call resolves to 'unknown' and is
+    // dropped from the union, leaving just the value arm. The explicit 2nd argument still makes it required.
+    test('full closure param → EnumResource::make resolves to non-unknown type, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('OrderStatusType')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 });
 
@@ -3804,8 +3809,38 @@ describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNot
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length');
 
         expect($prop)->not->toBeNull()
-            ->and($prop['type'])->toBe('number')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['type'])->toBe('string | number')
+            ->and($prop['optional'])->toBeFalse();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// whenNotNull()/whenNull() default-argument handling — ConditionalDefaultsResource
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ResourceAstAnalyzer with ConditionalDefaultsResource — whenNotNull/whenNull default argument', function () {
+    it('types whenNotNull from the value argument with null stripped', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_no_default']['type'])->toBe('string')
+            ->and($props['not_null_no_default']['optional'])->toBeTrue();
+    });
+
+    it('unions the default arm into whenNotNull and makes it required', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_with_default']['type'])->toBe('string | number')
+            ->and($props['not_null_with_default']['optional'])->toBeFalse();
+    });
+
+    it('collapses a same-typed default to a single type', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_same_type_default']['type'])->toBe('number')
+            ->and($props['not_null_same_type_default']['optional'])->toBeFalse();
     });
 });
 
@@ -3880,29 +3915,31 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
     });
 
     // ── whenNotNull() ──────────────────────────────────────────────────────────
+    // Each of these passes a genuine second argument, so it's a real default: the key is always
+    // present (optional: false), unlike the single-arg whenNotNull() calls tested elsewhere.
 
-    test('whenNotNull() pre-evaluated EnumResource::make($this->resource->priority) resolves to PriorityType|null', function () {
+    test('whenNotNull() pre-evaluated EnumResource::make($this->resource->priority) resolves to PriorityType|null, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'priority_when_not_null_make');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('PriorityType | null')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 
-    test('whenNotNull() arrow fn → EnumResource::make($this->resource->status) resolves to StatusType', function () {
+    test('whenNotNull() arrow fn → EnumResource::make($this->resource->status) resolves to StatusType, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_when_not_null_arrow');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('StatusType')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 
-    test('whenNotNull() full closure → new EnumResource($this->resource->visibility) resolves to VisibilityType|null', function () {
+    test('whenNotNull() full closure → new EnumResource($this->resource->visibility) resolves to VisibilityType|null, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'visibility_when_not_null_full');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('VisibilityType | null')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 
     // ── Ternary ────────────────────────────────────────────────────────────────

@@ -10,6 +10,6 @@ export interface ImageResource
     alt_text: string | null;
     mime_type: string;
     size_bytes: number;
-    width?: number | null;
-    height?: number | null;
+    width?: number;
+    height?: number;
 }

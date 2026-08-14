@@ -15,12 +15,12 @@ export interface ProductResource
     sku: string;
     description: string | null;
     price: number;
-    compare_at_price?: number | null;
+    compare_at_price?: number;
     cost_price?: number | null;
     quantity: number;
     is_active: boolean;
     is_featured: boolean;
-    published_at?: string | null;
+    published_at?: string;
     tags?: TagResource[];
     images?: ImageResource[];
     orders_count?: number;

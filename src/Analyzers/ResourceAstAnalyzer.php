@@ -1198,56 +1198,68 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze $this->whenNotNull($this->value, $callback) — resolve the callback expression type.
+     * Analyze $this->whenNotNull($value, $default) — the success arm returns $value, proven non-null.
      *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenNotNull(MethodCall $call): array
     {
-        return $this->analyzeWhenPossiblyNull($call);
+        return $this->analyzeWhenPossiblyNull($call, stripNull: true);
     }
 
     /**
-     * Analyze $this->whenNull($this->value, $callback) — resolve the callback expression type.
+     * Analyze $this->whenNull($value, $default) — the success arm returns null, so only the default
+     * carries a useful type.
      *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenNull(MethodCall $call): array
     {
-        return $this->analyzeWhenPossiblyNull($call);
+        return $this->analyzeWhenPossiblyNull($call, stripNull: false);
     }
 
     /**
-     * Shared logic for whenNotNull()/whenNull(): analyze the callback and bind its closure param.
+     * Shared logic for whenNotNull()/whenNull(): argument 0 is the value, argument 1 the optional
+     * default. An explicit default makes the key required and unions its type into the result.
      *
      * @return ValueExpressionResult
      */
-    protected function analyzeWhenPossiblyNull(MethodCall $call): array
+    protected function analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull): array
     {
-        $result = $this->unknownResult();
         $args = $call->getArgs();
 
-        if (count($args) === 1) {
-            $inner = $this->analyzeValueExpression($args[0]->value);
-            $inner['optional'] = true;
-
-            return $inner;
+        if ($args === []) {
+            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
         }
 
-        if (count($args) >= 2) {
-            $valueExpr = $args[1]->value;
-            $previousBindings = $this->closureParamExprBindings;
+        $value = $this->analyzeValueExpression($args[0]->value);
 
-            $this->bindClosureParamsFromCondition($args[0]->value, $valueExpr);
-            $inner = $this->analyzeValueExpression($valueExpr);
-            $inner['optional'] = true;
-
-            $this->closureParamExprBindings = $previousBindings;
-
-            return $inner;
+        if ($stripNull) {
+            $value['type'] = $this->stripNullArm($value['type']);
+        } else {
+            $value['type'] = 'null';
         }
 
-        return [...$result, 'optional' => true]; // @codeCoverageIgnore
+        if (! $this->hasExplicitDefaultArg($call, 1)) {
+            return [...$value, 'optional' => true];
+        }
+
+        $default = $this->analyzeValueExpression($args[1]->value);
+
+        // Split each arm into its own union members before deduping — the default is analyzed independently
+        // of the value's guard, so its own type can overlap the value's. An 'unknown' arm carries no real
+        // information (analyzeCoalesce treats a coalesce operand's 'unknown' the same way), so it's dropped.
+        $members = [];
+
+        foreach ([$value['type'], $default['type']] as $type) {
+            if ($type !== 'unknown') {
+                array_push($members, ...explode(' | ', $type));
+            }
+        }
+
+        $types = $members === [] ? ['unknown'] : array_values(array_unique($members));
+
+        return [...$this->mergeUnionChannels($types, [$value, $default]), 'optional' => false];
     }
 
     /**
@@ -3523,6 +3535,30 @@ class ResourceAstAnalyzer
     private function arrayWrapType(string $type): string
     {
         return str_contains($type, '|') ? '('.$type.')[]' : $type.'[]';
+    }
+
+    /**
+     * Drop a trailing `| null` arm from a type string — a guarded success path proves it unreachable.
+     */
+    private function stripNullArm(string $type): string
+    {
+        return trim(str_replace(['| null', 'null |'], '', $type)) ?: 'unknown';
+    }
+
+    /**
+     * Whether an explicit default was passed at the given argument index. Laravel distinguishes a
+     * passed-through `null` from an omitted argument via func_num_args(), so position is the only
+     * signal; named or spread arguments make the position meaningless, so both bail out.
+     */
+    private function hasExplicitDefaultArg(MethodCall $call, int $index): bool
+    {
+        foreach ($call->getArgs() as $arg) {
+            if ($arg->unpack || $arg->name !== null) {
+                return false;
+            }
+        }
+
+        return count($call->getArgs()) > $index;
     }
 
     /**

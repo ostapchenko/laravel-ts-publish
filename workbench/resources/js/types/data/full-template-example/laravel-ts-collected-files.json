@@ -83,6 +83,7 @@
     "app\/Http\/Resources\/ClosureUnionMetadataResource.php",
     "app\/Http\/Resources\/CoalesceChannelResource.php",
     "app\/Http\/Resources\/CommentResource.php",
+    "app\/Http\/Resources\/ConditionalDefaultsResource.php",
     "app\/Http\/Resources\/ConditionalParamArrayResource.php",
     "app\/Http\/Resources\/ConditionalParamEnumResource.php",
     "app\/Http\/Resources\/ConditionalParamFullClosureResource.php",

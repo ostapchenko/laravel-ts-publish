@@ -1505,7 +1505,7 @@ declare global {
             tax: number;
             total: number;
             due_at: string | null;
-            issued_at?: string | null;
+            issued_at?: string;
             paid_at?: string | null;
             user?: workbench.app.models.User;
             payments?: PaymentResource[];
@@ -1524,8 +1524,8 @@ declare global {
             currency: workbench.app.enums.CurrencyType;
             amount: number;
             method?: workbench.app.enums.PaymentMethodType;
-            reference?: string | null;
-            paid_at?: string | null;
+            reference?: string;
+            paid_at?: string;
         }
     }
     export namespace workbench.app.http.resources {
@@ -1561,7 +1561,7 @@ declare global {
             id: number;
             label: string | null;
             line_1: string;
-            line_2?: string | null;
+            line_2?: string;
             city: string;
             state: string | null;
             postal_code: string;
@@ -1752,6 +1752,16 @@ declare global {
             user_profile_avatar_url: string | null;
         }
         /**
+         * Exercises the conditional family's third default argument. An explicit default means the key can
+         * never be missing, so the property is required and its type unions both arms.
+         */
+        export interface ConditionalDefaultsResource {
+            not_null_no_default?: string;
+            not_null_with_default: string | number;
+            not_null_same_type_default: number;
+            null_with_default: null | string;
+        }
+        /**
          * Exercises issue #38: closure parameter passed by the conditional method.
          * Each field uses a single-param arrow function that returns an inline array literal.
          *
@@ -1763,7 +1773,7 @@ declare global {
             user_summary?: { id: number; email: string; name: string };
             notes_or_default?: string;
             user_meta?: { profile: { name: string; email: string }; verified: boolean };
-            notes_when_null?: string;
+            notes_when_null: null | string;
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method,
@@ -1793,7 +1803,7 @@ declare global {
             user_summary?: { id: number; email: string };
             items_mapped?: { id: number; name: string; quantity: number }[];
             user_resource?: UserResource;
-            status_resource?: workbench.app.enums.OrderStatusType;
+            status_resource: workbench.app.enums.OrderStatusType;
             shipping_safe?: { name: string; email: string } | null;
         }
         /**
@@ -1836,7 +1846,7 @@ declare global {
             user_id?: number;
             user_verified?: boolean;
             notes_upper?: string;
-            notes_length?: number;
+            notes_length: string | number;
         }
         /**
          * Exercises collectDirectReturns elseif, else, and loop branches
@@ -2062,8 +2072,8 @@ declare global {
             alt_text: string | null;
             mime_type: string;
             size_bytes: number;
-            width?: number | null;
-            height?: number | null;
+            width?: number;
+            height?: number;
         }
         /**
          * Exercises analyzeInlineArray embeddedModelFqcns and embeddedResourceFqcns
@@ -2423,12 +2433,12 @@ declare global {
             sku: string;
             description: string | null;
             price: number;
-            compare_at_price?: number | null;
+            compare_at_price?: number;
             cost_price?: number | null;
             quantity: number;
             is_active: boolean;
             is_featured: boolean;
-            published_at?: string | null;
+            published_at?: string;
             tags?: TagResource[];
             images?: ImageResource[];
             orders_count?: number;
@@ -2530,9 +2540,9 @@ declare global {
             status_when_make?: workbench.app.enums.StatusType;
             status_when_arrow?: workbench.app.enums.StatusType;
             visibility_when_full?: workbench.app.enums.VisibilityType | null;
-            priority_when_not_null_make?: workbench.app.enums.PriorityType | null;
-            status_when_not_null_arrow?: workbench.app.enums.StatusType;
-            visibility_when_not_null_full?: workbench.app.enums.VisibilityType | null;
+            priority_when_not_null_make: workbench.app.enums.PriorityType | workbench.app.enums.PriorityType | null;
+            status_when_not_null_arrow: workbench.app.enums.StatusType | workbench.app.enums.StatusType;
+            visibility_when_not_null_full: workbench.app.enums.VisibilityType | workbench.app.enums.VisibilityType | null;
             status_ternary_null: workbench.app.enums.StatusType | null;
             status_ternary_both: workbench.app.enums.StatusType;
             status_or_visibility_ternary: workbench.app.enums.StatusType | workbench.app.enums.VisibilityType | null;
@@ -2771,7 +2781,7 @@ declare global {
             email: string;
             role?: workbench.app.enums.RoleType | null;
             membership_level?: workbench.app.enums.MembershipLevelType | null;
-            avatar?: string | null;
+            avatar?: string;
             team_role?: unknown;
             joined_at?: unknown;
             subscription_role?: unknown;
@@ -2875,7 +2885,7 @@ declare global {
             profile?: workbench.app.models.Profile | null;
             posts?: PostResource[];
             phone?: string | null;
-            avatar?: string | null;
+            avatar?: string;
             posts_count?: number;
             comments_count?: number;
         }
@@ -2957,14 +2967,14 @@ declare global {
             id: number;
             title: string;
             slug: string;
-            excerpt?: string | null;
+            excerpt?: string;
             body: string;
             status: workbench.blog.enums.ArticleStatusType;
             content_type: workbench.blog.enums.ContentTypeType;
             is_featured: boolean;
             featured_image?: string | null;
-            meta_description?: string | null;
-            published_at?: string | null;
+            meta_description?: string;
+            published_at?: string;
             author?: workbench.app.models.User;
             reactions?: ReactionResource[];
             reactions_count?: number;
@@ -3022,9 +3032,9 @@ declare global {
             carrier: workbench.shipping.enums.CarrierType;
             status: workbench.shipping.enums.ShipmentStatusType;
             weight_grams: number | null;
-            estimated_delivery_at?: string | null;
+            estimated_delivery_at?: string;
             shipped_at?: string | null;
-            delivered_at?: string | null;
+            delivered_at?: string;
             order?: workbench.app.models.Order;
             tracking_events?: TrackingEventResource[];
             tracking_events_count?: number;

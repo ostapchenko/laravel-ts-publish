@@ -14,7 +14,7 @@ export interface TeamMemberResource
     email: string;
     role?: RoleType | null;
     membership_level?: MembershipLevelType | null;
-    avatar?: string | null;
+    avatar?: string;
     team_role?: unknown;
     joined_at?: unknown;
     subscription_role?: unknown;

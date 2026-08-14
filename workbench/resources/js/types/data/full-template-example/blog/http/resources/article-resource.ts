@@ -16,14 +16,14 @@ export interface ArticleResource
     id: number;
     title: string;
     slug: string;
-    excerpt?: string | null;
+    excerpt?: string;
     body: string;
     status: AsEnum<typeof ArticleStatus>;
     content_type: AsEnum<typeof ContentType>;
     is_featured: boolean;
     featured_image?: string | null;
-    meta_description?: string | null;
-    published_at?: string | null;
+    meta_description?: string;
+    published_at?: string;
     author?: User;
     reactions?: ReactionResource[];
     reactions_count?: number;

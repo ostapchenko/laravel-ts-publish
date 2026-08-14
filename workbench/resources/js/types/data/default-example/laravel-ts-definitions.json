@@ -7123,7 +7123,7 @@
                 },
                 {
                     "name": "issued_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -7193,12 +7193,12 @@
                 },
                 {
                     "name": "reference",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
                     "name": "paid_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 }
             ]
@@ -7298,7 +7298,7 @@
                 },
                 {
                     "name": "line_2",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -8036,6 +8036,31 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\ConditionalDefaultsResource": {
+            "name": "ConditionalDefaultsResource",
+            "properties": [
+                {
+                    "name": "not_null_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "not_null_with_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "not_null_same_type_default",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "null_with_default",
+                    "type": "null | string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\ConditionalParamArrayResource": {
             "name": "ConditionalParamArrayResource",
             "properties": [
@@ -8061,8 +8086,8 @@
                 },
                 {
                     "name": "notes_when_null",
-                    "type": "string",
-                    "optional": true
+                    "type": "null | string",
+                    "optional": false
                 }
             ]
         },
@@ -8126,8 +8151,8 @@
                 },
                 {
                     "name": "status_resource",
-                    "type": "AsEnum<typeof OrderStatus>",
-                    "optional": true
+                    "type": "OrderStatusType",
+                    "optional": false
                 },
                 {
                     "name": "shipping_safe",
@@ -8216,8 +8241,8 @@
                 },
                 {
                     "name": "notes_length",
-                    "type": "number",
-                    "optional": true
+                    "type": "string | number",
+                    "optional": false
                 }
             ]
         },
@@ -8994,12 +9019,12 @@
                 },
                 {
                     "name": "width",
-                    "type": "number | null",
+                    "type": "number",
                     "optional": true
                 },
                 {
                     "name": "height",
-                    "type": "number | null",
+                    "type": "number",
                     "optional": true
                 }
             ]
@@ -10046,7 +10071,7 @@
                 },
                 {
                     "name": "compare_at_price",
-                    "type": "number | null",
+                    "type": "number",
                     "optional": true
                 },
                 {
@@ -10071,7 +10096,7 @@
                 },
                 {
                     "name": "published_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -10441,18 +10466,18 @@
                 },
                 {
                     "name": "priority_when_not_null_make",
-                    "type": "AsEnum<typeof Priority> | null",
-                    "optional": true
+                    "type": "AsEnum<typeof Priority> | PriorityType | null",
+                    "optional": false
                 },
                 {
                     "name": "status_when_not_null_arrow",
-                    "type": "AsEnum<typeof Status>",
-                    "optional": true
+                    "type": "AsEnum<typeof Status> | StatusType",
+                    "optional": false
                 },
                 {
                     "name": "visibility_when_not_null_full",
-                    "type": "AsEnum<typeof Visibility> | null",
-                    "optional": true
+                    "type": "AsEnum<typeof Visibility> | VisibilityType | null",
+                    "optional": false
                 },
                 {
                     "name": "status_ternary_null",
@@ -11410,7 +11435,7 @@
                 },
                 {
                     "name": "avatar",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -11745,7 +11770,7 @@
                 },
                 {
                     "name": "avatar",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -12045,7 +12070,7 @@
                 },
                 {
                     "name": "excerpt",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -12075,12 +12100,12 @@
                 },
                 {
                     "name": "meta_description",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
                     "name": "published_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -12255,7 +12280,7 @@
                 },
                 {
                     "name": "estimated_delivery_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -12265,7 +12290,7 @@
                 },
                 {
                     "name": "delivered_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
