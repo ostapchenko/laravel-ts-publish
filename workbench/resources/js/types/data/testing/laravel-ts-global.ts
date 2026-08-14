@@ -3106,6 +3106,7 @@ declare global {
             "v1.0": string;
             items?: { name: string }[];
             variants?: ({ name: string } | { email: string })[];
+            markers?: ('>a' | 'b')[];
         }
         export interface NumberRulesRequest {
             score: number;

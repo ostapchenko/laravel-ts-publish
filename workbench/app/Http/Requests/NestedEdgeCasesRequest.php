@@ -42,6 +42,10 @@ class NestedEdgeCasesRequest extends FormRequest
             'variants' => ['array'],
             'variants.0.name' => ['required', 'string'],
             'variants.1.email' => ['required', 'email'],
+
+            // `in:` values containing bracket characters must not unbalance the union scan.
+            'markers' => ['array'],
+            'markers.*' => ['in:>a,b'],
         ];
     }
 }

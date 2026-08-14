@@ -870,20 +870,26 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Whether a `|` appears outside every `{}`, `<>`, `()` and `[]` nesting level.
+     * Whether a `|` appears outside every `{}`, `<>`, `()` and `[]` nesting level. Quoted string
+     * literals are skipped whole, since a bracket character inside one (e.g. `'>a'`) is data, not structure.
      */
     private function hasTopLevelUnion(string $type): bool
     {
         $depth = 0;
         $length = strlen($type);
+        $inQuote = false;
 
         for ($i = 0; $i < $length; $i++) {
             $char = $type[$i];
 
-            if ($char === '{' || $char === '<' || $char === '(' || $char === '[') {
+            if ($char === "'") {
+                $inQuote = ! $inQuote;
+            } elseif ($inQuote) {
+                continue;
+            } elseif ($char === '{' || $char === '<' || $char === '(' || $char === '[') {
                 $depth++;
             } elseif ($char === '}' || $char === '>' || $char === ')' || $char === ']') {
-                $depth--;
+                $depth = max(0, $depth - 1);
             } elseif ($char === '|' && $depth === 0) {
                 return true;
             }

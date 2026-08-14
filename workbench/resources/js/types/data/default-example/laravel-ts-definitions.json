@@ -2044,6 +2044,14 @@
                     "jsDocMetadata": [
                         "@format email variants.1.email"
                     ]
+                },
+                {
+                    "fieldPath": "markers",
+                    "tsType": "('>a' | 'b')[]",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
                 }
             ]
         },

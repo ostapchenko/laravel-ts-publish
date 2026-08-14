@@ -537,6 +537,16 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('({ name: string } | { email: string })[]');
             expect($node->tsType)->not->toBe('{ name: string } | { email: string }[]');
         });
+
+        it('does not let a bracket character inside an "in:" literal unbalance the union scan', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'markers');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe("('>a' | 'b')[]");
+            expect($node->tsType)->not->toBe("'>a' | 'b'[]");
+        });
     });
 
     describe('auth state restoration', function () {

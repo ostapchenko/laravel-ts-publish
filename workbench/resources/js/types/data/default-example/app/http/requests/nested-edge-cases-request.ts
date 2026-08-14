@@ -12,4 +12,5 @@ export interface NestedEdgeCasesRequest {
     items?: { name: string }[];
     /** @format email variants.1.email */
     variants?: ({ name: string } | { email: string })[];
+    markers?: ('>a' | 'b')[];
 }
