@@ -99,9 +99,10 @@ go through `getArrayableItems()`, which strips it.
 
 **Implicit — `exclude_hidden` drops the hidden column:**
 
-- **Whole-model delegation** — `return parent::toArray($request)`, or a resource with no
-  `toArray()` at all — builds its property set from every model attribute via
-  `buildModelDelegatedAnalysis()`.
+- **Whole-model delegation** — `return parent::toArray($request)`, `[...parent::toArray($request)]`
+  as a spread inside an array literal, or a resource with no `toArray()` at all — all three reach
+  `buildModelDelegatedAnalysis()` (the last two via `analyzeParentToArray()`) and build the property
+  set from every model attribute.
 - **`return $this->except([...])`** — `analyzeExceptFilter()` derives its base set from that same
   method, then subtracts the named keys; a hidden column that was never named to be *kept* falls
   out with the rest.
@@ -114,6 +115,10 @@ go through `getArrayableItems()`, which strips it.
 - **`$this->relation->only([...])`** — the include branch above; a named hidden column falls back
   to inline expansion instead of a `Pick<>` reference, but it is never dropped.
 - **`$this->whenHas('column')`** — the attribute name is a literal argument to the call.
+- **Plain `@mixin` property access** — `'password' => $this->password` — the single most common
+  resource idiom. `analyzeThisProperty()` resolves it via `resolveModelAttributeTypeInfo()`, the
+  same single-attribute path `whenHas()` uses; it never reaches `buildModelDelegatedAnalysis()`, so
+  a hand-written key survives `exclude_hidden` exactly like a named `only()` key does.
 
 Two touch points implement the implicit side. `buildModelDelegatedAnalysis()`
 (`ResolvesModelTypes.php`) is the property-set builder shared by whole-model delegation *and*
@@ -121,7 +126,10 @@ Two touch points implement the implicit side. `buildModelDelegatedAnalysis()`
 select an explicitly-named hidden column from, so the method takes a `bool $excludeHidden = true`
 parameter instead of filtering unconditionally: `analyzeOnlyFilter()` is the one caller that
 passes `false`. `resolveFilteredRelationType()`'s except branch has no such sharing problem — it
-builds its key list fresh per call — so it filters unconditionally there. Three sites are
+builds its key list fresh per call — so it filters unconditionally there; `WarehouseResource`'s
+`last_user_activity_by_mostly` (a multi-model accessor union reaching the `except()` branch through
+`analyzeRelationFilter()`'s accessor-union loop) is the fixture that pins this touch point against
+`User::$hidden`. Three sites are
 deliberately left untouched because each already takes the caller's request verbatim rather than
 deriving it from the full attribute list: `filterAnalysisByKeys()`, the include branch of
 `resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()` (the

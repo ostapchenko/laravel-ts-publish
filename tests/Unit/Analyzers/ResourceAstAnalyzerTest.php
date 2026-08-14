@@ -95,6 +95,7 @@ use Workbench\App\Http\Resources\UserExceptResource;
 use Workbench\App\Http\Resources\UserOnlyHiddenResource;
 use Workbench\App\Http\Resources\UserResource;
 use Workbench\App\Http\Resources\VarReturnSpreadResource;
+use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Address;
 use Workbench\App\Models\Category;
 use Workbench\App\Models\Comment;
@@ -107,6 +108,7 @@ use Workbench\App\Models\Tag;
 use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
 use Workbench\App\Models\UuidPost;
+use Workbench\App\Models\Warehouse;
 use Workbench\Blog\Enums\ArticleStatus;
 use Workbench\Blog\Enums\ContentType;
 use Workbench\Blog\Http\Resources\ApiArticleResource;
@@ -4769,6 +4771,24 @@ test('keeps a hidden column the resource named explicitly', function () {
 
     expect($props)->toHaveKey('password')
         ->and($props['password']['type'])->toBe('string');
+});
+
+test('a relation except() drops hidden columns from the derived key list', function () {
+    // WarehouseResource::last_user_activity_by_mostly = $this->last_user_activity_by?->except(['id', 'name'])
+    // is a multi-model accessor union (CrmUser|User); the User branch derives its inline shape from
+    // every attribute minus the named keys, so it is implicit — $hidden columns must drop too.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    $type = $props['last_user_activity_by_mostly']['type'];
+
+    expect($type)->not->toContain('password')
+        ->and($type)->not->toContain('remember_token')
+        ->and($type)->toContain('email: string');
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {
