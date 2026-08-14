@@ -487,6 +487,24 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('{ default?: string } & Record<string, string>');
             expect($node->tsType)->not->toContain('"*"');
         });
+
+        it('types an all-prohibited object as an empty record, not "{  }"', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'meta');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('Record<string, never>');
+        });
+
+        it('types an array with a prohibited element as never[]', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'empties');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('never[]');
+        });
     });
 
     describe('auth state restoration', function () {

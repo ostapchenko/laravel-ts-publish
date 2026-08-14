@@ -265,9 +265,10 @@ class FormRequestRulesAnalyzer
     {
         $element = $this->composeTrieNode($wildcardChild);
         $elementType = $element['tsType'].($element['isNullable'] ? ' | null' : '');
+        $tsType = $element['isProhibited'] ? 'never[]' : $this->arrayWrapType($elementType);
 
         return [
-            'tsType' => $this->arrayWrapType($elementType),
+            'tsType' => $tsType,
             'isRequired' => $own !== null && $own['isRequired'],
             'isNullable' => $own !== null && $own['isNullable'],
             'isProhibited' => $own !== null && $own['isProhibited'],
@@ -298,8 +299,9 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Compose an object-typed node from its named children into an inline `{ k: T; k2?: T2 }`
-     * type. A prohibited child is dropped entirely — it can never legally appear in the payload.
+     * Compose an object-typed node from its named children into an inline `{ k: T; k2?: T2 }` type.
+     * A prohibited child is dropped entirely — it can never legally appear in the payload — and a node
+     * whose children are all prohibited becomes `Record<string, never>`, i.e. "no keys allowed".
      *
      * @param  array<string, FormRequestRuleTrieNode>  $children
      * @param  RuleLeafData|null  $own
@@ -323,7 +325,7 @@ class FormRequestRulesAnalyzer
         }
 
         return [
-            'tsType' => '{ '.implode('; ', $parts).' }',
+            'tsType' => $parts === [] ? 'Record<string, never>' : '{ '.implode('; ', $parts).' }',
             'isRequired' => $own !== null && $own['isRequired'],
             'isNullable' => $own !== null && $own['isNullable'],
             'isProhibited' => $own !== null && $own['isProhibited'],

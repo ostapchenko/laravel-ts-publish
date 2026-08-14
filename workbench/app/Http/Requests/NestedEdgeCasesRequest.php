@@ -22,6 +22,14 @@ class NestedEdgeCasesRequest extends FormRequest
             'options' => ['array'],
             'options.*' => ['string'],
             'options.default' => ['string'],
+
+            // Every named child prohibited — the object must be empty.
+            'meta' => ['array'],
+            'meta.secret' => ['prohibited'],
+
+            // Prohibited wildcard element — the array must be empty.
+            'empties' => ['array'],
+            'empties.*' => ['prohibited'],
         ];
     }
 }

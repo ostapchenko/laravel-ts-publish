@@ -3101,6 +3101,8 @@ declare global {
         }
         export interface NestedEdgeCasesRequest {
             options?: { default?: string } & Record<string, string>;
+            meta?: Record<string, never>;
+            empties?: never[];
         }
         export interface NumberRulesRequest {
             score: number;

@@ -2002,6 +2002,22 @@
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "meta",
+                    "tsType": "Record<string, never>",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "empties",
+                    "tsType": "never[]",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
                 }
             ]
         },
