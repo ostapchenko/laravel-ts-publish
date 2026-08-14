@@ -313,6 +313,8 @@ Key capabilities:
 
 > [!TIP]
 > Still seeing `unknown`? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) is a symptom-first index of the docblock tag that fixes each case — all of them read by PHPStan/Larastan too.
+>
+> If you still continue to see `unknown`, open an issue with code samples of your PHP code and the generated TypeScript output so we can investigate.
 
 For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
