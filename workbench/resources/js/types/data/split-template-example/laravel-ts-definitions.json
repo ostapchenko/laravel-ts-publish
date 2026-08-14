@@ -4287,10 +4287,6 @@
                 {
                     "name": "is_pinned",
                     "type": "boolean"
-                },
-                {
-                    "name": "geo_location",
-                    "type": "unknown | null"
                 }
             ]
         },
@@ -5201,10 +5197,6 @@
                     "type": "boolean"
                 },
                 {
-                    "name": "geo_location",
-                    "type": "unknown | null"
-                },
-                {
                     "name": "title_display",
                     "type": "string | null"
                 },
@@ -5882,10 +5874,6 @@
                 {
                     "name": "is_pinned",
                     "type": "boolean"
-                },
-                {
-                    "name": "geo_location",
-                    "type": "unknown | null"
                 }
             ]
         },
@@ -6584,10 +6572,6 @@
                 {
                     "name": "is_pinned",
                     "type": "boolean"
-                },
-                {
-                    "name": "geo_location",
-                    "type": "unknown | null"
                 }
             ]
         },

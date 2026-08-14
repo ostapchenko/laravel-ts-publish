@@ -270,7 +270,6 @@ declare global {
             reading_time_minutes: number | null;
             featured_image_url: string | null;
             is_pinned: boolean;
-            geo_location: unknown | null;
         }
         /** Model with excluded mutator and relation via #[TsExclude]. */
         export interface ExcludableModel {
@@ -539,7 +538,6 @@ declare global {
             reading_time_minutes: number | null;
             featured_image_url: string | null;
             is_pinned: boolean;
-            geo_location: unknown | null;
             // Mutators
             /** Title displayed in uppercase */
             title_display: string | null;
@@ -813,7 +811,6 @@ declare global {
             reading_time_minutes: number | null;
             featured_image_url: string | null;
             is_pinned: boolean;
-            geo_location: unknown | null;
         }
         export interface StrictCompositeComment {
             // Columns
@@ -1040,7 +1037,6 @@ declare global {
             reading_time_minutes: number | null;
             featured_image_url: string | null;
             is_pinned: boolean;
-            geo_location: unknown | null;
         }
         export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" | "updated_by"> {
             // Columns

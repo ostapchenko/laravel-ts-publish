@@ -177,9 +177,10 @@ imports.
 
 When a column has no cast, `resolveAttribute()` falls to `LaravelTsPublish::toTsType($attr['type'])`
 with `ModelInspector`'s raw `Schema::getColumns()` value — the native string a schema grammar emits
-(`tinyint(1)`, `character varying(255)`), never the migration method name (`boolean()`, `string()`) —
-so `vendor/laravel/framework/.../Schema/Grammars/*Grammar.php`, not vendor SQL documentation or the
-`$table->column()` method list, is the authoritative source for a new `TypeScriptMap` entry.
+(`tinyint(1)`, or `point` for a MySQL `geometry(subtype: 'point')` column), never the migration method
+name (`boolean()`, `geometry()`) — so `vendor/laravel/framework/.../Schema/Grammars/*Grammar.php`, not
+vendor SQL documentation or the `$table->column()` method list, is the authoritative source for a new
+`TypeScriptMap` entry.
 
 ## `@property` refinement: search order, trait walk, and the acceptance rule
 

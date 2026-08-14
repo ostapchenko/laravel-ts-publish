@@ -51,7 +51,6 @@ function postColumnsExceptCreatedUpdated(): array
         'content',
         'deleted_at',
         'featured_image_url',
-        'geo_location',
         'id',
         'is_pinned',
         'metadata',

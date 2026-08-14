@@ -154,7 +154,7 @@ test('maps new legacy string types to string', function (string $dbType) {
     $map = (new TypeScriptMap)->gather();
 
     expect($map[$dbType])->toBe('string');
-})->with(['tinytext', 'nvarchar', 'nchar', 'ntext', 'image', 'xml', 'interval', 'uniqueidentifier']);
+})->with(['tinytext', 'nvarchar', 'nchar', 'ntext', 'xml', 'interval', 'uniqueidentifier']);
 
 test('maps set to string, not an array', function () {
     $map = (new TypeScriptMap)->gather();
@@ -174,17 +174,42 @@ test('maps bit to boolean', function () {
     expect($map['bit'])->toBe('boolean');
 });
 
-test('maps new date/time native types to string', function (string $dbType) {
+test('maps datetimeoffset to string', function () {
     $map = (new TypeScriptMap)->gather();
 
-    expect($map[$dbType])->toBe('string');
-})->with(['datetimeoffset', 'datetime2', 'smalldatetime']);
+    expect($map['datetimeoffset'])->toBe('string');
+});
+
+test('datetime2 and smalldatetime resolve to string by default, like datetime', function (string $dbType) {
+    config()->set('ts-publish.timestamps_as_date', false);
+
+    $map = (new TypeScriptMap)->gather();
+
+    expect(($map[$dbType])())->toBe('string');
+})->with(['datetime2', 'smalldatetime']);
+
+test('datetime2 and smalldatetime resolve to Date when timestamps_as_date is true, like datetime', function (string $dbType) {
+    // SQL Server's dateTime($precision)/timestamp($precision) emit datetime2($precision) — the
+    // same logical column as bare 'datetime', so a hard 'string' here would silently opt SQL
+    // Server timestamp columns out of the timestamps_as_date config toggle.
+    config()->set('ts-publish.timestamps_as_date', true);
+
+    $map = (new TypeScriptMap)->gather();
+
+    expect(($map[$dbType])())->toBe('Date');
+})->with(['datetime2', 'smalldatetime']);
 
 test('maps geometry and geography to unknown', function (string $dbType) {
     $map = (new TypeScriptMap)->gather();
 
     expect($map[$dbType])->toBe('unknown');
 })->with(['geometry', 'geography']);
+
+test('maps MySQL geometry subtypes to unknown, same as bare geometry', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('unknown');
+})->with(['point', 'linestring', 'polygon', 'geometrycollection', 'multipoint', 'multilinestring', 'multipolygon']);
 
 test('maps vector to number[]', function () {
     $map = (new TypeScriptMap)->gather();

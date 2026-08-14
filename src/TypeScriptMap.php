@@ -107,7 +107,6 @@ class TypeScriptMap
             'nvarchar' => 'string',
             'nchar' => 'string',
             'ntext' => 'string',
-            'image' => 'string',
             'xml' => 'string',
             'interval' => 'string',
             'encrypted' => 'string',
@@ -134,6 +133,11 @@ class TypeScriptMap
             'immutable_datetime' => fn () => $this->validateDate(),
             'immutable_custom_datetime' => fn () => $this->validateDate(),
             'timestamp' => fn () => $this->validateDate(),
+            // SQL Server's dateTime($precision)/timestamp($precision) emit datetime2($precision) —
+            // the same logical column as bare 'datetime', so it must follow the same config toggle.
+            // smalldatetime is a legacy-only precision-less sibling; kept consistent with it.
+            'datetime2' => fn () => $this->validateDate(),
+            'smalldatetime' => fn () => $this->validateDate(),
             Carbon::class => fn () => $this->validateDate(),
             CarbonImmutable::class => fn () => $this->validateDate(),
             SupportCarbon::class => fn () => $this->validateDate(),
@@ -142,8 +146,6 @@ class TypeScriptMap
             'timetz' => 'string',
             'timestamptz' => 'string',
             'datetimeoffset' => 'string',
-            'datetime2' => 'string',
-            'smalldatetime' => 'string',
 
             // Network address types (Postgres inet/cidr/macaddr, MySQL equivalents)
             'inet' => 'string',
@@ -158,6 +160,15 @@ class TypeScriptMap
             // returns whichever the driver defaults to, so 'unknown' is honest rather than a guess.
             'geometry' => 'unknown',
             'geography' => 'unknown',
+            // MySQL's geometry(subtype: '...') writes the subtype itself as the native type name
+            // instead of 'geometry' — same honesty rationale as the two entries above.
+            'point' => 'unknown',
+            'linestring' => 'unknown',
+            'polygon' => 'unknown',
+            'geometrycollection' => 'unknown',
+            'multipoint' => 'unknown',
+            'multilinestring' => 'unknown',
+            'multipolygon' => 'unknown',
 
             // Vector types — pgvector and MySQL 9 both serialize a vector as a JSON array of floats.
             'vector' => 'number[]',

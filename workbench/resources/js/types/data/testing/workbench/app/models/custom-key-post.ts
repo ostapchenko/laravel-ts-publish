@@ -21,5 +21,4 @@ export interface CustomKeyPost
     reading_time_minutes: number | null;
     featured_image_url: string | null;
     is_pinned: boolean;
-    geo_location: unknown | null;
 }

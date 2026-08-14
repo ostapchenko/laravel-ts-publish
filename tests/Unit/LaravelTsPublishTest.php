@@ -367,8 +367,6 @@ describe('toTsType bare-name fallback for sized native types', function () {
     test('a sized type with no exact entry resolves via the name before the paren', function (string $input, string $expected) {
         expect($this->service->toTsType($input)['type'])->toBe($expected);
     })->with([
-        // 'binary' has no accidental substring in any existing key, so this only resolves once
-        // both the map entry and the bare-name fallback exist — the clearest before/after case.
         ['binary(255)', 'string'],
         ['varbinary(255)', 'string'],
         ['nvarchar(max)', 'string'],
@@ -378,6 +376,13 @@ describe('toTsType bare-name fallback for sized native types', function () {
 
     test('a bare tinyint with no width is a genuine small integer', function () {
         expect($this->service->toTsType('tinyint')['type'])->toBe('number');
+    });
+
+    // The only row here where deleting step 1a changes the answer: every row above also matches
+    // by accident via step 7's substring scan once its map entry exists. Here "point" contains
+    // "int", which step 7 would hit before any spatial key, wrongly giving 'number' without 1a.
+    test('a spatial type with an embedded SRID is not hijacked by the "int" substring inside its subtype', function () {
+        expect($this->service->toTsType('geometry(point,4326)')['type'])->toBe('unknown');
     });
 });
 
@@ -393,6 +398,16 @@ describe('toTsType Step 3 judgment calls: vector, geometry/geography, set', func
     test('set resolves to string, not string[] — MySQL returns a comma-joined value', function () {
         expect($this->service->toTsType('set')['type'])->toBe('string');
     });
+
+    test('MySQL geometry subtypes resolve to unknown, not whatever their name accidentally substring-matches', function (string $subtype) {
+        // MySqlGrammar::typeGeometry() writes the subtype itself as column_type ('point'), not
+        // 'geometry(point)'. Measured without these entries: point/multipoint -> 'number' ('int'
+        // substring), linestring/multilinestring -> 'string', geometrycollection -> 'unknown[]'.
+        expect($this->service->toTsType($subtype)['type'])->toBe('unknown');
+    })->with([
+        'point', 'linestring', 'polygon', 'geometrycollection',
+        'multipoint', 'multilinestring', 'multipolygon',
+    ]);
 });
 
 test('maps every native type a Laravel schema grammar can emit', function (string $native, string $expected) {
