@@ -10,6 +10,7 @@ use Workbench\App\Http\Requests\BooleanRulesRequest;
 use Workbench\App\Http\Requests\DateRulesRequest;
 use Workbench\App\Http\Requests\DynamicRequest;
 use Workbench\App\Http\Requests\FileRulesRequest;
+use Workbench\App\Http\Requests\NestedEdgeCasesRequest;
 use Workbench\App\Http\Requests\RuleClassRequest;
 use Workbench\App\Http\Requests\StorePostRequest;
 use Workbench\App\Http\Requests\StringRulesRequest;
@@ -473,6 +474,18 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node)->not->toBeNull();
             expect($node->jsDocMetadata)->not->toContain('@format uuid order.secret.token');
             expect($node->tsType)->not->toContain('secret');
+        });
+    });
+
+    describe('composition edge cases', function () {
+        it('intersects a wildcard with its named siblings instead of emitting a "*" key', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'options');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('{ default?: string } & Record<string, string>');
+            expect($node->tsType)->not->toContain('"*"');
         });
     });
 

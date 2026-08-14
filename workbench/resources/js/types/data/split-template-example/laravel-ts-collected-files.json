@@ -61,6 +61,7 @@
     "app\/Http\/Requests\/DateRulesRequest.php",
     "app\/Http\/Requests\/DynamicRequest.php",
     "app\/Http\/Requests\/FileRulesRequest.php",
+    "app\/Http\/Requests\/NestedEdgeCasesRequest.php",
     "app\/Http\/Requests\/NumberRulesRequest.php",
     "app\/Http\/Requests\/RuleClassRequest.php",
     "app\/Http\/Requests\/StorePostRequest.php",

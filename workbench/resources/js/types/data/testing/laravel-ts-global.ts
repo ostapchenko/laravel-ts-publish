@@ -3099,6 +3099,9 @@ declare global {
             report: File;
             exact_size_file?: File | null;
         }
+        export interface NestedEdgeCasesRequest {
+            options?: { default?: string } & Record<string, string>;
+        }
         export interface NumberRulesRequest {
             score: number;
             price: number;

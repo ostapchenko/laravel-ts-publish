@@ -241,8 +241,13 @@ class FormRequestRulesAnalyzer
             return $own ?? $this->emptyLeaf();
         }
 
-        if (array_key_exists('*', $children) && count($children) === 1) {
-            return $this->composeArrayNode($children['*'], $own);
+        if (array_key_exists('*', $children)) {
+            $wildcard = $children['*'];
+            unset($children['*']);
+
+            return $children === []
+                ? $this->composeArrayNode($wildcard, $own)
+                : $this->composeMixedNode($children, $wildcard, $own);
         }
 
         return $this->composeObjectNode($children, $own);
@@ -268,6 +273,27 @@ class FormRequestRulesAnalyzer
             'isProhibited' => $own !== null && $own['isProhibited'],
             'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
             'requiredArrayKeys' => [],
+        ];
+    }
+
+    /**
+     * Compose a node carrying both a `*` child and named children — Laravel's way of describing a map
+     * whose values share a rule and whose some keys are pinned. Emitted as the named object shape
+     * intersected with an index signature, which is always valid TS even when the two types differ.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children  the named children, `*` already removed
+     * @param  RuleLeafData|null  $own
+     * @return RuleLeafData
+     */
+    protected function composeMixedNode(array $children, FormRequestRuleTrieNode $wildcardChild, ?array $own): array
+    {
+        $object = $this->composeObjectNode($children, $own);
+        $element = $this->composeTrieNode($wildcardChild);
+        $elementType = $element['tsType'].($element['isNullable'] ? ' | null' : '');
+
+        return [
+            ...$object,
+            'tsType' => $object['tsType'].' & Record<string, '.$elementType.'>',
         ];
     }
 

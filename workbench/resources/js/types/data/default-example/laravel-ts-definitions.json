@@ -1991,6 +1991,20 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Requests\\NestedEdgeCasesRequest": {
+            "name": "NestedEdgeCasesRequest",
+            "isDynamic": false,
+            "fields": [
+                {
+                    "fieldPath": "options",
+                    "tsType": "{ default?: string } & Record<string, string>",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Requests\\NumberRulesRequest": {
             "name": "NumberRulesRequest",
             "isDynamic": false,

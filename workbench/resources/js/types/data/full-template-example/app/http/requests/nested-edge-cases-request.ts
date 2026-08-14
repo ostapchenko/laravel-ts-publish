@@ -1,0 +1,9 @@
+/**
+ * Composition edge cases: a wildcard beside named children, an all-prohibited object, a
+ * prohibited wildcard element, an escaped literal dot, and explicit numeric indices.
+ *
+ * @see Workbench\App\Http\Requests\NestedEdgeCasesRequest
+ */
+export interface NestedEdgeCasesRequest {
+    options?: { default?: string } & Record<string, string>;
+}

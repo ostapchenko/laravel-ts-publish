@@ -4,6 +4,7 @@ export * from './database-rules-request';
 export * from './date-rules-request';
 export * from './dynamic-request';
 export * from './file-rules-request';
+export * from './nested-edge-cases-request';
 export * from './number-rules-request';
 export * from './rule-class-request';
 export * from './store-post-request';
