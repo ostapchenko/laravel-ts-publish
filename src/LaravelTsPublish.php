@@ -1072,16 +1072,6 @@ class LaravelTsPublish
         }
 
         if ($keyType === 'array-key' || $keyType === 'mixed') {
-            $record = 'Record<string, '.$inner['type'].'>';
-            $list = $inner['type'].'[]';
-            $inner['type'] = $record.' | '.$list;
-
-            return $inner;
-        }
-
-        // Collection<int, X> only promises integer keys, not sequential ones, and json_encode turns a
-        // gapped Collection into an object — the same union TypeScriptMap carries for a bare Collection.
-        if ($isCollection) {
             return $this->wrapAsMaybeKeyedArray($inner);
         }
 

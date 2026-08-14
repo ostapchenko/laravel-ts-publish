@@ -351,7 +351,7 @@ declare global {
             uploader_from_docblock: User | null;
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
-            uploaders_from_docblock: User[] | Record<string, User>;
+            uploaders_from_docblock: User[];
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -474,13 +474,14 @@ declare global {
             /** Write-only mutator whose docblock still documents what a getter would return. */
             tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: OrderItem[] | Record<string, OrderItem>;
+            sorted_items: OrderItem[];
+            keyed_items: Record<string, OrderItem>;
             listed_items: OrderItem[];
             /** All items on the order, in their natural database order. */
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
             capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
-            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
+            summary_items: workbench.app.models.admin.Store[];
             // Relations
             user: User;
             user_count: number;
@@ -2036,7 +2037,7 @@ declare global {
             uploader_from_docblock: workbench.app.models.User | null;
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
-            uploaders_from_docblock: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
+            uploaders_from_docblock: workbench.app.models.User[];
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -2050,7 +2051,7 @@ declare global {
         export interface ImageMorphResource {
             id: number;
             imageable: workbench.app.models.Post | workbench.app.models.Product | workbench.app.models.User | workbench.crm.models.User;
-            uploaders_from_docblock: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
+            uploaders_from_docblock: workbench.app.models.User[];
             imageable_when_loaded?: workbench.app.models.Post | workbench.app.models.Product | workbench.app.models.User | workbench.crm.models.User;
         }
         /** Exercises: whenNotNull on multiple nullable columns. */
@@ -2277,12 +2278,13 @@ declare global {
             search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
+            sorted_items: workbench.app.models.OrderItem[];
+            keyed_items: Record<string, workbench.app.models.OrderItem>;
             listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
             capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
-            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
+            summary_items: workbench.app.models.admin.Store[];
             user: workbench.app.models.User;
             items: workbench.app.models.OrderItem[];
         }
@@ -2666,12 +2668,13 @@ declare global {
             search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
+            sorted_items: workbench.app.models.OrderItem[];
+            keyed_items: Record<string, workbench.app.models.OrderItem>;
             listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
             capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
-            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
+            summary_items: workbench.app.models.admin.Store[];
             user: workbench.app.models.User;
             items: workbench.app.models.OrderItem[];
             customer?: { name: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;
@@ -2706,12 +2709,13 @@ declare global {
             search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
-            sorted_items: workbench.app.models.OrderItem[] | Record<string, workbench.app.models.OrderItem>;
+            sorted_items: workbench.app.models.OrderItem[];
+            keyed_items: Record<string, workbench.app.models.OrderItem>;
             listed_items: workbench.app.models.OrderItem[];
             unsorted_items: unknown[] | Record<string, unknown>;
             state_ids: number[] | null;
             capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
-            summary_items: workbench.app.models.admin.Store[] | Record<string, workbench.app.models.admin.Store>;
+            summary_items: workbench.app.models.admin.Store[];
             user: workbench.app.models.User;
             items: workbench.app.models.OrderItem[];
             customer?: { name: string; initials: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean } | { name: string; email: string; phone: string | null; avatar: string | null; role: workbench.app.enums.RoleType | null; is_premium: boolean; name_titled: string; morph: string } | null;

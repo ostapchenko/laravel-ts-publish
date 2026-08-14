@@ -149,6 +149,12 @@ class Order extends Model
         return Attribute::get(fn (): Collection => $this->items->sortBy('id')->values());
     }
 
+    /** @return Attribute<Collection<string, OrderItem>, never> */
+    protected function keyedItems(): Attribute
+    {
+        return Attribute::get(fn (): Collection => $this->items->keyBy('sku'));
+    }
+
     /** @return Attribute<list<OrderItem>, never> */
     protected function listedItems(): Attribute
     {

@@ -4464,7 +4464,7 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
-                    "type": "ModelsUser[] | Record<string, ModelsUser>"
+                    "type": "ModelsUser[]"
                 },
                 {
                     "name": "tree_from_docblock",
@@ -4918,7 +4918,11 @@
                 },
                 {
                     "name": "sorted_items",
-                    "type": "OrderItem[] | Record<string, OrderItem>"
+                    "type": "OrderItem[]"
+                },
+                {
+                    "name": "keyed_items",
+                    "type": "Record<string, OrderItem>"
                 },
                 {
                     "name": "listed_items",
@@ -4938,7 +4942,7 @@
                 },
                 {
                     "name": "summary_items",
-                    "type": "Store[] | Record<string, Store>"
+                    "type": "Store[]"
                 },
                 {
                     "name": "user",
@@ -8866,7 +8870,7 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
-                    "type": "ModelsUser[] | Record<string, ModelsUser>",
+                    "type": "ModelsUser[]",
                     "optional": false
                 },
                 {
@@ -8926,7 +8930,7 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
-                    "type": "ModelsUser[] | Record<string, ModelsUser>",
+                    "type": "ModelsUser[]",
                     "optional": false
                 },
                 {
@@ -9530,7 +9534,12 @@
                 },
                 {
                     "name": "sorted_items",
-                    "type": "OrderItem[] | Record<string, OrderItem>",
+                    "type": "OrderItem[]",
+                    "optional": false
+                },
+                {
+                    "name": "keyed_items",
+                    "type": "Record<string, OrderItem>",
                     "optional": false
                 },
                 {
@@ -9555,7 +9564,7 @@
                 },
                 {
                     "name": "summary_items",
-                    "type": "Store[] | Record<string, Store>",
+                    "type": "Store[]",
                     "optional": false
                 },
                 {
@@ -10947,7 +10956,12 @@
                 },
                 {
                     "name": "sorted_items",
-                    "type": "OrderItem[] | Record<string, OrderItem>",
+                    "type": "OrderItem[]",
+                    "optional": false
+                },
+                {
+                    "name": "keyed_items",
+                    "type": "Record<string, OrderItem>",
                     "optional": false
                 },
                 {
@@ -10972,7 +10986,7 @@
                 },
                 {
                     "name": "summary_items",
-                    "type": "Store[] | Record<string, Store>",
+                    "type": "Store[]",
                     "optional": false
                 },
                 {
@@ -11142,7 +11156,12 @@
                 },
                 {
                     "name": "sorted_items",
-                    "type": "OrderItem[] | Record<string, OrderItem>",
+                    "type": "OrderItem[]",
+                    "optional": false
+                },
+                {
+                    "name": "keyed_items",
+                    "type": "Record<string, OrderItem>",
                     "optional": false
                 },
                 {
@@ -11167,7 +11186,7 @@
                 },
                 {
                     "name": "summary_items",
-                    "type": "Store[] | Record<string, Store>",
+                    "type": "Store[]",
                     "optional": false
                 },
                 {

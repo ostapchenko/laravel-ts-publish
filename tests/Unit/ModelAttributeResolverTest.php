@@ -283,7 +283,7 @@ test('attributeDocblockReturnTypes captures nested generic getter type', functio
     $method = new ReflectionMethod(Order::class, 'sortedItems');
     $info = app(LaravelTsPublishService::class)->attributeDocblockReturnTypes($method);
 
-    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>')
+    expect($info['type'])->toBe('OrderItem[]')
         ->and($info['classFqcns'])->toBe([OrderItem::class]);
 });
 
@@ -291,7 +291,19 @@ test('accessor with vague closure type is refined by Attribute docblock generics
     $info = resolve(ModelAttributeResolver::class)
         ->resolveAttribute(Order::class, 'sorted_items');
 
-    expect($info['type'])->toBe('OrderItem[] | Record<string, OrderItem>');
+    expect($info['type'])->toBe('OrderItem[]');
+});
+
+test('Collection<int, X> narrows to an array, matching array<int, X>', function () {
+    $info = resolve(ModelAttributeResolver::class)->resolveAttribute(Order::class, 'sorted_items');
+
+    expect($info['type'])->toBe('OrderItem[]');
+});
+
+test('Collection<string, X> resolves to a keyed record', function () {
+    $info = resolve(ModelAttributeResolver::class)->resolveAttribute(Order::class, 'keyed_items');
+
+    expect($info['type'])->toBe('Record<string, OrderItem>');
 });
 
 test('trait-declared accessor generics resolve through the trait file imports, not the model file', function () {
@@ -300,7 +312,7 @@ test('trait-declared accessor generics resolve through the trait file imports, n
     $info = resolve(ModelAttributeResolver::class)
         ->resolveAttribute(Order::class, 'summary_items');
 
-    expect($info['type'])->toBe('Store[] | Record<string, Store>')
+    expect($info['type'])->toBe('Store[]')
         ->and($info['classFqcns'])->toBe([Store::class]);
 });
 

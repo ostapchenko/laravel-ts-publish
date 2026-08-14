@@ -52,13 +52,14 @@ export interface OrderMutators
     /** Write-only mutator whose docblock still documents what a getter would return. */
     tracking_code: string | null;
     score_map: Record<string, number>;
-    sorted_items: OrderItem[] | Record<string, OrderItem>;
+    sorted_items: OrderItem[];
+    keyed_items: Record<string, OrderItem>;
     listed_items: OrderItem[];
     /** All items on the order, in their natural database order. */
     unsorted_items: unknown[] | Record<string, unknown>;
     state_ids: number[] | null;
     capabilities: { typeName: string; tracksSteelDetails: boolean; warehouseDocsKey: string | null } | null;
-    summary_items: Store[] | Record<string, Store>;
+    summary_items: Store[];
 }
 
 export interface OrderRelations

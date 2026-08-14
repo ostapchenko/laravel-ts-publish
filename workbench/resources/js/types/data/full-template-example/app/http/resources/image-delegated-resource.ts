@@ -36,7 +36,7 @@ export interface ImageDelegatedResource
     uploader_from_docblock: ModelsUser | null;
     config_from_docblock: MenuSettingsType;
     data_from_docblock: { title: string; weight: number | null };
-    uploaders_from_docblock: ModelsUser[] | Record<string, ModelsUser>;
+    uploaders_from_docblock: ModelsUser[];
     tree_from_docblock: { label: string; child: unknown[] };
     price_from_docblock: { amount: number; currency: string };
     label_from_docblock: string;
