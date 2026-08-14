@@ -8158,6 +8158,11 @@
                     "name": "transform_with_default",
                     "type": "boolean | number",
                     "optional": false
+                },
+                {
+                    "name": "merge_unless_label",
+                    "type": "string",
+                    "optional": true
                 }
             ]
         },

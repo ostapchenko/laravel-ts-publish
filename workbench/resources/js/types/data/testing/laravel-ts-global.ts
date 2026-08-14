@@ -1780,6 +1780,7 @@ declare global {
             exists_no_default?: boolean;
             transform_no_default?: boolean;
             transform_with_default: boolean | number;
+            merge_unless_label?: string;
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method.

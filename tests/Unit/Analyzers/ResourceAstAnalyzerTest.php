@@ -3998,6 +3998,18 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — unless/whenAp
         expect($props['transform_with_default']['type'])->toBe('boolean | number')
             ->and($props['transform_with_default']['optional'])->toBeFalse();
     });
+
+    // mergeUnless mirrors mergeWhen: array/closure argument at index 1, always optional. If the dispatch
+    // string or operator were wrong, analyzeMergeExpression() would return an empty ResourceAnalysis and
+    // this key would be silently missing from the output entirely — not typed 'unknown', just absent.
+    it('resolves mergeUnless properties as optional, mirroring mergeWhen', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props->has('merge_unless_label'))->toBeTrue()
+            ->and($props['merge_unless_label']['type'])->toBe('string')
+            ->and($props['merge_unless_label']['optional'])->toBeTrue();
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

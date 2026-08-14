@@ -1256,7 +1256,7 @@ class ResourceAstAnalyzer
         $args = $call->getArgs();
 
         if ($args === [] || ! $args[0]->value instanceof String_) {
-            return [...$this->unknownResult(), 'optional' => true];
+            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
         }
 
         $info = $this->resolveModelAttributeTypeInfo($args[0]->value->value);

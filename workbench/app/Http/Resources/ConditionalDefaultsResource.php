@@ -74,6 +74,12 @@ class ConditionalDefaultsResource extends JsonResource
             // boolean while $value (full_address) is string|null, so a wrong implementation would show up.
             'transform_no_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== ''),
             'transform_with_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== '', 0),
+
+            // mergeUnless mirrors mergeWhen's dispatch (index 1, always optional). If the dispatch were
+            // wrong, this key would be silently absent from the output rather than typed as unknown.
+            $this->mergeUnless($this->id > 0, [
+                'merge_unless_label' => $this->full_address,
+            ]),
         ];
     }
 }
