@@ -148,13 +148,29 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
   loop at all — not as a pass, not as a fail, not as any kind of signal. The gate has no code path that
   even notices a key vanished.
 
-  This is not theoretical: this branch shipped the first two deliberate property removals the gate has
-  ever seen. Task 13's `$hidden`-exclusion change dropped `user.password` and `user.remember_token` from
-  the generated model interface (matching Laravel's own `toArray()`/`toJson()` serialization — see
-  [What gets published](https://tolki.abe.dev/ts/models.html#what-gets-published-hidden-attributes-write-only-accessors)), and
-  the write-only-accessor waterfall dropped `order.search_index` (a set-only mutator with no getter, no
-  docblock generic, and no backing column, so it's correctly omitted rather than emitted as `unknown`).
-  Both regenerated trees were reviewed by hand — reading the diff and confirming each property disappeared
+  This is not theoretical: this branch shipped the first base-only keys the gate has ever seen, both from
+  the write-only-accessor waterfall (`cb7c302`). `order.search_index` was dropped outright — a set-only
+  mutator with no getter, no docblock generic, and no backing column, so it is correctly omitted rather
+  than emitted as `unknown`. `profile.normalized_phone` was *moved*: in the three split-template trees it
+  left `ProfileMutators` and reappeared in `Profile`, where the same-named column types it
+  `string | null` instead of `unknown`. Because keys are scoped by enclosing interface, a relocation is a
+  removal plus an addition, and the gate is blind to exactly the half that would tell you a property left
+  its old home. (In `full-template-example` the same change is fully visible — one interface holds both
+  sections, so the key never moved and the gate simply saw `unknown` become `string | null`. Whether a
+  change is observable can depend on the template, which is its own reason not to treat a green gate as
+  coverage.)
+
+  What did **not** ship is a `$hidden` removal, and it is worth being precise about that, because it is
+  the change most likely to be misremembered as one. `config/ts-publish.php` ships
+  `'exclude_hidden' => false`, so hidden attributes are published by default: `user.password` and
+  `user.remember_token` are both still present, in all four committed trees. The setting is the opt-in
+  that *would* remove them — turn it on and those two properties leave `User` on the next regeneration,
+  matching Laravel's own `toArray()`/`toJson()` serialization (see
+  [What gets published](https://tolki.abe.dev/ts/models.html#what-gets-published-hidden-attributes-write-only-accessors)).
+  No workbench example enables it, so the committed corpus exercises the permissive branch only and the
+  gate has never actually been shown a `$hidden`-driven removal — a second reason not to lean on it here.
+
+  Every regenerated tree was reviewed by hand — reading the diff and confirming each property disappeared
   for the intended reason — because the gate could not do, and did not do, any part of that verification.
   A property quietly dropping for the *wrong* reason (a bug, not a deliberate design choice) would pass
   both gates exactly the same way these did.

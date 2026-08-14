@@ -42,12 +42,36 @@ name falls back to the inline expansion unchanged —
 `getAttribute()`, which reaches accessors and relations too), but the analyzer only optimizes
 the plain-column case and leaves everything else to the existing inline path.
 
-Both wrappers target the **bare** model interface (columns only), unconditionally — this
-initially looked unsafe for `Omit<>` specifically (this package's default `model-split` model
-template puts mutators/relations in separate `{Model}Mutators`/`{Model}Relations` interfaces
-the bare `{Model}`'s `keyof` doesn't span), which would make `Omit<Model, keys>` narrower than
-the *old* inline expansion for a model with any mutator or relation. That comparison is the
-wrong baseline, though: `Illuminate\Database\Eloquent\Concerns\HasAttributes::except()` iterates
+Both wrappers name the model's **own** interface (`Omit<Order, ...>`, `Pick<Order, ...>`) —
+never `{Model}All`, never a mutators/relations interface — and they do so unconditionally, with
+the same text emitted regardless of which model template is configured. What that name *means*
+is template-dependent, so the correctness argument below is scoped to
+`ts-publish.models.template`:
+
+- **Under `model-split`** (the package default) `{Model}` is columns only; mutators, relations,
+  counts, and exists live in `{Model}Mutators`/`{Model}Relations`, which only `{Model}All`
+  unions back together. `Omit<Model, keys>` is therefore a columns-minus-keys type, which is
+  exactly the argument that follows.
+- **Under `model-full`** there is one interface per model carrying all of it. In
+  `workbench/resources/js/types/data/full-template-example/app/models/order.ts`, `Order` holds
+  the columns *and* `item_count`, `formatted_total`, `user`, `items`, `items_count`,
+  `user_exists`, … So the `Omit<Order, 'created_at' | 'updated_at'>` in
+  `.../full-template-example/app/http/resources/order-item-resource.ts` — byte-identical to the
+  one in the `split-template-example` tree — spans all of those too, and describes a value with
+  mutators and relations on it that `Model::except()` does not return at runtime. That is the
+  same inaccuracy the old inline expansion had (see the end of this section); under `model-full`
+  the Omit reference inherits it rather than fixing it. It still compiles — `Omit<T, K>` does not
+  constrain `K` — and it is still a superset of the truth rather than a wrong-typed property, but
+  it is not the tight match the split template gives.
+
+`Pick<>` is unaffected by the template: its keys are gated on `publishedColumnNames()`, so they
+are columns either way and the picked type is the same under both.
+
+The `model-split` argument itself initially looked unsafe for `Omit<>` specifically — the bare
+`{Model}`'s `keyof` doesn't span mutators or relations, which would make `Omit<Model, keys>`
+narrower than the *old* inline expansion for a model with any mutator or relation. That
+comparison is the wrong baseline, though:
+`Illuminate\Database\Eloquent\Concerns\HasAttributes::except()` iterates
 only `$this->getAttributes()` (the raw attribute array) — it never reads `$this->relations` at
 all, and `mergeAttributeFromAttributeCasts()` explicitly refuses to merge a get-only `Attribute`
 cast's value back into `$attributes` (`if ($attribute->get && ! $attribute->set) { return; }`),
@@ -56,8 +80,8 @@ so a get-only accessor can never surface even once it has been accessed. **At ru
 `tests/Feature/ModelOnlyExceptSemanticsTest.php` against a real, DB-fetched `Post` instance with
 a loaded relation and both get-only accessors (`excerpt`, `readingTime`) touched beforehand; the
 result was identical to an untouched instance, and neither the relation nor either accessor
-appeared. The bare-model `Omit<Model, keys>` this analyzer emits matches that ground truth
-exactly. The *old* inline expansion's `except()` branch — which unions `$attrNames` (columns +
+appeared. Under `model-split`, the bare-model `Omit<Model, keys>` this analyzer emits matches that
+ground truth exactly. The *old* inline expansion's `except()` branch — which unions `$attrNames` (columns +
 mutators) with `$relationNames` and subtracts the excluded keys — is the one that was
 inaccurate: it shows relations and mutators `Model::except()` never actually returns at
 runtime. That mismatch predates this feature and is unrelated to `only()`/`except()` no longer
