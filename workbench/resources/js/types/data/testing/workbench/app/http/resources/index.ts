@@ -49,6 +49,7 @@ export * from './merge-closure-resource';
 export * from './merge-multi-branch-closure-resource';
 export * from './misc-collection';
 export * from './model-wrapped-prop-resource';
+export * from './mutually-recursive-spread-resource';
 export * from './non-array-return-resource';
 export * from './order-closure-resource';
 export * from './order-collection';

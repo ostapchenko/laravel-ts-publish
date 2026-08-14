@@ -171,3 +171,21 @@ the exact wrong-but-plausible leak this mechanism exists to prevent.
   param into, so these are rejected before any binding is attempted.
 - **A relation-chain `map()` whose argument isn't a `Closure`/`ArrowFunction`** (a string callable
   like `'strtoupper'`, or an array callable like `[$this, 'method']`) — same reasoning.
+
+## Method-spread recursion guard
+
+`analyzeThisMethodSpread()` resolves a `...$this->method()` spread by re-entering the analyzer on
+that method's own `toArray()`-style return. `$visitedSpreadMethods` (`array<string, true>`) tracks
+which method names are currently on that re-entry stack; a method already on the stack returns
+`null` instead of being analyzed again, so a cycle — direct (`method()` spreads itself) or mutual
+(`alpha()` spreads `beta()`, `beta()` spreads `alpha()`) — degrades to an empty analysis rather than
+recursing. The entry is set right after the `hasMethod()` check and cleared in the same `finally`
+that already restores `$localVarBindings`/`$resolvingLocalVars`/`$varModelBindings`, so it clears on
+the exception path too.
+
+Before this guard existed, a mutually recursive spread had no way to terminate: each call re-entered
+`analyzeThisMethodSpread()` for the other method, which re-entered the AST parser, until PHP's memory
+limit was exhausted (a 512 MB limit fails after roughly 22,000 stack frames). This was reachable
+through the existing spread path with no special setup — see `MutuallyRecursiveSpreadResource` in
+the workbench and the corresponding test in `ResourceAstAnalyzerTest`. The guard is load-bearing, not
+defensive: it fixes a crash that was previously trivial to trigger, not a theoretical one.

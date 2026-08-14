@@ -2209,6 +2209,13 @@ declare global {
         export interface ModelWrappedPropResource {
             title: string;
         }
+        /**
+         * Two methods that spread each other. Without a visited-method guard this recurses until the
+         * parser exhausts memory; with one it degrades to an empty analysis.
+         */
+        export interface MutuallyRecursiveSpreadResource {
+            name: string;
+        }
         export interface NonArrayReturnResource {
         }
         /** Exercises closure / arrow function patterns in value expressions and merge methods. */

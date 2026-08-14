@@ -173,6 +173,14 @@ class ResourceAstAnalyzer
     protected array $resolvingLocalVars = [];
 
     /**
+     * Spread methods currently on the analysis stack, so a method that spreads itself — directly or
+     * through a cycle — degrades to an empty analysis instead of recursing until memory runs out.
+     *
+     * @var array<string, true>
+     */
+    protected array $visitedSpreadMethods = [];
+
+    /**
      * Create an analyzer for a resource class and its optional backing model.
      *
      * @param  ReflectionClass<JsonResource>  $resourceReflection
@@ -1935,6 +1943,12 @@ class ResourceAstAnalyzer
             return null; // @codeCoverageIgnore
         }
 
+        if (isset($this->visitedSpreadMethods[$methodName])) {
+            return null;
+        }
+
+        $this->visitedSpreadMethods[$methodName] = true;
+
         $method = $this->resourceReflection->getMethod($methodName);
         $filePath = $method->getFileName();
 
@@ -1979,6 +1993,7 @@ class ResourceAstAnalyzer
             $this->localVarBindings = $previousLocalVarBindings;
             $this->resolvingLocalVars = $previousResolvingLocalVars;
             $this->varModelBindings = $previousVarModelBindings;
+            unset($this->visitedSpreadMethods[$methodName]);
         }
 
         $docTypes = $this->parseReturnArrayShape($method);

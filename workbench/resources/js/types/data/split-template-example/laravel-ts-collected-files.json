@@ -120,6 +120,7 @@
     "app\/Http\/Resources\/MergeMultiBranchClosureResource.php",
     "app\/Http\/Resources\/MiscCollection.php",
     "app\/Http\/Resources\/ModelWrappedPropResource.php",
+    "app\/Http\/Resources\/MutuallyRecursiveSpreadResource.php",
     "app\/Http\/Resources\/NonArrayReturnResource.php",
     "app\/Http\/Resources\/OrderClosureResource.php",
     "app\/Http\/Resources\/OrderCollection.php",

@@ -9289,6 +9289,16 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\MutuallyRecursiveSpreadResource": {
+            "name": "MutuallyRecursiveSpreadResource",
+            "properties": [
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\NonArrayReturnResource": {
             "name": "NonArrayReturnResource",
             "properties": []

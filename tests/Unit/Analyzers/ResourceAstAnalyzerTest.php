@@ -53,6 +53,7 @@ use Workbench\App\Http\Resources\MergeClosureResource;
 use Workbench\App\Http\Resources\MergeMultiBranchClosureResource;
 use Workbench\App\Http\Resources\MiscCollection;
 use Workbench\App\Http\Resources\ModelWrappedPropResource;
+use Workbench\App\Http\Resources\MutuallyRecursiveSpreadResource;
 use Workbench\App\Http\Resources\NonArrayReturnResource;
 use Workbench\App\Http\Resources\OrderClosureResource;
 use Workbench\App\Http\Resources\OrderCollection;
@@ -1614,6 +1615,19 @@ describe('ResourceAstAnalyzer with trait method spread', function () {
 
         // morphValue comes from PostResource's trait spread, inherited via parent::toArray
         expect($names)->toContain('morphValue');
+    });
+});
+
+describe('ResourceAstAnalyzer with mutually recursive spread methods', function () {
+    it('does not recurse forever when two spread methods reference each other', function () {
+        $reflection = new ReflectionClass(MutuallyRecursiveSpreadResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Team::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props)->toHaveKey('name')
+            ->and($props['name']['type'])->toBe('string');
     });
 });
 
