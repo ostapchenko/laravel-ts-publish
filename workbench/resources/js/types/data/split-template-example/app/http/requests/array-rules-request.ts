@@ -16,6 +16,8 @@ export interface ArrayRulesRequest {
     limited_choices?: (string | null)[] | null;
     required_answers: string[];
     coordinates: number[];
-    products: { name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null }[];
+    /** @format email products.*.contact_email */
+    products: { name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null; contact_email: string }[];
+    /** @format uuid order.id */
     order: { id: string; items: { product_id: number; quantity: number }[] };
 }

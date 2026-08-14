@@ -1615,11 +1615,13 @@
                 },
                 {
                     "fieldPath": "products",
-                    "tsType": "{ name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null }[]",
+                    "tsType": "{ name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null; contact_email: string }[]",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
-                    "jsDocMetadata": []
+                    "jsDocMetadata": [
+                        "@format email products.*.contact_email"
+                    ]
                 },
                 {
                     "fieldPath": "order",
@@ -1627,7 +1629,9 @@
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
-                    "jsDocMetadata": []
+                    "jsDocMetadata": [
+                        "@format uuid order.id"
+                    ]
                 }
             ]
         },

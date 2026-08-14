@@ -446,6 +446,24 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($permissions->tsType)->toBe('{ read: unknown; write: unknown }');
             expect($permissions->isRequired)->toBeTrue();
         });
+
+        it('hoists a nested field JSDoc annotation onto the composed parent', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'order');
+            expect($node)->not->toBeNull();
+            expect($node->jsDocMetadata)->toContain('@format uuid order.id');
+        });
+
+        it('keeps wildcard segments in the hoisted metadata path', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'products');
+            expect($node)->not->toBeNull();
+            expect($node->jsDocMetadata)->toContain('@format email products.*.contact_email');
+        });
     });
 
     describe('auth state restoration', function () {

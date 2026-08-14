@@ -162,7 +162,10 @@ class FormRequestRulesAnalyzer
                 isRequired: $composed['isRequired'],
                 isNullable: $composed['isNullable'],
                 isProhibited: $composed['isProhibited'],
-                jsDocMetadata: $composed['jsDocMetadata'],
+                jsDocMetadata: [
+                    ...$composed['jsDocMetadata'],
+                    ...$this->collectChildJsDoc($childNode->children, (string) $fieldPath),
+                ],
             );
         }
 
@@ -301,6 +304,32 @@ class FormRequestRulesAnalyzer
             'jsDocMetadata' => $own !== null ? $own['jsDocMetadata'] : [],
             'requiredArrayKeys' => [],
         ];
+    }
+
+    /**
+     * Collect descendants' JSDoc metadata, each suffixed with the full rule key it was declared on,
+     * so `@format uuid` on `order.id` still reaches the reader as `@format uuid order.id` on `order`.
+     *
+     * @param  array<string, FormRequestRuleTrieNode>  $children
+     * @return list<string>
+     */
+    protected function collectChildJsDoc(array $children, string $prefix): array
+    {
+        $collected = [];
+
+        foreach ($children as $key => $child) {
+            $path = $prefix.'.'.$key;
+
+            if ($child->own !== null && ! $child->own['isProhibited']) {
+                foreach ($child->own['jsDocMetadata'] as $entry) {
+                    $collected[] = $entry.' '.$path;
+                }
+            }
+
+            $collected = [...$collected, ...$this->collectChildJsDoc($child->children, $path)];
+        }
+
+        return $collected;
     }
 
     /**
