@@ -508,7 +508,7 @@ describe('FormRequestRulesAnalyzer', function () {
     });
 
     describe('composition edge cases', function () {
-        it('intersects a wildcard with its named siblings instead of emitting a "*" key', function () {
+        it('intersects a wildcard with its named siblings and folds its nullable element into the Record value', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
 
@@ -516,15 +516,6 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node)->not->toBeNull();
             expect($node->tsType)->toBe('{ default?: string } & Record<string, string | null>');
             expect($node->tsType)->not->toContain('"*"');
-        });
-
-        it('folds a nullable wildcard element into a mixed node\'s Record value type', function () {
-            $analyzer = new FormRequestRulesAnalyzer;
-            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
-
-            $node = collect($nodes)->firstWhere('fieldPath', 'options');
-            expect($node)->not->toBeNull();
-            expect($node->tsType)->toContain('Record<string, string | null>');
         });
 
         it('types an all-prohibited object as an empty record, not "{  }"', function () {
