@@ -61,13 +61,21 @@ A **prohibited** element short-circuits the wrap entirely: `'empties.*' => ['pro
 `never[]`, i.e. "an array that may not contain anything", rather than an array of the element's
 nominal type.
 
-`arrayWrapType()` parenthesizes before suffixing whenever `hasTopLevelUnion()` says so —
-`('a' | 'b')[]`, not the ambiguous `'a' | 'b'[]`, which TypeScript parses as `'a' | ('b'[])`.
-`hasTopLevelUnion()` is depth- and quote-aware: it tracks `{}`, `<>`, `()` and `[]` nesting and
-reports only a `|` at depth zero, and it skips over single-quoted string literals whole, so a
-bracket or pipe character *inside* a literal (`in:>a,b` → `'>a' | 'b'`) is read as data rather than
-as structure. A `|` nested inside a `{ ... }` shape therefore never triggers the parens — `[]` on
-an object shape is unambiguous even when a property inside it is a union.
+`arrayWrapType()` parenthesizes before suffixing whenever `hasTopLevelSeparator()` says so —
+`('a' | 'b')[]`, not the ambiguous `'a' | 'b'[]`, which TypeScript parses as `'a' | ('b'[])`. The
+same holds for an intersection: a mixed node (see below) nested beneath a wildcard —
+`'buckets.*' => ['array'], 'buckets.*.*' => ['string'], 'buckets.*.name' => ['string']` — composes
+to `buckets?: ({ name?: string } & Record<string, string>)[]`, not the ambiguous
+`{ name?: string } & Record<string, string>[]`, which TypeScript parses as `A & (B[])` rather than
+`(A & B)[]`.
+
+`hasTopLevelSeparator()` is depth- and quote-aware: it tracks `{}`, `<>`, `()` and `[]` nesting and
+reports a `|` or `&` at depth zero, and it skips over single-quoted string literals whole, so a
+bracket, pipe, or ampersand character *inside* a literal (`in:>a,b` → `'>a' | 'b'`) is read as data
+rather than as structure. A `|` or `&` nested inside a `{ ... }` shape therefore never triggers the
+parens — `[]` on an object shape is unambiguous even when a property inside it is a union or
+intersection. Its depth counter floors at zero on an unmatched closing bracket rather than going
+negative, so malformed input fails toward a redundant-but-harmless paren rather than a missed one.
 
 ### Object nodes (named children)
 
@@ -123,8 +131,8 @@ variants?: ({ name: string } | { email: string })[];
 ```
 
 The de-duplication is what keeps `items.0.name`/`items.1.name` from producing
-`({ name: string } | { name: string })[]`, and `hasTopLevelUnion()` is what puts the parens around
-the two-shape `variants` union. If every index is prohibited the node composes to `never[]`.
+`({ name: string } | { name: string })[]`, and `hasTopLevelSeparator()` is what puts the parens
+around the two-shape `variants` union. If every index is prohibited the node composes to `never[]`.
 
 ### Own rule plus children
 
