@@ -86,6 +86,8 @@ class ArrayRulesRequest extends FormRequest
             'order.items' => ['required', 'array', 'min:1'],
             'order.items.*.product_id' => ['required', 'integer'],
             'order.items.*.quantity' => ['required', 'integer', 'min:1'],
+            'order.secret' => ['prohibited'],
+            'order.secret.token' => ['required', 'uuid'],
         ];
     }
 }

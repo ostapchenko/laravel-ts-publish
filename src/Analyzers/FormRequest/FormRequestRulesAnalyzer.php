@@ -320,7 +320,11 @@ class FormRequestRulesAnalyzer
         foreach ($children as $key => $child) {
             $path = $prefix.'.'.$key;
 
-            if ($child->own !== null && ! $child->own['isProhibited']) {
+            if ($child->own !== null && $child->own['isProhibited']) {
+                continue;
+            }
+
+            if ($child->own !== null) {
                 foreach ($child->own['jsDocMetadata'] as $entry) {
                     $collected[] = $entry.' '.$path;
                 }

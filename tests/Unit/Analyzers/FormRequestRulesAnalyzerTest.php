@@ -464,6 +464,16 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node)->not->toBeNull();
             expect($node->jsDocMetadata)->toContain('@format email products.*.contact_email');
         });
+
+        it('drops a prohibited nested field and its descendants from the hoisted metadata', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'order');
+            expect($node)->not->toBeNull();
+            expect($node->jsDocMetadata)->not->toContain('@format uuid order.secret.token');
+            expect($node->tsType)->not->toContain('secret');
+        });
     });
 
     describe('auth state restoration', function () {
