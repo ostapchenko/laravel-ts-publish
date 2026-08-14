@@ -535,7 +535,7 @@ class LaravelTsPublish
 
         if ($doc !== false) {
             if (preg_match(
-                '/@(?:phpstan|psalm)-type\s+'.preg_quote($name, '/').'\b\s+(.+)$/m',
+                '/@(?:phpstan|psalm)-type\s+'.preg_quote($name, '/').'\b\s*=?\s*(.+)$/m',
                 $doc,
                 $m,
                 PREG_OFFSET_CAPTURE,

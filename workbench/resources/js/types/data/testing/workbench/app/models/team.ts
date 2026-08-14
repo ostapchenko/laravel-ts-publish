@@ -20,6 +20,7 @@ export interface Team
     deleted_at: string | null;
     week_days: StatusType[] | null;
     grid_configs: { label: string; config: Record<string, unknown> }[] | null;
+    grid_preset: { name: string; locked?: boolean } | null;
 }
 
 export interface TeamResource extends Omit<Team, 'week_days'>

@@ -6128,6 +6128,10 @@
                     "type": "{ label: string; config: Record<string, unknown> }[] | null"
                 },
                 {
+                    "name": "grid_preset",
+                    "type": "{ name: string; locked?: boolean } | null"
+                },
+                {
                     "name": "has_member",
                     "type": "boolean"
                 },

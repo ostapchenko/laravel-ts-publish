@@ -16,8 +16,10 @@ use Workbench\App\ValueObjects\GridConfigDto;
 
 /**
  * @phpstan-import-type GridConfig from GridConfigDto
+ * @phpstan-import-type GridPreset from GridConfigDto
  *
  * @property GridConfig|null $grid_config
+ * @property GridPreset|null $grid_preset
  * @property array<string, mixed>|null $settings
  */
 class Team extends Model
@@ -32,6 +34,7 @@ class Team extends Model
         'is_active',
         'settings',
         'grid_config',
+        'grid_preset',
         'week_days',
         'grid_configs',
     ];
@@ -42,6 +45,7 @@ class Team extends Model
             'is_active' => 'boolean',
             'settings' => 'array',
             'grid_config' => 'array',
+            'grid_preset' => 'array',
             'week_days' => AsEnumCollection::class.':'.Status::class,
             'grid_configs' => AsCollection::of(GridConfigDto::class),
         ];

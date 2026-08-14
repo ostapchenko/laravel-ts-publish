@@ -1091,6 +1091,17 @@ describe('phpstan type aliases', function () {
             ->and($alias['class']->getName())->toBe(GridConfigDto::class);
     });
 
+    test('an alias declared with the = form resolves without the = in its definition', function () {
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'GridPreset', new ReflectionClass(GridConfigDto::class),
+        );
+
+        expect($alias)->not->toBeNull()
+            ->and($alias['definition'])->toStartWith('array{')
+            ->and($alias['definition'])->not->toStartWith('=')
+            ->and($alias['class']->getName())->toBe(GridConfigDto::class);
+    });
+
     test('an unknown alias name resolves to null', function () {
         $alias = $this->service->resolvePhpstanTypeAlias(
             'NoSuchAlias', new ReflectionClass(GridConfigDto::class),

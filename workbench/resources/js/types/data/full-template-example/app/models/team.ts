@@ -21,6 +21,7 @@ export interface Team
     deleted_at: string | null;
     week_days: StatusType[] | null;
     grid_configs: { label: string; config: Record<string, unknown> }[] | null;
+    grid_preset: { name: string; locked?: boolean } | null;
     // Mutators
     /** Whether the team has any members */
     has_member: boolean;

@@ -8,6 +8,7 @@ use Illuminate\Contracts\Support\Arrayable;
 
 /**
  * @phpstan-type GridConfig array{filters?: array<string, mixed>, sorts?: list<string>, columns?: list<string>}
+ * @phpstan-type GridPreset = array{name: string, locked?: bool}
  *
  * @implements Arrayable<string, mixed>
  */
