@@ -146,7 +146,7 @@ class Image extends Model
         return Attribute::make(get: fn () => null);
     }
 
-    /** @return Attribute<Collection<int, User>, never> */
+    /** @return Attribute<Collection<array-key, User>, never> */
     protected function uploadersFromDocblock(): Attribute
     {
         return Attribute::make(get: fn () => null);

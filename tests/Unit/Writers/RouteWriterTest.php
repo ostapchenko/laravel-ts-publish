@@ -168,10 +168,10 @@ test('runner route generators are empty when routes disabled', function () {
     expect($runner->routeGenerators)->toBeCollection()->toBeEmpty();
 });
 
-test('route content does not include HEAD method', function () {
+test('route content includes HEAD alongside GET method', function () {
     $generator = resolve(RouteGenerator::class, ['findable' => PostController::class]);
 
-    expect($generator->content)->not->toContain("'head'");
+    expect($generator->content)->toContain("methods: ['get', 'head'] as const");
 });
 
 test('pure invokable controller references the invoke export as the default', function () {

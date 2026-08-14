@@ -8,7 +8,7 @@ export type DashboardPageProps = Inertia.SharedData & { stats: { users: number, 
 export const dashboard = annotatePageProps<DashboardPageProps>()(defineRoute({
     name: 'inertia.dashboard',
     url: '/inertia/dashboard',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Dashboard',
 }));
 
@@ -18,7 +18,7 @@ export type SettingsPageProps = Inertia.SharedData & { user: { name: string, ema
 export const settings = annotatePageProps<SettingsPageProps>()(defineRoute({
     name: 'inertia.settings',
     url: '/inertia/settings',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Settings/General',
 }));
 
@@ -28,7 +28,7 @@ export type AboutPageProps = Inertia.SharedData;
 export const about = annotatePageProps<AboutPageProps>()(defineRoute({
     name: 'inertia.about',
     url: '/inertia/about',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'About',
 }));
 
@@ -39,7 +39,7 @@ export type ConditionalGuestPageProps = Inertia.SharedData & { message: string }
 export const conditional = annotatePageProps<ConditionalAuthenticatedPageProps | ConditionalGuestPageProps>()(defineRoute({
     name: 'inertia.conditional',
     url: '/inertia/conditional',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: {authenticated: 'Conditional/Authenticated', guest: 'Conditional/Guest'} as const,
 }));
 
@@ -49,7 +49,7 @@ export type PostPageProps = Inertia.SharedData & { post: Post };
 export const post = annotatePageProps<PostPageProps>()(defineRoute({
     name: 'inertia.post',
     url: '/inertia/post/{post}',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     args: [{name: 'post', required: true, _routeKey: 'id'}] as const,
     component: 'PostShow',
 }));

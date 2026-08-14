@@ -2015,11 +2015,12 @@ describe('ResourceTransformer with morphTo-backed resources', function () {
             ->and($data->properties['no_docblock_accessor']['type'])->toBe('unknown');
     });
 
-    // Collection<int, X> narrows to a bare array; aliasing must still rename that single arm's element.
-    test('an aliased element is replaced in a docblock-narrowed collection type', function () {
+    // A widened container names its element in both arms; aliasing only the first left the second bare.
+    test('an aliased element is replaced in every arm of a widened collection type', function () {
         $data = (new ResourceTransformer(ImageMorphResource::class))->data();
 
-        expect($data->properties['uploaders_from_docblock']['type'])->toBe('WorkbenchUser[]');
+        expect($data->properties['uploaders_from_docblock']['type'])
+            ->toBe('WorkbenchUser[] | Record<string, WorkbenchUser>');
     });
 
     // The same pass must still take exactly one occurrence when two FQCNs share the basename.

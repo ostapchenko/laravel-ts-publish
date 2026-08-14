@@ -276,10 +276,9 @@ class RouteTransformer extends CoreTransformer
             'url' => $url,
             'uri' => $uri,
             'domain' => $route->getDomain(),
-            'methods' => array_values(array_filter(
-                array_map(fn (mixed $m): string => strtolower(is_string($m) ? $m : ''), $route->methods()),
-                fn (string $m): bool => $m !== 'head',
-            )),
+            'methods' => array_values(
+                array_map(fn (mixed $m): string => strtolower(is_string($m) ? $m : ''), $route->methods())
+            ),
             'methodName' => $methodName,
             'originalMethodName' => $originalMethodName,
             'description' => $description,

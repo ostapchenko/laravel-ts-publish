@@ -8,7 +8,7 @@ export type CreatePageProps = Inertia.SharedData;
 export const create = annotatePageProps<CreatePageProps>()(defineRoute({
     name: 'inertia-form-request.create',
     url: '/inertia-form-request/create',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'InertiaFormRequest/Create',
 }));
 

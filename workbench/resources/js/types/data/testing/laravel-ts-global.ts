@@ -351,7 +351,7 @@ declare global {
             uploader_from_docblock: User | null;
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
-            uploaders_from_docblock: User[];
+            uploaders_from_docblock: User[] | Record<string, User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -2094,7 +2094,7 @@ declare global {
             uploader_from_docblock: workbench.app.models.User | null;
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
-            uploaders_from_docblock: workbench.app.models.User[];
+            uploaders_from_docblock: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -2108,7 +2108,7 @@ declare global {
         export interface ImageMorphResource {
             id: number;
             imageable: workbench.app.models.Post | workbench.app.models.Product | workbench.app.models.User | workbench.crm.models.User;
-            uploaders_from_docblock: workbench.app.models.User[];
+            uploaders_from_docblock: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
             imageable_when_loaded?: workbench.app.models.Post | workbench.app.models.Product | workbench.app.models.User | workbench.crm.models.User;
         }
         /** Exercises: whenNotNull on multiple nullable columns. */
@@ -3246,7 +3246,7 @@ declare global {
             exact_size_file?: File | null;
         }
         export interface NestedEdgeCasesRequest {
-            options?: { default?: string } & Record<string, string>;
+            options?: { default?: string } & Record<string, string | null>;
             meta?: Record<string, never>;
             empties?: never[];
             "v1.0": string;

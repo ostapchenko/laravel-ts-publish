@@ -3,7 +3,7 @@ import { defineRoute } from '@tolki/ts';
 export const invoke = defineRoute({
     name: 'invokable.model.bound',
     url: '/invokable-model-bound/{post}',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     args: [{name: 'post', required: true, _routeKey: 'id'}] as const,
 });
 

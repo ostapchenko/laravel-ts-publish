@@ -10,7 +10,7 @@ export const deleteMethod = defineRoute({
 export const exportMethod = defineRoute({
     name: 'items.export',
     url: '/items/export',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
 });
 
 /** @see Workbench\App\Http\Controllers\DeleteController */

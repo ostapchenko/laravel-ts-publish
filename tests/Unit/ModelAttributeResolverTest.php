@@ -263,10 +263,16 @@ describe('morphTo docblock generics', function () {
             ->and($info['morphFqcns'])->toBe([User::class]);
     });
 
-    test('a bare Model generic still resolves through the reverse map', function () {
-        $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'subject');
+    test('a sibling morphTo\'s docblock generic does not pollute this one', function () {
+        $resolver = resolve(ModelAttributeResolver::class);
 
-        expect($info['type'])->not->toContain('User'); // not polluted by causer
+        // Resolve causer (concrete User generic) first: a per-model cache bug, rather than a
+        // correct per-relation one, would leak its target into subject's bare-generic resolution.
+        $resolver->resolveRelation(Activity::class, 'causer');
+
+        $info = $resolver->resolveRelation(Activity::class, 'subject');
+
+        expect($info['type'])->toBe('unknown');
     });
 
     test('an unresolved MorphTo stays bare unknown instead of unknown | null', function () {

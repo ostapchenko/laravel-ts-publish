@@ -2013,7 +2013,7 @@
             "fields": [
                 {
                     "fieldPath": "options",
-                    "tsType": "{ default?: string } & Record<string, string>",
+                    "tsType": "{ default?: string } & Record<string, string | null>",
                     "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
@@ -4504,7 +4504,7 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
-                    "type": "ModelsUser[]"
+                    "type": "ModelsUser[] | Record<string, ModelsUser>"
                 },
                 {
                     "name": "tree_from_docblock",
@@ -9097,7 +9097,7 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
-                    "type": "ModelsUser[]",
+                    "type": "ModelsUser[] | Record<string, ModelsUser>",
                     "optional": false
                 },
                 {
@@ -9157,7 +9157,7 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
-                    "type": "ModelsUser[]",
+                    "type": "ModelsUser[] | Record<string, ModelsUser>",
                     "optional": false
                 },
                 {

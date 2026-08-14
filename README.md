@@ -397,7 +397,7 @@ Key capabilities:
 - **Structural typing** — model and enum route bindings are fully typed without ever importing the PHP model or enum class into the route file.
 - **Multiple calling conventions** — named object, positional arguments, an array of positional arguments, or a bare model/scalar for single-parameter routes.
 - **Query strings** — extra keys become query parameters automatically, with a `_query` escape hatch and a `mergeQuery` option for updating the current page's query string.
-- **`.form()` helper** — builds `{ action, method }` for HTML forms, including Laravel's `_method` spoofing for `PUT`/`PATCH`/`DELETE`.
+- **`.form()` helper** — builds `{ action, method }` for HTML forms, including Laravel's `_method` spoofing for `PUT`/`PATCH`/`DELETE`, and mapping `HEAD` to a plain GET form action (HTML forms can't submit `HEAD`).
 - **Inertia integration** — page-prop types and the component name are inferred and attached automatically when `inertia.enabled` is on.
 - **Inertia UI Table typing** — routes rendering an [Inertia UI Table](https://inertiaui.com/) get an automatically typed `TableResource<Model>` page prop without evaluating the table, with table-tainted controllers safely falling back instead of erroring.
 - **Form Request payloads** — a controller method's `FormRequest` type-hint automatically attaches its generated interface to the route.

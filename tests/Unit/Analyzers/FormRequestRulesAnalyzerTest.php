@@ -514,8 +514,17 @@ describe('FormRequestRulesAnalyzer', function () {
 
             $node = collect($nodes)->firstWhere('fieldPath', 'options');
             expect($node)->not->toBeNull();
-            expect($node->tsType)->toBe('{ default?: string } & Record<string, string>');
+            expect($node->tsType)->toBe('{ default?: string } & Record<string, string | null>');
             expect($node->tsType)->not->toContain('"*"');
+        });
+
+        it('folds a nullable wildcard element into a mixed node\'s Record value type', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'options');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toContain('Record<string, string | null>');
         });
 
         it('types an all-prohibited object as an empty record, not "{  }"', function () {

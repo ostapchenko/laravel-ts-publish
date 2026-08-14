@@ -1482,11 +1482,12 @@ describe('ModelTransformer alias occurrence handling', function () {
         ]);
     });
 
-    // Collection<int, X> narrows to a bare array; aliasing must still rename that single arm's element.
-    test('an aliased element is replaced in a docblock-narrowed collection type', function () {
+    // A widened container names its element in both arms; aliasing only the first left the second bare.
+    test('an aliased element is replaced in every arm of a widened collection type', function () {
         $data = (new ModelTransformer(Image::class))->data();
 
-        expect($data->mutators['uploaders_from_docblock']['type'])->toBe('WorkbenchUser[]');
+        expect($data->mutators['uploaders_from_docblock']['type'])
+            ->toBe('WorkbenchUser[] | Record<string, WorkbenchUser>');
     });
 
     test('a same-basename morph union still gets one replacement per aliasing pass', function () {

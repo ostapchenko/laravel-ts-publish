@@ -9,7 +9,7 @@ export type LengthAwarePageProps = Inertia.SharedData & { posts: LengthAwarePagi
 export const lengthAware = annotatePageProps<LengthAwarePageProps>()(defineRoute({
     name: 'pagination.length-aware',
     url: '/pagination/length-aware',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/Index',
 }));
 
@@ -19,7 +19,7 @@ export type SimplePageProps = Inertia.SharedData & { posts: SimplePaginator<Post
 export const simple = annotatePageProps<SimplePageProps>()(defineRoute({
     name: 'pagination.simple',
     url: '/pagination/simple',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/Simple',
 }));
 
@@ -29,7 +29,7 @@ export type CursorPageProps = Inertia.SharedData & { posts: CursorPaginator<Post
 export const cursor = annotatePageProps<CursorPageProps>()(defineRoute({
     name: 'pagination.cursor',
     url: '/pagination/cursor',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/Cursor',
 }));
 
