@@ -392,8 +392,10 @@ describe('toTsType Step 3 judgment calls: vector, geometry/geography, set', func
     });
 
     test('geometry and geography resolve to unknown, the honest answer for a driver-dependent shape', function (string $native) {
+        // Asserted on the parameterized form Postgres emits: the bare name would pass on the
+        // fall-through default alone, so it cannot tell a map hit from a missing entry.
         expect($this->service->toTsType($native)['type'])->toBe('unknown');
-    })->with(['geometry', 'geography']);
+    })->with(['geometry(point,4326)', 'geography(point,4326)']);
 
     test('set resolves to string, not string[] — MySQL returns a comma-joined value', function () {
         expect($this->service->toTsType('set')['type'])->toBe('string');
