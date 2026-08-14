@@ -121,7 +121,7 @@ trait ResolvesModelTypes
     /**
      * Build a ResourceAnalysis from all model attributes and relations when the resource
      * delegates to JsonResource::toArray(). $excludeHidden is false only for only(), whose
-     * property set is the caller's own keys, not this implicit one.
+     * property set is the caller's own keys — also gates the write-only mutator skip below.
      */
     protected function buildModelDelegatedAnalysis(bool $excludeHidden = true): ?ResourceAnalysis
     {
@@ -149,9 +149,16 @@ trait ResolvesModelTypes
                 continue;
             }
 
-            // A non-column attribute Model::except()/toArray() could never produce is a write-only
-            // mutator that ModelTransformer::transformMutators() itself omits; real columns always stay.
-            if (! in_array($attr['name'], $dbColumns, true) && $resolver->isOmittedMutator($modelClass, $attr['name'])) {
+            // Only for the implicit paths ($excludeHidden true — except()/whole-model): a non-column
+            // attribute Model::except()/toArray() could never produce is a write-only mutator that
+            // ModelTransformer::transformMutators() itself omits. Model::only() resolves through
+            // getAttribute() instead, which *does* return the key (as null) for that same mutator,
+            // so an explicitly-named key must never be dropped here.
+            $isOmittedMutator = $excludeHidden
+                && ! in_array($attr['name'], $dbColumns, true)
+                && $resolver->isOmittedMutator($modelClass, $attr['name']);
+
+            if ($isOmittedMutator) {
                 continue;
             }
 

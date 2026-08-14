@@ -9908,6 +9908,11 @@
                     "optional": false
                 },
                 {
+                    "name": "search_index",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
                     "name": "items",
                     "type": "OrderItem[]",
                     "optional": false

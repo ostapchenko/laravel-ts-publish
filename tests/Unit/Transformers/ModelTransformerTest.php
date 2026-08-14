@@ -1089,11 +1089,17 @@ describe('ModelTransformer composite morph foreign keys', function () {
             CompositeMorphTo::class => 'morph',
         ]);
 
-        $data = (new ModelTransformer(CompositeComment::class))->data();
+        $resolver = resolve(ModelAttributeResolver::class);
+        $relation = $resolver->getRelations(CompositeComment::class)->firstWhere('name', 'commentable');
 
         // CompositeComment.commentable has composite FK ['commentable_id_1', 'commentable_id_2'] and
-        // commentable_id_2 is nullable, but 'unknown' already admits null, so no ' | null' suffix
-        // is appended.
+        // commentable_id_2 is nullable. The emitted type stays bare 'unknown' either way (an
+        // unresolved MorphTo target already admits null), so assert the nullability computation
+        // itself rather than the type string, which can no longer distinguish the two cases.
+        expect($resolver->getRelationNullable(CompositeComment::class)->isNullable($relation))->toBeTrue();
+
+        $data = (new ModelTransformer(CompositeComment::class))->data();
+
         expect($data->relations['commentable']['type'])->toBe('unknown');
     });
 
@@ -1102,10 +1108,16 @@ describe('ModelTransformer composite morph foreign keys', function () {
             CompositeMorphTo::class => 'morph',
         ]);
 
-        $data = (new ModelTransformer(StrictCompositeComment::class))->data();
+        $resolver = resolve(ModelAttributeResolver::class);
+        $relation = $resolver->getRelations(StrictCompositeComment::class)->firstWhere('name', 'commentable');
 
         // StrictCompositeComment.commentable has composite FK ['commentable_id_1', 'commentable_id_2'],
-        // all NOT NULL alongside commentable_type; the MorphTo target itself stays 'unknown'.
+        // all NOT NULL alongside commentable_type — see the sibling test above for why the type
+        // string can't carry this assertion anymore.
+        expect($resolver->getRelationNullable(StrictCompositeComment::class)->isNullable($relation))->toBeFalse();
+
+        $data = (new ModelTransformer(StrictCompositeComment::class))->data();
+
         expect($data->relations['commentable']['type'])->toBe('unknown');
     });
 });

@@ -2005,6 +2005,16 @@ describe('ResourceTransformer with morphTo-backed resources', function () {
             ->and($allTypeImports)->toContain('Post', 'Product', 'User as WorkbenchUser', 'User as CrmUser');
     });
 
+    test('a get-having accessor with an unresolvable type survives model-delegated analysis as unknown', function () {
+        // no_docblock_accessor has a real getter (unlike search_index's write-only case), just
+        // nothing to read a type from. ModelTransformer::transformMutators() keeps such a mutator
+        // as 'unknown' rather than omitting it, and buildModelDelegatedAnalysis() must agree.
+        $data = (new ResourceTransformer(ImageDelegatedResource::class))->data();
+
+        expect($data->properties)->toHaveKey('no_docblock_accessor')
+            ->and($data->properties['no_docblock_accessor']['type'])->toBe('unknown');
+    });
+
     // Collection<int, X> narrows to a bare array; aliasing must still rename that single arm's element.
     test('an aliased element is replaced in a docblock-narrowed collection type', function () {
         $data = (new ResourceTransformer(ImageMorphResource::class))->data();

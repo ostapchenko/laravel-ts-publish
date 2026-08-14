@@ -94,12 +94,23 @@ above — no longer emits a write-only mutator with no getter and no docblock `G
 `search_index: unknown`). `ModelAttributeResolver::isOmittedMutator()` is the same signal
 `ModelTransformer::transformMutators()` uses to drop it there, so the two now agree for that
 model. A real database column is never dropped by this check even when its own resolved type is
-`unknown`, matching `transformColumns()`, which always keeps a column. The relations half of the
-inaccuracy above is untouched — `Model::except()` never returns a relation either, and that stays
-out of scope. `resolveFilteredRelationType()`'s except branch (`$this->relation->except([...])`)
-still tests the blunter `$tsInfo['type'] !== 'unknown'` rather than `isOmittedMutator()`, so unlike
-`buildModelDelegatedAnalysis()` it also drops a mutator that *has* a getter but resolves to an
-untypeable `unknown` — a known, un-fixed inconsistency between the two `except()` paths.
+`unknown`, matching `transformColumns()`, which always keeps a column.
+
+The skip is gated on `$excludeHidden` — true for the implicit paths, false only for `only()` — for
+the same reason `HasAttributes::except()`/`only()` themselves diverge: `except()` (`:2146`) iterates
+`getAttributes()`, which a write-only mutator was never added to, so it truly cannot appear;
+`only()` (`:2129`) instead calls `getAttribute($key)` per named key, which *does* return the key
+(as `null`, absent a getter to transform a stored value) even for a write-only mutator. So
+`return $this->only(['search_index'])` keeps `search_index: unknown` — `unknown` because nothing
+here infers a type from a *setter*, and that already admits the `null` `getAttribute()` would
+return. `OrderOnlyResource`'s fixture pins this against `search_index` directly.
+
+The relations half of the inaccuracy above is untouched — `Model::except()` never returns a
+relation either, and that stays out of scope. `resolveFilteredRelationType()`'s except branch
+(`$this->relation->except([...])`) still tests the blunter `$tsInfo['type'] !== 'unknown'` rather
+than `isOmittedMutator()`, so unlike `buildModelDelegatedAnalysis()` it also drops a mutator that
+*has* a getter but resolves to an untypeable `unknown` — a known, un-fixed inconsistency between
+the two `except()` paths.
 
 ### `exclude_hidden` on the top-level resource, not just relation filters
 

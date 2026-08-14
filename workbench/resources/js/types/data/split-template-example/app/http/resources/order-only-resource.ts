@@ -14,6 +14,7 @@ export interface OrderOnlyResource
     total: number;
     notes: string | null;
     item_count: number;
+    search_index: unknown;
     items: OrderItem[];
     user?: UserResource;
 }

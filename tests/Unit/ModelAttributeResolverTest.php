@@ -465,10 +465,11 @@ describe('@property docblock refinement', function () {
     });
 
     test('a refinement that is itself vague-but-not-entirely-vague never replaces an already-structured vague type', function () {
-        // 'meta_info' casts to AsArrayObject -> Record<string, unknown>: vague, but not one of the four
-        // "entirely vague" literals. The class's own @property tag resolves to the differently-vague
-        // Record<string, unknown[]> (also not one of the four) — isEntirelyVagueTsType(current) is false
-        // for both sides, so isStrictlyMoreStructured() must reject and keep the AsArrayObject-derived type.
+        // 'meta_info' casts to Eloquent's Collection -> Record<string, unknown>: vague, but not one of
+        // the four "entirely vague" literals (unlike AsArrayObject's own map entry as of Task 11). The
+        // class's own @property tag resolves to the differently-vague Record<string, unknown[]> (also
+        // not one of the four) — isEntirelyVagueTsType(current) is false for both sides, so
+        // isStrictlyMoreStructured() must reject and keep the Collection-derived type.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(PropertyDocblockRejectFixture::class, 'meta_info');
 

@@ -1907,6 +1907,16 @@ describe('ResourceAstAnalyzer with OrderOnlyResource (spread only)', function ()
             ->and($user['type'])->toBe('UserResource')
             ->and($user['optional'])->toBeTrue();
     });
+
+    test('only() keeps an explicitly-named write-only mutator that except() would omit', function () {
+        // Model::only() resolves through getAttribute(), which does return search_index (as null)
+        // — unlike Model::except()/toArray(), which never returns it at all. Naming it in only()
+        // is the caller's own explicit choice, so buildModelDelegatedAnalysis() must not drop it.
+        $searchIndex = collect($this->analysis->properties)->firstWhere('name', 'search_index');
+
+        expect($searchIndex)->not->toBeNull()
+            ->and($searchIndex['type'])->toBe('unknown');
+    });
 });
 
 describe('ResourceAstAnalyzer with OrderExceptResource (direct return)', function () {

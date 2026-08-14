@@ -2391,6 +2391,7 @@ declare global {
             total: number;
             notes: string | null;
             item_count: number;
+            search_index: unknown;
             items: workbench.app.models.OrderItem[];
             user?: UserResource;
         }
