@@ -18,7 +18,7 @@ export interface Activity
     created_at: string | null;
     updated_at: string | null;
     // Relations
-    subject: unknown | null;
+    subject: unknown;
     causer: User | null;
     // Counts
     subject_count: number;

@@ -222,8 +222,9 @@ test('resolveRelation returns unknown for MorphTo when no targets exist', functi
 
     $result = $resolver->resolveRelation(CompositeComment::class, 'commentable');
 
-    // CompositeComment has nullable FK columns, so it gets ' | null' appended
-    expect($result['type'])->toBe('unknown | null')
+    // CompositeComment has nullable FK columns, but 'unknown' already admits null, so no
+    // ' | null' suffix is appended.
+    expect($result['type'])->toBe('unknown')
         ->and($result['modelFqcn'])->toBeNull();
 });
 
@@ -266,6 +267,14 @@ describe('morphTo docblock generics', function () {
         $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'subject');
 
         expect($info['type'])->not->toContain('User'); // not polluted by causer
+    });
+
+    test('an unresolved MorphTo stays bare unknown instead of unknown | null', function () {
+        // subject has nullable FK columns, so a naive nullable append would otherwise read
+        // 'unknown | null' — but 'unknown' already admits null, making the union redundant.
+        $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'subject');
+
+        expect($info['type'])->toBe('unknown');
     });
 
     test('two morphTos on one model do not share a target union', function () {

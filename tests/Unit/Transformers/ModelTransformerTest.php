@@ -1092,8 +1092,9 @@ describe('ModelTransformer composite morph foreign keys', function () {
         $data = (new ModelTransformer(CompositeComment::class))->data();
 
         // CompositeComment.commentable has composite FK ['commentable_id_1', 'commentable_id_2'] and
-        // commentable_id_2 is nullable; the MorphTo target itself stays 'unknown'.
-        expect($data->relations['commentable']['type'])->toBe('unknown | null');
+        // commentable_id_2 is nullable, but 'unknown' already admits null, so no ' | null' suffix
+        // is appended.
+        expect($data->relations['commentable']['type'])->toBe('unknown');
     });
 
     test('MorphTo with composite FK is not nullable when all columns are non-nullable', function () {

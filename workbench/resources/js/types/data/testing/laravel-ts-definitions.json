@@ -3645,7 +3645,7 @@
                 },
                 {
                     "name": "subject",
-                    "type": "unknown | null"
+                    "type": "unknown"
                 },
                 {
                     "name": "causer",
@@ -4193,7 +4193,7 @@
                 },
                 {
                     "name": "commentable",
-                    "type": "unknown | null"
+                    "type": "unknown"
                 },
                 {
                     "name": "commentable_count",
@@ -5910,7 +5910,7 @@
                 },
                 {
                     "name": "commentable",
-                    "type": "unknown | null"
+                    "type": "unknown"
                 },
                 {
                     "name": "commentable_count",
@@ -9749,11 +9749,6 @@
                     "optional": false
                 },
                 {
-                    "name": "search_index",
-                    "type": "unknown",
-                    "optional": false
-                },
-                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -11206,11 +11201,6 @@
                     "optional": false
                 },
                 {
-                    "name": "search_index",
-                    "type": "unknown",
-                    "optional": false
-                },
-                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -11403,11 +11393,6 @@
                 {
                     "name": "formatted_total",
                     "type": "string",
-                    "optional": false
-                },
-                {
-                    "name": "search_index",
-                    "type": "unknown",
                     "optional": false
                 },
                 {

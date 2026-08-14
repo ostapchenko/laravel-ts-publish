@@ -125,11 +125,15 @@ trait ResolvesModelTypes
      */
     protected function buildModelDelegatedAnalysis(bool $excludeHidden = true): ?ResourceAnalysis
     {
-        if ($this->modelAttributes === null) {
+        if ($this->modelAttributes === null || $this->modelClass === null) {
             return null;
         }
 
-        $dropHidden = $excludeHidden && resolve(ModelAttributeResolver::class)->excludeHiddenAttributes();
+        /** @var class-string $modelClass */
+        $modelClass = $this->modelClass;
+        $resolver = resolve(ModelAttributeResolver::class);
+        $dropHidden = $excludeHidden && $resolver->excludeHiddenAttributes();
+        $dbColumns = $resolver->databaseColumnNames($modelClass);
 
         /** @var ResourcePropertyInfoList $properties */
         $properties = [];
@@ -142,6 +146,12 @@ trait ResolvesModelTypes
 
         foreach ($this->modelAttributes as $attr) {
             if ($dropHidden && $attr['hidden']) {
+                continue;
+            }
+
+            // A non-column attribute Model::except()/toArray() could never produce is a write-only
+            // mutator that ModelTransformer::transformMutators() itself omits; real columns always stay.
+            if (! in_array($attr['name'], $dbColumns, true) && $resolver->isOmittedMutator($modelClass, $attr['name'])) {
                 continue;
             }
 

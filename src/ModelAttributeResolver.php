@@ -302,6 +302,26 @@ class ModelAttributeResolver
     }
 
     /**
+     * Whether a non-column attribute is a write-only mutator that ModelTransformer::transformMutators()
+     * itself omits: no getter closure and no docblock Get generic to type it from.
+     *
+     * @param  class-string  $modelFqcn
+     */
+    public function isOmittedMutator(string $modelFqcn, string $attributeName): bool
+    {
+        $ctx = $this->resolveContext($modelFqcn);
+
+        if ($ctx === null) {
+            return false;
+        }
+
+        $accessorInfo = $this->resolveAccessorType($attributeName, $ctx['instance'], $ctx['reflection']);
+        $resolved = $this->refineWithPropertyDocblock($ctx['reflection'], $attributeName, $accessorInfo);
+
+        return $resolved['omit'] ?? false;
+    }
+
+    /**
      * Resolve a relation name to its TypeScript type and related model FQCN.
      *
      * `morphFqcns` carries every parent a MorphTo may resolve to, because `modelFqcn` can only name one
@@ -735,7 +755,8 @@ class ModelAttributeResolver
 
         $nullableRelations = Config::boolean('ts-publish.models.nullable_relations');
 
-        if ($nullableRelations && $ctx['relationNullable']->isNullable($relation)) {
+        // 'unknown' already admits null, so appending the suffix would only add noise.
+        if ($type !== 'unknown' && $nullableRelations && $ctx['relationNullable']->isNullable($relation)) {
             $type .= ' | null';
         }
 

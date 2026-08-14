@@ -31,7 +31,6 @@ export interface SpreadWithGuardDoubleClosureReturnResource
     item_count: number;
     is_paid: boolean;
     formatted_total: string;
-    search_index: unknown;
     tracking_code: string | null;
     score_map: Record<string, number>;
     sorted_items: OrderItem[];

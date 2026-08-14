@@ -106,7 +106,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             // Relations
-            subject: unknown | null;
+            subject: unknown;
             subject_count: number;
             subject_exists: boolean;
             causer: User | null;
@@ -262,7 +262,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             // Relations
-            commentable: unknown | null;
+            commentable: unknown;
             commentable_count: number;
             commentable_exists: boolean;
         }
@@ -746,11 +746,11 @@ declare global {
         }
         /**
          * Pins ModelAttributeResolver::isStrictlyMoreStructured()'s reject direction: `meta_info` casts
-         * to AsArrayObject (Record<string, unknown>) — vague, but not "entirely" vague (not one of the
-         * four hardcoded literals) — so the class's own @property tag, whose `array<string, array>`
-         * generic resolves to the *differently* vague `Record<string, unknown[]>`, must never replace
-         * it. Both candidate and current genuinely differ in the emitted string, so acceptance vs.
-         * rejection is observable regardless of the nullable `| null` suffix either path would add.
+         * to Eloquent's Collection (Record<string, unknown>) — vague, but not "entirely" vague (not one
+         * of the four hardcoded literals) — so the class's own @property tag, whose `array<string,
+         * array>` generic resolves to the *differently* vague `Record<string, unknown[]>`, must never
+         * replace it. Both candidate and current genuinely differ in the emitted string, so acceptance
+         * vs. rejection is observable regardless of the nullable `| null` suffix either path would add.
          */
         export interface PropertyDocblockRejectFixture {
             // Columns
@@ -840,7 +840,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             // Relations
-            commentable: unknown | null;
+            commentable: unknown;
             commentable_count: number;
             commentable_exists: boolean;
         }
@@ -2346,7 +2346,6 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
-            search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[];
@@ -2760,7 +2759,6 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
-            search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[];
@@ -2801,7 +2799,6 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
-            search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: workbench.app.models.OrderItem[];

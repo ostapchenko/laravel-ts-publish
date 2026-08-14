@@ -116,10 +116,10 @@ test('maps bare castable classes to their TS shapes', function (string $castable
 
     expect($map[strtolower($castableClass)])->toBe($expected);
 })->with([
-    [AsArrayObject::class, 'Record<string, unknown>'],
-    // Both sibling ArrayObject casts hydrate an ArrayObject too, so they must not read as arrays.
-    [AsEncryptedArrayObject::class, 'Record<string, unknown>'],
-    [AsEnumArrayObject::class, 'Record<string, unknown>'],
+    [AsArrayObject::class, 'unknown[] | Record<string, unknown>'],
+    // Both sibling ArrayObject casts hydrate an ArrayObject too, so a list payload must stay legal.
+    [AsEncryptedArrayObject::class, 'unknown[] | Record<string, unknown>'],
+    [AsEnumArrayObject::class, 'unknown[] | Record<string, unknown>'],
     [AsStringable::class, 'string'],
     [AsCollection::class, 'unknown[]'],
     [AsEncryptedCollection::class, 'unknown[]'],

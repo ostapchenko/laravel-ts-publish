@@ -41,13 +41,14 @@ class TypeScriptMap
             AsUri::class => 'string',
             AsBinary::class => 'string',
             AsFluent::class => 'object',
-            AsArrayObject::class => 'Record<string, unknown>',
+            AsArrayObject::class => 'unknown[] | Record<string, unknown>',
             AsCollection::class => 'unknown[]',
-            // The three As*ArrayObject casts all hydrate an ArrayObject, which serializes as a
-            // JSON object — not an array — so they share AsArrayObject's shape.
-            AsEncryptedArrayObject::class => 'Record<string, unknown>',
+            // The three As*ArrayObject casts all hydrate an ArrayObject, whose jsonSerialize()
+            // returns getArrayCopy() verbatim — a list payload stays a JSON array, so the object
+            // shape alone would reject it.
+            AsEncryptedArrayObject::class => 'unknown[] | Record<string, unknown>',
             AsEncryptedCollection::class => 'unknown[]',
-            AsEnumArrayObject::class => 'Record<string, unknown>',
+            AsEnumArrayObject::class => 'unknown[] | Record<string, unknown>',
             AsEnumCollection::class => 'unknown[]',
             EloquentCollection::class => 'Record<string, unknown>',
             Collection::class => 'unknown[] | Record<string, unknown>',

@@ -261,6 +261,19 @@ degrades to the old, model-wide behavior instead of losing the union to `unknown
 exactly one `morphTo` relation is unaffected either way, since its keyed and legacy buckets always
 hold the same parents.
 
+## An unresolved MorphTo stays bare `unknown`, never `unknown | null`
+
+When a `MorphTo` has no targets — the docblock generic is absent/non-narrowing and the reverse map
+finds no parent — `buildMorphUnionInfo()` types it `'unknown'`. `unknown` already admits `null`, so
+appending `' | null'` for a nullable FK would only add a redundant union arm; `buildMorphUnionInfo()`
+skips the suffix whenever the resolved base type is exactly `'unknown'`.
+
+`ModelTransformer::transformRelations()` does not call `buildMorphUnionInfo()` — it re-derives the
+same union from `resolveMorphToTargets()` and applies its own nullable suffix, because the model's
+own interface generation predates `resolveRelation()`'s consolidation (see the section above). The
+same `!== 'unknown'` guard is applied there independently, so a model's own MorphTo relation and a
+resource's inline reference to it never disagree on this.
+
 ## Declaring-file use-maps for trait-provided methods
 
 Every docblock resolution that needs "the use-map/namespace of the file that wrote this

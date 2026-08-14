@@ -1945,6 +1945,15 @@ describe('ResourceAstAnalyzer with OrderExceptResource (direct return)', functio
         expect($paidAt)->not->toBeNull()
             ->and($paidAt['type'])->toBe('string | null');
     });
+
+    test('except() omits a write-only mutator Model::except() could never produce', function () {
+        // search_index has no getter and no docblock generic, so it is never a real member of
+        // the attributes bag except() derives its property set from — unlike a named exclusion,
+        // it must never surface as `search_index: unknown`.
+        $names = array_column($this->analysis->properties, 'name');
+
+        expect($names)->not->toContain('search_index');
+    });
 });
 
 describe('ResourceAstAnalyzer with OrderFilterEdgeResource (edge cases)', function () {

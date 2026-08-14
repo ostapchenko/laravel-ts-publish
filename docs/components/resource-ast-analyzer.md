@@ -88,6 +88,19 @@ runtime. That mismatch predates this feature and is unrelated to `only()`/`excep
 being re-derived inline; it isn't fixed here (out of scope), but is worth knowing if you're
 relying on the shape of an `except()`-filtered relation for a key that isn't a column.
 
+**Mutator half fixed in a later pass:** `buildModelDelegatedAnalysis()`'s own property set — used
+by whole-model delegation and `return $this->except([...])`, not the relation-filter inline path
+above — no longer emits a write-only mutator with no getter and no docblock `Get` generic (e.g.
+`search_index: unknown`). `ModelAttributeResolver::isOmittedMutator()` is the same signal
+`ModelTransformer::transformMutators()` uses to drop it there, so the two now agree for that
+model. A real database column is never dropped by this check even when its own resolved type is
+`unknown`, matching `transformColumns()`, which always keeps a column. The relations half of the
+inaccuracy above is untouched — `Model::except()` never returns a relation either, and that stays
+out of scope. `resolveFilteredRelationType()`'s except branch (`$this->relation->except([...])`)
+still tests the blunter `$tsInfo['type'] !== 'unknown'` rather than `isOmittedMutator()`, so unlike
+`buildModelDelegatedAnalysis()` it also drops a mutator that *has* a getter but resolves to an
+untypeable `unknown` — a known, un-fixed inconsistency between the two `except()` paths.
+
 ### `exclude_hidden` on the top-level resource, not just relation filters
 
 The rule established above for `$this->relation->only()/except()` — hidden columns fall out of an
