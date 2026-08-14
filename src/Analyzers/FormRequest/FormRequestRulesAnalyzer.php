@@ -55,6 +55,9 @@ use UnitEnum;
  */
 class FormRequestRulesAnalyzer
 {
+    /** Sentinel standing in for an escaped `\.` while a rule key is split on its real separators. */
+    private const DOT_PLACEHOLDER = "\x00ltsp-dot\x00";
+
     /**
      * Whether the rules could not be resolved statically.
      */
@@ -189,7 +192,11 @@ class FormRequestRulesAnalyzer
 
             $node = $root;
 
-            foreach (explode('.', $fieldPath) as $segment) {
+            $escaped = str_replace('\\.', self::DOT_PLACEHOLDER, $fieldPath);
+
+            foreach (explode('.', $escaped) as $rawSegment) {
+                $segment = str_replace(self::DOT_PLACEHOLDER, '.', $rawSegment);
+
                 if (! isset($node->children[$segment])) {
                     $node->children[$segment] = new FormRequestRuleTrieNode;
                 }

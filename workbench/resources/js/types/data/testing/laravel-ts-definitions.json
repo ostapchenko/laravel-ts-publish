@@ -2018,6 +2018,14 @@
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "v1.0",
+                    "tsType": "string",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
                 }
             ]
         },

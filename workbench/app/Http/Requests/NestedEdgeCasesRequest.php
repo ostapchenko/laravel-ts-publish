@@ -30,6 +30,9 @@ class NestedEdgeCasesRequest extends FormRequest
             // Prohibited wildcard element — the array must be empty.
             'empties' => ['array'],
             'empties.*' => ['prohibited'],
+
+            // Escaped dot — Laravel reads this as one attribute literally named `v1.0`.
+            'v1\.0' => ['required', 'string'],
         ];
     }
 }

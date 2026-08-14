@@ -505,6 +505,18 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node)->not->toBeNull();
             expect($node->tsType)->toBe('never[]');
         });
+
+        it('treats an escaped dot as a literal attribute name, not a path separator', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $paths = array_map(fn ($n) => $n->fieldPath, $nodes);
+            expect($paths)->toContain('v1.0');
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'v1.0');
+            expect($node->tsType)->toBe('string');
+            expect($node->isRequired)->toBeTrue();
+        });
     });
 
     describe('auth state restoration', function () {
