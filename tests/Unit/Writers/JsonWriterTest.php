@@ -89,7 +89,7 @@ test('resources map keys by FQCN so same-basename resources cannot collapse', fu
     expect($decoded['resources'])->toHaveKey('Workbench\App\Http\Resources\UserResource')
         ->and($decoded['resources'])->toHaveKey('Workbench\Crm\Http\Resources\UserResource')
         ->and($decoded['resources']['Workbench\Crm\Http\Resources\UserResource']['name'])->toBe('UserResource')
-        ->and($decoded['resources'])->toHaveCount(107);
+        ->and($decoded['resources'])->toHaveCount(109);
 });
 
 test('form requests map keys by FQCN and carries the short type name', function () {

@@ -2919,6 +2919,51 @@ declare global {
             data: UserResource[];
             has_admin: boolean;
         }
+        /**
+         * Exercises return $this->except([...]) against a model with $hidden columns.
+         *
+         * The property set is derived from every model attribute minus the named keys, so it is
+         * implicit — exclude_hidden must drop $hidden columns here even though none are named.
+         */
+        export interface UserExceptResource {
+            name: string;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: Record<string, unknown> | null;
+            remember_token: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            role: app.enums.RoleType | null;
+            membership_level: app.enums.MembershipLevelType | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: { theme: "light" | "dark"; notifications: boolean; locale: string } | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
+            initials: string;
+            is_premium: boolean;
+            profile: app.models.Profile | null;
+            posts: app.models.Post[];
+            comments: app.models.Comment[];
+            orders: app.models.Order[];
+            addresses: Address[];
+            teams: app.models.Team[];
+            ownedTeams: app.models.Team[];
+            images: app.models.Image[];
+            notifications: illuminate.notifications.DatabaseNotification[];
+        }
+        /**
+         * Exercises return $this->only([...]) naming a $hidden column explicitly.
+         *
+         * The property set is exactly the named keys, so it is explicit — exclude_hidden must not
+         * drop `password` here, since the caller named it.
+         */
+        export interface UserOnlyHiddenResource {
+            id: number;
+            password: string;
+        }
         /** User account resource. */
         export interface UserResource {
             id: number;

@@ -88,6 +88,45 @@ runtime. That mismatch predates this feature and is unrelated to `only()`/`excep
 being re-derived inline; it isn't fixed here (out of scope), but is worth knowing if you're
 relying on the shape of an `except()`-filtered relation for a key that isn't a column.
 
+### `exclude_hidden` on the top-level resource, not just relation filters
+
+The rule established above for `$this->relation->only()/except()` — hidden columns fall out of an
+*implicitly* derived property set but survive one the caller *named* — is not scoped to relation
+filters. It governs every path that resolves the top-level resource's own property set from its
+`@mixin` model, because it is the same distinction Eloquent itself draws: `Model::only()` resolves
+through `getAttribute()` and returns a `$hidden` attribute regardless, while `toArray()`/`except()`
+go through `getArrayableItems()`, which strips it.
+
+**Implicit — `exclude_hidden` drops the hidden column:**
+
+- **Whole-model delegation** — `return parent::toArray($request)`, or a resource with no
+  `toArray()` at all — builds its property set from every model attribute via
+  `buildModelDelegatedAnalysis()`.
+- **`return $this->except([...])`** — `analyzeExceptFilter()` derives its base set from that same
+  method, then subtracts the named keys; a hidden column that was never named to be *kept* falls
+  out with the rest.
+- **`$this->relation->except([...])`** — `resolveFilteredRelationType()`'s except branch builds its
+  key list from every attribute and relation name on the related model.
+
+**Explicit — `exclude_hidden` leaves it alone:**
+
+- **`return $this->only([...])`** — the property set is exactly the caller's key list.
+- **`$this->relation->only([...])`** — the include branch above; a named hidden column falls back
+  to inline expansion instead of a `Pick<>` reference, but it is never dropped.
+- **`$this->whenHas('column')`** — the attribute name is a literal argument to the call.
+
+Two touch points implement the implicit side. `buildModelDelegatedAnalysis()`
+(`ResolvesModelTypes.php`) is the property-set builder shared by whole-model delegation *and*
+`analyzeOnlyFilter()`/`analyzeExceptFilter()` — the include filter needs the unfiltered set to
+select an explicitly-named hidden column from, so the method takes a `bool $excludeHidden = true`
+parameter instead of filtering unconditionally: `analyzeOnlyFilter()` is the one caller that
+passes `false`. `resolveFilteredRelationType()`'s except branch has no such sharing problem — it
+builds its key list fresh per call — so it filters unconditionally there. Three sites are
+deliberately left untouched because each already takes the caller's request verbatim rather than
+deriving it from the full attribute list: `filterAnalysisByKeys()`, the include branch of
+`resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()` (the
+single-attribute resolution that `only()` and `whenHas()` both end up calling).
+
 ## Import dispatch rules
 
 A static-call value (e.g. `UrlService::locateOrder($id)`) whose method has no dedicated handler

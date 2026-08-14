@@ -91,6 +91,8 @@ use Workbench\App\Http\Resources\ToArrayCastsResource;
 use Workbench\App\Http\Resources\TraitSpreadCoverageResource;
 use Workbench\App\Http\Resources\UnitEnumResource;
 use Workbench\App\Http\Resources\UserCollection;
+use Workbench\App\Http\Resources\UserExceptResource;
+use Workbench\App\Http\Resources\UserOnlyHiddenResource;
 use Workbench\App\Http\Resources\UserResource;
 use Workbench\App\Http\Resources\VarReturnSpreadResource;
 use Workbench\App\Models\Address;
@@ -4738,6 +4740,35 @@ test('a $hidden filter key falls back to inline expansion instead of Pick<> when
 
     expect($props['attachment_public']['type'])->toBe("Pick<Attachment, 'id' | 'filename'>")
         ->and($props['attachment_hidden']['type'])->toBe('{ id: number; internal_notes: string | null }');
+});
+
+test('drops hidden columns from an implicitly-derived resource property set', function () {
+    // except() derives its property set from every model attribute minus the named keys, so
+    // it is implicit — a $hidden column must not survive even though it was never named.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(UserExceptResource::class), User::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props)->not->toHaveKey('password')
+        ->and($props)->not->toHaveKey('remember_token')
+        ->and($props)->toHaveKey('name');
+});
+
+test('keeps a hidden column the resource named explicitly', function () {
+    // only() takes the property set verbatim from the named keys, so it is explicit — a
+    // $hidden column the caller named must still come through.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(UserOnlyHiddenResource::class), User::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props)->toHaveKey('password')
+        ->and($props['password']['type'])->toBe('string');
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {

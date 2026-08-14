@@ -92,6 +92,8 @@ export * from './to-array-casts-resource';
 export * from './trait-spread-coverage-resource';
 export * from './unit-enum-resource';
 export * from './user-collection';
+export * from './user-except-resource';
+export * from './user-only-hidden-resource';
 export * from './user-resource';
 export * from './var-return-spread-resource';
 export * from './warehouse-resource';

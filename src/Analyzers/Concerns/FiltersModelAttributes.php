@@ -106,13 +106,14 @@ trait FiltersModelAttributes
     }
 
     /**
-     * Analyze $this->only([...]) — include only the listed model attributes.
+     * Analyze $this->only([...]) — include only the listed model attributes. Hidden columns stay
+     * in the base analysis: the property set here is the caller's own keys, not derived implicitly.
      *
      * @param  list<string>  $keys
      */
     protected function analyzeOnlyFilter(array $keys): ?ResourceAnalysis
     {
-        $fullAnalysis = $this->buildModelDelegatedAnalysis();
+        $fullAnalysis = $this->buildModelDelegatedAnalysis(excludeHidden: false);
 
         if ($fullAnalysis === null) {
             return null;
