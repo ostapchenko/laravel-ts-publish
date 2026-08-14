@@ -246,8 +246,9 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Compose an array-typed node: the `*` child's composed type suffixed `[]`. Required,
-     * nullable, prohibited, and JSDoc come from this node's own rule, not the element's.
+     * Compose an array-typed node: the `*` child's composed type suffixed `[]`. Required, nullable,
+     * prohibited, and JSDoc describe the array itself; the element's own nullability folds into the
+     * element type, so a nullable element reads `(string | null)[]`.
      *
      * @param  RuleLeafData|null  $own
      * @return RuleLeafData
@@ -255,9 +256,10 @@ class FormRequestRulesAnalyzer
     protected function composeArrayNode(FormRequestRuleTrieNode $wildcardChild, ?array $own): array
     {
         $element = $this->composeTrieNode($wildcardChild);
+        $elementType = $element['tsType'].($element['isNullable'] ? ' | null' : '');
 
         return [
-            'tsType' => $this->arrayWrapType($element['tsType']),
+            'tsType' => $this->arrayWrapType($elementType),
             'isRequired' => $own !== null && $own['isRequired'],
             'isNullable' => $own !== null && $own['isNullable'],
             'isProhibited' => $own !== null && $own['isProhibited'],

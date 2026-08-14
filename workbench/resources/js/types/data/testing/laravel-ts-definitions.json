@@ -1591,7 +1591,7 @@
                 },
                 {
                     "fieldPath": "limited_choices",
-                    "tsType": "string[]",
+                    "tsType": "(string | null)[]",
                     "isRequired": false,
                     "isNullable": true,
                     "isProhibited": false,

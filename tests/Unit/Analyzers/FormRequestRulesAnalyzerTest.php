@@ -221,14 +221,23 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('number[]');
         });
 
-        it('infers string[] for nullable array field with wildcard string rule', function () {
+        it('folds a nullable wildcard element into the array element type', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(ArrayRulesRequest::class);
 
             $node = collect($nodes)->firstWhere('fieldPath', 'limited_choices');
             expect($node)->not->toBeNull();
-            expect($node->tsType)->toBe('string[]');
+            expect($node->tsType)->toBe('(string | null)[]');
             expect($node->isNullable)->toBeTrue();
+        });
+
+        it('leaves a non-nullable wildcard element unparenthesized', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'required_answers');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('string[]');
         });
 
         it('never emits a dotted or wildcarded field path at the top level', function () {

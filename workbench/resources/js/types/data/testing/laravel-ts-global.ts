@@ -3047,7 +3047,7 @@ declare global {
             primary_airport: string;
             config: unknown[];
             ordered_items: string[];
-            limited_choices?: string[] | null;
+            limited_choices?: (string | null)[] | null;
             required_answers: string[];
             coordinates: number[];
             products: { name: string; price: number; quantity: number; categories: string[]; is_available: boolean; notes?: string | null }[];
