@@ -1139,6 +1139,22 @@ describe('phpstan type aliases', function () {
 
         expect($alias)->toBeNull();
     });
+
+    test('a hyphen-suffixed sibling alias does not false-positive match its shorter prefix', function () {
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'PunctuationAlias', new ReflectionClass(PhpstanTypeAliasHyphenSuffixHost::class),
+        );
+
+        expect($alias)->toBeNull();
+    });
+
+    test('a dot-suffixed sibling alias does not false-positive match its shorter prefix', function () {
+        $alias = $this->service->resolvePhpstanTypeAlias(
+            'PunctuationAlias', new ReflectionClass(PhpstanTypeAliasDotSuffixHost::class),
+        );
+
+        expect($alias)->toBeNull();
+    });
 });
 
 describe('attributeDocblockReturnTypes', function () {
@@ -2688,3 +2704,19 @@ class PhpstanTypeAliasCycleA {}
  * @phpstan-import-type LoopAlias from PhpstanTypeAliasCycleA
  */
 class PhpstanTypeAliasCycleB {}
+
+/**
+ * Declares only a hyphen-suffixed sibling of PunctuationAlias, never PunctuationAlias itself:
+ * proves \b's word/non-word boundary alone can't be trusted to reject a punctuation continuation.
+ *
+ * @phpstan-type PunctuationAlias-Suffix array{x: int}
+ */
+class PhpstanTypeAliasHyphenSuffixHost {}
+
+/**
+ * Declares only a dot-suffixed sibling of PunctuationAlias, never PunctuationAlias itself: the
+ * same false-positive class as the hyphen case, with a different non-word continuation character.
+ *
+ * @phpstan-type PunctuationAlias.Suffix array{x: int}
+ */
+class PhpstanTypeAliasDotSuffixHost {}
