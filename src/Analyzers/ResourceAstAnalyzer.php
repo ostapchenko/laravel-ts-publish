@@ -148,6 +148,14 @@ class ResourceAstAnalyzer
     protected array $varModelBindings = [];
 
     /**
+     * Closure params bound to a whole relation collection rather than one element — a to-many
+     * `whenLoaded` param. Only a bare return of the param reads this; anything else resolves normally.
+     *
+     * @var array<string, array{type: string, modelFqcn: class-string<Model>}>
+     */
+    protected array $varCollectionBindings = [];
+
+    /**
      * Top-level `$var = expr;` bindings for the method last analyzed, so a bare `Variable` value
      * expression resolves through its bound expression instead of degrading to unknown. Only variables
      * written exactly once are recorded; analyzeThisMethodSpread() saves and restores this per method.
@@ -1022,6 +1030,19 @@ class ResourceAstAnalyzer
             ];
         }
 
+        // Bare variable bound to a whole relation collection (to-many whenLoaded param) — resolves to
+        // the collection type, e.g. `User[]`, never the singular element model.
+        if ($expr instanceof Variable && is_string($expr->name) && isset($this->varCollectionBindings[$expr->name])) {
+            $binding = $this->varCollectionBindings[$expr->name];
+
+            return [
+                ...$this->unknownResult(),
+                'type' => $binding['type'],
+                'optional' => false,
+                'modelFqcn' => $binding['modelFqcn'],
+            ];
+        }
+
         // Bare variable bound either to a closure parameter (bindClosureParamsFromCondition) or to a
         // top-level local assignment (collectLocalVarBindings). Closure-param bindings win, being the
         // narrower scope; the re-entrancy guard makes a cyclic binding resolve as unknown.
@@ -1224,8 +1245,8 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->whenLoaded('relation') or $this->whenLoaded('relation', value, default).
      *
-     * A single-model relation's closure param binds in `$varModelBindings` so a bare `$param` resolves.
-     * To-many relations are deliberately not bound this way — the param holds a collection, not an element.
+     * A single-model relation's closure param binds to the model; a to-many relation's binds to the
+     * collection type instead, since the param holds the whole collection rather than one element.
      *
      * @return ValueExpressionResult
      */
@@ -1238,6 +1259,7 @@ class ResourceAstAnalyzer
             // Resolve the related model so accesses on local variables inside the closure can be typed.
             $previousRelationModel = $this->closureRelationModelClass;
             $previousVarModelBindings = $this->varModelBindings;
+            $previousVarCollectionBindings = $this->varCollectionBindings;
             $relationInfo = null;
 
             if ($args[0]->value instanceof String_) {
@@ -1250,13 +1272,21 @@ class ResourceAstAnalyzer
 
             if ($relationInfo !== null
                 && $relationInfo['modelFqcn'] !== null
-                && ! str_ends_with($relationInfo['type'], '[]')
                 && ($args[1]->value instanceof ClosureExpr || $args[1]->value instanceof ArrowFunction)
                 && isset($args[1]->value->params[0])
                 && $args[1]->value->params[0]->var instanceof Variable
                 && is_string($args[1]->value->params[0]->var->name)
             ) {
-                $this->varModelBindings[$args[1]->value->params[0]->var->name] = $relationInfo['modelFqcn'];
+                $paramName = $args[1]->value->params[0]->var->name;
+
+                if (str_ends_with($relationInfo['type'], '[]')) {
+                    $this->varCollectionBindings[$paramName] = [
+                        'type' => $relationInfo['type'],
+                        'modelFqcn' => $relationInfo['modelFqcn'],
+                    ];
+                } else {
+                    $this->varModelBindings[$paramName] = $relationInfo['modelFqcn'];
+                }
             }
 
             try {
@@ -1264,6 +1294,7 @@ class ResourceAstAnalyzer
             } finally {
                 $this->closureRelationModelClass = $previousRelationModel;
                 $this->varModelBindings = $previousVarModelBindings;
+                $this->varCollectionBindings = $previousVarCollectionBindings;
             }
 
             $inner['optional'] = true;

@@ -7783,7 +7783,7 @@
                 },
                 {
                     "name": "loaded_members_bare",
-                    "type": "unknown",
+                    "type": "User[]",
                     "optional": true
                 }
             ]

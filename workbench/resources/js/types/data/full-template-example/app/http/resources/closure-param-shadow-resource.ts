@@ -15,5 +15,5 @@ export interface ClosureParamShadowResource
     outer_member: unknown;
     mapped_members: User[];
     loaded_owner?: User;
-    loaded_members_bare?: unknown;
+    loaded_members_bare?: User[];
 }
