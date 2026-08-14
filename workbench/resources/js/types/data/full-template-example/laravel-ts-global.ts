@@ -1763,6 +1763,11 @@ declare global {
             not_null_explicit_null_default: string | null;
             not_null_named_default?: string;
             not_null_spread_default?: string;
+            when_no_default?: string;
+            when_with_default: string;
+            has_with_default: string;
+            loaded_with_default: app.models.User;
+            counted_with_default: number;
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method.

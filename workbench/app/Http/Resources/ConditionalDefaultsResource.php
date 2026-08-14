@@ -37,6 +37,12 @@ class ConditionalDefaultsResource extends JsonResource
 
             // Same bail-out for a spread argument at the default position.
             'not_null_spread_default' => $this->whenNotNull($this->full_address, ...[0]),
+
+            'when_no_default' => $this->when($this->id > 0, $this->full_address),
+            'when_with_default' => $this->when($this->id > 0, $this->full_address, 'fallback'),
+            'has_with_default' => $this->whenHas('full_address', $this->full_address, 'fallback'),
+            'loaded_with_default' => $this->whenLoaded('user', fn ($user) => $user, null),
+            'counted_with_default' => $this->whenCounted('user', null, 0),
         ];
     }
 }

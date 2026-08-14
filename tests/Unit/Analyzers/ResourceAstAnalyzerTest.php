@@ -3886,6 +3886,36 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — whenNotNull/w
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Conditional-family default argument makes the property required — ConditionalDefaultsResource
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ResourceAstAnalyzer with ConditionalDefaultsResource — explicit default makes conditional required', function () {
+    it('makes a conditional required when an explicit default is passed', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['when_no_default']['optional'])->toBeTrue()
+            ->and($props['when_with_default']['optional'])->toBeFalse()
+            ->and($props['has_with_default']['optional'])->toBeFalse()
+            ->and($props['counted_with_default']['optional'])->toBeFalse();
+    });
+
+    it('treats an explicit null default as a real default', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['loaded_with_default']['optional'])->toBeFalse();
+    });
+
+    it('unions the default arm into the emitted type', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['when_with_default']['type'])->toContain('string');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ResourceWrappedEnumResource — issue #43: $this->resource->prop enum resolution
 // ─────────────────────────────────────────────────────────────────────────────
 

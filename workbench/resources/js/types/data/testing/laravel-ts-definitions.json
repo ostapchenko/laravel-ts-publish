@@ -8073,6 +8073,31 @@
                     "name": "not_null_spread_default",
                     "type": "string",
                     "optional": true
+                },
+                {
+                    "name": "when_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "when_with_default",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "has_with_default",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "loaded_with_default",
+                    "type": "User",
+                    "optional": false
+                },
+                {
+                    "name": "counted_with_default",
+                    "type": "number",
+                    "optional": false
                 }
             ]
         },

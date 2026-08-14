@@ -791,15 +791,23 @@ class ResourceAstAnalyzer
         }
 
         if ($this->isThisMethodCall($expr, 'whenCounted')) {
-            return ['type' => 'number', 'optional' => true];
+            /** @var MethodCall $expr */
+            return ['type' => 'number', 'optional' => ! $this->hasExplicitDefaultArg($expr, 2)];
         }
 
         if ($this->isThisMethodCall($expr, 'whenAggregated')) {
-            return ['type' => 'number', 'optional' => true];
+            /** @var MethodCall $expr */
+            return ['type' => 'number', 'optional' => ! $this->hasExplicitDefaultArg($expr, 4)];
         }
 
-        if ($this->isThisMethodCall($expr, 'whenPivotLoaded') || $this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
-            return ['type' => 'unknown', 'optional' => true];
+        if ($this->isThisMethodCall($expr, 'whenPivotLoaded')) {
+            /** @var MethodCall $expr */
+            return ['type' => 'unknown', 'optional' => ! $this->hasExplicitDefaultArg($expr, 2)];
+        }
+
+        if ($this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
+            /** @var MethodCall $expr */
+            return ['type' => 'unknown', 'optional' => ! $this->hasExplicitDefaultArg($expr, 3)];
         }
 
         // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
@@ -1162,9 +1170,27 @@ class ResourceAstAnalyzer
             $this->bindClosureParamsFromCondition($args[0]->value, $valueExpr);
 
             $inner = $this->analyzeValueExpression($valueExpr);
-            $inner['optional'] = true;
 
             $this->closureParamExprBindings = $previousBindings;
+
+            $inner['optional'] = ! $this->hasExplicitDefaultArg($call, 2);
+
+            if (! $inner['optional'] && isset($args[2])) {
+                $default = $this->analyzeValueExpression($args[2]->value);
+
+                $members = [];
+
+                foreach ([$inner['type'], $default['type']] as $type) {
+                    if ($type !== 'unknown') {
+                        array_push($members, ...explode(' | ', $type));
+                    }
+                }
+
+                $types = $members === [] ? ['unknown'] : array_values(array_unique($members));
+
+                $inner = $this->mergeUnionChannels($types, [$inner, $default]);
+                $inner['optional'] = false;
+            }
 
             return $inner;
         }
@@ -1185,7 +1211,7 @@ class ResourceAstAnalyzer
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $attrName = $args[0]->value->value;
             $info = $this->resolveModelAttributeTypeInfo($attrName);
-            $result = ['type' => $info['type'], 'optional' => true];
+            $result = ['type' => $info['type'], 'optional' => ! $this->hasExplicitDefaultArg($call, 2)];
 
             if ($info['enumFqcn'] !== null) {
                 $result['directEnumFqcn'] = $info['enumFqcn'];
@@ -1317,7 +1343,7 @@ class ResourceAstAnalyzer
                 $this->varCollectionBindings = $previousVarCollectionBindings;
             }
 
-            $inner['optional'] = true;
+            $inner['optional'] = ! $this->hasExplicitDefaultArg($call, 2);
 
             return $inner;
         }
@@ -1325,7 +1351,7 @@ class ResourceAstAnalyzer
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $relationName = $args[0]->value->value;
             $info = $this->resolveModelRelationTypeInfo($relationName);
-            $result = ['type' => $info['type'], 'optional' => true];
+            $result = ['type' => $info['type'], 'optional' => ! $this->hasExplicitDefaultArg($call, 2)];
 
             if ($info['modelFqcn'] !== null) {
                 $result['modelFqcn'] = $info['modelFqcn'];

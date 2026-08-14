@@ -1,3 +1,5 @@
+import type { User } from '../../models';
+
 /**
  * Exercises the conditional family's third default argument. An explicit default means the key can
  * never be missing, so the property is required and its type unions both arms.
@@ -13,4 +15,9 @@ export interface ConditionalDefaultsResource
     not_null_explicit_null_default: string | null;
     not_null_named_default?: string;
     not_null_spread_default?: string;
+    when_no_default?: string;
+    when_with_default: string;
+    has_with_default: string;
+    loaded_with_default: User;
+    counted_with_default: number;
 }

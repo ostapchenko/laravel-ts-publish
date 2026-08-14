@@ -273,3 +273,60 @@ carries a model-level `#[TsCasts(['latitude' => ...])]` override, and
 regardless of what this handler determines. That is expected, unrelated behavior, not a regression — verify
 the value-arm/default-arm split against a fixture whose properties carry no `#[TsCasts]` override (e.g.
 `ConditionalDefaultsResource`, or `AddressResource`'s `line_2`) rather than against `latitude`/`longitude`.
+
+## An explicit default makes the rest of the conditional family required too
+
+Every method in the conditional family — `when()`, `whenHas()`, `whenLoaded()`, `whenCounted()`,
+`whenAggregated()`, `whenPivotLoaded()`, `whenPivotLoadedAs()` — takes a trailing
+`$default = new MissingValue` parameter (`whenNotNull()`/`whenNull()` already covered above). When a
+caller passes one explicitly, the key can never be a `MissingValue`, so the property must not be
+emitted `optional`. The default sits at a **different argument index per method** — verified against
+`ConditionallyLoadsAttributes.php` — and that is the whole difficulty:
+
+| method | signature | default index |
+| --- | --- | --- |
+| `when`, `unless`, `mergeWhen`, `mergeUnless` | `($condition, $value, $default)` | 2 |
+| `whenHas`, `whenAppended`, `whenLoaded`, `whenCounted`, `whenExistsLoaded` | `($attribute\|$relationship, $value, $default)` | 2 |
+| `whenNull`, `whenNotNull` | `($value, $default)` | 1 |
+| `whenPivotLoaded` | `($table, $value, $default)` | 2 |
+| `whenPivotLoadedAs` | `($accessor, $table, $value, $default)` | 3 |
+| `whenAggregated` | `($relationship, $column, $aggregate, $value, $default)` | 4 |
+| `transform` | `($value, $callback, $default)` | 2 |
+
+Every handler's `optional` is `! $this->hasExplicitDefaultArg($call, N)` for its own `N`. As with
+`whenNotNull()`/`whenNull()`, `hasExplicitDefaultArg()` is purely positional: Laravel distinguishes an
+omitted argument from an explicitly-passed `null` via `func_num_args()`, not `=== null`, so a
+`ConstFetch(null)` at the default position still counts as a real default
+(`whenLoaded('user', fn ($user) => $user, null)` is required, not optional — see
+`loaded_with_default` in `ConditionalDefaultsResource`). A named or spread argument at the default
+position makes position meaningless, so the helper bails out to `false` — the property behaves as if no
+default were passed at all.
+
+### Only `analyzeWhen()` unions the default arm into the type
+
+The settled rule for a value that genuinely reads the default's type (`analyzeWhen()`, and
+`analyzeWhenPossiblyNull()` above) is the same one documented above for `whenNotNull()`/`whenNull()`:
+when a default is present, the emitted type is the union of the value arm and the default arm, each
+split on their own `' | '` members and deduplicated via `mergeUnionChannels()`, with `optional`
+re-asserted to `false` after the merge (`mergeUnionChannels()` resets it). This is not cosmetic — a
+default like `Status::Draft` or `UserResource::make(...)` carries an import channel that only
+`mergeUnionChannels()` preserves; concatenating type strings by hand would emit a type name with no
+import and trip the unimportable-token gate.
+
+`analyzeWhenHas()`, `analyzeWhenLoaded()`, and the four inline handlers (`whenCounted()`,
+`whenAggregated()`, `whenPivotLoaded()`, `whenPivotLoadedAs()`) flip **only** `optional`; they do not
+union the default's type in. This is consistent with what each already does independently of this task:
+`whenHas()`'s type comes from the model attribute's declared type (`resolveModelAttributeTypeInfo()`),
+never from analyzing the value or default arguments; `whenLoaded()`'s type comes from the value/closure
+argument alone; and the four inline handlers never analyze their arguments at all — `whenCounted()` and
+`whenAggregated()` are hard-coded `number`, `whenPivotLoaded()`/`whenPivotLoadedAs()` are hard-coded
+`unknown`. Unioning a default's type into any of these would require analyzing arguments none of them
+currently look at, which is out of scope for making the property merely required.
+
+### `whenPivotLoaded()`/`whenPivotLoadedAs()` need separate `if` branches, not a combined one
+
+Before this task, both were handled by one `isThisMethodCall(...) || isThisMethodCall(...)` branch,
+because they shared identical output (`unknown`, always optional). Once `optional` depends on the
+default's argument index, that combined branch stops working: `whenPivotLoadedAs()` takes a leading
+`$accessor` argument that `whenPivotLoaded()` doesn't, so their default sits at index 3 vs. index 2.
+Each method needs its own branch reading its own index.
