@@ -46,6 +46,12 @@ class NestedEdgeCasesRequest extends FormRequest
             // `in:` values containing bracket characters must not unbalance the union scan.
             'markers' => ['array'],
             'markers.*' => ['in:>a,b'],
+
+            // A mixed node as an array element — the intersection must be parenthesized.
+            'buckets' => ['array'],
+            'buckets.*' => ['array'],
+            'buckets.*.*' => ['string'],
+            'buckets.*.name' => ['string'],
         ];
     }
 }

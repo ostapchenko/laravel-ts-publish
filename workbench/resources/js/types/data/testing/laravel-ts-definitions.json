@@ -2052,6 +2052,14 @@
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "buckets",
+                    "tsType": "({ name?: string } & Record<string, string>)[]",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
                 }
             ]
         },

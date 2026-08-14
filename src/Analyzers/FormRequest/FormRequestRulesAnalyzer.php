@@ -860,20 +860,20 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Suffix a type with `[]`, parenthesizing when a top-level `|` is present: TypeScript binds `[]`
-     * tighter than `|`, so `'a' | 'b'[]` parses as `'a' | ('b'[])`. A `|` nested inside a `{ ... }`
-     * shape belongs to that shape, so it must not trigger the parens.
+     * Suffix a type with `[]`, parenthesizing when a top-level `|` or `&` is present: TypeScript binds
+     * `[]` tighter than both, so `A | B[]` parses as `A | (B[])`. Depth- and quote-aware — a separator
+     * inside a `{ ... }` shape or a `'literal'` belongs to that member, not to the outer type.
      */
     private function arrayWrapType(string $type): string
     {
-        return $this->hasTopLevelUnion($type) ? '('.$type.')[]' : $type.'[]';
+        return $this->hasTopLevelSeparator($type) ? '('.$type.')[]' : $type.'[]';
     }
 
     /**
-     * Whether a `|` appears outside every `{}`, `<>`, `()` and `[]` nesting level. Quoted string
-     * literals are skipped whole, since a bracket character inside one (e.g. `'>a'`) is data, not structure.
+     * Whether a `|` or `&` appears outside every `{}`, `<>`, `()` and `[]` nesting level, ignoring
+     * quoted literals whose contents are opaque.
      */
-    private function hasTopLevelUnion(string $type): bool
+    private function hasTopLevelSeparator(string $type): bool
     {
         $depth = 0;
         $length = strlen($type);
@@ -890,7 +890,7 @@ class FormRequestRulesAnalyzer
                 $depth++;
             } elseif ($char === '}' || $char === '>' || $char === ')' || $char === ']') {
                 $depth = max(0, $depth - 1);
-            } elseif ($char === '|' && $depth === 0) {
+            } elseif (($char === '|' || $char === '&') && $depth === 0) {
                 return true;
             }
         }

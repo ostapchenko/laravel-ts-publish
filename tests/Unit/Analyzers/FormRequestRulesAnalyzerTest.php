@@ -547,6 +547,16 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe("('>a' | 'b')[]");
             expect($node->tsType)->not->toBe("'>a' | 'b'[]");
         });
+
+        it('parenthesizes a top-level intersection before array-wrapping', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(NestedEdgeCasesRequest::class);
+
+            $node = collect($nodes)->firstWhere('fieldPath', 'buckets');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('({ name?: string } & Record<string, string>)[]');
+            expect($node->tsType)->not->toBe('{ name?: string } & Record<string, string>[]');
+        });
     });
 
     describe('auth state restoration', function () {

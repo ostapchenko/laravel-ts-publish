@@ -3112,6 +3112,7 @@ declare global {
             items?: { name: string }[];
             variants?: ({ name: string } | { email: string })[];
             markers?: ('>a' | 'b')[];
+            buckets?: ({ name?: string } & Record<string, string>)[];
         }
         export interface NumberRulesRequest {
             score: number;
