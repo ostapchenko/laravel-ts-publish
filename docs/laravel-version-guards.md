@@ -39,6 +39,27 @@ at `v13.0.0`, the same shape as `Collects`. They do not get rows here yet — no
 in `src/` — but whichever task adds the guard can record `Min Laravel: 13.0.0` / `Convert when floor
 ≥: 13.0.0` without re-deriving it.
 
+## Scanner coverage and blind spots
+
+`tests/Unit/LaravelVersionGuardsTest.php` finds a guard by pattern-matching source text, not by
+parsing PHP — it cannot see every possible way to write one. It detects:
+
+- `class_exists('Illuminate\Some\Fqcn')` / `class_exists("Illuminate\Some\Fqcn")` — single- or
+  double-quoted, called directly.
+- `$var = 'Illuminate\Some\Fqcn'; ... class_exists($var)` — single- or double-quoted, assigned to a
+  variable first and passed to `class_exists()` later in the same file.
+
+It does **not** detect, and will silently miss:
+
+- A class or `const` reference — `class_exists(self::FOO)` or `class_exists(FOO)`.
+- A `match`/`switch` arm that produces the FQCN conditionally rather than via a flat assignment.
+- String interpolation or concatenation building the FQCN, e.g. `"Illuminate\\{$segment}"`.
+- `class_exists` invoked indirectly through a variable holding the function name
+  (`$fn = 'class_exists'; $fn($x);`) or `call_user_func('class_exists', ...)`.
+
+A guard written in any of these forms must be added to the registry by hand — the test will not
+catch a missing row for it.
+
 ## Not in this registry
 
 String FQCNs that exist for reasons other than version support, and must not be converted:

@@ -22,20 +22,20 @@ it('registers every version-guarded Laravel class reference', function () {
 
         $guarded = [];
 
-        // Direct: class_exists('Illuminate\Some\Fqcn').
-        preg_match_all("/class_exists\(\s*'(Illuminate\\\\{1,2}[^']+)'/", $contents, $direct);
-        array_push($guarded, ...$direct[1]);
+        // Direct: class_exists('Illuminate\Some\Fqcn') or class_exists("Illuminate\Some\Fqcn").
+        preg_match_all("/class_exists\(\s*(['\"])(Illuminate\\\\{1,2}[^'\"]+)\\1/", $contents, $direct);
+        array_push($guarded, ...$direct[2]);
 
         // Indirect: $var = 'Illuminate\Some\Fqcn'; ... class_exists($var).
         preg_match_all(
-            "/\\\$(\w+)\s*=\s*'(Illuminate\\\\{1,2}[^']+)'\s*;/",
+            "/\\\$(\w+)\s*=\s*(['\"])(Illuminate\\\\{1,2}[^'\"]+)\\2\s*;/",
             $contents,
             $assignments,
             PREG_SET_ORDER,
         );
 
         foreach ($assignments as $assignment) {
-            [, $variable, $fqcn] = $assignment;
+            [, $variable, , $fqcn] = $assignment;
 
             if (preg_match("/class_exists\(\s*\\\$".preg_quote($variable, '/')."\s*\)/", $contents) === 1) {
                 $guarded[] = $fqcn;
