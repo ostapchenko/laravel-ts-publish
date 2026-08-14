@@ -770,6 +770,28 @@ class ResourceAstAnalyzer
             return $this->analyzeWhen($expr);
         }
 
+        // unless() delegates to when() unchanged: negating the condition changes which arm runs,
+        // never what either arm's type is.
+        if ($this->isThisMethodCall($expr, 'unless')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeWhen($expr);
+        }
+
+        if ($this->isThisMethodCall($expr, 'whenAppended')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeWhenAppended($expr);
+        }
+
+        if ($this->isThisMethodCall($expr, 'whenExistsLoaded')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeWhenExistsLoaded($expr);
+        }
+
+        if ($this->isThisMethodCall($expr, 'transform')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeTransform($expr);
+        }
+
         if ($this->isThisMethodCall($expr, 'whenHas')) {
             /** @var MethodCall $expr */
             return $this->analyzeWhenHas($expr);
@@ -1224,6 +1246,48 @@ class ResourceAstAnalyzer
     }
 
     /**
+     * Analyze $this->whenAppended('attribute', $value, $default) — types from the named attribute,
+     * the same way whenHas() does, since the appended accessor is what surfaces.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeWhenAppended(MethodCall $call): array
+    {
+        $args = $call->getArgs();
+
+        if ($args === [] || ! $args[0]->value instanceof String_) {
+            return [...$this->unknownResult(), 'optional' => true];
+        }
+
+        $info = $this->resolveModelAttributeTypeInfo($args[0]->value->value);
+        $result = ['type' => $info['type'], 'optional' => ! $this->hasExplicitDefaultArg($call, 2)];
+
+        if ($info['enumFqcn'] !== null) {
+            $result['directEnumFqcn'] = $info['enumFqcn'];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Analyze $this->whenExistsLoaded('relation', $value, $default) — resolves to the relation's
+     * generated `{relation}_exists` flag.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeWhenExistsLoaded(MethodCall $call): array
+    {
+        $args = $call->getArgs();
+        $optional = ! $this->hasExplicitDefaultArg($call, 2);
+
+        if ($args === [] || ! $args[0]->value instanceof String_) {
+            return [...$this->unknownResult(), 'optional' => $optional]; // @codeCoverageIgnore
+        }
+
+        return ['type' => 'boolean', 'optional' => $optional];
+    }
+
+    /**
      * Analyze $this->whenNotNull($value, $default) — the success arm returns $value, proven non-null.
      *
      * @return ValueExpressionResult
@@ -1368,16 +1432,64 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze $this->merge([...]) or $this->mergeWhen(condition, [...]) — extract properties from the array arg.
+     * Analyze $this->transform($value, $callback, $default) — types from the callback's return, since
+     * transform() invokes $callback with $value rather than passing $value through untouched.
      *
-     * merge() properties are required; mergeWhen() properties are optional.
+     * @return ValueExpressionResult
+     */
+    protected function analyzeTransform(MethodCall $call): array
+    {
+        $result = $this->unknownResult();
+        $args = $call->getArgs();
+
+        if (count($args) >= 2) {
+            $valueExpr = $args[0]->value;
+            $callbackExpr = $args[1]->value;
+
+            $previousBindings = $this->closureParamExprBindings;
+            $this->bindClosureParamsFromCondition($valueExpr, $callbackExpr);
+
+            $inner = $this->analyzeValueExpression($callbackExpr);
+
+            $this->closureParamExprBindings = $previousBindings;
+
+            $inner['optional'] = ! $this->hasExplicitDefaultArg($call, 2);
+
+            if (! $inner['optional'] && isset($args[2])) {
+                $default = $this->analyzeValueExpression($args[2]->value);
+
+                $members = [];
+
+                foreach ([$inner['type'], $default['type']] as $type) {
+                    if ($type !== 'unknown') {
+                        array_push($members, ...explode(' | ', $type));
+                    }
+                }
+
+                $types = $members === [] ? ['unknown'] : array_values(array_unique($members));
+
+                $inner = $this->mergeUnionChannels($types, [$inner, $default]);
+                $inner['optional'] = false;
+            }
+
+            return $inner;
+        }
+
+        return [...$result, 'optional' => true]; // @codeCoverageIgnore
+    }
+
+    /**
+     * Analyze $this->merge([...]), mergeWhen(condition, [...]), or mergeUnless(condition, [...]).
+     *
+     * merge() properties are required; mergeWhen()/mergeUnless() properties are optional.
      */
     protected function analyzeMergeExpression(MethodCall $call): ResourceAnalysis
     {
         $isMerge = $this->isThisMethodCall($call, 'merge');
         $isMergeWhen = $this->isThisMethodCall($call, 'mergeWhen');
+        $isMergeUnless = $this->isThisMethodCall($call, 'mergeUnless');
 
-        if (! $isMerge && ! $isMergeWhen) {
+        if (! $isMerge && ! $isMergeWhen && ! $isMergeUnless) {
             return new ResourceAnalysis; // @codeCoverageIgnore
         }
 
@@ -1391,7 +1503,7 @@ class ResourceAstAnalyzer
             return $this->resolveArrayOrClosureToProperties($args[0]->value, optional: false);
         }
 
-        if ($isMergeWhen && count($args) >= 2) {
+        if (($isMergeWhen || $isMergeUnless) && count($args) >= 2) {
             return $this->resolveArrayOrClosureToProperties($args[1]->value, optional: true);
         }
 

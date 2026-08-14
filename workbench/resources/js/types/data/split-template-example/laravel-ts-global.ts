@@ -1774,6 +1774,12 @@ declare global {
             pivot_loaded_with_default: unknown;
             pivot_loaded_as_no_default?: unknown;
             pivot_loaded_as_with_default: unknown;
+            unless_no_default?: string;
+            unless_with_default: string;
+            appended_no_default?: string;
+            exists_no_default?: boolean;
+            transform_no_default?: boolean;
+            transform_with_default: boolean | number;
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method.

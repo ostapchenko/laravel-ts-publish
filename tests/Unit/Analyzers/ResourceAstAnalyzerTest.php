@@ -3950,6 +3950,57 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — explicit defa
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// unless()/whenAppended()/whenExistsLoaded()/transform() — previously unhandled conditionals that
+// fell through to a required `unknown` before this coverage was added.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ResourceAstAnalyzer with ConditionalDefaultsResource — unless/whenAppended/whenExistsLoaded/transform', function () {
+    // full_address resolves as 'string' (not 'string | null') through ModelAttributeResolver's
+    // accessor-return-type inference here, same as the existing whenHas('full_address', ...) coverage —
+    // #[TsCasts]'s 'string | null' declaration governs the model's own generated interface, not this path.
+    it('types unless like when, and never as a required unknown', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['unless_no_default']['type'])->toBe('string')
+            ->and($props['unless_no_default']['optional'])->toBeTrue();
+
+        expect($props['unless_with_default']['type'])->toBe('string')
+            ->and($props['unless_with_default']['optional'])->toBeFalse();
+    });
+
+    it('types whenAppended from the named attribute', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['appended_no_default']['type'])->toBe('string')
+            ->and($props['appended_no_default']['optional'])->toBeTrue();
+    });
+
+    it('types whenExistsLoaded as a boolean-ish existence flag', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['exists_no_default']['optional'])->toBeTrue()
+            ->and($props['exists_no_default']['type'])->not->toBe('unknown');
+    });
+
+    // transform()'s default sits at index 2, and types from the callback's return, not $value's — the
+    // callback here returns boolean while $value (full_address) resolves as string, so a wrong
+    // implementation would leak string through instead.
+    it('types transform from the callback return and unions a differently-typed default', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['transform_no_default']['type'])->toBe('boolean')
+            ->and($props['transform_no_default']['optional'])->toBeTrue();
+
+        expect($props['transform_with_default']['type'])->toBe('boolean | number')
+            ->and($props['transform_with_default']['optional'])->toBeFalse();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ResourceWrappedEnumResource — issue #43: $this->resource->prop enum resolution
 // ─────────────────────────────────────────────────────────────────────────────
 

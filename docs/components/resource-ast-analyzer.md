@@ -302,10 +302,10 @@ omitted argument from an explicitly-passed `null` via `func_num_args()`, not `==
 position makes position meaningless, so the helper bails out to `false` — the property behaves as if no
 default were passed at all.
 
-### Only `analyzeWhen()` unions the default arm into the type
+### Only `analyzeWhen()` and `analyzeTransform()` union the default arm into the type
 
-The settled rule for a value that genuinely reads the default's type (`analyzeWhen()`, and
-`analyzeWhenPossiblyNull()` above) is the same one documented above for `whenNotNull()`/`whenNull()`:
+The settled rule for a value that genuinely reads the default's type (`analyzeWhen()`, `analyzeTransform()`,
+and `analyzeWhenPossiblyNull()` above) is the same one documented above for `whenNotNull()`/`whenNull()`:
 when a default is present, the emitted type is the union of the value arm and the default arm, each
 split on their own `' | '` members and deduplicated via `mergeUnionChannels()`, with `optional`
 re-asserted to `false` after the merge (`mergeUnionChannels()` resets it). This is not cosmetic — a
@@ -313,15 +313,17 @@ default like `Status::Draft` or `UserResource::make(...)` carries an import chan
 `mergeUnionChannels()` preserves; concatenating type strings by hand would emit a type name with no
 import and trip the unimportable-token gate.
 
-`analyzeWhenHas()`, `analyzeWhenLoaded()`, and the four inline handlers (`whenCounted()`,
-`whenAggregated()`, `whenPivotLoaded()`, `whenPivotLoadedAs()`) flip **only** `optional`; they do not
-union the default's type in. This is consistent with what each already does independently of this task:
-`whenHas()`'s type comes from the model attribute's declared type (`resolveModelAttributeTypeInfo()`),
-never from analyzing the value or default arguments; `whenLoaded()`'s type comes from the value/closure
-argument alone; and the four inline handlers never analyze their arguments at all — `whenCounted()` and
-`whenAggregated()` are hard-coded `number`, `whenPivotLoaded()`/`whenPivotLoadedAs()` are hard-coded
-`unknown`. Unioning a default's type into any of these would require analyzing arguments none of them
-currently look at, which is out of scope for making the property merely required.
+`analyzeWhenHas()`, `analyzeWhenAppended()`, `analyzeWhenLoaded()`, `analyzeWhenExistsLoaded()`, and the
+four inline handlers (`whenCounted()`, `whenAggregated()`, `whenPivotLoaded()`, `whenPivotLoadedAs()`) flip
+**only** `optional`; they do not union the default's type in. This is consistent with what each already
+does independently of this task: `whenHas()`/`whenAppended()`'s type comes from the model attribute's
+declared type (`resolveModelAttributeTypeInfo()`), never from analyzing the value or default arguments;
+`whenLoaded()`'s type comes from the value/closure argument alone; `whenExistsLoaded()` is hard-coded to
+the `{relation}_exists` flag's type regardless of its arguments; and the four inline handlers never analyze
+their arguments at all — `whenCounted()` and `whenAggregated()` are hard-coded `number`,
+`whenPivotLoaded()`/`whenPivotLoadedAs()` are hard-coded `unknown`. Unioning a default's type into any of
+these would require analyzing arguments none of them currently look at, which is out of scope for making
+the property merely required.
 
 ### `whenPivotLoaded()`/`whenPivotLoadedAs()` need separate `if` branches, not a combined one
 
@@ -330,3 +332,49 @@ because they shared identical output (`unknown`, always optional). Once `optiona
 default's argument index, that combined branch stops working: `whenPivotLoadedAs()` takes a leading
 `$accessor` argument that `whenPivotLoaded()` doesn't, so their default sits at index 3 vs. index 2.
 Each method needs its own branch reading its own index.
+
+## `unless()`/`mergeUnless()` delegate; `whenAppended()`, `whenExistsLoaded()`, and `transform()` are new handlers
+
+Five methods in the conditional family had no handler at all before this task and fell through to the
+generic `$this->method()` branch, which reflects a declared return type and emits **required** `unknown` —
+strictly worse than the optional `unknown` an unrecognized conditional should produce, since a required
+key tells the consumer the value is always present.
+
+### `unless()` and `mergeUnless()` reuse `when()`/`mergeWhen()` unchanged
+
+`ConditionallyLoadsAttributes::unless($condition, $value, $default)` is
+`$this->when(! $condition, $value, $default)`, and `mergeUnless()` is
+`$this->mergeWhen(! $condition, $value, $default)` — Laravel negates the condition and forwards straight
+through. Negating which branch of an `if` runs never changes what either branch's *type* is, so
+`analyzeValueExpression()` dispatches `unless` straight to the existing `analyzeWhen()`, and
+`analyzeMergeExpression()` treats `mergeUnless` exactly like `mergeWhen()` (array/closure argument at index
+1, always optional). Neither needed a new method.
+
+### `whenAppended()` types from the named attribute, like `whenHas()`
+
+`whenAppended('attribute', $value, $default)` mirrors `analyzeWhenHas()`: `analyzeWhenAppended()` resolves
+the accessor's type via `resolveModelAttributeTypeInfo()` from the attribute name alone, never from
+analyzing `$value`. This matters because Laravel's `whenAppended()` does **not** forward the resolved value
+into a `$value` closure the way `whenHas()`/`whenLoaded()`/`whenCounted()`/`whenAggregated()`/
+`whenExistsLoaded()` do — it calls `value($value)` with zero arguments, not `value($value, $resolved)` — so
+a `$value` closure parameter has nothing bound to it in Laravel's own implementation. Typing from the
+attribute name sidesteps that distinction entirely.
+
+### `whenExistsLoaded()` resolves to the generated `{relation}_exists` flag — and must agree with `ModelTransformer`
+
+`whenExistsLoaded('relation')` reads `Model::withExists()`'s `{relation}_exists` attribute — the same flag
+`ModelAttributeResolver::resolveAttributeFallbacks()` types as `boolean` for a model's own `*_exists`
+properties (the `_exists` suffix → `boolean` fallback, mirroring `_count` → `number`).
+`analyzeWhenExistsLoaded()` emits that same `boolean`, deliberately: a resource and the model it wraps
+disagreeing about the type of the same underlying flag is exactly the kind of divergence this package
+exists to prevent.
+
+### `transform()` types from the callback's return, not `$value`'s
+
+`transform($value, $callback, $default)` (`vendor/laravel/framework/.../Support/helpers.php`) calls
+`$callback($value)` when `$value` is filled and returns that result — the callback's return type, not
+`$value`'s own type, is what the property carries. `analyzeTransform()` mirrors `analyzeWhen()`'s
+value-argument handling but analyzes `$args[1]` (the callback) instead of `$args[0]`, binding the
+callback's first parameter to `$args[0]`'s `$this->prop` expression via `bindClosureParamsFromCondition()`
+the same way `analyzeWhen()` binds a value closure to its condition, then unions in the default at index 2
+exactly like `analyzeWhen()` does.

@@ -8128,6 +8128,36 @@
                     "name": "pivot_loaded_as_with_default",
                     "type": "unknown",
                     "optional": false
+                },
+                {
+                    "name": "unless_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "unless_with_default",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "appended_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "exists_no_default",
+                    "type": "boolean",
+                    "optional": true
+                },
+                {
+                    "name": "transform_no_default",
+                    "type": "boolean",
+                    "optional": true
+                },
+                {
+                    "name": "transform_with_default",
+                    "type": "boolean | number",
+                    "optional": false
                 }
             ]
         },

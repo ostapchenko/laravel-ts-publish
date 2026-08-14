@@ -354,9 +354,9 @@ export interface UserResource {
 Key capabilities:
 
 - **Model-aware type resolution** — property types come from the backing Eloquent model's database schema and casts, with the model resolved via `#[TsResource(model:)]`, `@mixin`, naming convention, or `#[UseResource]`.
-- **Conditional methods** — `when()`, `whenLoaded()`, `whenHas()`, `whenNotNull()`, `whenCounted()`, `whenAggregated()`, and `whenPivotLoaded()` all become optional (`?`) properties, and passing an explicit default makes the property required.
+- **Conditional methods** — `when()`, `unless()`, `whenLoaded()`, `whenHas()`, `whenAppended()`, `whenNotNull()`, `whenCounted()`, `whenAggregated()`, `whenExistsLoaded()`, `whenPivotLoaded()`, and `transform()` all become optional (`?`) properties, and passing an explicit default makes the property required.
 - **Nested & collection resources** — `SomeResource::make()` / `::collection()` (or `new SomeResource(...)`) resolve to imported resource types, including self-references.
-- **`merge()` / `mergeWhen()`, parent `toArray()` spreads, and trait method spreads** — all contribute properties, with types resolved from PHPDoc `@return array{...}` shapes or `#[TsCasts]`.
+- **`merge()` / `mergeWhen()` / `mergeUnless()`, parent `toArray()` spreads, and trait method spreads** — all contribute properties, with types resolved from PHPDoc `@return array{...}` shapes or `#[TsCasts]`.
 - **`EnumResource::make()`** — exposes an enum-cast property as `AsEnum<typeof Enum>` with automatic imports.
 - **`#[TsResource]` / `#[TsCasts]` / `#[TsExclude]`** — override the interface name/model/description, override or add property types, or exclude a resource entirely. See [Excluding with TsExclude](#excluding-with-tsexclude).
 - **Smart nullable relations** — the same nullability-detection strategy used by [models](#models), with config to override the strategy per relation type.

@@ -64,6 +64,16 @@ class ConditionalDefaultsResource extends JsonResource
             // its leading $accessor argument.
             'pivot_loaded_as_no_default' => $this->whenPivotLoadedAs('membership', 'team_user', null),
             'pivot_loaded_as_with_default' => $this->whenPivotLoadedAs('membership', 'team_user', null, 0),
+
+            'unless_no_default' => $this->unless($this->id > 0, $this->full_address),
+            'unless_with_default' => $this->unless($this->id > 0, $this->full_address, 'fallback'),
+            'appended_no_default' => $this->whenAppended('full_address'),
+            'exists_no_default' => $this->whenExistsLoaded('user'),
+
+            // transform() types from the callback's return, not $value's — the callback here returns a
+            // boolean while $value (full_address) is string|null, so a wrong implementation would show up.
+            'transform_no_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== ''),
+            'transform_with_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== '', 0),
         ];
     }
 }
