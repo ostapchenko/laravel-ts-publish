@@ -53,6 +53,7 @@ export * from './misc-collection';
 export * from './model-wrapped-prop-resource';
 export * from './mutually-recursive-spread-resource';
 export * from './non-array-return-resource';
+export * from './non-this-receiver-spread-resource';
 export * from './order-closure-resource';
 export * from './order-collection';
 export * from './order-counts-resource';

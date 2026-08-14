@@ -258,9 +258,7 @@ class ResourceAstAnalyzer
             }
 
             // return $this->someMethod() — resolve it the same way an array-literal spread would.
-            if ($returnStmt->expr->var instanceof Variable
-                && $returnStmt->expr->var->name === 'this'
-                && $returnStmt->expr->name instanceof Identifier) {
+            if ($this->hasThisReceiver($returnStmt->expr) && $returnStmt->expr->name instanceof Identifier) {
                 return $this->analyzeThisMethodSpread($returnStmt->expr->name->toString()) ?? new ResourceAnalysis;
             }
 
@@ -2154,10 +2152,10 @@ class ResourceAstAnalyzer
 
                 if ($filtered !== null) {
                     $analysis = $filtered;
-                } elseif ($returnStmt->expr->name instanceof Identifier) {
+                } elseif ($this->hasThisReceiver($returnStmt->expr) && $returnStmt->expr->name instanceof Identifier) {
                     $analysis = $this->analyzeThisMethodSpread($returnStmt->expr->name->toString()) ?? new ResourceAnalysis;
                 } else {
-                    $analysis = new ResourceAnalysis; // @codeCoverageIgnore
+                    $analysis = new ResourceAnalysis;
                 }
             } else {
                 $analysis = new ResourceAnalysis;

@@ -59,7 +59,7 @@ trait IncludesConditionalData
 
     /**
      * Method that returns a method call result — not an array literal or variable.
-     * Exercises the else fallback branch in analyzeThisMethodSpread.
+     * Exercises the MethodCall arm in analyzeThisMethodSpread, which now recurses transitively.
      */
     protected function includeFromMethodCall(): array
     {

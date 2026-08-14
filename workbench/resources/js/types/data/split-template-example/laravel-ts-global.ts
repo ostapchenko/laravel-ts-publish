@@ -2257,6 +2257,13 @@ declare global {
         }
         export interface NonArrayReturnResource {
         }
+        /**
+         * outer() returns $this->helper()->wrongCall() — a method call chained off a non-$this receiver. The
+         * resource also defines its own wrongCall(), whose properties must not leak in through that chain.
+         */
+        export interface NonThisReceiverSpreadResource {
+            id: number;
+        }
         /** Exercises closure / arrow function patterns in value expressions and merge methods. */
         export interface OrderClosureResource {
             id: number;

@@ -57,6 +57,7 @@ use Workbench\App\Http\Resources\MiscCollection;
 use Workbench\App\Http\Resources\ModelWrappedPropResource;
 use Workbench\App\Http\Resources\MutuallyRecursiveSpreadResource;
 use Workbench\App\Http\Resources\NonArrayReturnResource;
+use Workbench\App\Http\Resources\NonThisReceiverSpreadResource;
 use Workbench\App\Http\Resources\OrderClosureResource;
 use Workbench\App\Http\Resources\OrderCollection;
 use Workbench\App\Http\Resources\OrderCountsResource;
@@ -1645,6 +1646,22 @@ describe('ResourceAstAnalyzer with a bare method-call return', function () {
             ->and($props['id']['type'])->toBe('number')
             ->and($props)->toHaveKey('slug')
             ->and($props['slug']['type'])->toBe('string');
+    });
+});
+
+describe('ResourceAstAnalyzer with a non-$this receiver in a spread method chain', function () {
+    it('does not resolve a method call whose receiver is not $this, even when its name collides with a real method', function () {
+        $reflection = new ReflectionClass(NonThisReceiverSpreadResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Team::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        // outer() returns $this->helper()->wrongCall() — helper() is not $this, so the resource's
+        // own wrongCall() (which returns 'leaked') must not be resolved just because the name matches.
+        expect($props)->toHaveKey('id')
+            ->and($props)->not->toHaveKey('leaked')
+            ->and($props)->not->toHaveKey('unrelated');
     });
 });
 

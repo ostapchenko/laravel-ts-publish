@@ -9448,6 +9448,16 @@
             "name": "NonArrayReturnResource",
             "properties": []
         },
+        "Workbench\\App\\Http\\Resources\\NonThisReceiverSpreadResource": {
+            "name": "NonThisReceiverSpreadResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\OrderClosureResource": {
             "name": "OrderClosureResource",
             "properties": [
