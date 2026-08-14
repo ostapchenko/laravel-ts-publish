@@ -30,6 +30,7 @@ use Workbench\App\Models\StrictCompositeComment;
 use Workbench\App\Models\StrictTaskAssignment;
 use Workbench\App\Models\Tag;
 use Workbench\App\Models\TaskAssignment;
+use Workbench\App\Models\Team;
 use Workbench\App\Models\TrackingEvent;
 use Workbench\App\Models\UntypedColumn;
 use Workbench\App\Models\User;
@@ -671,9 +672,9 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toHaveKey('visibility')
             ->toHaveKey('priority');
 
-        expect($data->enumColumns['status'])->toBe(['constName' => 'Status', 'nullable' => false]);
-        expect($data->enumColumns['visibility'])->toBe(['constName' => 'Visibility', 'nullable' => true]);
-        expect($data->enumColumns['priority'])->toBe(['constName' => 'Priority', 'nullable' => true]);
+        expect($data->enumColumns['status'])->toBe(['constName' => 'Status', 'nullable' => false, 'isCollection' => false]);
+        expect($data->enumColumns['visibility'])->toBe(['constName' => 'Visibility', 'nullable' => true, 'isCollection' => false]);
+        expect($data->enumColumns['priority'])->toBe(['constName' => 'Priority', 'nullable' => true, 'isCollection' => false]);
     });
 
     test('enumColumns is empty when enums_use_tolki_package is disabled', function () {
@@ -768,6 +769,20 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
             ->toContain('Status')
             ->toContain('Visibility')
             ->toContain('Priority');
+    });
+
+    test('enumColumns marks an AsEnumCollection column as a collection', function () {
+        $data = (new ModelTransformer(Team::class))->data();
+
+        expect($data->enumColumns['week_days'])
+            ->toBe(['constName' => 'Status', 'nullable' => true, 'isCollection' => true]);
+    });
+
+    test('enumColumns marks a scalar enum column as not a collection', function () {
+        $data = (new ModelTransformer(Post::class))->data();
+
+        expect($data->enumColumns['status'])
+            ->toBe(['constName' => 'Status', 'nullable' => false, 'isCollection' => false]);
     });
 });
 

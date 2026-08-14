@@ -41,5 +41,5 @@ export interface Team
 
 export interface TeamResource extends Omit<Team, 'week_days'>
 {
-    week_days: AsEnum<typeof Status> | null;
+    week_days: AsEnum<typeof Status>[] | null;
 }

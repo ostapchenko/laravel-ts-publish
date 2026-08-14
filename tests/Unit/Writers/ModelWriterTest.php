@@ -6,6 +6,7 @@ use AbeTwoThree\LaravelTsPublish\Transformers\ModelTransformer;
 use AbeTwoThree\LaravelTsPublish\Writers\ModelWriter;
 use Illuminate\Filesystem\Filesystem;
 use Workbench\App\Models\Post;
+use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
 use Workbench\Crm\Models\Deal;
@@ -276,4 +277,17 @@ test('model without TsExtends renders plain interface', function () {
     expect($content)
         ->not->toContain('export interface User extends')
         ->toContain('export interface User');
+});
+
+test('renders an enum-collection column with its [] suffix in the resource variant', function () {
+    $writer = new ModelWriter(new Filesystem);
+    $transformer = new ModelTransformer(Team::class);
+
+    config()->set('ts-publish.output_to_files', false);
+
+    $content = $writer->write($transformer);
+
+    expect($content)
+        ->toContain('week_days: AsEnum<typeof Status>[] | null;')
+        ->not->toContain('week_days: AsEnum<typeof Status> | null;');
 });

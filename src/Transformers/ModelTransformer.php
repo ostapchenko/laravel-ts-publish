@@ -110,13 +110,13 @@ class ModelTransformer extends CoreTransformer
     /** @var array<string, list<string>> */
     public protected(set) array $customImports = [];
 
-    /** @var array<string, array{fqcn: string, nullable: bool}> column_name => enum property info */
+    /** @var array<string, array{fqcn: string, nullable: bool, isCollection: bool}> column_name => enum property info */
     protected array $enumColumnProperties = [];
 
-    /** @var array<string, array{fqcn: string, nullable: bool}> mutator_name => enum property info */
+    /** @var array<string, array{fqcn: string, nullable: bool, isCollection: bool}> mutator_name => enum property info */
     protected array $enumMutatorProperties = [];
 
-    /** @var array<string, array{fqcn: string, nullable: bool}> append_name => enum property info */
+    /** @var array<string, array{fqcn: string, nullable: bool, isCollection: bool}> append_name => enum property info */
     protected array $enumAppendsProperties = [];
 
     /** @var list<string> Attribute names from model's array */
@@ -277,9 +277,12 @@ class ModelTransformer extends CoreTransformer
             }
 
             if ($typings['enumFqcns'] !== []) {
+                // $type itself may already carry '| null' here: resolveAttribute() appends it
+                // internally before this point, so the suffix check must strip it first.
                 $this->enumColumnProperties[$name] = [
                     'fqcn' => $typings['enumFqcns'][0],
                     'nullable' => $attribute['nullable'],
+                    'isCollection' => str_ends_with(rtrim(str_replace('| null', '', $type)), '[]'),
                 ];
             }
 
@@ -350,6 +353,7 @@ class ModelTransformer extends CoreTransformer
                 $enumInfo = [
                     'fqcn' => $resolved['enumFqcns'][0],
                     'nullable' => str_contains($resolved['type'], 'null'),
+                    'isCollection' => str_ends_with(rtrim(str_replace('| null', '', $resolved['type'])), '[]'),
                 ];
 
                 if ($isAppended) {
@@ -766,7 +770,7 @@ class ModelTransformer extends CoreTransformer
     }
 
     /**
-     * @return array<string, array{constName: string, nullable: bool}>
+     * @return array<string, array{constName: string, nullable: bool, isCollection: bool}>
      */
     protected function buildEnumColumns(): array
     {
@@ -776,6 +780,7 @@ class ModelTransformer extends CoreTransformer
             $result[$name] = [
                 'constName' => $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']],
                 'nullable' => $info['nullable'],
+                'isCollection' => $info['isCollection'],
             ];
         }
 
@@ -783,7 +788,7 @@ class ModelTransformer extends CoreTransformer
     }
 
     /**
-     * @return array<string, array{constName: string, nullable: bool}>
+     * @return array<string, array{constName: string, nullable: bool, isCollection: bool}>
      */
     protected function buildEnumMutators(): array
     {
@@ -793,6 +798,7 @@ class ModelTransformer extends CoreTransformer
             $result[$name] = [
                 'constName' => $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']],
                 'nullable' => $info['nullable'],
+                'isCollection' => $info['isCollection'],
             ];
         }
 
@@ -802,7 +808,7 @@ class ModelTransformer extends CoreTransformer
     /**
      * Build the enum appends properties for the Tolki package variant.
      *
-     * @return array<string, array{constName: string, nullable: bool}>
+     * @return array<string, array{constName: string, nullable: bool, isCollection: bool}>
      */
     protected function buildEnumAppends(): array
     {
@@ -812,6 +818,7 @@ class ModelTransformer extends CoreTransformer
             $result[$name] = [
                 'constName' => $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']],
                 'nullable' => $info['nullable'],
+                'isCollection' => $info['isCollection'],
             ];
         }
 
