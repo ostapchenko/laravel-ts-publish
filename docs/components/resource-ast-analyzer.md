@@ -352,6 +352,25 @@ the union are decided by the shared `applyConditionalDefault()` helper described
 `analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
 wins at runtime.
 
+### An empty-array default collapses instead of widening the property
+
+`analyzeInlineArray()` discriminates on `$array->items === []` before it consults the extracted
+properties, because the two empty results mean different things. A literal `[]` is `never[]` —
+`json_encode([])` emits `[]`, never `{}`, so the old blanket `Record<string, unknown>` described a shape
+the runtime could not produce. An array whose *keys* failed to resolve keeps the `Record` fallback, which
+is still the honest answer there.
+
+`applyConditionalDefault()` then drops a `never[]` member whenever another member is an array type. That
+is sound precisely because the arm is provably empty: `[]` is assignable to every array type, so it adds
+nothing beside a real one. `whenLoaded('children', $this->children, [])` is therefore `Category[]`, not
+`Category[] | Record<string, unknown>` — a union whose second arm no caller could consume.
+
+The two halves are coupled. The collapse keys on the literal `never[]`, and it is only sound because
+`never[]` means *provably empty*. Retyping empty literals as `unknown[]` would break it: the rule could no
+longer tell a provably-empty arm from a genuinely-unknown-element one, and `X[] | unknown[]` → `X[]` is
+unsound. `never[]` is also the friendlier of the two for consumers — it is assignable to every array type,
+where `unknown[]` is assignable to none.
+
 ### Dropping an `unknown` arm is a deliberate policy, not an incidental side effect
 
 The `unknown`-filtering is recorded here explicitly because it is easy to mistake for defensive scaffolding
