@@ -1880,10 +1880,9 @@ describe('ResourceAstAnalyzer with OrderOnlyResource (spread only)', function ()
     test('only spread includes exactly the listed properties', function () {
         $names = array_column($this->analysis->properties, 'name');
 
-        // One needle per `not->toContain()`: Pest's opposite expectation passes as soon as the *first*
-        // needle is absent, so a multi-needle call only ever asserts "at least one of these is missing".
-        // 'notes' used to sit in the excluded list behind 'ulid' and was never actually checked — it is
-        // named in only(), so it must be present.
+        // One needle per `not->toContain()`: Pest's opposite expectation passes on the first absent needle,
+        // so a multi-needle call only asserts "at least one is missing" — which is how 'notes', named in
+        // only() and correctly emitted, sat unchecked in the excluded list behind 'ulid'.
         expect($names)->toContain('id', 'total', 'status')
             ->and($names)->toContain('user')
             ->and($names)->toContain('notes')
@@ -3877,20 +3876,16 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // whenNotNull($this->status, function ($status) {...}) — the closure param is unbound (whenNotNull's
-    // default isn't a callback), so its own EnumResource::make($status) call resolves to 'unknown'.
-    //
-    // Policy pin, two halves. The type keeps dropping the 'unknown' arm rather than unioning it in
-    // literally — the same treatment analyzeCoalesce() gives an 'unknown' operand. But an arm that
-    // resolved to nothing cannot back a *required* narrow type, so the property stays optional and forces
-    // a presence check, exactly as it did before the default argument was ever read.
-    test('full closure param → EnumResource::make keeps its type but stays optional', function () {
+    // Policy pin: whenNotNull's default isn't a callback, so this closure param is unbound and its own
+    // EnumResource::make($status) resolves to 'unknown' — the value arm's type stands alone rather than
+    // being unioned with it, and the explicit second argument still makes the key required.
+    test('full closure param → EnumResource::make keeps its type, still required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('OrderStatusType')
             ->and($prop['type'])->not->toContain('unknown')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 });
 

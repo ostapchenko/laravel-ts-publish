@@ -8340,7 +8340,7 @@
                 {
                     "name": "status_resource",
                     "type": "OrderStatusType",
-                    "optional": true
+                    "optional": false
                 },
                 {
                     "name": "shipping_safe",

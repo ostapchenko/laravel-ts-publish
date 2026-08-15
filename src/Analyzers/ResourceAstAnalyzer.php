@@ -1198,8 +1198,8 @@ class ResourceAstAnalyzer
     /**
      * Fold a conditional method's explicit default into its value arm's result.
      *
-     * Laravel always emits the key once a default is passed, so the property becomes required — but only a
-     * type covering both arms can back that, so an arm with no usable type keeps the property optional.
+     * An explicit default always makes the property required, since Laravel then always emits the key.
+     * The default's type unions in when it resolves; otherwise the value arm's own type stands alone.
      *
      * @param  ValueExpressionResult  $value
      * @return ValueExpressionResult
@@ -1212,13 +1212,9 @@ class ResourceAstAnalyzer
 
         $default = $this->analyzeValueExpression($call->getArgs()[$index]->value);
 
-        // An unresolved default can't back a required type, so the property keeps forcing a presence check.
-        if ($default['type'] === 'unknown') {
-            return [...$value, 'optional' => true];
-        }
-
-        // `unknown` already covers the default; narrowing to the default alone would drop the value arm.
-        if ($value['type'] === 'unknown') {
+        // An `unknown` on either arm carries no type to union: an unresolved default leaves the value arm
+        // standing, and an unresolved value arm already admits whatever the default could produce.
+        if ($default['type'] === 'unknown' || $value['type'] === 'unknown') {
             return [...$value, 'optional' => false];
         }
 

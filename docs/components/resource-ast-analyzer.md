@@ -352,27 +352,28 @@ the union are decided by the shared `applyConditionalDefault()` helper described
 `analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
 wins at runtime.
 
-### An `unknown` arm is treated asymmetrically, and deliberately so
+### Dropping an `unknown` arm is a deliberate policy, not an incidental side effect
 
-The two arms are not interchangeable when one of them fails to resolve, and the difference is recorded here
-because it is easy to mistake for defensive scaffolding and "simplify" into one branch:
+The `unknown`-filtering is recorded here explicitly because it is easy to mistake for defensive scaffolding
+and simplify away in a later refactor — it is load-bearing. It fires whenever `analyzeValueExpression()`
+fails to resolve **either** arm, and it has two justifications, not one:
 
-- **An unresolved *default* is dropped from the type, and keeps the property optional.** Precedent for the
-  drop: `analyzeCoalesce()` already treats an `unknown` operand as "no information" rather than a real union
-  member, and `analyzeClosureUnion()` does the same for an `unknown` return branch. Unioning `unknown` in
-  literally would collapse the *whole property* to `unknown` — exactly what this package's
-  no-type-regressions-to-`unknown` discipline exists to prevent — so the resolvable sibling arm's type is
-  what surfaces. But that surviving type is not something a *required* property can be pinned on, so
-  `optional` stays `true` and the consumer is still forced through a presence check.
-- **An unresolved *value* arm collapses the union to `unknown`, required.** Here there is no narrower type
-  to preserve: dropping the value arm and emitting the default's type alone would claim a type for whatever
-  the value arm can still return at runtime.
+- **Precedent.** `analyzeCoalesce()` already treats an `unknown` operand as "no information" rather than a
+  real union member, and `analyzeClosureUnion()` does the same for an `unknown` return branch. Unioning
+  `unknown` in literally here would be the odd one out.
+- **`T | unknown` collapses to `unknown` in TypeScript.** The honest-looking alternative — emitting the raw,
+  un-filtered union when one arm can't be resolved — wouldn't degrade gracefully to a *partial* type; it
+  would degrade the *whole property* to `unknown`, which is exactly the outcome this package's own
+  no-type-regressions-to-`unknown` discipline exists to prevent. Filtering the unresolvable arm out is what
+  keeps a resolvable sibling arm's type surfacing at all.
 
-`ConditionalParamFullClosureResource::status_resource` —
-`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })` — exercises the
-first case: the closure param is unbound, its `EnumResource::make($status)` resolves to `unknown`, so the
-property emits `OrderStatusType` and stays optional. `ConditionalDefaultsResource::pivot_loaded_with_default`
-exercises the second, via `whenPivotLoaded()`'s hard-coded `unknown` value arm.
+What the filtering never does is change `optional`. `ConditionalParamFullClosureResource::status_resource` —
+`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })` — has an
+unresolvable *default*: the closure param is unbound, so `EnumResource::make($status)` resolves to
+`unknown`. The property emits `OrderStatusType`, and stays **required**, because the explicit second
+argument means Laravel always emits the key. `ConditionalDefaultsResource::pivot_loaded_with_default`
+exercises the other direction, via `whenPivotLoaded()`'s hard-coded `unknown` value arm: `unknown`,
+also required.
 
 ### A model-level `#[TsCasts]` override can mask this fix in the final output
 
@@ -422,17 +423,27 @@ cosmetic — a default like `Status::Draft` or `UserResource::make(...)` carries
 only `mergeUnionChannels()` preserves; concatenating type strings by hand would emit a type name with no
 import and trip the unimportable-token gate.
 
-Making the property required is only sound if the emitted type covers *both* arms, so the helper has two
-escape hatches, each returning early:
+The settled rule is one sentence:
 
-- **The default resolves to `unknown`.** Nothing backs a required narrow type, so the value arm's type is
-  kept and `optional` stays `true` — the consumer is forced through a presence check rather than handed a
-  type the runtime can violate. The `'unknown'` arm is still dropped from the *type* rather than unioned in
-  literally, the same treatment `analyzeCoalesce()` gives an `'unknown'` operand.
+> An explicit default always makes the property required. Union the default's type in when it resolves;
+> emit the value-arm type alone when it does not.
+
+`optional` is decided by presence, not by type. Passing a default means the key is always emitted at
+runtime, so `required` is factually true regardless of how well either arm resolved — forcing a consumer
+through a presence check for a key that always exists would be its own kind of lie. That is why the single
+early return sets `optional` to `false` rather than backing out to `true`.
+
+It covers both directions of an `'unknown'` arm, which reach the same result for different reasons:
+
+- **The default resolves to `unknown`** (an unanalyzable expression or closure body). There is no type to
+  union, so the value arm's own type stands alone — the `'unknown'` arm is dropped rather than unioned in
+  literally, the same treatment `analyzeCoalesce()` gives an `'unknown'` operand. Unioning it in would
+  collapse the whole property to `unknown`, which the no-type-regressions-to-`unknown` discipline exists to
+  prevent.
 - **The value arm is `unknown`.** `unknown` already admits every value the default can produce, so the
-  union collapses back to `unknown` and the property is required. Narrowing to the default's type alone
-  would drop whatever the value arm can still return. This is the `whenPivotLoaded()` /
-  `whenPivotLoadedAs()` case, whose value arm is a hard-coded `unknown` the handler never inspects.
+  union collapses back to `unknown`. Narrowing to the default's type alone would drop whatever the value
+  arm can still return. This is the `whenPivotLoaded()` / `whenPivotLoadedAs()` case, whose value arm is a
+  hard-coded `unknown` the handler never inspects.
 
 Routing the whole family through one helper replaced three near-identical inline merge blocks and closed a
 soundness hole: `analyzeWhenHas()`, `analyzeWhenAppended()`, `analyzeWhenLoaded()` and

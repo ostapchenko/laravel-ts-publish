@@ -2,8 +2,8 @@ import type { User } from '../../models';
 
 /**
  * Exercises the conditional family's default argument. An explicit default means the key is always
- * present, so the property is required and the default's own type is unioned into the emitted type;
- * a default whose type cannot be resolved leaves the property optional instead.
+ * present, so the property is required; the default's own type unions into the emitted type when it
+ * resolves, and the value arm's type stands alone when it does not.
  *
  * @see Workbench\App\Http\Resources\ConditionalDefaultsResource
  */

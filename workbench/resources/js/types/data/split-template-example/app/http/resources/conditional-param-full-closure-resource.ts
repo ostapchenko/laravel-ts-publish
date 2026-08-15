@@ -18,6 +18,6 @@ export interface ConditionalParamFullClosureResource
     user_summary?: { id: number; email: string };
     items_mapped?: { id: number; name: string; quantity: number }[];
     user_resource?: UserResource;
-    status_resource?: OrderStatusType;
+    status_resource: OrderStatusType;
     shipping_safe?: { name: string; email: string } | null;
 }
