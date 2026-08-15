@@ -7822,6 +7822,16 @@
                     "name": "parent_when_resource_self",
                     "type": "CategoryResource",
                     "optional": true
+                },
+                {
+                    "name": "children_with_default",
+                    "type": "Category[]",
+                    "optional": false
+                },
+                {
+                    "name": "posts_with_default",
+                    "type": "PostResource[]",
+                    "optional": false
                 }
             ]
         },
@@ -9392,7 +9402,7 @@
                 },
                 {
                     "name": "empty",
-                    "type": "Record<string, unknown>",
+                    "type": "never[]",
                     "optional": false
                 }
             ]

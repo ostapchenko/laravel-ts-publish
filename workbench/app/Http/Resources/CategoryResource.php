@@ -43,6 +43,8 @@ class CategoryResource extends JsonResource
             'parent_resource_self' => new self($this->resource->parent),
             'parent_when_self' => $this->whenLoaded('parent', fn () => new self($this->parent)),
             'parent_when_resource_self' => $this->whenLoaded('parent', fn () => new self($this->resource->parent)),
+            'children_with_default' => $this->whenLoaded('children', $this->children, []),
+            'posts_with_default' => $this->whenLoaded('posts', PostResource::collection($this->posts), []),
         ];
     }
 }

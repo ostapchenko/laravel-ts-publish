@@ -1223,6 +1223,12 @@ class ResourceAstAnalyzer
             ...explode(' | ', $default['type']),
         ]));
 
+        // `[]` is assignable to every array type, so an empty-array arm beside a real one would only
+        // widen the property into a shape — `Category[] | Record<…>` — that no caller can consume.
+        if (array_any($members, fn (string $m): bool => $m !== 'never[]' && str_ends_with($m, '[]'))) {
+            $members = array_values(array_filter($members, fn (string $m): bool => $m !== 'never[]'));
+        }
+
         return [...$this->mergeUnionChannels($members, [$value, $default]), 'optional' => false];
     }
 
@@ -3170,6 +3176,12 @@ class ResourceAstAnalyzer
     protected function analyzeInlineArray(Array_ $array): array
     {
         $analysis = $this->analyzeReturnArray($array);
+
+        // `json_encode([])` emits `[]`, not `{}` — only an array whose keys we failed to resolve is
+        // honestly a record. `never[]` says the literal can hold nothing, which is what `[]` means.
+        if ($array->items === []) {
+            return ['type' => 'never[]', 'optional' => false];
+        }
 
         if ($analysis->properties === []) {
             return ['type' => 'Record<string, unknown>', 'optional' => false];

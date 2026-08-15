@@ -1689,6 +1689,8 @@ declare global {
             parent_resource_self: CategoryResource;
             parent_when_self?: CategoryResource;
             parent_when_resource_self?: CategoryResource;
+            children_with_default: app.models.Category[];
+            posts_with_default: PostResource[];
         }
         /**
          * Child resource that uses SharedExtendsInterface AND extends a parent that also uses it.
@@ -2229,7 +2231,7 @@ declare global {
             name: string;
             value: string;
             meta: { label?: string };
-            empty: Record<string, unknown>;
+            empty: never[];
         }
         export interface MediaTypeResource {
             name: string;

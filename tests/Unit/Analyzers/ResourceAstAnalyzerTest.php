@@ -723,6 +723,23 @@ describe('ResourceAstAnalyzer with CategoryResource', function () {
             ->and($prop['optional'])->toBeFalse();
     });
 
+    test('an empty-array default collapses into the array it defaults beside', function (string $name, string $expected) {
+        $reflection = new ReflectionClass(CategoryResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', $name);
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe($expected)
+            ->and($prop['type'])->not->toContain('Record<')
+            ->and($prop['type'])->not->toContain('never[]')
+            ->and($prop['optional'])->toBeFalse();
+    })->with([
+        ['children_with_default', 'Category[]'],
+        ['posts_with_default', 'PostResource[]'],
+    ]);
+
     test('self::collection(...) first-class callable resolves to CategoryResource[]', function () {
         $reflection = new ReflectionClass(CategoryResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
@@ -2680,14 +2697,14 @@ describe('ResourceAstAnalyzer with MediaTypePositiveInstanceOfResource (positive
         expect($value['type'])->toBe('string');
     });
 
-    test('empty inline array resolves to Record<string, unknown>', function () {
+    test('empty inline array resolves to never[], the shape json_encode actually emits', function () {
         $reflection = new ReflectionClass(MediaTypePositiveInstanceOfResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection);
         $analysis = $analyzer->analyze();
 
         $empty = collect($analysis->properties)->firstWhere('name', 'empty');
 
-        expect($empty['type'])->toBe('Record<string, unknown>');
+        expect($empty['type'])->toBe('never[]');
     });
 
     test('inline array with optional key marks it as optional', function () {
