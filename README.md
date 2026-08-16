@@ -303,20 +303,21 @@ Key capabilities:
 
 - **Split or full templates** — `models.template` controls whether properties/mutators/relations are generated as separate interfaces (default) or combined into one `model-full` interface.
 - **Smart nullable relations** — singular relations (`HasOne`, `BelongsTo`, `MorphOne`, ...) are automatically typed with `| null` based on the relation type and foreign key nullability, with a config to override the strategy per relation type.
-- **`#[TsCasts]` / `#[TsType]`** — override or add TypeScript types for columns, mutators, relations, or an entire custom cast class, including custom types imported from your own files.
 - **Annotate instead of configuring** — `@property` / `@property-read` tags, `@phpstan-type` aliases, `Attribute<>` generics, `@return MorphTo<A|B, $this>`, `AsEnumCollection::of()` / `AsCollection::of()`, and an `Arrayable` DTO's own typed properties all sharpen a column's type with no `#[TsCasts]` needed — and PHPStan/Larastan check the same annotations. See [Typing attributes without `#[TsCasts]`](https://tolki.abe.dev/ts/models.html#typing-attributes-without-tscasts).
-- **`$hidden` and write-only accessors** — hidden attributes publish by default (`models.exclude_hidden` opts out); a write-only `Attribute::make(set:)` resolves from its `@return Attribute<Get, Set>` generic, then a same-named column, then is omitted rather than emitted as `unknown`.
-- **`#[TsExclude]`** — exclude an entire model, or a specific accessor/relation, from the output.
 - **PHPDoc-aware** — class, column, mutator, and relation doc blocks are carried over as JSDoc comments automatically.
+- **`#[TsCasts]` / `#[TsType]`** — For more advanced TypeScript types for columns, mutators, relations, or an entire custom cast class, including custom types imported from your own files.
+- **`$hidden` and write-only accessors** — hidden attributes publish by default (`models.exclude_hidden` opts out, for model *and* resource interfaces alike — a resource's `except()`/whole-model delegation loses the column too, though `only(['password'])` still keeps one named explicitly); a write-only `Attribute::make(set:)` resolves from its `@return Attribute<Get, Set>` generic, then a same-named column, then is omitted rather than emitted as `unknown`.
+- **`#[TsExclude]`** — exclude an entire model, or a specific accessor/relation, from the output.
+- **Laravel 13 model attributes** — `#[Table]`, `#[Hidden]`, `#[Visible]`, `#[Appends]`, and `#[Connection]` are honoured automatically, no configuration needed. See [Laravel 13 Model Attributes](https://tolki.abe.dev/ts/models.html#laravel-13-model-attributes) for the full attribute-by-attribute table.
 - **Enum-typed columns** also generate a matching `{Model}Resource` interface using `AsEnum<>`, for when you've resolved a raw enum column to a full enum instance (e.g. via `Status.from(user.status)`).
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and resources.
 
 > [!TIP]
-> Still seeing `unknown`? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) is a symptom-first index of the docblock tag that fixes each case — all of them read by PHPStan/Larastan too.
+> Still seeing `unknown` in the output? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) is a symptom-first index of the docblock tag that fixes each case — all of them read by PHPStan/Larastan too.
 >
 > If you still continue to see `unknown`, open an issue with code samples of your PHP code and the generated TypeScript output so we can investigate.
 
-For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
+For the full template comparison, nullable relation strategies, every attribute option, the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
 ## API Resources
 
@@ -354,9 +355,9 @@ export interface UserResource {
 Key capabilities:
 
 - **Model-aware type resolution** — property types come from the backing Eloquent model's database schema and casts, with the model resolved via `#[TsResource(model:)]`, `@mixin`, naming convention, or `#[UseResource]`.
-- **Conditional methods** — `when()`, `whenLoaded()`, `whenHas()`, `whenNotNull()`, `whenCounted()`, `whenAggregated()`, and `whenPivotLoaded()` all become optional (`?`) properties.
-- **Nested & collection resources** — `SomeResource::make()` / `::collection()` (or `new SomeResource(...)`) resolve to imported resource types, including self-references.
-- **`merge()` / `mergeWhen()`, parent `toArray()` spreads, and trait method spreads** — all contribute properties, with types resolved from PHPDoc `@return array{...}` shapes or `#[TsCasts]`.
+- **Conditional methods** — `when()`, `unless()`, `whenLoaded()`, `whenHas()`, `whenAppended()`, `whenNotNull()`, `whenCounted()`, `whenAggregated()`, `whenExistsLoaded()`, `whenPivotLoaded()`, and `transform()` all become optional (`?`) properties, and passing an explicit default makes the property required.
+- **Nested & collection resources** — `SomeResource::make()` / `::collection()` (or `new SomeResource(...)`) resolve to imported resource types, including self-references; a collection carrying `#[PreserveKeys]` or `$preserveKeys = true` emits `Record<string, R>` instead of `R[]`.
+- **`merge()` / `mergeWhen()` / `mergeUnless()`, parent `toArray()` spreads, trait method spreads, and a bare `return $this->method()` (resolved transitively, the same as its `...$this->method()` spread form)** — all contribute properties, with types resolved from PHPDoc `@return array{...}` shapes or `#[TsCasts]`.
 - **`EnumResource::make()`** — exposes an enum-cast property as `AsEnum<typeof Enum>` with automatic imports.
 - **`#[TsResource]` / `#[TsCasts]` / `#[TsExclude]`** — override the interface name/model/description, override or add property types, or exclude a resource entirely. See [Excluding with TsExclude](#excluding-with-tsexclude).
 - **Smart nullable relations** — the same nullability-detection strategy used by [models](#models), with config to override the strategy per relation type.
@@ -367,7 +368,7 @@ For every supported `toArray()` pattern, the full attribute reference, and nulla
 
 ## Routes
 
-This package publishes a lightweight, functional route helper for every controller action in your app — matching the feature set of [Laravel Wayfinder](https://github.com/laravel/wayfinder), but with all the URL-building, parameter-binding, query-string, and form-spoofing logic tucked away inside a single `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) instead of being generated inline for every route.
+This package publishes a lightweight, functional route helper for every controller action in your app, with all the URL-building, parameter-binding, query-string, and form-spoofing logic tucked away inside a single `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) instead of being generated inline for every route. It's made to be spec-compliant with [Laravel Wayfinder](https://github.com/laravel/wayfinder) and will work with Inertia JS the same way.
 
 ```typescript
 // resources/js/types/data/app/http/controllers/post-controller.ts (generated)
@@ -396,7 +397,7 @@ Key capabilities:
 - **Structural typing** — model and enum route bindings are fully typed without ever importing the PHP model or enum class into the route file.
 - **Multiple calling conventions** — named object, positional arguments, an array of positional arguments, or a bare model/scalar for single-parameter routes.
 - **Query strings** — extra keys become query parameters automatically, with a `_query` escape hatch and a `mergeQuery` option for updating the current page's query string.
-- **`.form()` helper** — builds `{ action, method }` for HTML forms, including Laravel's `_method` spoofing for `PUT`/`PATCH`/`DELETE`.
+- **`.form()` helper** — builds `{ action, method }` for HTML forms, including Laravel's `_method` spoofing for `PUT`/`PATCH`/`DELETE`, and mapping `HEAD` to a plain GET form action (HTML forms can't submit `HEAD`).
 - **Inertia integration** — page-prop types and the component name are inferred and attached automatically when `inertia.enabled` is on.
 - **Inertia UI Table typing** — routes rendering an [Inertia UI Table](https://inertiaui.com/) get an automatically typed `TableResource<Model>` page prop without evaluating the table, with table-tainted controllers safely falling back instead of erroring.
 - **Form Request payloads** — a controller method's `FormRequest` type-hint automatically attaches its generated interface to the route.
@@ -432,7 +433,7 @@ import type { StorePostRequest } from '@js/types/data/form-requests';
 
 Key capabilities:
 
-- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type.
+- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type. `required_array_keys:a,b`, `in_array_keys:a,b`, and `array:a,b` name an array's keys without a full nested shape, resolving to a keyed object (`config: { timezone?: unknown }`) instead of `unknown[]`.
 - **Nested/wildcard composition** — `parent.*.child` and `parent.child` dot-notation rules compose recursively into their nearest undotted ancestor (`tags.*` → `tags: string[]`, `order.items.*.sku` → `order?: { items?: { sku: string }[] }`) instead of surviving as separate flat, quoted keys. Declaring the parent's own rules (e.g. `'order' => ['required', 'array']`) makes the composed key required instead of optional.
 - **Presence & nullability** — `required`/`sometimes` control whether a field is optional (`?`), `nullable` adds `| null`, and `missing`/`prohibited` fields are excluded from the interface entirely.
 - **`#[TsCasts]`** — override or add field types on the request class itself, the same attribute used by models and resources.

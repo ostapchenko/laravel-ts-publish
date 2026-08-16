@@ -15,6 +15,7 @@ use Workbench\App\Enums\Visibility;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
+use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
@@ -23,6 +24,7 @@ use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
 use Workbench\App\Http\Resources\CoalesceChannelResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\CommonResource;
+use Workbench\App\Http\Resources\ConditionalDefaultsResource;
 use Workbench\App\Http\Resources\ConditionalParamArrayResource;
 use Workbench\App\Http\Resources\ConditionalParamEnumResource;
 use Workbench\App\Http\Resources\ConditionalParamFullClosureResource;
@@ -53,7 +55,9 @@ use Workbench\App\Http\Resources\MergeClosureResource;
 use Workbench\App\Http\Resources\MergeMultiBranchClosureResource;
 use Workbench\App\Http\Resources\MiscCollection;
 use Workbench\App\Http\Resources\ModelWrappedPropResource;
+use Workbench\App\Http\Resources\MutuallyRecursiveSpreadResource;
 use Workbench\App\Http\Resources\NonArrayReturnResource;
+use Workbench\App\Http\Resources\NonThisReceiverSpreadResource;
 use Workbench\App\Http\Resources\OrderClosureResource;
 use Workbench\App\Http\Resources\OrderCollection;
 use Workbench\App\Http\Resources\OrderCountsResource;
@@ -68,11 +72,14 @@ use Workbench\App\Http\Resources\PostAttachmentFilterResource;
 use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
+use Workbench\App\Http\Resources\PreserveKeysCollection;
+use Workbench\App\Http\Resources\PreserveKeysPropertyCollection;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\QuirkyResource;
 use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
 use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
+use Workbench\App\Http\Resources\ShadowedClosureParamResource;
 use Workbench\App\Http\Resources\SpreadJsonBaseResource;
 use Workbench\App\Http\Resources\SpreadWithClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
@@ -86,8 +93,11 @@ use Workbench\App\Http\Resources\ToArrayCastsResource;
 use Workbench\App\Http\Resources\TraitSpreadCoverageResource;
 use Workbench\App\Http\Resources\UnitEnumResource;
 use Workbench\App\Http\Resources\UserCollection;
+use Workbench\App\Http\Resources\UserExceptResource;
+use Workbench\App\Http\Resources\UserOnlyHiddenResource;
 use Workbench\App\Http\Resources\UserResource;
 use Workbench\App\Http\Resources\VarReturnSpreadResource;
+use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Address;
 use Workbench\App\Models\Category;
 use Workbench\App\Models\Comment;
@@ -100,6 +110,7 @@ use Workbench\App\Models\Tag;
 use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
 use Workbench\App\Models\UuidPost;
+use Workbench\App\Models\Warehouse;
 use Workbench\Blog\Enums\ArticleStatus;
 use Workbench\Blog\Enums\ContentType;
 use Workbench\Blog\Http\Resources\ApiArticleResource;
@@ -711,6 +722,23 @@ describe('ResourceAstAnalyzer with CategoryResource', function () {
             ->and($prop['type'])->toBe('CategoryResource[]')
             ->and($prop['optional'])->toBeFalse();
     });
+
+    test('an empty-array default collapses into the array it defaults beside', function (string $name, string $expected) {
+        $reflection = new ReflectionClass(CategoryResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', $name);
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe($expected)
+            ->and($prop['type'])->not->toContain('Record<')
+            ->and($prop['type'])->not->toContain('never[]')
+            ->and($prop['optional'])->toBeFalse();
+    })->with([
+        ['children_with_default', 'Category[]'],
+        ['posts_with_default', 'PostResource[]'],
+    ]);
 
     test('self::collection(...) first-class callable resolves to CategoryResource[]', function () {
         $reflection = new ReflectionClass(CategoryResource::class);
@@ -1617,6 +1645,50 @@ describe('ResourceAstAnalyzer with trait method spread', function () {
     });
 });
 
+describe('ResourceAstAnalyzer with mutually recursive spread methods', function () {
+    it('does not recurse forever when two spread methods reference each other', function () {
+        $reflection = new ReflectionClass(MutuallyRecursiveSpreadResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Team::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props)->toHaveKey('name')
+            ->and($props['name']['type'])->toBe('string');
+    });
+});
+
+describe('ResourceAstAnalyzer with a bare method-call return', function () {
+    it('resolves a toArray that returns a method call, transitively', function () {
+        $reflection = new ReflectionClass(BareMethodReturnResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Team::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props)->toHaveKey('id')
+            ->and($props['id']['type'])->toBe('number')
+            ->and($props)->toHaveKey('slug')
+            ->and($props['slug']['type'])->toBe('string');
+    });
+});
+
+describe('ResourceAstAnalyzer with a non-$this receiver in a spread method chain', function () {
+    it('does not resolve a method call whose receiver is not $this, even when its name collides with a real method', function () {
+        $reflection = new ReflectionClass(NonThisReceiverSpreadResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Team::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        // outer() returns $this->helper()->wrongCall() — helper() is not $this, so the resource's
+        // own wrongCall() (which returns 'leaked') must not be resolved just because the name matches.
+        expect($props)->toHaveKey('id')
+            ->and($props)->not->toHaveKey('leaked')
+            ->and($props)->not->toHaveKey('unrelated');
+    });
+});
+
 describe('ResourceAstAnalyzer non-array return', function () {
     test('returns empty analysis for non-array non-parent return', function () {
         $reflection = new ReflectionClass(NonArrayReturnResource::class);
@@ -1825,9 +1897,15 @@ describe('ResourceAstAnalyzer with OrderOnlyResource (spread only)', function ()
     test('only spread includes exactly the listed properties', function () {
         $names = array_column($this->analysis->properties, 'name');
 
+        // One needle per `not->toContain()`: Pest's opposite expectation passes on the first absent needle,
+        // so a multi-needle call only asserts "at least one is missing" — which is how 'notes', named in
+        // only() and correctly emitted, sat unchecked in the excluded list behind 'ulid'.
         expect($names)->toContain('id', 'total', 'status')
             ->and($names)->toContain('user')
-            ->and($names)->not->toContain('ulid', 'subtotal', 'tax', 'notes');
+            ->and($names)->toContain('notes')
+            ->and($names)->not->toContain('ulid')
+            ->and($names)->not->toContain('subtotal')
+            ->and($names)->not->toContain('tax');
     });
 
     test('resolves types for only-listed properties', function () {
@@ -1852,6 +1930,16 @@ describe('ResourceAstAnalyzer with OrderOnlyResource (spread only)', function ()
             ->and($user['type'])->toBe('UserResource')
             ->and($user['optional'])->toBeTrue();
     });
+
+    test('only() keeps an explicitly-named write-only mutator that except() would omit', function () {
+        // Model::only() resolves through getAttribute(), which does return search_index (as null)
+        // — unlike Model::except()/toArray(), which never returns it at all. Naming it in only()
+        // is the caller's own explicit choice, so buildModelDelegatedAnalysis() must not drop it.
+        $searchIndex = collect($this->analysis->properties)->firstWhere('name', 'search_index');
+
+        expect($searchIndex)->not->toBeNull()
+            ->and($searchIndex['type'])->toBe('unknown');
+    });
 });
 
 describe('ResourceAstAnalyzer with OrderExceptResource (direct return)', function () {
@@ -1863,7 +1951,8 @@ describe('ResourceAstAnalyzer with OrderExceptResource (direct return)', functio
     test('except excludes the listed properties', function () {
         $names = array_column($this->analysis->properties, 'name');
 
-        expect($names)->not->toContain('ip_address', 'user_agent');
+        expect($names)->not->toContain('ip_address')
+            ->and($names)->not->toContain('user_agent');
     });
 
     test('except includes non-excluded properties with correct types', function () {
@@ -1889,6 +1978,15 @@ describe('ResourceAstAnalyzer with OrderExceptResource (direct return)', functio
 
         expect($paidAt)->not->toBeNull()
             ->and($paidAt['type'])->toBe('string | null');
+    });
+
+    test('except() omits a write-only mutator Model::except() could never produce', function () {
+        // search_index has no getter and no docblock generic, so it is never a real member of
+        // the attributes bag except() derives its property set from — unlike a named exclusion,
+        // it must never surface as `search_index: unknown`.
+        $names = array_column($this->analysis->properties, 'name');
+
+        expect($names)->not->toContain('search_index');
     });
 });
 
@@ -2217,15 +2315,16 @@ describe('ResourceAstAnalyzer with variable-return trait method spreads', functi
             ->toContain('elseBranch');
     });
 
-    test('returns empty analysis for method call return (not array or variable)', function () {
+    test('resolves a spread method whose return is itself a method call, transitively', function () {
         $reflection = new ReflectionClass(VarReturnSpreadResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, User::class);
         $analysis = $analyzer->analyze();
 
-        // includeFromMethodCall() returns a method call, not an array literal or variable.
-        $names = array_column($analysis->properties, 'name');
+        // includeFromMethodCall() returns $this->includeNonAnalyzable(), which now resolves.
+        $dynamic = collect($analysis->properties)->firstWhere('name', 'dynamic');
 
-        expect($names)->not->toContain('dynamic');
+        expect($dynamic)->not->toBeNull()
+            ->and($dynamic['type'])->toBe('string');
     });
 
     test('marks conditional base array assignment properties as optional', function () {
@@ -2598,14 +2697,14 @@ describe('ResourceAstAnalyzer with MediaTypePositiveInstanceOfResource (positive
         expect($value['type'])->toBe('string');
     });
 
-    test('empty inline array resolves to Record<string, unknown>', function () {
+    test('empty inline array resolves to never[], the shape json_encode actually emits', function () {
         $reflection = new ReflectionClass(MediaTypePositiveInstanceOfResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection);
         $analysis = $analyzer->analyze();
 
         $empty = collect($analysis->properties)->firstWhere('name', 'empty');
 
-        expect($empty['type'])->toBe('Record<string, unknown>');
+        expect($empty['type'])->toBe('never[]');
     });
 
     test('inline array with optional key marks it as optional', function () {
@@ -3450,6 +3549,33 @@ describe('ResourceAstAnalyzer with PostFlatCollection ($wrap = null, no toArray)
     });
 });
 
+describe('ResourceAstAnalyzer with PreserveKeysCollection (#[PreserveKeys] attribute)', function () {
+    test('emits a keyed record for a collection carrying #[PreserveKeys]', function () {
+        $reflection = new ReflectionClass(PreserveKeysCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('Record<string, TeamResource>');
+    })->skip(
+        ! class_exists('Illuminate\Http\Resources\Attributes\PreserveKeys'),
+        'PreserveKeys attribute requires Laravel 13+',
+    );
+});
+
+describe('ResourceAstAnalyzer with PreserveKeysPropertyCollection ($preserveKeys property)', function () {
+    test('emits a keyed record for a collection setting $preserveKeys', function () {
+        $reflection = new ReflectionClass(PreserveKeysPropertyCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('Record<string, TeamResource>');
+    });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TernaryResource — ternary operator support
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3740,13 +3866,15 @@ describe('ResourceAstAnalyzer with ConditionalParamArrayResource — issue #38 c
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // whenNull() with arrow fn → string fallback when value is null
-    test('whenNull() arrow fn → string resolves to string not unknown', function () {
+    // whenNull($this->notes, fn () => 'no notes') — the success arm proves the value null, and the
+    // default is a genuine explicit default, so the key is required and unions null with the arrow fn's
+    // string return.
+    test('whenNull() arrow fn → unions null with the string default, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_when_null');
 
         expect($prop)->not->toBeNull()
-            ->and($prop['type'])->toBe('string')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['type'])->toBe('null | string')
+            ->and($prop['optional'])->toBeFalse();
     });
 });
 
@@ -3765,33 +3893,241 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // The condition is `$this->status !== null` — a boolean expression, so the $status param binds to true.
-    test('full closure param → EnumResource::make resolves to non-unknown type', function () {
+    // Policy pin: whenNotNull's default isn't a callback, so this closure param is unbound and its own
+    // EnumResource::make($status) resolves to 'unknown' — the value arm's type stands alone rather than
+    // being unioned with it, and the explicit second argument still makes the key required.
+    test('full closure param → EnumResource::make keeps its type, still required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('OrderStatusType')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['type'])->not->toContain('unknown')
+            ->and($prop['optional'])->toBeFalse();
     });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// whenNotNull closure param binding — ConditionalParamPrimitiveResource
+// whenNotNull()'s default arm is analyzed on its own, never as a callback bound to the value —
+// ConditionalParamPrimitiveResource
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNotNull param binding', function () {
+describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNotNull default-arm resolution', function () {
     beforeEach(function () {
         $reflection = new ReflectionClass(ConditionalParamPrimitiveResource::class);
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) → number (not string | null)
-    test('whenNotNull() arrow fn param → strlen() resolves to number not string|null', function () {
+    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) — $notes is NOT bound to the value (there is
+    // no callback form); the default arm is analyzed on its own, and strlen()'s return type resolves via PHP
+    // reflection regardless of its argument. Value (string, from notes) unions with default (number),
+    // required — not the old buggy `number`-alone, optional reading.
+    test('whenNotNull() default arm resolves independently of the value — string | number, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length');
 
         expect($prop)->not->toBeNull()
-            ->and($prop['type'])->toBe('number')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['type'])->toBe('string | number')
+            ->and($prop['optional'])->toBeFalse();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// whenNotNull()/whenNull() default-argument handling — ConditionalDefaultsResource
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ResourceAstAnalyzer with ConditionalDefaultsResource — whenNotNull/whenNull default argument', function () {
+    it('types whenNotNull from the value argument with null stripped', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_no_default']['type'])->toBe('string')
+            ->and($props['not_null_no_default']['optional'])->toBeTrue();
+    });
+
+    it('unions the default arm into whenNotNull and makes it required', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_with_default']['type'])->toBe('string | number')
+            ->and($props['not_null_with_default']['optional'])->toBeFalse();
+    });
+
+    it('collapses a same-typed default to a single type', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_same_type_default']['type'])->toBe('number')
+            ->and($props['not_null_same_type_default']['optional'])->toBeFalse();
+    });
+
+    // hasExplicitDefaultArg() contract — pinned per brief: position is the only signal, since Laravel
+    // distinguishes an omitted argument from an explicitly-passed `null` via func_num_args(), not `=== null`.
+    it('treats an explicit null at the default position as a real default', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_explicit_null_default']['type'])->toBe('string | null')
+            ->and($props['not_null_explicit_null_default']['optional'])->toBeFalse();
+    });
+
+    // A named argument makes position meaningless, so hasExplicitDefaultArg() bails to false — the default
+    // is not unioned in, and the property behaves exactly as if only the value argument had been passed.
+    it('bails out on a named default argument, back to value-arm-only and optional', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_named_default']['type'])->toBe('string')
+            ->and($props['not_null_named_default']['optional'])->toBeTrue();
+    });
+
+    // Same bail-out for a spread argument at the default position.
+    it('bails out on a spread default argument, back to value-arm-only and optional', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['not_null_spread_default']['type'])->toBe('string')
+            ->and($props['not_null_spread_default']['optional'])->toBeTrue();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conditional-family default argument makes the property required — ConditionalDefaultsResource
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ResourceAstAnalyzer with ConditionalDefaultsResource — explicit default makes conditional required', function () {
+    it('makes a conditional required when an explicit default is passed', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['when_no_default']['optional'])->toBeTrue()
+            ->and($props['when_with_default']['optional'])->toBeFalse()
+            ->and($props['has_with_default']['optional'])->toBeFalse()
+            ->and($props['counted_with_default']['optional'])->toBeFalse();
+    });
+
+    // The explicit `null` is what makes this discriminating twice over: it must count as a real default
+    // (required, not optional), and its own `null` must reach the type — emitting a bare `User` would let a
+    // consumer dereference the very null Laravel returns when the relation is not loaded.
+    it('treats an explicit null default as a real default and unions its null in', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['loaded_with_default']['optional'])->toBeFalse()
+            ->and($props['loaded_with_default']['type'])->toBe('User | null');
+    });
+
+    // A same-typed default can't distinguish real union logic from a no-op, since deduping collapses either
+    // result back to a single member. Every default below is deliberately typed differently from its value
+    // arm, so a handler that merely flipped `optional` would emit the value arm alone and redden here.
+    it('unions the default arm into the emitted type across the whole conditional family', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['when_with_default']['type'])->toBe('string | number');
+        expect($props['has_with_default']['type'])->toBe('string | number');
+        expect($props['counted_with_default']['type'])->toBe('number | string');
+        expect($props['aggregated_with_default']['type'])->toBe('number | string');
+        expect($props['appended_with_default']['type'])->toBe('string | number');
+        expect($props['exists_with_default']['type'])->toBe('boolean | string');
+        expect($props['unless_with_default']['type'])->toBe('string | number');
+    });
+
+    // whenAggregated's default sits at index 4 — the family's outlier index, verified against
+    // ConditionallyLoadsAttributes.php. Neither of the two states alone would catch an off-by-one at this
+    // index; asserting both together (rather than only the "with default" case) is what makes this
+    // discriminating.
+    it('makes whenAggregated required only when its index-4 default is passed', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['aggregated_no_default']['optional'])->toBeTrue()
+            ->and($props['aggregated_with_default']['optional'])->toBeFalse();
+    });
+
+    // whenPivotLoaded's default sits at index 2. Its value arm is a hard-coded `unknown` that already
+    // covers the default, so the union collapses back to `unknown` — narrowing to the default's `number`
+    // would claim a type for a pivot value the analyzer never inspected.
+    it('makes whenPivotLoaded required only when its index-2 default is passed, still unknown', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['pivot_loaded_no_default']['optional'])->toBeTrue()
+            ->and($props['pivot_loaded_with_default']['optional'])->toBeFalse()
+            ->and($props['pivot_loaded_with_default']['type'])->toBe('unknown');
+    });
+
+    // whenPivotLoadedAs's default sits at index 3 — one higher than whenPivotLoaded, because of its
+    // leading $accessor argument. This is exactly the pair the combined `if` branch used to conflate.
+    it('makes whenPivotLoadedAs required only when its index-3 default is passed', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['pivot_loaded_as_no_default']['optional'])->toBeTrue()
+            ->and($props['pivot_loaded_as_with_default']['optional'])->toBeFalse()
+            ->and($props['pivot_loaded_as_with_default']['type'])->toBe('unknown');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// unless()/whenAppended()/whenExistsLoaded()/transform() — previously unhandled conditionals that
+// fell through to a required `unknown` before this coverage was added.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ResourceAstAnalyzer with ConditionalDefaultsResource — unless/whenAppended/whenExistsLoaded/transform', function () {
+    // full_address resolves as 'string' (not 'string | null') through ModelAttributeResolver's
+    // accessor-return-type inference here, same as the existing whenHas('full_address', ...) coverage —
+    // #[TsCasts]'s 'string | null' declaration governs the model's own generated interface, not this path.
+    it('types unless like when, and never as a required unknown', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['unless_no_default']['type'])->toBe('string')
+            ->and($props['unless_no_default']['optional'])->toBeTrue();
+
+        expect($props['unless_with_default']['optional'])->toBeFalse();
+    });
+
+    it('types whenAppended from the named attribute', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['appended_no_default']['type'])->toBe('string')
+            ->and($props['appended_no_default']['optional'])->toBeTrue()
+            ->and($props['appended_with_default']['optional'])->toBeFalse();
+    });
+
+    it('types whenExistsLoaded as a boolean-ish existence flag', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['exists_no_default']['optional'])->toBeTrue()
+            ->and($props['exists_no_default']['type'])->not->toBe('unknown')
+            ->and($props['exists_with_default']['optional'])->toBeFalse();
+    });
+
+    // transform()'s default sits at index 2, and types from the callback's return, not $value's — the
+    // callback here returns boolean while $value (full_address) resolves as string, so a wrong
+    // implementation would leak string through instead.
+    it('types transform from the callback return and unions a differently-typed default', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['transform_no_default']['type'])->toBe('boolean')
+            ->and($props['transform_no_default']['optional'])->toBeTrue();
+
+        expect($props['transform_with_default']['type'])->toBe('boolean | number')
+            ->and($props['transform_with_default']['optional'])->toBeFalse();
+    });
+
+    // mergeUnless mirrors mergeWhen: array/closure argument at index 1, always optional. If the dispatch
+    // string or operator were wrong, analyzeMergeExpression() would return an empty ResourceAnalysis and
+    // this key would be silently missing from the output entirely — not typed 'unknown', just absent.
+    it('resolves mergeUnless properties as optional, mirroring mergeWhen', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props->has('merge_unless_label'))->toBeTrue()
+            ->and($props['merge_unless_label']['type'])->toBe('string')
+            ->and($props['merge_unless_label']['optional'])->toBeTrue();
     });
 });
 
@@ -3866,29 +4202,31 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
     });
 
     // ── whenNotNull() ──────────────────────────────────────────────────────────
+    // Each of these passes a genuine second argument, so it's a real default: the key is always
+    // present (optional: false), unlike the single-arg whenNotNull() calls tested elsewhere.
 
-    test('whenNotNull() pre-evaluated EnumResource::make($this->resource->priority) resolves to PriorityType|null', function () {
+    test('whenNotNull() pre-evaluated EnumResource::make($this->resource->priority) resolves to PriorityType|null, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'priority_when_not_null_make');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('PriorityType | null')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 
-    test('whenNotNull() arrow fn → EnumResource::make($this->resource->status) resolves to StatusType', function () {
+    test('whenNotNull() arrow fn → EnumResource::make($this->resource->status) resolves to StatusType, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_when_not_null_arrow');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('StatusType')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 
-    test('whenNotNull() full closure → new EnumResource($this->resource->visibility) resolves to VisibilityType|null', function () {
+    test('whenNotNull() full closure → new EnumResource($this->resource->visibility) resolves to VisibilityType|null, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'visibility_when_not_null_full');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('VisibilityType | null')
-            ->and($prop['optional'])->toBeTrue();
+            ->and($prop['optional'])->toBeFalse();
     });
 
     // ── Ternary ────────────────────────────────────────────────────────────────
@@ -4306,7 +4644,7 @@ describe('local variable bindings', function () {
 
     // A closure parameter rebinds the name: it resolves against its own bound model (whenLoaded
     // relation / chain element), and must not leak that binding into a same-named outer local.
-    test('a closure or arrow-function parameter shadowing an outer local binds to its own model, not the outer local', function () {
+    test('a closure or arrow-function parameter shadowing an outer local binds to its own model, and the shadowed top-level local keeps its own binding', function () {
         $props = collect(
             (new ResourceAstAnalyzer(new ReflectionClass(ClosureParamShadowResource::class), Team::class))
                 ->analyze()->properties,
@@ -4314,10 +4652,20 @@ describe('local variable bindings', function () {
 
         expect($props['mapped_members']['type'])->toBe('User[]')
             ->and($props['loaded_owner']['type'])->toBe('User')
-            // outer_member: write-count shadow protection in collectWrittenVariableNames() still
-            // counts the closure param as a write, so the outer $member local stays unbound. See
-            // task-11-brief.md's "outer_member note" — narrowing that protection is deferred.
-            ->and($props['outer_member']['type'])->toBe('unknown');
+            // The shadowing closure param no longer suppresses the outer $member local's own binding.
+            ->and($props['outer_member']['type'])->toBe('string');
+    });
+
+    // Guards the regression narrowing collectWrittenVariableNames() alone would introduce: with no
+    // scoped binding for the closure param, the outer local must stay unknown, not leak through.
+    test('does not leak an outer local into a closure that shadows its name', function () {
+        $props = collect(
+            (new ResourceAstAnalyzer(new ReflectionClass(ShadowedClosureParamResource::class), Team::class))
+                ->analyze()->properties,
+        )->keyBy('name');
+
+        expect($props['outer']['type'])->toBe('string')
+            ->and($props['shadowed']['type'])->toBe('unknown');
     });
 
     // Order has the default int key; UuidPost covers getKey()'s string-keyed branch.
@@ -4339,8 +4687,7 @@ describe('variable-to-model bindings', function () {
 
         expect($props['loaded_owner']['type'])->toBe('User')
             ->and($props['mapped_members']['type'])->toBe('User[]')
-            // Deferred — see task-11-brief.md's "outer_member note".
-            ->and($props['outer_member']['type'])->toBe('unknown');
+            ->and($props['outer_member']['type'])->toBe('string');
     });
 
     // 'members' is a to-many relation: the closure param holds the whole collection, not one
@@ -4466,6 +4813,53 @@ test('a $hidden filter key falls back to inline expansion instead of Pick<> when
 
     expect($props['attachment_public']['type'])->toBe("Pick<Attachment, 'id' | 'filename'>")
         ->and($props['attachment_hidden']['type'])->toBe('{ id: number; internal_notes: string | null }');
+});
+
+test('drops hidden columns from an implicitly-derived resource property set', function () {
+    // except() derives its property set from every model attribute minus the named keys, so
+    // it is implicit — a $hidden column must not survive even though it was never named.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(UserExceptResource::class), User::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props)->not->toHaveKey('password')
+        ->and($props)->not->toHaveKey('remember_token')
+        ->and($props)->toHaveKey('name');
+});
+
+test('keeps a hidden column the resource named explicitly', function () {
+    // only() takes the property set verbatim from the named keys, so it is explicit — a
+    // $hidden column the caller named must still come through.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(UserOnlyHiddenResource::class), User::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    expect($props)->toHaveKey('password')
+        ->and($props['password']['type'])->toBe('string');
+});
+
+test('a relation except() drops hidden columns from the derived key list', function () {
+    // WarehouseResource::last_user_activity_by_mostly = $this->last_user_activity_by?->except(['id', 'name'])
+    // is a multi-model accessor union (CrmUser|User); the User branch derives its inline shape from
+    // every attribute minus the named keys, so it is implicit — $hidden columns must drop too.
+    config()->set('ts-publish.models.exclude_hidden', true);
+
+    $props = collect(
+        new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+            ->analyze()->properties,
+    )->keyBy('name');
+
+    $type = $props['last_user_activity_by_mostly']['type'];
+
+    expect($type)->not->toContain('password')
+        ->and($type)->not->toContain('remember_token')
+        ->and($type)->toContain('email: string');
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {

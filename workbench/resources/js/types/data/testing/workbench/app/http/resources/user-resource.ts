@@ -18,7 +18,7 @@ export interface UserResource
     profile?: Profile | null;
     posts?: PostResource[];
     phone?: string | null;
-    avatar?: string | null;
+    avatar?: string;
     posts_count?: number;
     comments_count?: number;
 }

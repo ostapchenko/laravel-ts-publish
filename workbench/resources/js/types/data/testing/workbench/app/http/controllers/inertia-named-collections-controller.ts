@@ -13,7 +13,7 @@ export type ResourceAnonymousPaginatedPageProps = Inertia.SharedData & { posts: 
 export const resourceAnonymousPaginated = annotatePageProps<ResourceAnonymousPaginatedPageProps>()(defineRoute({
     name: 'collection.resource-anonymous-paginated',
     url: '/collection/resource-anonymous-paginated',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/ResourceAnonymous',
 }));
 
@@ -27,7 +27,7 @@ export type ResourceAnonymousPageProps = Inertia.SharedData & { posts: Anonymous
 export const resourceAnonymous = annotatePageProps<ResourceAnonymousPageProps>()(defineRoute({
     name: 'collection.resource-anonymous',
     url: '/collection/resource-anonymous',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/ResourceAnonymous',
 }));
 
@@ -41,7 +41,7 @@ export type NamedCollectionPaginatedPageProps = Inertia.SharedData & { posts: Po
 export const namedCollectionPaginated = annotatePageProps<NamedCollectionPaginatedPageProps>()(defineRoute({
     name: 'collection.named-collection-paginated',
     url: '/collection/named-collection-paginated',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/NamedPaginated',
 }));
 
@@ -55,7 +55,7 @@ export type NamedCollectionPageProps = Inertia.SharedData & { posts: PostCollect
 export const namedCollection = annotatePageProps<NamedCollectionPageProps>()(defineRoute({
     name: 'collection.named',
     url: '/collection/named',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/Named',
 }));
 
@@ -69,7 +69,7 @@ export type FlatCollectionPaginatedPageProps = Inertia.SharedData & { posts: Jso
 export const flatCollectionPaginated = annotatePageProps<FlatCollectionPaginatedPageProps>()(defineRoute({
     name: 'collection.flat-paginated',
     url: '/collection/flat-paginated',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/FlatPaginated',
 }));
 
@@ -85,7 +85,7 @@ export type FlatCollectionPageProps = Inertia.SharedData & { posts: PostFlatColl
 export const flatCollection = annotatePageProps<FlatCollectionPageProps>()(defineRoute({
     name: 'collection.flat',
     url: '/collection/flat',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Collections/Flat',
 }));
 

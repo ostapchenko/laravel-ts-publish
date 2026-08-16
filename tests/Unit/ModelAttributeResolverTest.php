@@ -222,8 +222,9 @@ test('resolveRelation returns unknown for MorphTo when no targets exist', functi
 
     $result = $resolver->resolveRelation(CompositeComment::class, 'commentable');
 
-    // CompositeComment has nullable FK columns, so it gets ' | null' appended
-    expect($result['type'])->toBe('unknown | null')
+    // CompositeComment has nullable FK columns, but 'unknown' already admits null, so no
+    // ' | null' suffix is appended.
+    expect($result['type'])->toBe('unknown')
         ->and($result['modelFqcn'])->toBeNull();
 });
 
@@ -262,10 +263,18 @@ describe('morphTo docblock generics', function () {
             ->and($info['morphFqcns'])->toBe([User::class]);
     });
 
-    test('a bare Model generic still resolves through the reverse map', function () {
-        $info = resolve(ModelAttributeResolver::class)->resolveRelation(Activity::class, 'subject');
+    test('a sibling morphTo\'s docblock generic does not pollute this one, and the unresolved one stays bare unknown', function () {
+        $resolver = resolve(ModelAttributeResolver::class);
 
-        expect($info['type'])->not->toContain('User'); // not polluted by causer
+        // Resolve causer (concrete User generic) first: a per-model cache bug, rather than a
+        // correct per-relation one, would leak its target into subject's bare-generic resolution.
+        $resolver->resolveRelation(Activity::class, 'causer');
+
+        // subject also has nullable FK columns, so a naive nullable append would read 'unknown | null'
+        // — but 'unknown' already admits null, making that union redundant.
+        $info = $resolver->resolveRelation(Activity::class, 'subject');
+
+        expect($info['type'])->toBe('unknown');
     });
 
     test('two morphTos on one model do not share a target union', function () {
@@ -456,10 +465,11 @@ describe('@property docblock refinement', function () {
     });
 
     test('a refinement that is itself vague-but-not-entirely-vague never replaces an already-structured vague type', function () {
-        // 'meta_info' casts to AsArrayObject -> Record<string, unknown>: vague, but not one of the four
-        // "entirely vague" literals. The class's own @property tag resolves to the differently-vague
-        // Record<string, unknown[]> (also not one of the four) — isEntirelyVagueTsType(current) is false
-        // for both sides, so isStrictlyMoreStructured() must reject and keep the AsArrayObject-derived type.
+        // 'meta_info' casts to Eloquent's Collection -> Record<string, unknown>: vague, but not one of
+        // the four "entirely vague" literals (unlike AsArrayObject's own map entry as of Task 11). The
+        // class's own @property tag resolves to the differently-vague Record<string, unknown[]> (also
+        // not one of the four) — isEntirelyVagueTsType(current) is false for both sides, so
+        // isStrictlyMoreStructured() must reject and keep the Collection-derived type.
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(PropertyDocblockRejectFixture::class, 'meta_info');
 

@@ -120,13 +120,20 @@ trait ResolvesModelTypes
 
     /**
      * Build a ResourceAnalysis from all model attributes and relations when the resource
-     * delegates to JsonResource::toArray() (which returns $this->resource->toArray()).
+     * delegates to JsonResource::toArray(). $excludeHidden is false only for only(), whose
+     * property set is the caller's own keys — also gates the write-only mutator skip below.
      */
-    protected function buildModelDelegatedAnalysis(): ?ResourceAnalysis
+    protected function buildModelDelegatedAnalysis(bool $excludeHidden = true): ?ResourceAnalysis
     {
-        if ($this->modelAttributes === null) {
+        if ($this->modelAttributes === null || $this->modelClass === null) {
             return null;
         }
+
+        /** @var class-string $modelClass */
+        $modelClass = $this->modelClass;
+        $resolver = resolve(ModelAttributeResolver::class);
+        $dropHidden = $excludeHidden && $resolver->excludeHiddenAttributes();
+        $dbColumns = $resolver->databaseColumnNames($modelClass);
 
         /** @var ResourcePropertyInfoList $properties */
         $properties = [];
@@ -138,6 +145,20 @@ trait ResolvesModelTypes
         $inlineModelFqcns = [];
 
         foreach ($this->modelAttributes as $attr) {
+            if ($dropHidden && $attr['hidden']) {
+                continue;
+            }
+
+            // Only the implicit paths (except()/whole-model) may drop a write-only mutator: Model::only()
+            // resolves through getAttribute(), which does return the key, so a named one must survive.
+            $isOmittedMutator = $excludeHidden
+                && ! in_array($attr['name'], $dbColumns, true)
+                && $resolver->isOmittedMutator($modelClass, $attr['name']);
+
+            if ($isOmittedMutator) {
+                continue;
+            }
+
             $info = $this->resolveModelAttributeTypeInfo($attr['name']);
 
             $properties[] = [
@@ -214,7 +235,14 @@ trait ResolvesModelTypes
         if ($include) {
             $resolveKeys = $keys;
         } else {
-            $attrNames = $relatedAttributes->pluck('name')->all();
+            // except() derives its key list from every attribute, so it is implicit — unlike the
+            // include branch above, which takes the caller's own keys and must not be filtered.
+            $excludeHidden = $resolver->excludeHiddenAttributes();
+
+            $attrNames = $relatedAttributes
+                ->reject(fn (array $attr): bool => $excludeHidden && $attr['hidden'])
+                ->pluck('name')
+                ->all();
             $relationNames = $relatedRelations->pluck('name')->all();
             $resolveKeys = array_values(array_filter(
                 array_merge($attrNames, $relationNames),

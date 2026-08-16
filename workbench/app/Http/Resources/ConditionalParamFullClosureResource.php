@@ -59,7 +59,9 @@ class ConditionalParamFullClosureResource extends JsonResource
                 return UserResource::make($user);
             }),
 
-            // Full closure param → EnumResource::make on enum attribute (value passed to closure by whenNotNull)
+            // whenNotNull($value, $default) — $status here is unbound (whenNotNull's default isn't a
+            // callback bound to the value); EnumResource::make($status) resolves to 'unknown' and is
+            // dropped from the union, leaving the value arm (Order::$status, non-nullable) as authoritative.
             'status_resource' => $this->whenNotNull($this->status, function ($status) {
                 return EnumResource::make($status);
             }),

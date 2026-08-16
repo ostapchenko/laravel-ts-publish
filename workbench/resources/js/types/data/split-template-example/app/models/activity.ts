@@ -21,7 +21,7 @@ export interface Activity
 export interface ActivityRelations
 {
     // Relations
-    subject: unknown | null;
+    subject: unknown;
     causer: User | null;
     // Counts
     subject_count: number;

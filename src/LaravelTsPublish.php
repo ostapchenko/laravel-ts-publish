@@ -185,6 +185,21 @@ class LaravelTsPublish
             return $result;
         }
 
+        // 1a. Bare-name fallback: a sized native DB type ("varchar(255)", "decimal(10,2)",
+        //     "tinyint(4)") has no exact entry, but the name before '(' usually does. A literal
+        //     parameterized key like "tinyint(1)" is still caught by step 1 above, so it can't be shadowed.
+        $parenPos = strpos($lower, '(');
+
+        if ($parenPos !== false && $parenPos > 0) {
+            $bareMapping = $typesMap[substr($lower, 0, $parenPos)] ?? null;
+
+            if ($bareMapping !== null) {
+                $result['type'] = is_string($bareMapping) ? $bareMapping : $bareMapping();
+
+                return $result;
+            }
+        }
+
         // 1b. Castable-with-arguments cast strings: "CastClass:arg1,arg2". The head must be
         //     an existing class so DB strings like "decimal:2" never enter this branch.
         $colonPos = strpos($phpType, ':');
@@ -1927,8 +1942,8 @@ class LaravelTsPublish
     /**
      * Replace `AsEnum<typeof ConstAlias>` patterns with the pre-computed type alias.
      *
-     * Used when rendering resource properties in the globals file, where `typeof namespace.Member`
-     * is illegal — namespace members are type-only (interfaces), not runtime values.
+     * In the globals file there is no `AsEnum` import, so `AsEnum<typeof X>` and `XType` collapse to
+     * the same qualified name — the pair must be folded first to avoid emitting a literal duplicate.
      *
      * @param  string  $typeStr  The TypeScript type string to rewrite.
      * @param  array<string, string>  $constToTypeMap  constAlias => 'namespace.TypeName'
@@ -1936,8 +1951,15 @@ class LaravelTsPublish
     public function rewriteAsEnumToType(string $typeStr, array $constToTypeMap): string
     {
         foreach ($constToTypeMap as $constAlias => $qualifiedTypeName) {
-            $pattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>/';
-            $typeStr = preg_replace($pattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
+            $lastDot = strrpos($qualifiedTypeName, '.');
+            $bareTypeName = $lastDot === false ? $qualifiedTypeName : substr($qualifiedTypeName, $lastDot + 1);
+
+            $pairPattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>\s*\|\s*'
+                .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
+            $typeStr = preg_replace($pairPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
+
+            $singlePattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>/';
+            $typeStr = preg_replace($singlePattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
         }
 
         return $typeStr;

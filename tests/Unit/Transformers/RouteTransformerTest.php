@@ -134,11 +134,13 @@ test('data() returns a TsRouteDto', function () {
         ->and($dto->actions)->toHaveCount(5);
 });
 
-test('does not include HEAD method in action methods', function () {
+test('includes HEAD alongside GET in action methods', function () {
+    // Laravel registers every GET route with HEAD; @tolki/ts's defineRoute() builds a .head()
+    // method (and a GET-mapped .form.head()) by iterating this array, so it must be included.
     $transformer = new RouteTransformer(PostController::class);
     $index = collect($transformer->actions)->firstWhere('methodName', 'index');
 
-    expect($index['methods'])->not->toContain('head');
+    expect($index['methods'])->toBe(['get', 'head']);
 });
 
 test('invokable controller methodName is __invoke when route is unnamed', function () {

@@ -13,6 +13,7 @@ export interface VarReturnSpreadResource
     ifBranch?: string;
     elseifBranch?: string;
     elseBranch?: string;
+    dynamic: string;
     conditionalBaseKey?: string;
     foundB?: boolean;
     foreachKey?: string;

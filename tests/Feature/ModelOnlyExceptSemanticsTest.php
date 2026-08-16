@@ -94,7 +94,14 @@ test('Model::except() still excludes relations and get-only accessors even after
     // Identical to the untouched case — touching a relation or a get-only accessor first changes
     // nothing about except()'s output.
     expect($keys)->toBe(postColumnsExceptCreatedUpdated());
-    expect($keys)->not->toContain('excerpt', 'reading_time', 'author', 'categoryRel', 'comments', 'tags', 'images', 'attachment');
+    expect($keys)->not->toContain('excerpt')
+        ->not->toContain('reading_time')
+        ->not->toContain('author')
+        ->not->toContain('categoryRel')
+        ->not->toContain('comments')
+        ->not->toContain('tags')
+        ->not->toContain('images')
+        ->not->toContain('attachment');
 });
 
 test('Model::only() resolves accessors and relations explicitly requested by name', function () {

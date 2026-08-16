@@ -6,7 +6,7 @@ import type { VerifyTwoFactorRequest } from '../requests/verify-two-factor-reque
 export const setup = defineRoute({
     name: 'accounting.2fa-setup',
     url: '/accounting/2fa/setup',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
 });
 
 /** Verify a 2FA code. */

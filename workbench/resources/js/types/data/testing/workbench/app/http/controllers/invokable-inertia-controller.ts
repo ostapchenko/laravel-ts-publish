@@ -5,7 +5,7 @@ export type InvokePageProps = Inertia.SharedData & { name: string };
 export const invoke = annotatePageProps<InvokePageProps>()(defineRoute({
     name: 'inertia.profile',
     url: '/inertia/profile',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'Profile',
 }));
 

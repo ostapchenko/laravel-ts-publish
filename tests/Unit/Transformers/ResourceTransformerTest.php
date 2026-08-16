@@ -1951,6 +1951,20 @@ describe('ResourceTransformer with ResourceWrappedEnumResource — inline array 
         expect($allValueImports)->toContain('Visibility');
         expect($allValueImports)->toContain('Priority');
     });
+
+    // whenNotNull($this->resource->priority, EnumResource::make($this->resource->priority)) — the value arm
+    // (direct property access) and the default arm (EnumResource-wrapped) reach the same enum through two
+    // genuinely different runtime shapes: a raw backing value (PriorityType) vs. the AsEnum wrapper. Pinned
+    // at the transformer layer since ResourceAstAnalyzerTest only ever sees the analyzer's own alias-name
+    // string ('PriorityType | null'), never the AsEnum<...> expansion rewriteEnumResourceTypes() applies.
+    test('whenNotNull() default-arm union keeps both the AsEnum wrapper and the plain alias, required', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(ResourceWrappedEnumResource::class))->data();
+
+        expect($data->properties['priority_when_not_null_make']['type'])
+            ->toBe('AsEnum<typeof Priority> | PriorityType | null')
+            ->and($data->properties['priority_when_not_null_make']['optional'])->toBeFalse();
+    });
 });
 
 describe('ResourceTransformer with PostFlatCollection (typeAlias)', function () {
@@ -1991,11 +2005,22 @@ describe('ResourceTransformer with morphTo-backed resources', function () {
             ->and($allTypeImports)->toContain('Post', 'Product', 'User as WorkbenchUser', 'User as CrmUser');
     });
 
-    // Collection<int, X> narrows to a bare array; aliasing must still rename that single arm's element.
-    test('an aliased element is replaced in a docblock-narrowed collection type', function () {
+    test('a get-having accessor with an unresolvable type survives model-delegated analysis as unknown', function () {
+        // no_docblock_accessor has a real getter (unlike search_index's write-only case), just
+        // nothing to read a type from. ModelTransformer::transformMutators() keeps such a mutator
+        // as 'unknown' rather than omitting it, and buildModelDelegatedAnalysis() must agree.
+        $data = (new ResourceTransformer(ImageDelegatedResource::class))->data();
+
+        expect($data->properties)->toHaveKey('no_docblock_accessor')
+            ->and($data->properties['no_docblock_accessor']['type'])->toBe('unknown');
+    });
+
+    // A widened container names its element in both arms; aliasing only the first left the second bare.
+    test('an aliased element is replaced in every arm of a widened collection type', function () {
         $data = (new ResourceTransformer(ImageMorphResource::class))->data();
 
-        expect($data->properties['uploaders_from_docblock']['type'])->toBe('WorkbenchUser[]');
+        expect($data->properties['uploaders_from_docblock']['type'])
+            ->toBe('WorkbenchUser[] | Record<string, WorkbenchUser>');
     });
 
     // The same pass must still take exactly one occurrence when two FQCNs share the basename.

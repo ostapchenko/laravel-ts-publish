@@ -116,12 +116,103 @@ test('maps bare castable classes to their TS shapes', function (string $castable
 
     expect($map[strtolower($castableClass)])->toBe($expected);
 })->with([
-    [AsArrayObject::class, 'Record<string, unknown>'],
-    // Both sibling ArrayObject casts hydrate an ArrayObject too, so they must not read as arrays.
-    [AsEncryptedArrayObject::class, 'Record<string, unknown>'],
-    [AsEnumArrayObject::class, 'Record<string, unknown>'],
+    [AsArrayObject::class, 'unknown[] | Record<string, unknown>'],
+    // Both sibling ArrayObject casts hydrate an ArrayObject too, so a list payload must stay legal.
+    [AsEncryptedArrayObject::class, 'unknown[] | Record<string, unknown>'],
+    [AsEnumArrayObject::class, 'unknown[] | Record<string, unknown>'],
     [AsStringable::class, 'string'],
     [AsCollection::class, 'unknown[]'],
     [AsEncryptedCollection::class, 'unknown[]'],
     [AsEnumCollection::class, 'unknown[]'],
 ]);
+
+test('maps bare iterable to unknown[], matching the bare array entry', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['iterable'])->toBe('unknown[]');
+});
+
+test('maps a genuine bare tinyint to number, not boolean', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['tinyint'])->toBe('number');
+});
+
+test('maps the tinyint(1) display-width convention to boolean', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['tinyint(1)'])->toBe('boolean');
+});
+
+test('maps new binary types to string', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('string');
+})->with(['binary', 'varbinary', 'blob', 'bytea', 'tinyblob', 'mediumblob', 'longblob']);
+
+test('maps new legacy string types to string', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('string');
+})->with(['tinytext', 'nvarchar', 'nchar', 'ntext', 'xml', 'interval', 'uniqueidentifier']);
+
+test('maps set to string, not an array', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['set'])->toBe('string');
+});
+
+test('maps new number types to number', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('number');
+})->with(['money', 'smallmoney', 'serial', 'bigserial', 'smallserial', 'double precision']);
+
+test('maps bit to boolean', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['bit'])->toBe('boolean');
+});
+
+test('maps datetimeoffset to string', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['datetimeoffset'])->toBe('string');
+});
+
+test('datetime2 and smalldatetime resolve to string by default, like datetime', function (string $dbType) {
+    config()->set('ts-publish.timestamps_as_date', false);
+
+    $map = (new TypeScriptMap)->gather();
+
+    expect(($map[$dbType])())->toBe('string');
+})->with(['datetime2', 'smalldatetime']);
+
+test('datetime2 and smalldatetime resolve to Date when timestamps_as_date is true, like datetime', function (string $dbType) {
+    // SQL Server's dateTime($precision)/timestamp($precision) emit datetime2($precision) — the
+    // same logical column as bare 'datetime', so a hard 'string' here would silently opt SQL
+    // Server timestamp columns out of the timestamps_as_date config toggle.
+    config()->set('ts-publish.timestamps_as_date', true);
+
+    $map = (new TypeScriptMap)->gather();
+
+    expect(($map[$dbType])())->toBe('Date');
+})->with(['datetime2', 'smalldatetime']);
+
+test('maps geometry and geography to unknown', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('unknown');
+})->with(['geometry', 'geography']);
+
+test('maps MySQL geometry subtypes to unknown, same as bare geometry', function (string $dbType) {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map[$dbType])->toBe('unknown');
+})->with(['point', 'linestring', 'polygon', 'geometrycollection', 'multipoint', 'multilinestring', 'multipolygon']);
+
+test('maps vector to number[]', function () {
+    $map = (new TypeScriptMap)->gather();
+
+    expect($map['vector'])->toBe('number[]');
+});

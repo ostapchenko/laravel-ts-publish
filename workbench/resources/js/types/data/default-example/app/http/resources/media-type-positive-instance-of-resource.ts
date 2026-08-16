@@ -10,5 +10,5 @@ export interface MediaTypePositiveInstanceOfResource
     name: string;
     value: string;
     meta: { label?: string };
-    empty: Record<string, unknown>;
+    empty: never[];
 }

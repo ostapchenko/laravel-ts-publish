@@ -5,7 +5,7 @@
  * @see Workbench\App\Http\Requests\NestedEdgeCasesRequest
  */
 export interface NestedEdgeCasesRequest {
-    options?: { default?: string } & Record<string, string>;
+    options?: { default?: string } & Record<string, string | null>;
     meta?: Record<string, never>;
     empties?: never[];
     "v1.0": string;

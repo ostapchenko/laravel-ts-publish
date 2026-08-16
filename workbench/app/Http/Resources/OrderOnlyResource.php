@@ -29,6 +29,7 @@ class OrderOnlyResource extends JsonResource
                 'notes', // accessor publish with accessor return type
                 'item_count', // mutator publish with mutator return type
                 'items', // relation publish with relation return type & import
+                'search_index', // write-only mutator: only() returns it (as null), unlike except()
             ]),
             'user' => UserResource::make($this->whenLoaded('user')),
         ];

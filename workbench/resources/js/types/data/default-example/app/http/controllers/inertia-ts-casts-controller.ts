@@ -15,7 +15,7 @@ export type IndexPageProps = Inertia.SharedData & { count: string, meta: PageMet
 export const index = annotatePageProps<IndexPageProps>()(defineRoute({
     name: 'ts-casts.index',
     url: '/ts-casts',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     component: 'TsCasts/Index',
 }));
 

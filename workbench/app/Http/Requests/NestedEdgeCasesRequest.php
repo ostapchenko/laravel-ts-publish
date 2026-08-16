@@ -18,9 +18,10 @@ class NestedEdgeCasesRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Wildcard constrains every value; a named sibling pins one known key.
+            // Wildcard constrains every value (nullable, folded into the element type); a named
+            // sibling pins one known key.
             'options' => ['array'],
-            'options.*' => ['string'],
+            'options.*' => ['nullable', 'string'],
             'options.default' => ['string'],
 
             // Every named child prohibited — the object must be empty.

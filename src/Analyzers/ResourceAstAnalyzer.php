@@ -173,6 +173,14 @@ class ResourceAstAnalyzer
     protected array $resolvingLocalVars = [];
 
     /**
+     * Spread methods currently on the analysis stack, so a method that spreads itself — directly or
+     * through a cycle — degrades to an empty analysis instead of recursing until memory runs out.
+     *
+     * @var array<string, true>
+     */
+    protected array $visitedSpreadMethods = [];
+
+    /**
      * Create an analyzer for a resource class and its optional backing model.
      *
      * @param  ReflectionClass<JsonResource>  $resourceReflection
@@ -243,7 +251,18 @@ class ResourceAstAnalyzer
 
         // return $this->only([...]) or return $this->except([...])
         if ($returnStmt->expr instanceof MethodCall) {
-            return $this->analyzeThisAttributeFilter($returnStmt->expr) ?? new ResourceAnalysis;
+            $filtered = $this->analyzeThisAttributeFilter($returnStmt->expr);
+
+            if ($filtered !== null) {
+                return $filtered;
+            }
+
+            // return $this->someMethod() — resolve it the same way an array-literal spread would.
+            if ($this->hasThisReceiver($returnStmt->expr) && $returnStmt->expr->name instanceof Identifier) {
+                return $this->analyzeThisMethodSpread($returnStmt->expr->name->toString()) ?? new ResourceAnalysis;
+            }
+
+            return new ResourceAnalysis;
         }
 
         return new ResourceAnalysis;
@@ -309,7 +328,7 @@ class ResourceAstAnalyzer
 
     /**
      * Collect every local variable name written anywhere in a statement tree (writes, mutations,
-     * foreach targets, closure/arrow params).
+     * foreach targets, closure by-ref uses).
      *
      * By-reference call arguments are a known gap — the callee's signature isn't statically knowable.
      *
@@ -330,8 +349,7 @@ class ResourceAstAnalyzer
                 || $node instanceof PreDec
                 || $node instanceof PostDec
                 || $node instanceof Foreach_
-                || $node instanceof ClosureExpr
-                || $node instanceof ArrowFunction,
+                || $node instanceof ClosureExpr,
         );
 
         /** @var list<string> $names */
@@ -354,16 +372,10 @@ class ResourceAstAnalyzer
                 if ($node->keyVar !== null) {
                     $targets[] = $node->keyVar;
                 }
-            } elseif ($node instanceof ClosureExpr || $node instanceof ArrowFunction) {
-                foreach ($node->params as $param) {
-                    $targets[] = $param->var;
-                }
-
-                if ($node instanceof ClosureExpr) {
-                    foreach ($node->uses as $use) {
-                        if ($use->byRef) {
-                            $targets[] = $use->var;
-                        }
+            } elseif ($node instanceof ClosureExpr) {
+                foreach ($node->uses as $use) {
+                    if ($use->byRef) {
+                        $targets[] = $use->var;
                     }
                 }
             }
@@ -740,26 +752,64 @@ class ResourceAstAnalyzer
         $closureReturns = $this->resolveClosureReturnExpressions($expr);
 
         if ($closureReturns !== []) {
-            $bodyResult = count($closureReturns) === 1
-                ? $this->analyzeValueExpression($closureReturns[0])
-                : $this->analyzeClosureUnion($closureReturns);
+            // A param merely shadows a same-named outer local for this body — it must not resolve
+            // through the outer binding just because no scoped binding (e.g. whenLoaded) claimed it.
+            $previousLocalVarBindings = $this->localVarBindings;
 
-            if ($bodyResult['type'] !== 'unknown') {
+            if ($expr instanceof ArrowFunction || $expr instanceof ClosureExpr) {
+                foreach ($expr->params as $param) {
+                    if ($param->var instanceof Variable && is_string($param->var->name)) {
+                        unset($this->localVarBindings[$param->var->name]);
+                    }
+                }
+            }
+
+            try {
+                $bodyResult = count($closureReturns) === 1
+                    ? $this->analyzeValueExpression($closureReturns[0])
+                    : $this->analyzeClosureUnion($closureReturns);
+
+                if ($bodyResult['type'] !== 'unknown') {
+                    return $bodyResult;
+                }
+
+                $annotationResult = $this->resolveClosureAstReturnType($expr);
+
+                if ($annotationResult !== null) {
+                    return [...$annotationResult, 'optional' => false];
+                }
+
                 return $bodyResult;
+            } finally {
+                $this->localVarBindings = $previousLocalVarBindings;
             }
-
-            $annotationResult = $this->resolveClosureAstReturnType($expr);
-
-            if ($annotationResult !== null) {
-                return [...$annotationResult, 'optional' => false];
-            }
-
-            return $bodyResult;
         }
 
         if ($this->isThisMethodCall($expr, 'when')) {
             /** @var MethodCall $expr */
             return $this->analyzeWhen($expr);
+        }
+
+        // unless() delegates to when() unchanged: negating the condition changes which arm runs,
+        // never what either arm's type is.
+        if ($this->isThisMethodCall($expr, 'unless')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeWhen($expr);
+        }
+
+        if ($this->isThisMethodCall($expr, 'whenAppended')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeWhenAppended($expr);
+        }
+
+        if ($this->isThisMethodCall($expr, 'whenExistsLoaded')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeWhenExistsLoaded($expr);
+        }
+
+        if ($this->isThisMethodCall($expr, 'transform')) {
+            /** @var MethodCall $expr */
+            return $this->analyzeTransform($expr);
         }
 
         if ($this->isThisMethodCall($expr, 'whenHas')) {
@@ -783,15 +833,23 @@ class ResourceAstAnalyzer
         }
 
         if ($this->isThisMethodCall($expr, 'whenCounted')) {
-            return ['type' => 'number', 'optional' => true];
+            /** @var MethodCall $expr */
+            return $this->applyConditionalDefault(['type' => 'number', 'optional' => false], $expr, 2);
         }
 
         if ($this->isThisMethodCall($expr, 'whenAggregated')) {
-            return ['type' => 'number', 'optional' => true];
+            /** @var MethodCall $expr */
+            return $this->applyConditionalDefault(['type' => 'number', 'optional' => false], $expr, 4);
         }
 
-        if ($this->isThisMethodCall($expr, 'whenPivotLoaded') || $this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
-            return ['type' => 'unknown', 'optional' => true];
+        if ($this->isThisMethodCall($expr, 'whenPivotLoaded')) {
+            /** @var MethodCall $expr */
+            return $this->applyConditionalDefault($this->unknownResult(), $expr, 2);
+        }
+
+        if ($this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
+            /** @var MethodCall $expr */
+            return $this->applyConditionalDefault($this->unknownResult(), $expr, 3);
         }
 
         // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
@@ -1138,6 +1196,43 @@ class ResourceAstAnalyzer
     }
 
     /**
+     * Fold a conditional method's explicit default into its value arm's result.
+     *
+     * An explicit default always makes the property required, since Laravel then always emits the key.
+     * The default's type unions in when it resolves; otherwise the value arm's own type stands alone.
+     *
+     * @param  ValueExpressionResult  $value
+     * @return ValueExpressionResult
+     */
+    protected function applyConditionalDefault(array $value, MethodCall $call, int $index): array
+    {
+        if (! $this->hasExplicitDefaultArg($call, $index)) {
+            return [...$value, 'optional' => true];
+        }
+
+        $default = $this->analyzeValueExpression($call->getArgs()[$index]->value);
+
+        // An `unknown` on either arm carries no type to union: an unresolved default leaves the value arm
+        // standing, and an unresolved value arm already admits whatever the default could produce.
+        if ($default['type'] === 'unknown' || $value['type'] === 'unknown') {
+            return [...$value, 'optional' => false];
+        }
+
+        $members = array_values(array_unique([
+            ...explode(' | ', $value['type']),
+            ...explode(' | ', $default['type']),
+        ]));
+
+        // `[]` is assignable to every array type, so an empty-array arm beside a real one would only
+        // widen the property into a shape — `Category[] | Record<…>` — that no caller can consume.
+        if (array_any($members, fn (string $m): bool => $m !== 'never[]' && str_ends_with($m, '[]'))) {
+            $members = array_values(array_filter($members, fn (string $m): bool => $m !== 'never[]'));
+        }
+
+        return [...$this->mergeUnionChannels($members, [$value, $default]), 'optional' => false];
+    }
+
+    /**
      * Analyze $this->when(condition, value) — the value is the second arg.
      *
      * @return ValueExpressionResult
@@ -1154,11 +1249,10 @@ class ResourceAstAnalyzer
             $this->bindClosureParamsFromCondition($args[0]->value, $valueExpr);
 
             $inner = $this->analyzeValueExpression($valueExpr);
-            $inner['optional'] = true;
 
             $this->closureParamExprBindings = $previousBindings;
 
-            return $inner;
+            return $this->applyConditionalDefault($inner, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
@@ -1177,69 +1271,103 @@ class ResourceAstAnalyzer
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $attrName = $args[0]->value->value;
             $info = $this->resolveModelAttributeTypeInfo($attrName);
-            $result = ['type' => $info['type'], 'optional' => true];
+            $result = ['type' => $info['type'], 'optional' => false];
 
             if ($info['enumFqcn'] !== null) {
                 $result['directEnumFqcn'] = $info['enumFqcn'];
             }
 
-            return $result;
+            return $this->applyConditionalDefault($result, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
     }
 
     /**
-     * Analyze $this->whenNotNull($this->value, $callback) — resolve the callback expression type.
+     * Analyze $this->whenAppended('attribute', $value, $default) — types from the named attribute,
+     * the same way whenHas() does, since the appended accessor is what surfaces.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeWhenAppended(MethodCall $call): array
+    {
+        $args = $call->getArgs();
+
+        if ($args === [] || ! $args[0]->value instanceof String_) {
+            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
+        }
+
+        $info = $this->resolveModelAttributeTypeInfo($args[0]->value->value);
+        $result = ['type' => $info['type'], 'optional' => false];
+
+        if ($info['enumFqcn'] !== null) {
+            $result['directEnumFqcn'] = $info['enumFqcn'];
+        }
+
+        return $this->applyConditionalDefault($result, $call, 2);
+    }
+
+    /**
+     * Analyze $this->whenExistsLoaded('relation', $value, $default) — resolves to the relation's
+     * generated `{relation}_exists` flag.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeWhenExistsLoaded(MethodCall $call): array
+    {
+        $args = $call->getArgs();
+
+        if ($args === [] || ! $args[0]->value instanceof String_) {
+            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
+        }
+
+        return $this->applyConditionalDefault(['type' => 'boolean', 'optional' => false], $call, 2);
+    }
+
+    /**
+     * Analyze $this->whenNotNull($value, $default) — the success arm returns $value, proven non-null.
      *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenNotNull(MethodCall $call): array
     {
-        return $this->analyzeWhenPossiblyNull($call);
+        return $this->analyzeWhenPossiblyNull($call, stripNull: true);
     }
 
     /**
-     * Analyze $this->whenNull($this->value, $callback) — resolve the callback expression type.
+     * Analyze $this->whenNull($value, $default) — the success arm returns null, so only the default
+     * carries a useful type.
      *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenNull(MethodCall $call): array
     {
-        return $this->analyzeWhenPossiblyNull($call);
+        return $this->analyzeWhenPossiblyNull($call, stripNull: false);
     }
 
     /**
-     * Shared logic for whenNotNull()/whenNull(): analyze the callback and bind its closure param.
+     * Shared logic for whenNotNull()/whenNull(): argument 0 is the value, argument 1 the optional
+     * default. An explicit default makes the key required and unions its type into the result.
      *
      * @return ValueExpressionResult
      */
-    protected function analyzeWhenPossiblyNull(MethodCall $call): array
+    protected function analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull): array
     {
-        $result = $this->unknownResult();
         $args = $call->getArgs();
 
-        if (count($args) === 1) {
-            $inner = $this->analyzeValueExpression($args[0]->value);
-            $inner['optional'] = true;
-
-            return $inner;
+        if ($args === []) {
+            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
         }
 
-        if (count($args) >= 2) {
-            $valueExpr = $args[1]->value;
-            $previousBindings = $this->closureParamExprBindings;
+        $value = $this->analyzeValueExpression($args[0]->value);
 
-            $this->bindClosureParamsFromCondition($args[0]->value, $valueExpr);
-            $inner = $this->analyzeValueExpression($valueExpr);
-            $inner['optional'] = true;
-
-            $this->closureParamExprBindings = $previousBindings;
-
-            return $inner;
+        if ($stripNull) {
+            $value['type'] = $this->stripNullArm($value['type']);
+        } else {
+            $value['type'] = 'null';
         }
 
-        return [...$result, 'optional' => true]; // @codeCoverageIgnore
+        return $this->applyConditionalDefault($value, $call, 1);
     }
 
     /**
@@ -1297,15 +1425,13 @@ class ResourceAstAnalyzer
                 $this->varCollectionBindings = $previousVarCollectionBindings;
             }
 
-            $inner['optional'] = true;
-
-            return $inner;
+            return $this->applyConditionalDefault($inner, $call, 2);
         }
 
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $relationName = $args[0]->value->value;
             $info = $this->resolveModelRelationTypeInfo($relationName);
-            $result = ['type' => $info['type'], 'optional' => true];
+            $result = ['type' => $info['type'], 'optional' => false];
 
             if ($info['modelFqcn'] !== null) {
                 $result['modelFqcn'] = $info['modelFqcn'];
@@ -1315,23 +1441,52 @@ class ResourceAstAnalyzer
                 $result['embeddedModelFqcns'] = $info['morphFqcns'];
             }
 
-            return $result;
+            return $this->applyConditionalDefault($result, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
     }
 
     /**
-     * Analyze $this->merge([...]) or $this->mergeWhen(condition, [...]) — extract properties from the array arg.
+     * Analyze $this->transform($value, $callback, $default) — types from the callback's return, since
+     * transform() invokes $callback with $value rather than passing $value through untouched.
      *
-     * merge() properties are required; mergeWhen() properties are optional.
+     * @return ValueExpressionResult
+     */
+    protected function analyzeTransform(MethodCall $call): array
+    {
+        $result = $this->unknownResult();
+        $args = $call->getArgs();
+
+        if (count($args) >= 2) {
+            $valueExpr = $args[0]->value;
+            $callbackExpr = $args[1]->value;
+
+            $previousBindings = $this->closureParamExprBindings;
+            $this->bindClosureParamsFromCondition($valueExpr, $callbackExpr);
+
+            $inner = $this->analyzeValueExpression($callbackExpr);
+
+            $this->closureParamExprBindings = $previousBindings;
+
+            return $this->applyConditionalDefault($inner, $call, 2);
+        }
+
+        return [...$result, 'optional' => true]; // @codeCoverageIgnore
+    }
+
+    /**
+     * Analyze $this->merge([...]), mergeWhen(condition, [...]), or mergeUnless(condition, [...]).
+     *
+     * merge() properties are required; mergeWhen()/mergeUnless() properties are optional.
      */
     protected function analyzeMergeExpression(MethodCall $call): ResourceAnalysis
     {
         $isMerge = $this->isThisMethodCall($call, 'merge');
         $isMergeWhen = $this->isThisMethodCall($call, 'mergeWhen');
+        $isMergeUnless = $this->isThisMethodCall($call, 'mergeUnless');
 
-        if (! $isMerge && ! $isMergeWhen) {
+        if (! $isMerge && ! $isMergeWhen && ! $isMergeUnless) {
             return new ResourceAnalysis; // @codeCoverageIgnore
         }
 
@@ -1345,7 +1500,7 @@ class ResourceAstAnalyzer
             return $this->resolveArrayOrClosureToProperties($args[0]->value, optional: false);
         }
 
-        if ($isMergeWhen && count($args) >= 2) {
+        if (($isMergeWhen || $isMergeUnless) && count($args) >= 2) {
             return $this->resolveArrayOrClosureToProperties($args[1]->value, optional: true);
         }
 
@@ -1415,7 +1570,7 @@ class ResourceAstAnalyzer
             if ($collected !== null) {
                 return [
                     ...$result,
-                    'type' => class_basename($collected).'[]',
+                    'type' => $this->wrapCollectionElementType(class_basename($collected), new ReflectionClass($className)),
                     'optional' => $this->hasConditionalArgument($call),
                     'resourceFqcn' => $collected,
                 ];
@@ -1436,7 +1591,7 @@ class ResourceAstAnalyzer
             ];
         }
 
-        // SomeResource::collection(...) — array of nested resource
+        // SomeResource::collection(...) — array or keyed record of nested resource
         if ($this->isResourceClass($className) && $methodName === 'collection') {
             $resourceName = class_basename($className);
             $optional = $this->hasConditionalArgument($call);
@@ -1444,7 +1599,7 @@ class ResourceAstAnalyzer
             /** @var class-string $className */
             return [
                 ...$result,
-                'type' => $resourceName.'[]',
+                'type' => $this->wrapCollectionElementType($resourceName, new ReflectionClass($className)),
                 'optional' => $optional,
                 'resourceFqcn' => $className,
             ];
@@ -1516,6 +1671,40 @@ class ResourceAstAnalyzer
         }
 
         return null;
+    }
+
+    /**
+     * Whether a resource collection keeps its source keys, making the payload a JSON object rather
+     * than an array. Laravel honours the attribute and the property equally.
+     *
+     * @template T of object
+     *
+     * @param  ReflectionClass<T>  $reflection
+     */
+    protected function collectionPreservesKeys(ReflectionClass $reflection): bool
+    {
+        $attribute = 'Illuminate\Http\Resources\Attributes\PreserveKeys';
+
+        if (class_exists($attribute) && $reflection->getAttributes($attribute) !== []) {
+            return true;
+        }
+
+        return ($reflection->getDefaultProperties()['preserveKeys'] ?? false) === true;
+    }
+
+    /**
+     * Wrap a collected element type as `Record<string, R>` when the reflected class preserves its
+     * keys, or as `R[]` otherwise — the single point every collection-typing call site shares.
+     *
+     * @template T of object
+     *
+     * @param  ReflectionClass<T>  $reflection
+     */
+    protected function wrapCollectionElementType(string $elementType, ReflectionClass $reflection): string
+    {
+        return $this->collectionPreservesKeys($reflection)
+            ? "Record<string, {$elementType}>"
+            : $elementType.'[]';
     }
 
     /**
@@ -1601,7 +1790,7 @@ class ResourceAstAnalyzer
             if ($collected !== null) {
                 return [
                     ...$result,
-                    'type' => class_basename($collected).'[]',
+                    'type' => $this->wrapCollectionElementType(class_basename($collected), new ReflectionClass($className)),
                     'optional' => $this->hasConditionalNewArgument($expr),
                     'resourceFqcn' => $collected,
                 ];
@@ -1935,6 +2124,12 @@ class ResourceAstAnalyzer
             return null; // @codeCoverageIgnore
         }
 
+        if (isset($this->visitedSpreadMethods[$methodName])) {
+            return null;
+        }
+
+        $this->visitedSpreadMethods[$methodName] = true;
+
         $method = $this->resourceReflection->getMethod($methodName);
         $filePath = $method->getFileName();
 
@@ -1972,6 +2167,16 @@ class ResourceAstAnalyzer
             } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof Variable
                 && is_string($returnStmt->expr->name)) {
                 $analysis = $this->resolveVariableReturnAnalysis($targetMethod->stmts, $returnStmt->expr->name);
+            } elseif ($returnStmt instanceof Return_ && $returnStmt->expr instanceof MethodCall) {
+                $filtered = $this->analyzeThisAttributeFilter($returnStmt->expr);
+
+                if ($filtered !== null) {
+                    $analysis = $filtered;
+                } elseif ($this->hasThisReceiver($returnStmt->expr) && $returnStmt->expr->name instanceof Identifier) {
+                    $analysis = $this->analyzeThisMethodSpread($returnStmt->expr->name->toString()) ?? new ResourceAnalysis;
+                } else {
+                    $analysis = new ResourceAnalysis;
+                }
             } else {
                 $analysis = new ResourceAnalysis;
             }
@@ -1979,6 +2184,7 @@ class ResourceAstAnalyzer
             $this->localVarBindings = $previousLocalVarBindings;
             $this->resolvingLocalVars = $previousResolvingLocalVars;
             $this->varModelBindings = $previousVarModelBindings;
+            unset($this->visitedSpreadMethods[$methodName]);
         }
 
         $docTypes = $this->parseReturnArrayShape($method);
@@ -2683,8 +2889,8 @@ class ResourceAstAnalyzer
     /**
      * Build a ResourceAnalysis for a ResourceCollection subclass that has no toArray() method.
      *
-     * A non-empty $wrap key produces a `{ data: SingularResource[] }` shape; a null $wrap sets
-     * flatTypeAlias so the writer emits `export type X = SingularResource[]`.
+     * A non-empty $wrap key produces `{ data: R[] }`, keyed as `Record<string, R>` when the collection
+     * preserves keys; a null $wrap makes that same element type the flatTypeAlias directly.
      */
     protected function buildCollectionDelegatedAnalysis(): ResourceAnalysis
     {
@@ -2706,10 +2912,10 @@ class ResourceAstAnalyzer
             }
         }
 
-        $singularBaseName = class_basename($singular);
+        $elementType = $this->wrapCollectionElementType(class_basename($singular), $this->resourceReflection);
 
         if ($wrapKey === null || $wrapKey === '') {
-            return new ResourceAnalysis(flatTypeAlias: $singularBaseName.'[]', flatTypeAliasFqcn: $singular);
+            return new ResourceAnalysis(flatTypeAlias: $elementType, flatTypeAliasFqcn: $singular);
         }
 
         $key = $wrapKey ? $wrapKey : 'data';
@@ -2717,7 +2923,7 @@ class ResourceAstAnalyzer
         return new ResourceAnalysis(
             properties: [[
                 'name' => $key,
-                'type' => $singularBaseName.'[]',
+                'type' => $elementType,
                 'optional' => false,
                 'description' => '',
             ]],
@@ -2726,8 +2932,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Analyze $this->collection in a ResourceCollection, resolving it
-     * to the singular resource type as an array.
+     * Analyze $this->collection in a ResourceCollection, resolving it to the singular resource
+     * type as an array, or a keyed record when the collection preserves keys.
      *
      * @return ValueExpressionResult
      */
@@ -2742,7 +2948,7 @@ class ResourceAstAnalyzer
 
         return [
             ...$result,
-            'type' => class_basename($singular).'[]',
+            'type' => $this->wrapCollectionElementType(class_basename($singular), $this->resourceReflection),
             'resourceFqcn' => $singular,
         ];
     }
@@ -2970,6 +3176,12 @@ class ResourceAstAnalyzer
     protected function analyzeInlineArray(Array_ $array): array
     {
         $analysis = $this->analyzeReturnArray($array);
+
+        // `json_encode([])` emits `[]`, not `{}` — only an array whose keys we failed to resolve is
+        // honestly a record. `never[]` says the literal can hold nothing, which is what `[]` means.
+        if ($array->items === []) {
+            return ['type' => 'never[]', 'optional' => false];
+        }
 
         if ($analysis->properties === []) {
             return ['type' => 'Record<string, unknown>', 'optional' => false];
@@ -3508,6 +3720,30 @@ class ResourceAstAnalyzer
     private function arrayWrapType(string $type): string
     {
         return str_contains($type, '|') ? '('.$type.')[]' : $type.'[]';
+    }
+
+    /**
+     * Drop a trailing `| null` arm from a type string — a guarded success path proves it unreachable.
+     */
+    private function stripNullArm(string $type): string
+    {
+        return trim(str_replace(['| null', 'null |'], '', $type)) ?: 'unknown';
+    }
+
+    /**
+     * Whether an explicit default was passed at the given argument index. Laravel distinguishes a
+     * passed-through `null` from an omitted argument via func_num_args(), so position is the only
+     * signal; named or spread arguments make the position meaningless, so both bail out.
+     */
+    private function hasExplicitDefaultArg(MethodCall $call, int $index): bool
+    {
+        foreach ($call->getArgs() as $arg) {
+            if ($arg->unpack || $arg->name !== null) {
+                return false;
+            }
+        }
+
+        return count($call->getArgs()) > $index;
     }
 
     /**

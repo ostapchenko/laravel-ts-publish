@@ -6,13 +6,13 @@ import type { UpdatePostRequest } from '../requests/update-post-request';
 export const index = defineRoute({
     name: 'posts.index',
     url: '/posts',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
 });
 
 export const show = defineRoute({
     name: 'posts.show',
     url: '/posts/{post}',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     args: [{name: 'post', required: true, _routeKey: 'id'}] as const,
 });
 

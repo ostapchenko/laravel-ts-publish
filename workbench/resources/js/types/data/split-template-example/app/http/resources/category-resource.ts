@@ -1,3 +1,4 @@
+import type { Category } from '../../models';
 import type { PostResource } from '.';
 
 /**
@@ -29,4 +30,6 @@ export interface CategoryResource
     parent_resource_self: CategoryResource;
     parent_when_self?: CategoryResource;
     parent_when_resource_self?: CategoryResource;
+    children_with_default: Category[];
+    posts_with_default: PostResource[];
 }

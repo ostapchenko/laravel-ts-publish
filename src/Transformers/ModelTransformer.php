@@ -465,7 +465,8 @@ class ModelTransformer extends CoreTransformer
                 $relationType = $relatedBasename;
             }
 
-            if ($nullableRelations && $this->relationNullable->isNullable($relation)) {
+            // 'unknown' already admits null, so appending the suffix would only add noise.
+            if ($relationType !== 'unknown' && $nullableRelations && $this->relationNullable->isNullable($relation)) {
                 $relationType .= ' | null';
             }
 

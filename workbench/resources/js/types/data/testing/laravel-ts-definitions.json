@@ -1575,7 +1575,23 @@
                 },
                 {
                     "fieldPath": "config",
-                    "tsType": "unknown[]",
+                    "tsType": "{ timezone?: unknown }",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "preferences",
+                    "tsType": "{ theme?: unknown; locale?: unknown }",
+                    "isRequired": false,
+                    "isNullable": true,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "shipping",
+                    "tsType": "{ method?: 'standard' | 'express' | null; address: unknown }",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
@@ -1997,7 +2013,7 @@
             "fields": [
                 {
                     "fieldPath": "options",
-                    "tsType": "{ default?: string } & Record<string, string>",
+                    "tsType": "{ default?: string } & Record<string, string | null>",
                     "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3645,7 +3661,7 @@
                 },
                 {
                     "name": "subject",
-                    "type": "unknown | null"
+                    "type": "unknown"
                 },
                 {
                     "name": "causer",
@@ -4193,7 +4209,7 @@
                 },
                 {
                     "name": "commentable",
-                    "type": "unknown | null"
+                    "type": "unknown"
                 },
                 {
                     "name": "commentable_count",
@@ -4226,7 +4242,7 @@
                 },
                 {
                     "name": "status",
-                    "type": "number"
+                    "type": "boolean"
                 },
                 {
                     "name": "published_at",
@@ -4234,7 +4250,7 @@
                 },
                 {
                     "name": "metadata",
-                    "type": "unknown | null"
+                    "type": "string | null"
                 },
                 {
                     "name": "rating",
@@ -4286,7 +4302,7 @@
                 },
                 {
                     "name": "is_pinned",
-                    "type": "number"
+                    "type": "boolean"
                 }
             ]
         },
@@ -4488,7 +4504,15 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
+                    "type": "WorkbenchUser[] | Record<string, WorkbenchUser>"
+                },
+                {
+                    "name": "uploaders_from_docblock_int",
                     "type": "WorkbenchUser[]"
+                },
+                {
+                    "name": "uploaders_from_docblock_string",
+                    "type": "Record<string, WorkbenchUser>"
                 },
                 {
                     "name": "tree_from_docblock",
@@ -4570,6 +4594,48 @@
                 {
                     "name": "reportable_exists",
                     "type": "boolean"
+                }
+            ]
+        },
+        "Workbench\\App\\Models\\Laravel13Attributes": {
+            "name": "Laravel13Attributes",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                },
+                {
+                    "name": "secret_token",
+                    "type": "string"
+                },
+                {
+                    "name": "label",
+                    "type": "string"
+                }
+            ]
+        },
+        "Workbench\\App\\Models\\Laravel13Connection": {
+            "name": "Laravel13Connection",
+            "properties": []
+        },
+        "Workbench\\App\\Models\\Laravel13Visible": {
+            "name": "Laravel13Visible",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                },
+                {
+                    "name": "other_col",
+                    "type": "string"
                 }
             ]
         },
@@ -5771,7 +5837,7 @@
                 },
                 {
                     "name": "status",
-                    "type": "number"
+                    "type": "boolean"
                 },
                 {
                     "name": "published_at",
@@ -5779,7 +5845,7 @@
                 },
                 {
                     "name": "metadata",
-                    "type": "unknown | null"
+                    "type": "string | null"
                 },
                 {
                     "name": "rating",
@@ -5831,7 +5897,7 @@
                 },
                 {
                     "name": "is_pinned",
-                    "type": "number"
+                    "type": "boolean"
                 }
             ]
         },
@@ -5868,7 +5934,7 @@
                 },
                 {
                     "name": "commentable",
-                    "type": "unknown | null"
+                    "type": "unknown"
                 },
                 {
                     "name": "commentable_count",
@@ -6469,7 +6535,7 @@
                 },
                 {
                     "name": "status",
-                    "type": "number"
+                    "type": "boolean"
                 },
                 {
                     "name": "published_at",
@@ -6477,7 +6543,7 @@
                 },
                 {
                     "name": "metadata",
-                    "type": "unknown | null"
+                    "type": "string | null"
                 },
                 {
                     "name": "rating",
@@ -6529,7 +6595,7 @@
                 },
                 {
                     "name": "is_pinned",
-                    "type": "number"
+                    "type": "boolean"
                 }
             ]
         },
@@ -7123,7 +7189,7 @@
                 },
                 {
                     "name": "issued_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -7193,12 +7259,12 @@
                 },
                 {
                     "name": "reference",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
                     "name": "paid_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 }
             ]
@@ -7298,7 +7364,7 @@
                 },
                 {
                     "name": "line_2",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -7578,6 +7644,21 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\BareMethodReturnResource": {
+            "name": "BareMethodReturnResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "slug",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\BaseSharedResource": {
             "name": "BaseSharedResource",
             "properties": []
@@ -7749,6 +7830,16 @@
                     "name": "parent_when_resource_self",
                     "type": "CategoryResource",
                     "optional": true
+                },
+                {
+                    "name": "children_with_default",
+                    "type": "Category[]",
+                    "optional": false
+                },
+                {
+                    "name": "posts_with_default",
+                    "type": "PostResource[]",
+                    "optional": false
                 }
             ]
         },
@@ -7796,7 +7887,7 @@
             "properties": [
                 {
                     "name": "outer_member",
-                    "type": "unknown",
+                    "type": "string",
                     "optional": false
                 },
                 {
@@ -8036,6 +8127,146 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\ConditionalDefaultsResource": {
+            "name": "ConditionalDefaultsResource",
+            "properties": [
+                {
+                    "name": "not_null_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "not_null_with_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "not_null_same_type_default",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "null_with_default",
+                    "type": "null | string",
+                    "optional": false
+                },
+                {
+                    "name": "not_null_explicit_null_default",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "not_null_named_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "not_null_spread_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "when_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "when_with_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "has_with_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "loaded_with_default",
+                    "type": "User | null",
+                    "optional": false
+                },
+                {
+                    "name": "counted_with_default",
+                    "type": "number | string",
+                    "optional": false
+                },
+                {
+                    "name": "aggregated_no_default",
+                    "type": "number",
+                    "optional": true
+                },
+                {
+                    "name": "aggregated_with_default",
+                    "type": "number | string",
+                    "optional": false
+                },
+                {
+                    "name": "pivot_loaded_no_default",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "pivot_loaded_with_default",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "pivot_loaded_as_no_default",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "pivot_loaded_as_with_default",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "unless_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "unless_with_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "appended_no_default",
+                    "type": "string",
+                    "optional": true
+                },
+                {
+                    "name": "appended_with_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "exists_no_default",
+                    "type": "boolean",
+                    "optional": true
+                },
+                {
+                    "name": "exists_with_default",
+                    "type": "boolean | string",
+                    "optional": false
+                },
+                {
+                    "name": "transform_no_default",
+                    "type": "boolean",
+                    "optional": true
+                },
+                {
+                    "name": "transform_with_default",
+                    "type": "boolean | number",
+                    "optional": false
+                },
+                {
+                    "name": "merge_unless_label",
+                    "type": "string",
+                    "optional": true
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\ConditionalParamArrayResource": {
             "name": "ConditionalParamArrayResource",
             "properties": [
@@ -8061,8 +8292,8 @@
                 },
                 {
                     "name": "notes_when_null",
-                    "type": "string",
-                    "optional": true
+                    "type": "null | string",
+                    "optional": false
                 }
             ]
         },
@@ -8126,8 +8357,8 @@
                 },
                 {
                     "name": "status_resource",
-                    "type": "AsEnum<typeof OrderStatus>",
-                    "optional": true
+                    "type": "OrderStatusType",
+                    "optional": false
                 },
                 {
                     "name": "shipping_safe",
@@ -8216,8 +8447,8 @@
                 },
                 {
                     "name": "notes_length",
-                    "type": "number",
-                    "optional": true
+                    "type": "string | number",
+                    "optional": false
                 }
             ]
         },
@@ -8894,7 +9125,17 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
+                    "type": "WorkbenchUser[] | Record<string, WorkbenchUser>",
+                    "optional": false
+                },
+                {
+                    "name": "uploaders_from_docblock_int",
                     "type": "WorkbenchUser[]",
+                    "optional": false
+                },
+                {
+                    "name": "uploaders_from_docblock_string",
+                    "type": "Record<string, WorkbenchUser>",
                     "optional": false
                 },
                 {
@@ -8954,7 +9195,7 @@
                 },
                 {
                     "name": "uploaders_from_docblock",
-                    "type": "WorkbenchUser[]",
+                    "type": "WorkbenchUser[] | Record<string, WorkbenchUser>",
                     "optional": false
                 },
                 {
@@ -8994,12 +9235,12 @@
                 },
                 {
                     "name": "width",
-                    "type": "number | null",
+                    "type": "number",
                     "optional": true
                 },
                 {
                     "name": "height",
-                    "type": "number | null",
+                    "type": "number",
                     "optional": true
                 }
             ]
@@ -9179,7 +9420,7 @@
                 },
                 {
                     "name": "empty",
-                    "type": "Record<string, unknown>",
+                    "type": "never[]",
                     "optional": false
                 }
             ]
@@ -9289,9 +9530,29 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\MutuallyRecursiveSpreadResource": {
+            "name": "MutuallyRecursiveSpreadResource",
+            "properties": [
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\NonArrayReturnResource": {
             "name": "NonArrayReturnResource",
             "properties": []
+        },
+        "Workbench\\App\\Http\\Resources\\NonThisReceiverSpreadResource": {
+            "name": "NonThisReceiverSpreadResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
         },
         "Workbench\\App\\Http\\Resources\\OrderClosureResource": {
             "name": "OrderClosureResource",
@@ -9542,11 +9803,6 @@
                     "optional": false
                 },
                 {
-                    "name": "search_index",
-                    "type": "unknown",
-                    "optional": false
-                },
-                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -9703,6 +9959,11 @@
                 {
                     "name": "item_count",
                     "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "search_index",
+                    "type": "unknown",
                     "optional": false
                 },
                 {
@@ -10001,6 +10262,26 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysCollection": {
+            "name": "PreserveKeysCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "Record<string, TeamResource>",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysPropertyCollection": {
+            "name": "PreserveKeysPropertyCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "Record<string, TeamResource>",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\ProductResource": {
             "name": "ProductResource",
             "properties": [
@@ -10036,7 +10317,7 @@
                 },
                 {
                     "name": "compare_at_price",
-                    "type": "number | null",
+                    "type": "number",
                     "optional": true
                 },
                 {
@@ -10061,7 +10342,7 @@
                 },
                 {
                     "name": "published_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -10431,18 +10712,18 @@
                 },
                 {
                     "name": "priority_when_not_null_make",
-                    "type": "AsEnum<typeof Priority> | null",
-                    "optional": true
+                    "type": "AsEnum<typeof Priority> | PriorityType | null",
+                    "optional": false
                 },
                 {
                     "name": "status_when_not_null_arrow",
-                    "type": "AsEnum<typeof Status>",
-                    "optional": true
+                    "type": "AsEnum<typeof Status> | StatusType",
+                    "optional": false
                 },
                 {
                     "name": "visibility_when_not_null_full",
-                    "type": "AsEnum<typeof Visibility> | null",
-                    "optional": true
+                    "type": "AsEnum<typeof Visibility> | VisibilityType | null",
+                    "optional": false
                 },
                 {
                     "name": "status_ternary_null",
@@ -10527,6 +10808,21 @@
                     "name": "order_requester",
                     "type": "{ user: WorkbenchUser } | null",
                     "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\ShadowedClosureParamResource": {
+            "name": "ShadowedClosureParamResource",
+            "properties": [
+                {
+                    "name": "outer",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "shadowed",
+                    "type": "unknown",
+                    "optional": true
                 }
             ]
         },
@@ -10964,11 +11260,6 @@
                     "optional": false
                 },
                 {
-                    "name": "search_index",
-                    "type": "unknown",
-                    "optional": false
-                },
-                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -11161,11 +11452,6 @@
                 {
                     "name": "formatted_total",
                     "type": "string",
-                    "optional": false
-                },
-                {
-                    "name": "search_index",
-                    "type": "unknown",
                     "optional": false
                 },
                 {
@@ -11400,7 +11686,7 @@
                 },
                 {
                     "name": "avatar",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -11695,6 +11981,161 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\UserExceptResource": {
+            "name": "UserExceptResource",
+            "properties": [
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "email",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "email_verified_at",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "password",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "options",
+                    "type": "Record<string, unknown> | null",
+                    "optional": false
+                },
+                {
+                    "name": "remember_token",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "created_at",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "updated_at",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "role",
+                    "type": "RoleType | null",
+                    "optional": false
+                },
+                {
+                    "name": "membership_level",
+                    "type": "MembershipLevelType | null",
+                    "optional": false
+                },
+                {
+                    "name": "phone",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "avatar",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "bio",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "settings",
+                    "type": "{ theme: \"light\" | \"dark\"; notifications: boolean; locale: string } | null",
+                    "optional": false
+                },
+                {
+                    "name": "last_login_at",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "last_login_ip",
+                    "type": "string | null",
+                    "optional": false
+                },
+                {
+                    "name": "initials",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "is_premium",
+                    "type": "boolean",
+                    "optional": false
+                },
+                {
+                    "name": "profile",
+                    "type": "Profile | null",
+                    "optional": false
+                },
+                {
+                    "name": "posts",
+                    "type": "Post[]",
+                    "optional": false
+                },
+                {
+                    "name": "comments",
+                    "type": "Comment[]",
+                    "optional": false
+                },
+                {
+                    "name": "orders",
+                    "type": "Order[]",
+                    "optional": false
+                },
+                {
+                    "name": "addresses",
+                    "type": "Address[]",
+                    "optional": false
+                },
+                {
+                    "name": "teams",
+                    "type": "Team[]",
+                    "optional": false
+                },
+                {
+                    "name": "ownedTeams",
+                    "type": "Team[]",
+                    "optional": false
+                },
+                {
+                    "name": "images",
+                    "type": "Image[]",
+                    "optional": false
+                },
+                {
+                    "name": "notifications",
+                    "type": "DatabaseNotification[]",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\UserOnlyHiddenResource": {
+            "name": "UserOnlyHiddenResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "password",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\UserResource": {
             "name": "UserResource",
             "properties": [
@@ -11735,7 +12176,7 @@
                 },
                 {
                     "name": "avatar",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -11792,6 +12233,11 @@
                     "name": "elseBranch",
                     "type": "string",
                     "optional": true
+                },
+                {
+                    "name": "dynamic",
+                    "type": "string",
+                    "optional": false
                 },
                 {
                     "name": "conditionalBaseKey",
@@ -12035,7 +12481,7 @@
                 },
                 {
                     "name": "excerpt",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -12065,12 +12511,12 @@
                 },
                 {
                     "name": "meta_description",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
                     "name": "published_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -12245,7 +12691,7 @@
                 },
                 {
                     "name": "estimated_delivery_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {
@@ -12255,7 +12701,7 @@
                 },
                 {
                     "name": "delivered_at",
-                    "type": "string | null",
+                    "type": "string",
                     "optional": true
                 },
                 {

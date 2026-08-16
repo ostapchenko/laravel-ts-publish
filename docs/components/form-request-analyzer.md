@@ -31,9 +31,9 @@ not a plain nested array — PHPStan (this project runs level 10) rejects a dire
 `composeTrieNode()` then collapses the trie bottom-up. The branches are checked in this order,
 and the order is load-bearing:
 
-1. **A leaf carrying `required_array_keys`** (no children, non-empty `requiredArrayKeys`) has
-   pseudo-children synthesized for it first and then re-enters the list below with those children in
-   hand — see [`required_array_keys`](#required_array_keys-same-path-synthesized-children).
+1. **A node carrying `syntheticArrayKeys`** (from `required_array_keys`/`in_array_keys`/`array:`) merges
+   pseudo-children for those keys into whatever real children it already has, then re-enters the list
+   below — see [synthesized array keys](#synthesized-array-keys-required_array_keys-in_array_keys-array).
 2. **A node with no children** returns its own leaf as-is — this is the existing flat behavior,
    completely unchanged for fields with no dotted continuation (`title`, `email`, `published`, …).
 3. **A node whose keys are *all* explicit numeric indices** (`allKeysAreNumeric()`) composes as a
@@ -218,21 +218,46 @@ never required" override is gone: it existed only because dotted keys used to su
 pseudo-top-level fields you could never actually supply. Now that they compose into a real
 nested property, their own `required` rule is exactly what should decide their optionality.
 
-## `required_array_keys`: same path, synthesized children
+## Synthesized array keys: `required_array_keys`, `in_array_keys`, `array:`
 
-`required_array_keys:read,write` on a leaf array with **no** other declared children
-(`syntheticRequiredArrayKeyChildren()`) synthesizes pseudo-children — one per key, typed
-`unknown`, always required — so `composeTrieNode()` takes the same object-node branch as a real
-nested rule set:
+Three rules describe a key set for an otherwise-untyped array, and `resolveSyntheticArrayKeys()`
+composes all of them the same way: each declared key becomes a synthesized `unknown`-typed
+pseudo-child, so `composeTrieNode()` takes the same object-node branch as a real nested rule set.
+The rules differ only in the optionality they imply, per Laravel's own validator
+(`Illuminate\Validation\Concerns\ValidatesAttributes`):
+
+| Rule | Validator semantics | Emitted key |
+| --- | --- | --- |
+| `required_array_keys:a,b` | *all* listed keys must be present (`array_all`) | required (`a: T`) |
+| `in_array_keys:a,b` | *at least one* listed key must be present (`array_any`) | optional (`a?: T`) |
+| `array:a,b` | restricts which keys are *allowed*; presence unenforced | optional (`a?: T`) |
 
 ```php
 'permissions' => ['required', 'array', 'required_array_keys:read,write'],
+'config' => ['required', 'array', 'in_array_keys:timezone'],
+'preferences' => ['nullable', 'array:theme,locale'],
 ```
 
-resolves to `permissions: { read: unknown; write: unknown };` — the keys are known even though
-their individual types aren't, which is still strictly more useful than `unknown[]`. A parent
-that also has real declared children (a `*` or named continuation) skips this entirely; the real
-children win.
+resolves to `permissions: { read: unknown; write: unknown }`, `config: { timezone?: unknown }`,
+and `preferences?: { theme?: unknown; locale?: unknown } | null` — the keys are known even though
+their individual types aren't, which is still strictly more useful than `unknown[]`.
+
+**Merge, not replace.** `syntheticArrayKeyChildren()`'s output is merged into the node's real
+children with `+=`, so a field with both a synthesized key set and a real declared child (a `*` or
+named continuation) keeps both — the real child wins the name collision, since PHP's `+` keeps the
+left (real) operand's entry on a duplicate key:
+
+```php
+'shipping' => ['required', 'array', 'required_array_keys:method,address'],
+'shipping.method' => ['nullable', 'in:standard,express'],
+```
+
+resolves to `shipping: { method?: 'standard' | 'express' | null; address: unknown }` — `method` keeps
+its own declared type and optionality even though `required_array_keys` also named it; `address` has
+no real child, so it stays the synthesized `unknown`, required because `required_array_keys` said so.
+If a key is named by more than one synthesizing rule (e.g. both `required_array_keys` and `array:`
+list the same key), the required interpretation wins — `resolveSyntheticArrayKeys()` merges its
+required and optional key sets with `+`, so a key required by one rule is never demoted by another.
 
 ## Flat quoted keys are dropped once they compose
 

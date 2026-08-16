@@ -21,7 +21,7 @@ export interface InvoiceResource
     tax: number;
     total: number;
     due_at: string | null;
-    issued_at?: string | null;
+    issued_at?: string;
     paid_at?: string | null;
     user?: User;
     payments?: PaymentResource[];

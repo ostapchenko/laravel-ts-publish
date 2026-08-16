@@ -12,7 +12,7 @@ export interface Address
     id: number;
     label: string | null;
     line_1: string;
-    line_2?: string | null;
+    line_2?: string;
     city: string;
     state: string | null;
     postal_code: string;

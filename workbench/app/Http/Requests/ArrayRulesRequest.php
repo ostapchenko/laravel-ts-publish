@@ -9,11 +9,12 @@ use Illuminate\Validation\Rule;
 
 /**
  * Exercises all array-category validation rules:
- * array, between, contains, doesnt_contain, distinct, in_array,
- * in_array_keys, list, max, min, size.
+ * array, array:k1,k2, between, contains, doesnt_contain, distinct, in_array,
+ * in_array_keys, list, max, min, required_array_keys, size.
  *
  * Also demonstrates nested/wildcard dot-notation rules for validating
- * array elements and deeply nested structures.
+ * array elements and deeply nested structures, including a
+ * required_array_keys key colliding with a real declared child.
  */
 class ArrayRulesRequest extends FormRequest
 {
@@ -52,6 +53,15 @@ class ArrayRulesRequest extends FormRequest
 
             // in_array_keys — array must have at least one of the given keys
             'config' => ['required', 'array', 'in_array_keys:timezone'],
+
+            // array:k1,k2 — array's keys are restricted to (at most) the given key set
+            'preferences' => ['nullable', 'array:theme,locale'],
+
+            // required_array_keys colliding with a real declared child on "method": the
+            // declared rule wins the merge, so "method" keeps its own type/optionality
+            // instead of the synthesized required-unknown; "address" stays synthetic.
+            'shipping' => ['required', 'array', 'required_array_keys:method,address'],
+            'shipping.method' => ['nullable', 'in:standard,express'],
 
             // list — array must be a list (consecutive integer keys starting at 0)
             'ordered_items' => ['required', 'list'],

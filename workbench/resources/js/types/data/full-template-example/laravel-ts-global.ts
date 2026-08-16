@@ -88,7 +88,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             // Relations
-            subject: unknown | null;
+            subject: unknown;
             subject_count: number;
             subject_exists: boolean;
             causer: User | null;
@@ -244,7 +244,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             // Relations
-            commentable: unknown | null;
+            commentable: unknown;
             commentable_count: number;
             commentable_exists: boolean;
         }
@@ -254,9 +254,9 @@ declare global {
             title: string;
             content: string;
             user_id: number;
-            status: number;
+            status: boolean;
             published_at: string | null;
-            metadata: unknown | null;
+            metadata: string | null;
             rating: number | null;
             category: string;
             options: string | null;
@@ -269,7 +269,7 @@ declare global {
             word_count: number | null;
             reading_time_minutes: number | null;
             featured_image_url: string | null;
-            is_pinned: number;
+            is_pinned: boolean;
         }
         /** Model with excluded mutator and relation via #[TsExclude]. */
         export interface ExcludableModel {
@@ -333,7 +333,9 @@ declare global {
             uploader_from_docblock: User | null;
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
-            uploaders_from_docblock: User[];
+            uploaders_from_docblock: User[] | Record<string, User>;
+            uploaders_from_docblock_int: User[];
+            uploaders_from_docblock_string: Record<string, User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -359,6 +361,26 @@ declare global {
             reportable: app.models.marketing.report.Report | app.models.sales.report.Report;
             reportable_count: number;
             reportable_exists: boolean;
+        }
+        /** Exercises Laravel 13's #[Table], #[Hidden] and #[Appends] class attributes. */
+        export interface Laravel13Attributes {
+            // Columns
+            id: number;
+            name: string;
+            secret_token: string;
+            // Mutators
+            /** A computed accessor published as an append only because #[Appends] adds it to getAppends(). */
+            label: string;
+        }
+        /** Exercises Laravel 13's #[Connection] class attribute. */
+        export interface Laravel13Connection {
+        }
+        /** Exercises Laravel 13's #[Visible] class attribute (an allowlist). */
+        export interface Laravel13Visible {
+            // Columns
+            id: number;
+            name: string;
+            other_col: string;
         }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
@@ -708,11 +730,11 @@ declare global {
         }
         /**
          * Pins ModelAttributeResolver::isStrictlyMoreStructured()'s reject direction: `meta_info` casts
-         * to AsArrayObject (Record<string, unknown>) — vague, but not "entirely" vague (not one of the
-         * four hardcoded literals) — so the class's own @property tag, whose `array<string, array>`
-         * generic resolves to the *differently* vague `Record<string, unknown[]>`, must never replace
-         * it. Both candidate and current genuinely differ in the emitted string, so acceptance vs.
-         * rejection is observable regardless of the nullable `| null` suffix either path would add.
+         * to Eloquent's Collection (Record<string, unknown>) — vague, but not "entirely" vague (not one
+         * of the four hardcoded literals) — so the class's own @property tag, whose `array<string,
+         * array>` generic resolves to the *differently* vague `Record<string, unknown[]>`, must never
+         * replace it. Both candidate and current genuinely differ in the emitted string, so acceptance
+         * vs. rejection is observable regardless of the nullable `| null` suffix either path would add.
          */
         export interface PropertyDocblockRejectFixture {
             // Columns
@@ -775,9 +797,9 @@ declare global {
             title: string;
             content: string;
             user_id: number;
-            status: number;
+            status: boolean;
             published_at: string | null;
-            metadata: unknown | null;
+            metadata: string | null;
             rating: number | null;
             category: string;
             options: string | null;
@@ -790,7 +812,7 @@ declare global {
             word_count: number | null;
             reading_time_minutes: number | null;
             featured_image_url: string | null;
-            is_pinned: number;
+            is_pinned: boolean;
         }
         export interface StrictCompositeComment {
             // Columns
@@ -802,7 +824,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             // Relations
-            commentable: unknown | null;
+            commentable: unknown;
             commentable_count: number;
             commentable_exists: boolean;
         }
@@ -1001,9 +1023,9 @@ declare global {
             title: string;
             content: string;
             user_id: number;
-            status: number;
+            status: boolean;
             published_at: string | null;
-            metadata: unknown | null;
+            metadata: string | null;
             rating: number | null;
             category: string;
             options: string | null;
@@ -1016,7 +1038,7 @@ declare global {
             word_count: number | null;
             reading_time_minutes: number | null;
             featured_image_url: string | null;
-            is_pinned: number;
+            is_pinned: boolean;
         }
         export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" | "updated_by"> {
             // Columns
@@ -1505,7 +1527,7 @@ declare global {
             tax: number;
             total: number;
             due_at: string | null;
-            issued_at?: string | null;
+            issued_at?: string;
             paid_at?: string | null;
             user?: app.models.User;
             payments?: PaymentResource[];
@@ -1524,8 +1546,8 @@ declare global {
             currency: app.enums.CurrencyType;
             amount: number;
             method?: app.enums.PaymentMethodType;
-            reference?: string | null;
-            paid_at?: string | null;
+            reference?: string;
+            paid_at?: string;
         }
     }
     export namespace app.http.resources {
@@ -1561,7 +1583,7 @@ declare global {
             id: number;
             label: string | null;
             line_1: string;
-            line_2?: string | null;
+            line_2?: string;
             city: string;
             state: string | null;
             postal_code: string;
@@ -1618,6 +1640,14 @@ declare global {
             flag?: string | null;
             extra: Record<string, unknown>;
         }
+        /**
+         * toArray() returns a method call directly rather than spreading it into an array literal, and that
+         * method in turn returns another — the transitive case.
+         */
+        export interface BareMethodReturnResource {
+            id: number;
+            slug: string;
+        }
         /** Parent resource that uses SharedExtendsInterface — tests BFS dedup when child also uses the same trait. */
         export interface BaseSharedResource extends SharedInterface {
         }
@@ -1661,6 +1691,8 @@ declare global {
             parent_resource_self: CategoryResource;
             parent_when_self?: CategoryResource;
             parent_when_resource_self?: CategoryResource;
+            children_with_default: app.models.Category[];
+            posts_with_default: PostResource[];
         }
         /**
          * Child resource that uses SharedExtendsInterface AND extends a parent that also uses it.
@@ -1682,15 +1714,12 @@ declare global {
         }
         /**
          * A closure parameter that shadows a top-level local resolves through its own scoped binding
-         * (whenLoaded relation / relation-chain element model), and must not leak the outer local's value.
-         *
-         * `outer_member` is a known over-degradation: the write-count shadow guard in
-         * collectWrittenVariableNames() still counts the closure param as a write to `$member`, so the
-         * top-level `$member` local is never bound. Narrowing that guard so a closure-scoped write no
-         * longer counts against the outer local is deferred.
+         * (whenLoaded relation / relation-chain element model) for the closure's body only, and must not
+         * leak the outer local's value. Outside the closure, `outer_member` proves the shadowing param no
+         * longer suppresses the top-level `$member` local's own binding.
          */
         export interface ClosureParamShadowResource {
-            outer_member: unknown;
+            outer_member: string;
             mapped_members: app.models.User[];
             loaded_owner?: app.models.User;
             loaded_members_bare?: app.models.User[];
@@ -1752,6 +1781,40 @@ declare global {
             user_profile_avatar_url: string | null;
         }
         /**
+         * Exercises the conditional family's default argument. An explicit default means the key is always
+         * present, so the property is required; the default's own type unions into the emitted type when it
+         * resolves, and the value arm's type stands alone when it does not.
+         */
+        export interface ConditionalDefaultsResource {
+            not_null_no_default?: string;
+            not_null_with_default: string | number;
+            not_null_same_type_default: number;
+            null_with_default: null | string;
+            not_null_explicit_null_default: string | null;
+            not_null_named_default?: string;
+            not_null_spread_default?: string;
+            when_no_default?: string;
+            when_with_default: string | number;
+            has_with_default: string | number;
+            loaded_with_default: app.models.User | null;
+            counted_with_default: number | string;
+            aggregated_no_default?: number;
+            aggregated_with_default: number | string;
+            pivot_loaded_no_default?: unknown;
+            pivot_loaded_with_default: unknown;
+            pivot_loaded_as_no_default?: unknown;
+            pivot_loaded_as_with_default: unknown;
+            unless_no_default?: string;
+            unless_with_default: string | number;
+            appended_no_default?: string;
+            appended_with_default: string | number;
+            exists_no_default?: boolean;
+            exists_with_default: boolean | string;
+            transform_no_default?: boolean;
+            transform_with_default: boolean | number;
+            merge_unless_label?: string;
+        }
+        /**
          * Exercises issue #38: closure parameter passed by the conditional method.
          * Each field uses a single-param arrow function that returns an inline array literal.
          *
@@ -1763,7 +1826,7 @@ declare global {
             user_summary?: { id: number; email: string; name: string };
             notes_or_default?: string;
             user_meta?: { profile: { name: string; email: string }; verified: boolean };
-            notes_when_null?: string;
+            notes_when_null: null | string;
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method,
@@ -1793,7 +1856,7 @@ declare global {
             user_summary?: { id: number; email: string };
             items_mapped?: { id: number; name: string; quantity: number }[];
             user_resource?: UserResource;
-            status_resource?: app.enums.OrderStatusType;
+            status_resource: app.enums.OrderStatusType;
             shipping_safe?: { name: string; email: string } | null;
         }
         /**
@@ -1836,7 +1899,7 @@ declare global {
             user_id?: number;
             user_verified?: boolean;
             notes_upper?: string;
-            notes_length?: number;
+            notes_length: string | number;
         }
         /**
          * Exercises collectDirectReturns elseif, else, and loop branches
@@ -2038,7 +2101,9 @@ declare global {
             uploader_from_docblock: app.models.User | null;
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
-            uploaders_from_docblock: app.models.User[];
+            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
+            uploaders_from_docblock_int: app.models.User[];
+            uploaders_from_docblock_string: Record<string, app.models.User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -2052,7 +2117,7 @@ declare global {
         export interface ImageMorphResource {
             id: number;
             imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
-            uploaders_from_docblock: app.models.User[];
+            uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>;
             imageable_when_loaded?: app.models.Post | app.models.Product | app.models.User | crm.models.User;
         }
         /** Exercises: whenNotNull on multiple nullable columns. */
@@ -2062,8 +2127,8 @@ declare global {
             alt_text: string | null;
             mime_type: string;
             size_bytes: number;
-            width?: number | null;
-            height?: number | null;
+            width?: number;
+            height?: number;
         }
         /**
          * Exercises analyzeInlineArray embeddedModelFqcns and embeddedResourceFqcns
@@ -2170,7 +2235,7 @@ declare global {
             name: string;
             value: string;
             meta: { label?: string };
-            empty: Record<string, unknown>;
+            empty: never[];
         }
         export interface MediaTypeResource {
             name: string;
@@ -2209,7 +2274,21 @@ declare global {
         export interface ModelWrappedPropResource {
             title: string;
         }
+        /**
+         * Two methods that spread each other. Without a visited-method guard this recurses until the
+         * parser exhausts memory; with one it degrades to an empty analysis.
+         */
+        export interface MutuallyRecursiveSpreadResource {
+            name: string;
+        }
         export interface NonArrayReturnResource {
+        }
+        /**
+         * outer() returns $this->helper()->wrongCall() — a method call chained off a non-$this receiver. The
+         * resource also defines its own wrongCall(), whose properties must not leak in through that chain.
+         */
+        export interface NonThisReceiverSpreadResource {
+            id: number;
         }
         /** Exercises closure / arrow function patterns in value expressions and merge methods. */
         export interface OrderClosureResource {
@@ -2276,7 +2355,6 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
-            search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2322,6 +2400,7 @@ declare global {
             total: number;
             notes: string | null;
             item_count: number;
+            search_index: unknown;
             items: app.models.OrderItem[];
             user?: UserResource;
         }
@@ -2406,6 +2485,20 @@ declare global {
             category_table_name?: string;
         }
         /**
+         * A collection that keeps its source keys, so the payload is a JSON object rather than an array.
+         * Uses Laravel 13's #[PreserveKeys] attribute.
+         */
+        export interface PreserveKeysCollection {
+            data: Record<string, TeamResource>;
+        }
+        /**
+         * A collection that keeps its source keys, so the payload is a JSON object rather than an array.
+         * Uses the property form, which predates the attribute and works on Laravel 12.
+         */
+        export interface PreserveKeysPropertyCollection {
+            data: Record<string, TeamResource>;
+        }
+        /**
          * Exercises: multiple whenAggregated (sum/min/max), whenNotNull, when,
          * whenCounted, two mergeWhen blocks, Resource::collection x2.
          */
@@ -2416,12 +2509,12 @@ declare global {
             sku: string;
             description: string | null;
             price: number;
-            compare_at_price?: number | null;
+            compare_at_price?: number;
             cost_price?: number | null;
             quantity: number;
             is_active: boolean;
             is_featured: boolean;
-            published_at?: string | null;
+            published_at?: string;
             tags?: TagResource[];
             images?: ImageResource[];
             orders_count?: number;
@@ -2523,9 +2616,9 @@ declare global {
             status_when_make?: app.enums.StatusType;
             status_when_arrow?: app.enums.StatusType;
             visibility_when_full?: app.enums.VisibilityType | null;
-            priority_when_not_null_make?: app.enums.PriorityType | null;
-            status_when_not_null_arrow?: app.enums.StatusType;
-            visibility_when_not_null_full?: app.enums.VisibilityType | null;
+            priority_when_not_null_make: app.enums.PriorityType | null;
+            status_when_not_null_arrow: app.enums.StatusType;
+            visibility_when_not_null_full: app.enums.VisibilityType | null;
             status_ternary_null: app.enums.StatusType | null;
             status_ternary_both: app.enums.StatusType;
             status_or_visibility_ternary: app.enums.StatusType | app.enums.VisibilityType | null;
@@ -2553,6 +2646,16 @@ declare global {
             title: string;
             crm_agent: crm.models.User | null;
             order_requester: { user: app.models.User } | null;
+        }
+        /**
+         * Guards against the regression narrowing collectWrittenVariableNames() could introduce: a closure
+         * param must shadow its outer local only inside a scope that actually binds it. `when()`'s condition
+         * here isn't a `$this->prop` test, so bindClosureParamsFromCondition() binds nothing, and `shadowed`
+         * must stay unknown rather than leaking the outer `$slug` local's type.
+         */
+        export interface ShadowedClosureParamResource {
+            outer: string;
+            shadowed?: unknown;
         }
         /** Resource spreading parent::toArray() from JsonResource base with extra keys. */
         export interface SpreadJsonBaseResource {
@@ -2666,7 +2769,6 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
-            search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2707,7 +2809,6 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
-            search_index: unknown;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2764,7 +2865,7 @@ declare global {
             email: string;
             role?: app.enums.RoleType | null;
             membership_level?: app.enums.MembershipLevelType | null;
-            avatar?: string | null;
+            avatar?: string;
             team_role?: unknown;
             joined_at?: unknown;
             subscription_role?: unknown;
@@ -2803,7 +2904,7 @@ declare global {
         export interface TernaryResource {
             status_or_null: app.enums.StatusType | null;
             status_or_status: app.enums.StatusType;
-            status_resource_or_type: app.enums.StatusType | app.enums.StatusType;
+            status_resource_or_type: app.enums.StatusType;
             status_or_visibility: app.enums.StatusType | app.enums.VisibilityType | null;
             category_or_null: CategoryResource | null;
             category_or_category: CategoryResource;
@@ -2859,6 +2960,51 @@ declare global {
             data: UserResource[];
             has_admin: boolean;
         }
+        /**
+         * Exercises return $this->except([...]) against a model with $hidden columns.
+         *
+         * The property set is derived from every model attribute minus the named keys, so it is
+         * implicit — exclude_hidden must drop $hidden columns here even though none are named.
+         */
+        export interface UserExceptResource {
+            name: string;
+            email: string;
+            email_verified_at: string | null;
+            password: string;
+            options: Record<string, unknown> | null;
+            remember_token: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            role: app.enums.RoleType | null;
+            membership_level: app.enums.MembershipLevelType | null;
+            phone: string | null;
+            avatar: string | null;
+            bio: string | null;
+            settings: { theme: "light" | "dark"; notifications: boolean; locale: string } | null;
+            last_login_at: string | null;
+            last_login_ip: string | null;
+            initials: string;
+            is_premium: boolean;
+            profile: app.models.Profile | null;
+            posts: app.models.Post[];
+            comments: app.models.Comment[];
+            orders: app.models.Order[];
+            addresses: Address[];
+            teams: app.models.Team[];
+            ownedTeams: app.models.Team[];
+            images: app.models.Image[];
+            notifications: illuminate.notifications.DatabaseNotification[];
+        }
+        /**
+         * Exercises return $this->only([...]) naming a $hidden column explicitly.
+         *
+         * The property set is exactly the named keys, so it is explicit — exclude_hidden must not
+         * drop `password` here, since the caller named it.
+         */
+        export interface UserOnlyHiddenResource {
+            id: number;
+            password: string;
+        }
         /** User account resource. */
         export interface UserResource {
             id: number;
@@ -2868,7 +3014,7 @@ declare global {
             profile?: app.models.Profile | null;
             posts?: PostResource[];
             phone?: string | null;
-            avatar?: string | null;
+            avatar?: string;
             posts_count?: number;
             comments_count?: number;
         }
@@ -2882,6 +3028,7 @@ declare global {
             ifBranch?: string;
             elseifBranch?: string;
             elseBranch?: string;
+            dynamic: string;
             conditionalBaseKey?: string;
             foundB?: boolean;
             foreachKey?: string;
@@ -2950,14 +3097,14 @@ declare global {
             id: number;
             title: string;
             slug: string;
-            excerpt?: string | null;
+            excerpt?: string;
             body: string;
             status: blog.enums.ArticleStatusType;
             content_type: blog.enums.ContentTypeType;
             is_featured: boolean;
             featured_image?: string | null;
-            meta_description?: string | null;
-            published_at?: string | null;
+            meta_description?: string;
+            published_at?: string;
             author?: app.models.User;
             reactions?: ReactionResource[];
             reactions_count?: number;
@@ -3015,9 +3162,9 @@ declare global {
             carrier: shipping.enums.CarrierType;
             status: shipping.enums.ShipmentStatusType;
             weight_grams: number | null;
-            estimated_delivery_at?: string | null;
+            estimated_delivery_at?: string;
             shipped_at?: string | null;
-            delivered_at?: string | null;
+            delivered_at?: string;
             order?: app.models.Order;
             tracking_events?: TrackingEventResource[];
             tracking_events_count?: number;
@@ -3051,7 +3198,9 @@ declare global {
             sku_codes: string[];
             airports: string[];
             primary_airport: string;
-            config: unknown[];
+            config: { timezone?: unknown };
+            preferences?: { theme?: unknown; locale?: unknown } | null;
+            shipping: { method?: 'standard' | 'express' | null; address: unknown };
             ordered_items: string[];
             limited_choices?: (string | null)[] | null;
             required_answers: string[];
@@ -3106,7 +3255,7 @@ declare global {
             exact_size_file?: File | null;
         }
         export interface NestedEdgeCasesRequest {
-            options?: { default?: string } & Record<string, string>;
+            options?: { default?: string } & Record<string, string | null>;
             meta?: Record<string, never>;
             empties?: never[];
             "v1.0": string;

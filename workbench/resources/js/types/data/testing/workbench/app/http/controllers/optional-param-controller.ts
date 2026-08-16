@@ -3,14 +3,14 @@ import { defineRoute } from '@tolki/ts';
 export const show = defineRoute({
     name: 'optional.show',
     url: '/optional/{param?}',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     args: [{name: 'param', required: false}] as const,
 });
 
 export const multi = defineRoute({
     name: 'optional.multi',
     url: '/optional/{one?}/{two?}',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     args: [{name: 'one', required: false}, {name: 'two', required: false}] as const,
 });
 

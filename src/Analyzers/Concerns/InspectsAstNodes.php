@@ -89,10 +89,18 @@ trait InspectsAstNodes
     protected function isThisMethodCall(Expr $expr, string $methodName): bool
     {
         return $expr instanceof MethodCall
-            && $expr->var instanceof Variable
-            && $expr->var->name === 'this'
+            && $this->hasThisReceiver($expr)
             && $expr->name instanceof Identifier
             && $expr->name->toString() === $methodName;
+    }
+
+    /**
+     * Check a method call's receiver is `$this`, regardless of which method is being called. A call
+     * chained off anything else (`$this->helper()->method()`, a variable, a property) must not match.
+     */
+    protected function hasThisReceiver(MethodCall $call): bool
+    {
+        return $call->var instanceof Variable && $call->var->name === 'this';
     }
 
     protected function isThisPropertyFetch(Expr $expr): bool

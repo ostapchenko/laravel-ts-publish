@@ -14,5 +14,5 @@ export interface ConditionalParamPrimitiveResource
     user_id?: number;
     user_verified?: boolean;
     notes_upper?: string;
-    notes_length?: number;
+    notes_length: string | number;
 }

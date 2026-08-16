@@ -3,7 +3,7 @@ import { defineRoute } from '@tolki/ts';
 export const index = defineRoute({
     name: 'delete-items.index',
     url: '/delete-items',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
 });
 
 /** @see Workbench\App\Http\Controllers\Delete */

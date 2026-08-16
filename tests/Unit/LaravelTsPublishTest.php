@@ -345,9 +345,10 @@ describe('toTsType substring fallback restriction', function () {
     test('real DB and cast type strings still resolve through the fallback', function (string $input, string $expected) {
         expect($this->service->toTsType($input)['type'])->toBe($expected);
     })->with([
-        // Known-wrong: 'tinyint(1)' contains 'int', and TypeScriptMap orders 'int' => 'number' before
-        // 'tinyint' => 'boolean', so step 7 matches 'int' first. Flip to 'boolean' when that ordering is fixed.
-        ['tinyint(1)', 'number'],
+        // 'tinyint(1)' is Laravel's boolean() column on MySQL/SQLite (step 1's exact-match now
+        // catches the literal parameterized key before the 'int' substring can).
+        ['tinyint(1)', 'boolean'],
+        ['tinyint(4)', 'number'],
         ['varchar(255)', 'string'],
         ['numeric(10,2)', 'number'],
         ['decimal:2', 'number'],
@@ -361,6 +362,69 @@ describe('toTsType substring fallback restriction', function () {
         ['double precision', 'number'],
     ]);
 });
+
+describe('toTsType bare-name fallback for sized native types', function () {
+    test('a sized type with no exact entry resolves via the name before the paren', function (string $input, string $expected) {
+        expect($this->service->toTsType($input)['type'])->toBe($expected);
+    })->with([
+        ['binary(255)', 'string'],
+        ['varbinary(255)', 'string'],
+        ['nvarchar(max)', 'string'],
+        ["set('a','b')", 'string'],
+        ['vector(1536)', 'number[]'],
+    ]);
+
+    test('a bare tinyint with no width is a genuine small integer', function () {
+        expect($this->service->toTsType('tinyint')['type'])->toBe('number');
+    });
+
+});
+
+describe('toTsType Step 3 judgment calls: vector, geometry/geography, set', function () {
+    test('vector resolves to number[]', function () {
+        expect($this->service->toTsType('vector')['type'])->toBe('number[]');
+    });
+
+    test('geometry and geography resolve to unknown, never hijacked by the "int" inside their SRID subtype', function (string $native) {
+        // Asserted on the parameterized form Postgres emits: the bare name would pass on the
+        // fall-through default alone, so it cannot tell a map hit from a missing entry. It is also
+        // what step 1a earns — "point" contains "int", which step 7's substring scan would hit first.
+        expect($this->service->toTsType($native)['type'])->toBe('unknown');
+    })->with(['geometry(point,4326)', 'geography(point,4326)']);
+
+    test('set resolves to string, not string[] — MySQL returns a comma-joined value', function () {
+        expect($this->service->toTsType('set')['type'])->toBe('string');
+    });
+
+    test('MySQL geometry subtypes resolve to unknown, not whatever their name accidentally substring-matches', function (string $subtype) {
+        // MySqlGrammar::typeGeometry() writes the subtype itself as column_type ('point'), not
+        // 'geometry(point)'. Measured without these entries: point/multipoint -> 'number' ('int'
+        // substring), linestring/multilinestring -> 'string', geometrycollection -> 'unknown[]'.
+        expect($this->service->toTsType($subtype)['type'])->toBe('unknown');
+    })->with([
+        'point', 'linestring', 'polygon', 'geometrycollection',
+        'multipoint', 'multilinestring', 'multipolygon',
+    ]);
+});
+
+test('maps every native type a Laravel schema grammar can emit', function (string $native, string $expected) {
+    expect((new LaravelTsPublish)->toTsType($native)['type'])->toBe($expected);
+})->with([
+    ['tinytext', 'string'],
+    ['blob', 'string'],
+    ['bytea', 'string'],
+    ['varbinary', 'string'],
+    ['uniqueidentifier', 'string'],
+    ['nvarchar', 'string'],
+    ['ntext', 'string'],
+    ['money', 'number'],
+    ['bit', 'boolean'],
+    ['xml', 'string'],
+    ['interval', 'string'],
+    ['serial', 'number'],
+    ['bigserial', 'number'],
+    ['double precision', 'number'],
+]);
 
 describe('Arrayable DTO shape inference', function () {
     test('Arrayable with array-shape toArray docblock resolves to inline object type', function () {
@@ -2108,6 +2172,33 @@ describe('rewriteAsEnumToType', function () {
         );
 
         expect($result)->toBe('enums.StatusType | null');
+    });
+
+    test('collapses an adjacent AsEnum<typeof X> | XType pair to one qualified token', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Status> | StatusType',
+            ['Status' => 'enums.StatusType'],
+        );
+
+        expect($result)->toBe('enums.StatusType');
+    });
+
+    test('collapses the mixed pair and keeps a trailing null arm', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Priority> | PriorityType | null',
+            ['Priority' => 'enums.PriorityType'],
+        );
+
+        expect($result)->toBe('enums.PriorityType | null');
+    });
+
+    test('does not collapse a bare type name that only coincidentally shares a prefix', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Status> | StatusTypeExtra',
+            ['Status' => 'enums.StatusType'],
+        );
+
+        expect($result)->toBe('enums.StatusType | StatusTypeExtra');
     });
 });
 

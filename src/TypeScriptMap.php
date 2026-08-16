@@ -41,24 +41,27 @@ class TypeScriptMap
             AsUri::class => 'string',
             AsBinary::class => 'string',
             AsFluent::class => 'object',
-            AsArrayObject::class => 'Record<string, unknown>',
+            AsArrayObject::class => 'unknown[] | Record<string, unknown>',
             AsCollection::class => 'unknown[]',
-            // The three As*ArrayObject casts all hydrate an ArrayObject, which serializes as a
-            // JSON object — not an array — so they share AsArrayObject's shape.
-            AsEncryptedArrayObject::class => 'Record<string, unknown>',
+            // The three As*ArrayObject casts all hydrate an ArrayObject, whose jsonSerialize()
+            // returns getArrayCopy() verbatim — a list payload stays a JSON array, so the object
+            // shape alone would reject it.
+            AsEncryptedArrayObject::class => 'unknown[] | Record<string, unknown>',
             AsEncryptedCollection::class => 'unknown[]',
-            AsEnumArrayObject::class => 'Record<string, unknown>',
+            AsEnumArrayObject::class => 'unknown[] | Record<string, unknown>',
             AsEnumCollection::class => 'unknown[]',
             EloquentCollection::class => 'Record<string, unknown>',
             Collection::class => 'unknown[] | Record<string, unknown>',
 
             // Array types
             'array' => 'unknown[]',
+            'iterable' => 'unknown[]',
 
             // Number types
             'bigint' => 'number',
             'decimal' => 'number',
             'double' => 'number',
+            'double precision' => 'number',
             'float' => 'number',
             'integer' => 'number',
             'numeric' => 'number',
@@ -68,11 +71,22 @@ class TypeScriptMap
             'year' => 'number',
             'real' => 'number',
             'number' => 'number',
+            'money' => 'number',
+            'smallmoney' => 'number',
+            'serial' => 'number',
+            'bigserial' => 'number',
+            'smallserial' => 'number',
+            // A genuine small integer (MySQL/SQL Server tinyInteger()) — the display-width-1
+            // convention that means boolean instead is its own exact key, in Boolean types below.
+            'tinyint' => 'number',
 
             // Boolean types
             'bool' => 'boolean',
             'boolean' => 'boolean',
-            'tinyint' => 'boolean',
+            'bit' => 'boolean',
+            // $table->boolean() emits tinyint(1) on MySQL/SQLite; the display width is what marks
+            // it boolean rather than a genuine tinyint (see 'tinyint' above).
+            'tinyint(1)' => 'boolean',
 
             // JSON types
             'json' => 'object',
@@ -88,11 +102,29 @@ class TypeScriptMap
             'mediumtext' => 'string',
             'string' => 'string',
             'text' => 'string',
+            'tinytext' => 'string',
             'varchar' => 'string',
+            'nvarchar' => 'string',
+            'nchar' => 'string',
+            'ntext' => 'string',
+            'xml' => 'string',
+            'interval' => 'string',
             'encrypted' => 'string',
             'uuid' => 'string',
+            'uniqueidentifier' => 'string',
             'guid' => 'string',
             'hashed' => 'string',
+            // MySQL returns a matched SET as a comma-joined string, not an array.
+            'set' => 'string',
+
+            // Binary types
+            'binary' => 'string',
+            'varbinary' => 'string',
+            'blob' => 'string',
+            'bytea' => 'string',
+            'tinyblob' => 'string',
+            'mediumblob' => 'string',
+            'longblob' => 'string',
 
             // Date and time types
             'date' => fn () => $this->validateDate(),
@@ -101,6 +133,11 @@ class TypeScriptMap
             'immutable_datetime' => fn () => $this->validateDate(),
             'immutable_custom_datetime' => fn () => $this->validateDate(),
             'timestamp' => fn () => $this->validateDate(),
+            // SQL Server's dateTime($precision)/timestamp($precision) emit datetime2($precision) —
+            // the same logical column as bare 'datetime', so it must follow the same config toggle.
+            // smalldatetime is a legacy-only precision-less sibling; kept consistent with it.
+            'datetime2' => fn () => $this->validateDate(),
+            'smalldatetime' => fn () => $this->validateDate(),
             Carbon::class => fn () => $this->validateDate(),
             CarbonImmutable::class => fn () => $this->validateDate(),
             SupportCarbon::class => fn () => $this->validateDate(),
@@ -108,6 +145,7 @@ class TypeScriptMap
             'time' => 'string',
             'timetz' => 'string',
             'timestamptz' => 'string',
+            'datetimeoffset' => 'string',
 
             // Network address types (Postgres inet/cidr/macaddr, MySQL equivalents)
             'inet' => 'string',
@@ -117,6 +155,23 @@ class TypeScriptMap
 
             // Postgres full-text search vector
             'tsvector' => 'string',
+
+            // Spatial types — raw WKB is a binary string, ST_AsGeoJSON() is an object, and Laravel
+            // returns whichever the driver defaults to, so 'unknown' is honest rather than a guess.
+            'geometry' => 'unknown',
+            'geography' => 'unknown',
+            // MySQL's geometry(subtype: '...') writes the subtype itself as the native type name
+            // instead of 'geometry' — same honesty rationale as the two entries above.
+            'point' => 'unknown',
+            'linestring' => 'unknown',
+            'polygon' => 'unknown',
+            'geometrycollection' => 'unknown',
+            'multipoint' => 'unknown',
+            'multilinestring' => 'unknown',
+            'multipolygon' => 'unknown',
+
+            // Vector types — pgvector and MySQL 9 both serialize a vector as a JSON array of floats.
+            'vector' => 'number[]',
 
             'null' => 'null',
             'mixed' => 'unknown',

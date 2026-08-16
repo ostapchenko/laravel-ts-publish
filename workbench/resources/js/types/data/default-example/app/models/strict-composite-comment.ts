@@ -13,7 +13,7 @@ export interface StrictCompositeComment
 export interface StrictCompositeCommentRelations
 {
     // Relations
-    commentable: unknown | null;
+    commentable: unknown;
     // Counts
     commentable_count: number;
     // Exists

@@ -17,6 +17,6 @@ export interface PaymentResource
     currency: AsEnum<typeof Currency>;
     amount: number;
     method?: PaymentMethodType;
-    reference?: string | null;
-    paid_at?: string | null;
+    reference?: string;
+    paid_at?: string;
 }

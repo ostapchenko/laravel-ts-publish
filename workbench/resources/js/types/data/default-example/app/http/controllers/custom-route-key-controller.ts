@@ -3,7 +3,7 @@ import { defineRoute } from '@tolki/ts';
 export const show = defineRoute({
     name: 'slug-posts.show',
     url: '/slug-posts/{slugPost}',
-    methods: ['get'] as const,
+    methods: ['get', 'head'] as const,
     args: [{name: 'slugPost', required: true, _routeKey: 'slug'}] as const,
 });
 

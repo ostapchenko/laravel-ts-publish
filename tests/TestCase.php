@@ -92,6 +92,13 @@ class TestCase extends Orchestra
 
         config()->set([
             'database.default' => 'testing',
+            // Laravel13Connection is collected on every full model pass, so this must resolve
+            // globally; only its dedicated test in ModelTransformerTest.php creates a table on it.
+            'database.connections.laravel13_secondary' => [
+                'driver' => 'sqlite',
+                'database' => ':memory:',
+                'prefix' => '',
+            ],
             'ts-publish.cache.enabled' => false,
             'ts-publish.output_directory' => workbench_path('resources/js/types/data/testing/'),
             'ts-publish.globals.enabled' => true,
