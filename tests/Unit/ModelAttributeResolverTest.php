@@ -35,10 +35,10 @@ test('resolveAttribute returns empty info for non-existent model class', functio
     expect($result)->toBe(LaravelTsPublish::emptyTypeScriptInfo());
 });
 
-test('resolveAttribute returns empty info when DB type maps to unknown', function () {
+test('resolveAttribute returns unknown for a write-only mutator with no getter', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // 'search_index' on Order has type 'unknown' in the DB schema
+    // 'search_index' is a write-only mutator (no getter, no docblock Get generic), not a DB column
     $result = $resolver->resolveAttribute(Order::class, 'search_index');
 
     expect($result['type'])->toBe('unknown');
