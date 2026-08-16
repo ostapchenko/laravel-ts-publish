@@ -303,27 +303,21 @@ Key capabilities:
 
 - **Split or full templates** — `models.template` controls whether properties/mutators/relations are generated as separate interfaces (default) or combined into one `model-full` interface.
 - **Smart nullable relations** — singular relations (`HasOne`, `BelongsTo`, `MorphOne`, ...) are automatically typed with `| null` based on the relation type and foreign key nullability, with a config to override the strategy per relation type.
-- **`#[TsCasts]` / `#[TsType]`** — override or add TypeScript types for columns, mutators, relations, or an entire custom cast class, including custom types imported from your own files.
 - **Annotate instead of configuring** — `@property` / `@property-read` tags, `@phpstan-type` aliases, `Attribute<>` generics, `@return MorphTo<A|B, $this>`, `AsEnumCollection::of()` / `AsCollection::of()`, and an `Arrayable` DTO's own typed properties all sharpen a column's type with no `#[TsCasts]` needed — and PHPStan/Larastan check the same annotations. See [Typing attributes without `#[TsCasts]`](https://tolki.abe.dev/ts/models.html#typing-attributes-without-tscasts).
+- **PHPDoc-aware** — class, column, mutator, and relation doc blocks are carried over as JSDoc comments automatically.
+- **`#[TsCasts]` / `#[TsType]`** — For more advanced TypeScript types for columns, mutators, relations, or an entire custom cast class, including custom types imported from your own files.
 - **`$hidden` and write-only accessors** — hidden attributes publish by default (`models.exclude_hidden` opts out, for model *and* resource interfaces alike — a resource's `except()`/whole-model delegation loses the column too, though `only(['password'])` still keeps one named explicitly); a write-only `Attribute::make(set:)` resolves from its `@return Attribute<Get, Set>` generic, then a same-named column, then is omitted rather than emitted as `unknown`.
 - **`#[TsExclude]`** — exclude an entire model, or a specific accessor/relation, from the output.
 - **Laravel 13 model attributes** — `#[Table]`, `#[Hidden]`, `#[Visible]`, `#[Appends]`, and `#[Connection]` are honoured automatically, no configuration needed. See [Laravel 13 Model Attributes](https://tolki.abe.dev/ts/models.html#laravel-13-model-attributes) for the full attribute-by-attribute table.
-- **PHPDoc-aware** — class, column, mutator, and relation doc blocks are carried over as JSDoc comments automatically.
 - **Enum-typed columns** also generate a matching `{Model}Resource` interface using `AsEnum<>`, for when you've resolved a raw enum column to a full enum instance (e.g. via `Status.from(user.status)`).
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and resources.
 
 > [!TIP]
-> Still seeing `unknown`? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) is a symptom-first index of the docblock tag that fixes each case — all of them read by PHPStan/Larastan too.
+> Still seeing `unknown` in the output? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) is a symptom-first index of the docblock tag that fixes each case — all of them read by PHPStan/Larastan too.
 >
 > If you still continue to see `unknown`, open an issue with code samples of your PHP code and the generated TypeScript output so we can investigate.
 
-For the full template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
-
-> [!IMPORTANT]
-> Two column type mappings changed, and both can break an existing frontend:
->
-> - A bare `tinyint` (`tinyInteger()`) is now [`number`](https://tolki.abe.dev/ts/models.html#numbers) — only `tinyint(1)`, which is what Laravel's `boolean()` emits on MySQL/SQLite, stays [`boolean`](https://tolki.abe.dev/ts/models.html#booleans). A genuine small-integer column that was silently `boolean` becomes `number`.
-> - The three `As*ArrayObject` casts are now [`unknown[] | Record<string, unknown>`](https://tolki.abe.dev/ts/models.html#arrays-objects) rather than `Record<string, unknown>` alone, because a list payload serializes as a JSON array. Code like `Object.keys(x.meta)` no longer compiles without narrowing first.
+For the full template comparison, nullable relation strategies, every attribute option, the complete type-mapping reference, and its [breaking changes](https://tolki.abe.dev/ts/models.html#breaking-changes-to-the-default-map), see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
 ## API Resources
 
