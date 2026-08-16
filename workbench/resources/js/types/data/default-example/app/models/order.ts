@@ -49,6 +49,7 @@ export interface OrderMutators
     is_paid: boolean;
     /** Formatted total with currency symbol */
     formatted_total: string;
+    flagged_notes: (string | null)[] | null;
     /** Write-only mutator whose docblock still documents what a getter would return. */
     tracking_code: string | null;
     score_map: Record<string, number>;

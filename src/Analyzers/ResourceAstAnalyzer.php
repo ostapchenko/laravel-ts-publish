@@ -1161,8 +1161,7 @@ class ResourceAstAnalyzer
         $rightType = $rightResult['type'];
 
         // Strip `| null` from the left: with a non-null fallback, null is never the final result.
-        $leftType = trim(str_replace('| null', '', $leftType));
-        $leftType = trim(str_replace('null |', '', $leftType));
+        $leftType = $this->stripNullArm($leftType);
 
         if ($leftType === 'unknown' || $leftType === '') {
             return $this->mergeUnionChannels([$rightType], [$rightResult]);
@@ -3706,7 +3705,7 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Add the object arm that json_encode emits for a gapped or reordered collection: `X[]` → `X[] | Record<string, X>`.
+     * Add the object arm json_encode emits for a gapped or reordered collection: `X[]` → `X[] | Record<string, X>`.
      */
     private function keyedObjectArm(string $arrayType): string
     {
@@ -3723,11 +3722,17 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Drop a trailing `| null` arm from a type string — a guarded success path proves it unreachable.
+     * Drop a top-level `| null` arm from a type string — a guarded success path proves it unreachable.
+     * Nested null members (inside object shapes, generics, or array element types) are kept.
      */
     private function stripNullArm(string $type): string
     {
-        return trim(str_replace(['| null', 'null |'], '', $type)) ?: 'unknown';
+        $members = array_values(array_filter(
+            LaravelTsPublish::splitTopLevelUnion($type),
+            fn (string $member): bool => $member !== 'null',
+        ));
+
+        return $members === [] ? 'unknown' : implode(' | ', $members);
     }
 
     /**

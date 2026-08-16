@@ -3876,6 +3876,15 @@ describe('ResourceAstAnalyzer with ConditionalParamArrayResource — issue #38 c
             ->and($prop['type'])->toBe('null | string')
             ->and($prop['optional'])->toBeFalse();
     });
+
+    // flagged_notes_present: top-level null stripped, element-level null kept, no default → optional
+    test('whenNotNull() on a nested-nullable union strips only the top-level null arm', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'flagged_notes_present');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('(string | null)[]')
+            ->and($prop['optional'])->toBeTrue();
+    });
 });
 
 describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue #38 full closure params', function () {

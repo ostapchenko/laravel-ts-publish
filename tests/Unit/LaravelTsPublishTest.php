@@ -2202,6 +2202,28 @@ describe('rewriteAsEnumToType', function () {
     });
 });
 
+describe('splitTopLevelUnion', function () {
+    it('splits only at depth zero', function () {
+        expect($this->service->splitTopLevelUnion('{ a: string; b: number | null } | null'))
+            ->toBe(['{ a: string; b: number | null }', 'null']);
+    });
+
+    it('keeps a union inside an array element type whole', function () {
+        expect($this->service->splitTopLevelUnion('(string | null)[]'))
+            ->toBe(['(string | null)[]']);
+    });
+
+    it('keeps a union inside a generic whole', function () {
+        expect($this->service->splitTopLevelUnion('Record<string, number | null>'))
+            ->toBe(['Record<string, number | null>']);
+    });
+
+    it('splits quoted literals and ignores pipes inside them', function () {
+        expect($this->service->splitTopLevelUnion("'a|b' | 'c'"))
+            ->toBe(["'a|b'", "'c'"]);
+    });
+});
+
 /**
  * A class annotated with #[TsType] for testing step 2 resolution.
  */

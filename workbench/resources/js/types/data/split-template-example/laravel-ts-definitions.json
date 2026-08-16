@@ -4999,6 +4999,10 @@
                     "type": "string"
                 },
                 {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null"
+                },
+                {
                     "name": "tracking_code",
                     "type": "string | null"
                 },
@@ -8294,6 +8298,11 @@
                     "name": "notes_when_null",
                     "type": "null | string",
                     "optional": false
+                },
+                {
+                    "name": "flagged_notes_present",
+                    "type": "(string | null)[]",
+                    "optional": true
                 }
             ]
         },
@@ -9803,6 +9812,11 @@
                     "optional": false
                 },
                 {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null",
+                    "optional": false
+                },
+                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -11260,6 +11274,11 @@
                     "optional": false
                 },
                 {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null",
+                    "optional": false
+                },
+                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -11452,6 +11471,11 @@
                 {
                     "name": "formatted_total",
                     "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null",
                     "optional": false
                 },
                 {

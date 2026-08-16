@@ -326,12 +326,23 @@ type alone — instead of `string | number, required`. The fix was checked again
 
 ### Which arm each analysis path reads
 
-- **`whenNotNull()`** (`stripNull: true`) analyzes argument 0, then strips a trailing `| null` from its
+- **`whenNotNull()`** (`stripNull: true`) analyzes argument 0, then strips a top-level `| null` arm from its
   type via `stripNullArm()`: the `! is_null($value)` guard on the success arm proves that arm unreachable,
   so `whenNotNull($this->description)` emits `?string`, not `?string | null`.
 - **`whenNull()`** (`stripNull: false`) forces argument 0's contribution to the literal string `'null'`
   instead of analyzing it — the success arm always returns `null` when the guard holds, so the value's own
   type is irrelevant to what the property can be.
+
+### `stripNullArm()` only drops the top-level `null` arm
+
+`stripNullArm()` splits the type on `LaravelTsPublish::splitTopLevelUnion()`, a depth-aware splitter over
+braces, parens, angle brackets, and square brackets, and filters out a member equal to exactly `'null'`.
+Only a union member sitting at depth zero is ever removed — `(string | null)[]` and `{ a: string; b: number
+| null }` both keep their nested `| null` untouched, since neither nested `null` is a top-level member of
+the outer type. `analyzeCoalesce()` calls the same `stripNullArm()` helper to strip the left operand of
+`??`, so the two call sites can't drift out of sync. One consequence: a left operand of exactly `null`
+(`null ?? $x`) strips to `'unknown'` and falls through to the right arm, since `null ?? $x` always
+evaluates to `$x`.
 
 ### The default argument controls both `optional` and the union
 

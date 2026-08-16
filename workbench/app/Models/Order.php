@@ -125,6 +125,14 @@ class Order extends Model
         );
     }
 
+    /** @return Attribute<list<string|null>|null, never> */
+    protected function flaggedNotes(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): ?array => null,
+        );
+    }
+
     /**
      * Write-only mutator whose docblock still documents what a getter would return.
      *

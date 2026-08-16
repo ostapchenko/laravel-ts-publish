@@ -475,6 +475,7 @@ declare global {
             is_paid: boolean;
             /** Formatted total with currency symbol */
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             /** Write-only mutator whose docblock still documents what a getter would return. */
             tracking_code: string | null;
             score_map: Record<string, number>;
@@ -1827,6 +1828,7 @@ declare global {
             notes_or_default?: string;
             user_meta?: { profile: { name: string; email: string }; verified: boolean };
             notes_when_null: null | string;
+            flagged_notes_present?: (string | null)[];
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method,
@@ -2355,6 +2357,7 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2769,6 +2772,7 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2809,6 +2813,7 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
