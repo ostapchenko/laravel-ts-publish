@@ -2,6 +2,53 @@
 
 All notable changes to `laravel-ts-publish` will be documented in this file.
 
+## v2.3.0 - 2026-08-16
+
+### What's Changed
+
+This release is another large set of updates to make output more accurate and lower the amount of `unknown` output types.
+
+Three areas got most of the work:
+
+- resolving types that previously degraded to `unknown`
+- teaching the resource analyzer more of what `toArray()` can express
+- and completing the database column type map across all four drivers Laravel supports.
+
+### Fewer `unknown` types
+
+- `@phpstan-type` / `@phpstan-import-type` aliases now resolve, including the `Name = Definition` form.
+- Castable-with-arguments cast strings (`AsEnumCollection:Status`) resolve to their inner type.
+- An `Arrayable` DTO's own typed public properties become an object shape.
+- `MorphTo` docblock generics resolve to a union, with a morph-name-keyed target map.
+- Variables carry their model through — `whenLoaded()` closure params, `foreach`, chain terminals.
+
+### Resources understand more of `toArray()`
+
+- Five more conditional methods: `unless()`, `whenAppended()`, `whenExistsLoaded()`, `transform()`, `mergeUnless()`.
+- `whenNull()` / `whenNotNull()` read their value argument instead of discarding it.
+- An explicit default makes the property required, and unions the default's type in where resolvable.
+- A bare `return $this->someMethod();` resolves transitively, same as its spread form.
+- `#[PreserveKeys]` emits `Record<string, Resource>` instead of `Resource[]`.
+- Relation `only()`/`except()` reference the model via `Pick<>`/`Omit<>` instead of re-deriving.
+- `models.exclude_hidden` now applies to resource interfaces too.
+
+### Models & the column type map
+
+- ~30 more native column types — spatial, vector, binary, network, and legacy.
+- Sized types (`varchar(255)`, `tinyint(1)`) now match the map exactly instead of a substring scan.
+- Laravel 13's `#[Table]`, `#[Hidden]`, `#[Visible]`, `#[Appends]`, `#[Connection]` are honoured.
+
+### Form Requests / Routes / Imports
+
+- `required_array_keys`, `in_array_keys`, `array:a,b` resolve to a keyed object, not `unknown[]`.
+- GET routes carry `head`, so `.head()` and `.form.head()` exist.
+- New import-name registry gives collision-proof aliasing across namespaces.
+
+* Feat/unknown inference second pass by @abetwothree in https://github.com/abetwothree/laravel-ts-publish/pull/59
+* Feat/resource inference and laravel 13 attributes by @abetwothree in https://github.com/abetwothree/laravel-ts-publish/pull/60
+
+**Full Changelog**: https://github.com/abetwothree/laravel-ts-publish/compare/v2.2.0...v2.3.0
+
 ## v2.2.0 - 2026-08-08
 
 ### What's Changed
