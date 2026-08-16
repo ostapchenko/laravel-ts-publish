@@ -4507,6 +4507,14 @@
                     "type": "WorkbenchUser[] | Record<string, WorkbenchUser>"
                 },
                 {
+                    "name": "uploaders_from_docblock_int",
+                    "type": "WorkbenchUser[]"
+                },
+                {
+                    "name": "uploaders_from_docblock_string",
+                    "type": "Record<string, WorkbenchUser>"
+                },
+                {
                     "name": "tree_from_docblock",
                     "type": "{ label: string; child: unknown[] }"
                 },
@@ -9118,6 +9126,16 @@
                 {
                     "name": "uploaders_from_docblock",
                     "type": "WorkbenchUser[] | Record<string, WorkbenchUser>",
+                    "optional": false
+                },
+                {
+                    "name": "uploaders_from_docblock_int",
+                    "type": "WorkbenchUser[]",
+                    "optional": false
+                },
+                {
+                    "name": "uploaders_from_docblock_string",
+                    "type": "Record<string, WorkbenchUser>",
                     "optional": false
                 },
                 {

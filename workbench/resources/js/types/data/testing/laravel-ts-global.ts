@@ -352,6 +352,8 @@ declare global {
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
             uploaders_from_docblock: User[] | Record<string, User>;
+            uploaders_from_docblock_int: User[];
+            uploaders_from_docblock_string: Record<string, User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;
@@ -2100,6 +2102,8 @@ declare global {
             config_from_docblock: MenuSettingsType;
             data_from_docblock: { title: string; weight: number | null };
             uploaders_from_docblock: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
+            uploaders_from_docblock_int: workbench.app.models.User[];
+            uploaders_from_docblock_string: Record<string, workbench.app.models.User>;
             tree_from_docblock: { label: string; child: unknown[] };
             price_from_docblock: { amount: number; currency: string };
             label_from_docblock: string;

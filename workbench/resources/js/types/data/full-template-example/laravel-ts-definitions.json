@@ -4507,6 +4507,14 @@
                     "type": "ModelsUser[] | Record<string, ModelsUser>"
                 },
                 {
+                    "name": "uploaders_from_docblock_int",
+                    "type": "ModelsUser[]"
+                },
+                {
+                    "name": "uploaders_from_docblock_string",
+                    "type": "Record<string, ModelsUser>"
+                },
+                {
                     "name": "tree_from_docblock",
                     "type": "{ label: string; child: unknown[] }"
                 },
@@ -9118,6 +9126,16 @@
                 {
                     "name": "uploaders_from_docblock",
                     "type": "ModelsUser[] | Record<string, ModelsUser>",
+                    "optional": false
+                },
+                {
+                    "name": "uploaders_from_docblock_int",
+                    "type": "ModelsUser[]",
+                    "optional": false
+                },
+                {
+                    "name": "uploaders_from_docblock_string",
+                    "type": "Record<string, ModelsUser>",
                     "optional": false
                 },
                 {
