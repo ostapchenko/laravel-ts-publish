@@ -317,7 +317,7 @@ Key capabilities:
 >
 > If you still continue to see `unknown`, open an issue with code samples of your PHP code and the generated TypeScript output so we can investigate.
 
-For the full template comparison, nullable relation strategies, every attribute option, the complete type-mapping reference, and its [breaking changes](https://tolki.abe.dev/ts/models.html#breaking-changes-to-the-default-map), see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
+For the full template comparison, nullable relation strategies, every attribute option, the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
 ## API Resources
 
@@ -368,7 +368,7 @@ For every supported `toArray()` pattern, the full attribute reference, and nulla
 
 ## Routes
 
-This package publishes a lightweight, functional route helper for every controller action in your app, with all the URL-building, parameter-binding, query-string, and form-spoofing logic tucked away inside a single `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) instead of being generated inline for every route. It's inspired by [Laravel Wayfinder](https://github.com/laravel/wayfinder) but doesn't yet match its feature set: no named-route tree (`route('posts.index')` → `posts.index()`), no generation for closure or non-controller routes, and no per-route response typing beyond Inertia.
+This package publishes a lightweight, functional route helper for every controller action in your app, with all the URL-building, parameter-binding, query-string, and form-spoofing logic tucked away inside a single `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) instead of being generated inline for every route. It's made to be spec-compliant with [Laravel Wayfinder](https://github.com/laravel/wayfinder) and will work with Inertia JS the same way.
 
 ```typescript
 // resources/js/types/data/app/http/controllers/post-controller.ts (generated)
