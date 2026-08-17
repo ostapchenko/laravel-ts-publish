@@ -86,6 +86,16 @@ class NestedResourceSpreadResource extends JsonResource
                     return ['value' => $x];
                 });
             }),
+
+            // Two spread arms that genuinely collide (both wrap User; both declare id/name/email/
+            // role/avatar) — pins the earlier arm's Omit<> against the later arm's keyof as more
+            // than incidental luck, not just the trivial 'id'-only overlap members_double_spread has.
+            'members_colliding_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
+                fn (User $member) => [
+                    ...UserResource::make($member)->resolve($request),
+                    ...TeamMemberResource::make($member)->resolve($request),
+                ]
+            )),
         ];
     }
 }

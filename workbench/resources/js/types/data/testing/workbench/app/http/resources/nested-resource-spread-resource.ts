@@ -1,4 +1,4 @@
-import type { ProfileResource, UserResource } from '.';
+import type { ProfileResource, TeamMemberResource, UserResource } from '.';
 
 /**
  * Exercises spreading a resolved resource inside a NESTED inline array literal — a map()
@@ -13,10 +13,11 @@ import type { ProfileResource, UserResource } from '.';
 export interface NestedResourceSpreadResource
 {
     id: number;
-    members_with_profile?: (UserResource & { profile: ProfileResource })[];
+    members_with_profile?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
     members_bare?: UserResource[];
     members_model_spread?: { flag: boolean }[];
-    members_double_spread?: (UserResource & ProfileResource & { note: string })[];
-    members_with_profile_untyped?: (UserResource & { profile: ProfileResource })[];
+    members_double_spread?: (Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[];
+    members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
     owner_map_untyped?: unknown;
+    members_colliding_spread?: (Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[];
 }

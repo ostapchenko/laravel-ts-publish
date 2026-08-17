@@ -53,6 +53,7 @@ use Workbench\App\Http\Resources\LocalVarRecursionResource;
 use Workbench\App\Http\Resources\LocalVarResource;
 use Workbench\App\Http\Resources\LocalVarSpreadResource;
 use Workbench\App\Http\Resources\LoopReturnResource;
+use Workbench\App\Http\Resources\MapRelationFilterResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypePositiveInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
@@ -1289,6 +1290,18 @@ describe('relation filters reference the emitted model interface', function () {
             ->not->toContain('Pick<')
             ->not->toContain('Omit<')
             ->toBe('{ id: number; excerpt: string | null }');
+    });
+});
+
+describe('ResourceAstAnalyzer with MapRelationFilterResource (relation-filter vs. ->map proxy guard order)', function () {
+    test('$this->map->only([...]) resolves through the relation-filter guard, not the ->map proxy', function () {
+        // Team::map() is a real BelongsTo named literally 'map'. Both guards in
+        // analyzeValueExpression() structurally match $this->map->only([...]); only the
+        // relation-filter guard running first keeps this a Pick<User, ...> instead of unknown.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(MapRelationFilterResource::class), Team::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['map']['type'])->toBe("Pick<User, 'id' | 'name'>");
     });
 });
 
@@ -5225,6 +5238,11 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
             ->and($this->nested)->toHaveKey('owner_explicit', UserResource::class);
     });
 
+    test('toResource(SomeResource::SOME_CONSTANT) — a non-::class constant — degrades to unknown, not a wrong resource', function () {
+        expect($this->props['owner_variant_constant']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('owner_variant_constant');
+    });
+
     test('$this->relation->toResource() resolves directly, without a whenLoaded wrapper', function () {
         expect($this->props['owner_direct']['type'])->toBe('UserResource')
             ->and($this->props['owner_direct']['optional'])->toBeFalse()
@@ -5336,9 +5354,11 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
         $this->props = collect($this->analysis->properties)->keyBy('name');
     });
 
-    test('spread of a resolved resource plus a sibling key intersects, inside a mapped multi-statement closure', function () {
+    test('spread of a resolved resource plus a sibling key intersects, minus the overridden key, inside a mapped multi-statement closure', function () {
+        // 'profile' is a real UserResource key too (Profile | null) — PHP's spread lets the
+        // explicit 'profile' win, so the resource arm must Omit<> it, not intersect it.
         expect($this->props['members_with_profile']['type'])
-            ->toBe('(UserResource & { profile: ProfileResource })[]')
+            ->toBe("(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]")
             ->and($this->props['members_with_profile']['optional'])->toBeTrue()
             ->and(array_values($this->analysis->nestedResources))->toContain(UserResource::class)
             ->and(array_values($this->analysis->nestedResources))->toContain(ProfileResource::class);
@@ -5354,19 +5374,28 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->and($this->props['members_model_spread']['optional'])->toBeTrue();
     });
 
-    test('two resource spreads plus a sibling key intersect in order', function () {
+    test('two resource spreads plus a sibling key intersect in order, each Omit<>\'d against what later overrides it', function () {
+        // 'note' is explicit and wins over both arms; ProfileResource (spread 2nd) wins its own
+        // keys over UserResource (spread 1st) — so UserResource's arm excludes both.
         expect($this->props['members_double_spread']['type'])
-            ->toBe('(UserResource & ProfileResource & { note: string })[]')
+            ->toBe("(Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[]")
             ->and($this->props['members_double_spread']['optional'])->toBeTrue();
     });
 
     test('an untyped map() closure param falls back to the receiver\'s own relation binding', function () {
         expect($this->props['members_with_profile_untyped']['type'])
-            ->toBe('(UserResource & { profile: ProfileResource })[]')
+            ->toBe("(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]")
             ->and($this->props['members_with_profile_untyped']['optional'])->toBeTrue();
     });
 
     test('an untyped map() closure param on a receiver bound to a singular relation stays unknown', function () {
         expect($this->props['owner_map_untyped']['type'])->toBe('unknown');
+    });
+
+    test('two spread arms colliding on real (non-id) keys: the earlier arm Omits the later arm\'s keyof, by construction', function () {
+        // No explicit keys here — isolates the between-arms subtraction from the explicit-key one.
+        expect($this->props['members_colliding_spread']['type'])
+            ->toBe('(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]')
+            ->and($this->props['members_colliding_spread']['optional'])->toBeTrue();
     });
 });

@@ -57,6 +57,12 @@ class Team extends Model
         return $this->belongsTo(User::class, 'owner_id');
     }
 
+    /** Named literally 'map' to pin the relation-filter guard against Laravel's ->map proxy. */
+    public function map(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
     /** Members of the team (pivot includes role and joined_at) */
     public function members(): BelongsToMany
     {

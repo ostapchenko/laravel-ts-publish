@@ -18,6 +18,7 @@ export interface MerchantResource
     id: number;
     owner_via_closure?: UserResource;
     owner_explicit?: UserResource;
+    owner_variant_constant?: unknown;
     owner_direct: UserResource;
     staff_via_closure?: UserResource[];
     staff_explicit?: UserResource[];

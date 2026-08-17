@@ -31,13 +31,17 @@ export interface Team
     // Relations
     /** The user who owns this team */
     owner: User;
+    /** Named literally 'map' to pin the relation-filter guard against Laravel's ->map proxy. */
+    map: User;
     /** Members of the team (pivot includes role and joined_at) */
     members: User[];
     // Counts
     owner_count: number;
+    map_count: number;
     members_count: number;
     // Exists
     owner_exists: boolean;
+    map_exists: boolean;
     members_exists: boolean;
 }
 

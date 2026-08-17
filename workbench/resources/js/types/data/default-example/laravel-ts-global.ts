@@ -1020,6 +1020,10 @@ declare global {
             owner: User;
             owner_count: number;
             owner_exists: boolean;
+            /** Named literally 'map' to pin the relation-filter guard against Laravel's ->map proxy. */
+            map: User;
+            map_count: number;
+            map_exists: boolean;
             /** Members of the team (pivot includes role and joined_at) */
             members: User[];
             members_count: number;
@@ -2390,6 +2394,16 @@ declare global {
             first_item_name?: string;
             total?: number;
         }
+        /**
+         * Regression pin: `$this->map->only([...])` must route through the relation-filter guard, not
+         * Laravel's `->map->only()` HigherOrderCollectionProxy guard — both structurally match a relation
+         * literally named `map`, so only their declaration order in analyzeValueExpression() keeps this
+         * correct. A reorder would silently regress this with a fully green suite otherwise.
+         */
+        export interface MapRelationFilterResource {
+            id: number;
+            map: Pick<app.models.User, 'id' | 'name'>;
+        }
         export interface MediaTypeInstanceOfResource {
             name: string;
             value: string;
@@ -2430,6 +2444,7 @@ declare global {
             id: number;
             owner_via_closure?: UserResource;
             owner_explicit?: UserResource;
+            owner_variant_constant?: unknown;
             owner_direct: UserResource;
             staff_via_closure?: UserResource[];
             staff_explicit?: UserResource[];
@@ -2487,12 +2502,13 @@ declare global {
          */
         export interface NestedResourceSpreadResource {
             id: number;
-            members_with_profile?: (UserResource & { profile: ProfileResource })[];
+            members_with_profile?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             members_bare?: UserResource[];
             members_model_spread?: { flag: boolean }[];
-            members_double_spread?: (UserResource & ProfileResource & { note: string })[];
-            members_with_profile_untyped?: (UserResource & { profile: ProfileResource })[];
+            members_double_spread?: (Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[];
+            members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             owner_map_untyped?: unknown;
+            members_colliding_spread?: (Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[];
         }
         export interface NonArrayReturnResource {
         }

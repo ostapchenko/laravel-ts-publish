@@ -1977,7 +1977,11 @@ class ResourceAstAnalyzer
      */
     protected function resolveClassConstArgument(Expr $expr): ?string
     {
-        if ($expr instanceof ClassConstFetch && $expr->class instanceof Name) {
+        if ($expr instanceof ClassConstFetch
+            && $expr->class instanceof Name
+            && $expr->name instanceof Identifier
+            && strtolower($expr->name->toString()) === 'class'
+        ) {
             return $expr->class->toString();
         }
 
@@ -4059,15 +4063,16 @@ class ResourceAstAnalyzer
                 : "{$key}: {$type}";
         }, $analysis->properties);
 
-        // Each spread resource intersects, in source order, with an object literal of the
-        // remaining explicit keys — omitted entirely when there are none to intersect with.
-        $spreadTypeNames = array_values(array_unique(
-            array_map(fn (string $fqcn): string => class_basename($fqcn), $spreadResourceFqcns),
+        // Each spread resource intersects with the remaining explicit keys, minus whichever of its
+        // own keys a later spread arm or an explicit key also sets — PHP's `[...a, ...b, 'k' => v]`
+        // lets the later assignment win, `&` does not, so the earlier arm needs Omit<>'d.
+        $spreadArmTypes = array_values(array_unique(
+            $this->buildSpreadArmTypes($spreadResourceFqcns, array_column($analysis->properties, 'name')),
         ));
         $type = match (true) {
             $spreadResourceFqcns === [] => '{ '.implode('; ', $parts).' }',
-            $parts === [] => implode(' & ', $spreadTypeNames),
-            default => implode(' & ', [...$spreadTypeNames, '{ '.implode('; ', $parts).' }']),
+            $parts === [] => implode(' & ', $spreadArmTypes),
+            default => implode(' & ', [...$spreadArmTypes, '{ '.implode('; ', $parts).' }']),
         };
 
         $result = ['type' => $type, 'optional' => false];
@@ -4163,6 +4168,36 @@ class ResourceAstAnalyzer
         }
 
         return $spreadResourceFqcns;
+    }
+
+    /**
+     * Build each spread's intersection arm, `Omit<>`'d against every key a later arm or an
+     * explicit key will overwrite at runtime. `Omit<T, K>` doesn't require `K extends keyof T`,
+     * so a later resource's own shape never has to be resolved — only its name, for `keyof`.
+     *
+     * @param  list<class-string>  $spreadResourceFqcns
+     * @param  list<string>  $explicitKeyNames
+     * @return list<string>
+     */
+    private function buildSpreadArmTypes(array $spreadResourceFqcns, array $explicitKeyNames): array
+    {
+        $explicitKeyLiterals = array_map(fn (string $key): string => "'{$key}'", $explicitKeyNames);
+
+        return array_map(function (int $index) use ($spreadResourceFqcns, $explicitKeyLiterals): string {
+            $laterArmNames = array_values(array_unique(array_map(
+                fn (string $fqcn): string => class_basename($fqcn),
+                array_slice($spreadResourceFqcns, $index + 1),
+            )));
+
+            $excluded = [
+                ...$explicitKeyLiterals,
+                ...array_map(fn (string $name): string => "keyof {$name}", $laterArmNames),
+            ];
+
+            $armName = class_basename($spreadResourceFqcns[$index]);
+
+            return $excluded === [] ? $armName : 'Omit<'.$armName.', '.implode(' | ', $excluded).'>';
+        }, array_keys($spreadResourceFqcns));
     }
 
     /**

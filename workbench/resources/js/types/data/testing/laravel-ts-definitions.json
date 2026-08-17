@@ -6553,6 +6553,10 @@
                     "type": "User"
                 },
                 {
+                    "name": "map",
+                    "type": "User"
+                },
+                {
                     "name": "members",
                     "type": "User[]"
                 },
@@ -6561,11 +6565,19 @@
                     "type": "number"
                 },
                 {
+                    "name": "map_count",
+                    "type": "number"
+                },
+                {
                     "name": "members_count",
                     "type": "number"
                 },
                 {
                     "name": "owner_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "map_exists",
                     "type": "boolean"
                 },
                 {
@@ -9929,6 +9941,21 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\MapRelationFilterResource": {
+            "name": "MapRelationFilterResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "map",
+                    "type": "Pick<User, 'id' | 'name'>",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\MediaTypeInstanceOfResource": {
             "name": "MediaTypeInstanceOfResource",
             "properties": [
@@ -10030,6 +10057,11 @@
                 {
                     "name": "owner_explicit",
                     "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "owner_variant_constant",
+                    "type": "unknown",
                     "optional": true
                 },
                 {
@@ -10179,7 +10211,7 @@
                 },
                 {
                     "name": "members_with_profile",
-                    "type": "(UserResource & { profile: ProfileResource })[]",
+                    "type": "(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]",
                     "optional": true
                 },
                 {
@@ -10194,17 +10226,22 @@
                 },
                 {
                     "name": "members_double_spread",
-                    "type": "(UserResource & ProfileResource & { note: string })[]",
+                    "type": "(Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[]",
                     "optional": true
                 },
                 {
                     "name": "members_with_profile_untyped",
-                    "type": "(UserResource & { profile: ProfileResource })[]",
+                    "type": "(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]",
                     "optional": true
                 },
                 {
                     "name": "owner_map_untyped",
                     "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "members_colliding_spread",
+                    "type": "(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]",
                     "optional": true
                 }
             ]

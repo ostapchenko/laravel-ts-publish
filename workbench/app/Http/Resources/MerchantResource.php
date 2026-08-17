@@ -33,6 +33,9 @@ class MerchantResource extends JsonResource
             'id' => $this->id,
             'owner_via_closure' => $this->whenLoaded('owner', fn ($m) => $m->toResource()),
             'owner_explicit' => $this->whenLoaded('owner', fn ($m) => $m->toResource(UserResource::class)),
+            // Negative: a non-::class constant on a resource class must not resolve as that
+            // resource — resolveClassConstArgument() only reads the ::class pseudo-constant.
+            'owner_variant_constant' => $this->whenLoaded('owner', fn ($m) => $m->toResource(UserResource::ADMIN_VARIANT)),
             'owner_direct' => $this->owner->toResource(),
             'staff_via_closure' => $this->whenLoaded('staff', fn ($rows) => $rows->toResourceCollection()),
             'staff_explicit' => $this->whenLoaded('staff', fn ($rows) => $rows->toResourceCollection(UserResource::class)),
