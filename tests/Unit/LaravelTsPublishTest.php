@@ -2209,6 +2209,24 @@ describe('rewriteAsEnumToType', function () {
 
         expect($result)->toBe('app.enums.StatusType');
     });
+
+    test('does not fold a reversed pair when the bare name is part of a longer identifier', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'MyStatusType | AsEnum<typeof Status>',
+            ['Status' => 'app.enums.StatusType'],
+        );
+
+        expect($result)->toBe('MyStatusType | app.enums.StatusType');
+    });
+
+    test('does not fold a reversed pair when the bare name is already namespace-qualified', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'foo.StatusType | AsEnum<typeof Status>',
+            ['Status' => 'app.enums.StatusType'],
+        );
+
+        expect($result)->toBe('foo.StatusType | app.enums.StatusType');
+    });
 });
 
 describe('splitTopLevelUnion', function () {
