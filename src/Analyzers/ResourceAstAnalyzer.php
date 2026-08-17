@@ -3883,6 +3883,10 @@ class ResourceAstAnalyzer
      * parameter, or `$this->relation` itself. A singular relation's bound variable is not a
      * collection and must not match, so it returns null rather than guessing a shape.
      *
+     * The binding is never invalidated by a reassignment inside the closure (e.g.
+     * `$members = $members->flatMap(...)` before `$members->map(...)`), so a reassigned receiver
+     * still resolves against the original relation's element model — an accepted approximation.
+     *
      * @return class-string<Model>|null
      */
     protected function resolveMapProxyElementModel(Expr $receiver): ?string
@@ -4011,9 +4015,7 @@ class ResourceAstAnalyzer
         }
 
         // A spread whose value resolves to a bare named resource (not an array/collection of one)
-        // intersects that resource with the literal's own explicit keys. analyzeReturnArray()'s item
-        // loop only recognizes four specific top-level spread shapes and silently drops anything
-        // else, so this walk catches what it misses without duplicating its bookkeeping.
+        // intersects that resource with the literal's own explicit keys.
         $spreadResourceFqcns = $this->collectInlineArraySpreadResources($array);
 
         if ($analysis->properties === [] && $spreadResourceFqcns === []) {
@@ -4059,7 +4061,9 @@ class ResourceAstAnalyzer
 
         // Each spread resource intersects, in source order, with an object literal of the
         // remaining explicit keys — omitted entirely when there are none to intersect with.
-        $spreadTypeNames = array_map(fn (string $fqcn): string => class_basename($fqcn), $spreadResourceFqcns);
+        $spreadTypeNames = array_values(array_unique(
+            array_map(fn (string $fqcn): string => class_basename($fqcn), $spreadResourceFqcns),
+        ));
         $type = match (true) {
             $spreadResourceFqcns === [] => '{ '.implode('; ', $parts).' }',
             $parts === [] => implode(' & ', $spreadTypeNames),
@@ -5347,7 +5351,7 @@ class ResourceAstAnalyzer
         // same one analyzeWhenLoaded() already populated for a to-many param.
         $paramClass = $firstParam->type instanceof Name
             ? $firstParam->type->toString()
-            : $this->resolveMapReceiverElementModel($call->var);
+            : $this->resolveMapProxyElementModel($call->var);
 
         if ($paramClass === null || ! class_exists($paramClass) || ! is_a($paramClass, Model::class, true)) {
             return null;
@@ -5377,22 +5381,6 @@ class ResourceAstAnalyzer
         $bodyResult['optional'] = false;
 
         return $this->demoteUnrebuildableEnumShape($bodyResult);
-    }
-
-    /**
-     * Resolve an untyped `$variable->map()` closure param's element model from the receiver's own
-     * relation binding (analyzeWhenLoaded()'s varCollectionBindings), used only when the closure
-     * itself carries no type hint to read instead.
-     *
-     * @return class-string<Model>|null
-     */
-    private function resolveMapReceiverElementModel(Expr $receiver): ?string
-    {
-        if (! ($receiver instanceof Variable) || ! is_string($receiver->name)) {
-            return null;
-        }
-
-        return $this->varCollectionBindings[$receiver->name]['modelFqcn'] ?? null;
     }
 
     /**
