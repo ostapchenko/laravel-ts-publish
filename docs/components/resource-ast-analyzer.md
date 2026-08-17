@@ -618,3 +618,28 @@ checks `static::class` — the singular resource being called on, not a separate
 that site reflects on the resource. Every other site reflects on the `ResourceCollection` subclass
 itself, since that's what Laravel instantiates and reflects on for `make()`, `new`, and the
 collection-delegated path.
+
+### Inertia props
+
+`collectionPreservesKeys()` and `wrapCollectionElementType()` live in the
+`AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys` trait, which both this class
+and `AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer` `use`. `InertiaPageAnalyzer`
+has its own four collection-typing rewrites for `Inertia::render()` page props — paginated and
+non-paginated, named and anonymous — and preserve-keys only changes two of them:
+
+- **`rewritePaginatedResourceProps()`'s flat branch** (`$wrap === null`, e.g. `new
+  SomeFlatCollection($paginator)`) and **`rewritePaginatedStaticCollectionProps()`** (`SomeResource::collection($paginator)`)
+  both emit `JsonResourcePaginator<Singular>` by default, whose `data` member is `Singular[]` — wrong
+  for a key-preserving collection, since Laravel serializes its `data` as an object, not an array.
+  Fixed to emit `Omit<JsonResourcePaginator<Singular>, 'data'> & { data: Record<string, Singular> }`
+  when `collectionPreservesKeys()` is true, gated on the reflected collection (flat branch) or the
+  reflected resource (static-collection branch, since `Resource::collection()` inherits the singular
+  resource's own preserve-keys state — mirroring `wrapCollectionElementType()`'s own site-dependent
+  reflection target above).
+- **`rewriteResourceCollections()`** (the bare named-collection case) and **the wrapped, non-flat
+  branch of `rewritePaginatedResourceProps()`** were already correct and are unchanged: both reference
+  the collection's own generated interface — e.g. `PostCollection` — rather than re-deriving a shape,
+  and `ResourceAstAnalyzer` already emits that interface with a keyed `data: Record<string, T>` member
+  via `wrapCollectionElementType()` when the collection preserves keys. Fixtures pin this: a
+  key-preserving named collection, paginated or not, produces identical output before and after this
+  change.
