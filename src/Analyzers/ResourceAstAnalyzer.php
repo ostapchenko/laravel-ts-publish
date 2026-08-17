@@ -3009,6 +3009,8 @@ class ResourceAstAnalyzer
             $embeddedEnumFqcns = [];
             /** @var list<class-string> $embeddedModelFqcns */
             $embeddedModelFqcns = [];
+            /** @var ImportMapType $embeddedCustomImports */
+            $embeddedCustomImports = [];
 
             foreach ($modelFqcns as $fqcn) {
                 $filterResult = $this->resolveFilteredRelationType($fqcn, $keys, $include);
@@ -3017,6 +3019,10 @@ class ResourceAstAnalyzer
                     $inlineTypes[] = $filterResult['type'];
                     array_push($embeddedEnumFqcns, ...$filterResult['enumFqcns']);
                     array_push($embeddedModelFqcns, ...$filterResult['modelFqcns']);
+
+                    foreach ($filterResult['customImports'] as $path => $names) {
+                        $embeddedCustomImports[$path] = [...($embeddedCustomImports[$path] ?? []), ...$names];
+                    }
                 }
             }
 
@@ -3035,6 +3041,7 @@ class ResourceAstAnalyzer
                 'type' => $inlineType,
                 'embeddedEnumFqcns' => array_values(array_unique($embeddedEnumFqcns)),
                 'embeddedModelFqcns' => array_values(array_unique($embeddedModelFqcns)),
+                'customImports' => $embeddedCustomImports,
             ];
         }
 
@@ -3085,6 +3092,7 @@ class ResourceAstAnalyzer
             'type' => $inlineType,
             'embeddedEnumFqcns' => $filterResult['enumFqcns'],
             'embeddedModelFqcns' => $filterResult['modelFqcns'],
+            'customImports' => $filterResult['customImports'],
         ];
     }
 
