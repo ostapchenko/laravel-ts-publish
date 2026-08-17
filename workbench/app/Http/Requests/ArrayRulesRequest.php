@@ -58,6 +58,11 @@ class ArrayRulesRequest extends FormRequest
             // but as a standalone rule that itself requires at least one listed key
             'attributes_map' => ['required', 'array_keys:color,size'],
 
+            // array_keys with no parameters — Laravel itself rejects this (requireParameterCount),
+            // but the analyzer never runs the real validator, so resolveTsType()'s defensive arm
+            // must still degrade it to unknown[] instead of falling through to bare unknown
+            'malformed_array_keys' => ['required', 'array_keys'],
+
             // array:k1,k2 — array's keys are restricted to (at most) the given key set
             'preferences' => ['nullable', 'array:theme,locale'],
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\FormRequest\FormRequestRulesAnalyzer;
 use Illuminate\Auth\GenericUser;
 use Illuminate\Support\Facades\Auth;
+use Workbench\App\Http\Requests\ArrayKeysObjectFormRequest;
 use Workbench\App\Http\Requests\ArrayRulesRequest;
 use Workbench\App\Http\Requests\BooleanRulesRequest;
 use Workbench\App\Http\Requests\DateRulesRequest;
@@ -319,6 +320,17 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('string');
         });
 
+        it('maps Rule::arrayKeys() fluent object to unknown[] type, unlike the string form', function () {
+            $nodes = (new FormRequestRulesAnalyzer)->analyze(ArrayKeysObjectFormRequest::class);
+            $node = collect($nodes)->firstWhere('fieldPath', 'attributes_map');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('unknown[]');
+            expect($node->isRequired)->toBeTrue();
+        })->skip(
+            ! class_exists('Illuminate\Validation\Rules\ArrayKeys'),
+            'Rule::arrayKeys() requires Laravel 13.24+',
+        );
+
         it('maps Rule::numeric() fluent object to number type', function () {
             $nodes = (new FormRequestRulesAnalyzer)->analyze(RuleClassRequest::class);
             $node = collect($nodes)->firstWhere('fieldPath', 'quantity');
@@ -492,6 +504,16 @@ describe('FormRequestRulesAnalyzer', function () {
             $map = collect($nodes)->firstWhere('fieldPath', 'attributes_map');
             expect($map->tsType)->toBe('{ color?: unknown; size?: unknown }');
             expect($map->isRequired)->toBeTrue();
+        });
+
+        it('degrades a parameterless array_keys to unknown[] instead of bare unknown', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $malformed = collect($nodes)->firstWhere('fieldPath', 'malformed_array_keys');
+            expect($malformed)->not->toBeNull();
+            expect($malformed->tsType)->toBe('unknown[]');
+            expect($malformed->isRequired)->toBeTrue();
         });
 
         it('merges required_array_keys synthesis with a real declared child, real child winning the collision', function () {

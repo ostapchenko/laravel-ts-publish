@@ -248,11 +248,13 @@ The rules differ only in the optionality they imply, per Laravel's own validator
 'permissions' => ['required', 'array', 'required_array_keys:read,write'],
 'config' => ['required', 'array', 'in_array_keys:timezone'],
 'preferences' => ['nullable', 'array:theme,locale'],
+'attributes_map' => ['required', 'array_keys:color,size'],
 ```
 
 resolves to `permissions: { read: unknown; write: unknown }`, `config: { timezone?: unknown }`,
-and `preferences?: { theme?: unknown; locale?: unknown } | null` — the keys are known even though
-their individual types aren't, which is still strictly more useful than `unknown[]`.
+`preferences?: { theme?: unknown; locale?: unknown } | null`, and
+`attributes_map: { color?: unknown; size?: unknown }` — the keys are known even though their
+individual types aren't, which is still strictly more useful than `unknown[]`.
 
 **Merge, not replace.** `syntheticArrayKeyChildren()`'s output is merged into the node's real
 children with `+=`, so a field with both a synthesized key set and a real declared child (a `*` or

@@ -1513,6 +1513,20 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Requests\\ArrayKeysObjectFormRequest": {
+            "name": "ArrayKeysObjectFormRequest",
+            "isDynamic": false,
+            "fields": [
+                {
+                    "fieldPath": "attributes_map",
+                    "tsType": "unknown[]",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Requests\\ArrayRulesRequest": {
             "name": "ArrayRulesRequest",
             "isDynamic": false,
@@ -1584,6 +1598,14 @@
                 {
                     "fieldPath": "attributes_map",
                     "tsType": "{ color?: unknown; size?: unknown }",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "malformed_array_keys",
+                    "tsType": "unknown[]",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,

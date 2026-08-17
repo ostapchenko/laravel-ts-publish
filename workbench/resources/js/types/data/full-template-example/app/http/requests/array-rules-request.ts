@@ -13,6 +13,7 @@ export interface ArrayRulesRequest {
     primary_airport: string;
     config: { timezone?: unknown };
     attributes_map: { color?: unknown; size?: unknown };
+    malformed_array_keys: unknown[];
     preferences?: { theme?: unknown; locale?: unknown } | null;
     shipping: { method?: 'standard' | 'express' | null; address: unknown };
     ordered_items: string[];

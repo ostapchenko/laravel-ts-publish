@@ -3222,6 +3222,9 @@ declare global {
         }
     }
     export namespace app.http.requests {
+        export interface ArrayKeysObjectFormRequest {
+            attributes_map: unknown[];
+        }
         export interface ArrayRulesRequest {
             tags?: string[];
             selected_ids: number[];
@@ -3232,6 +3235,7 @@ declare global {
             primary_airport: string;
             config: { timezone?: unknown };
             attributes_map: { color?: unknown; size?: unknown };
+            malformed_array_keys: unknown[];
             preferences?: { theme?: unknown; locale?: unknown } | null;
             shipping: { method?: 'standard' | 'express' | null; address: unknown };
             ordered_items: string[];

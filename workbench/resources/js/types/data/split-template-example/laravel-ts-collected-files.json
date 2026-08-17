@@ -55,6 +55,7 @@
     "app\/Http\/Controllers\/Prism\/Prism\/PrismController.php",
     "app\/Http\/Controllers\/Prism\/PrismController.php",
     "app\/Http\/Controllers\/TypedParamController.php",
+    "app\/Http\/Requests\/ArrayKeysObjectFormRequest.php",
     "app\/Http\/Requests\/ArrayRulesRequest.php",
     "app\/Http\/Requests\/BooleanRulesRequest.php",
     "app\/Http\/Requests\/DatabaseRulesRequest.php",

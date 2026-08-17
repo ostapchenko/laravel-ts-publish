@@ -434,9 +434,10 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Synthesize pseudo-children for a leaf array's `required_array_keys`/`in_array_keys`/`array:` keys,
-     * so they compose into a typed object instead of staying `unknown[]`. Each key's own required-ness
-     * came from `resolveSyntheticArrayKeys()`; a real declared child with the same name wins the merge.
+     * Synthesize pseudo-children for a leaf array's `required_array_keys`/`in_array_keys`/`array:`/
+     * `array_keys:` keys, so they compose into a typed object instead of staying `unknown[]`. Each
+     * key's own required-ness came from `resolveSyntheticArrayKeys()`; a real declared child with
+     * the same name wins the merge.
      *
      * @param  array<string, bool>  $keys  key name => whether the declaring rule requires it
      * @return array<string, FormRequestRuleTrieNode>
@@ -561,6 +562,13 @@ class FormRequestRulesAnalyzer
             }
 
             if ($rule instanceof ArrayRule || $rule instanceof Contains || $rule instanceof DoesntContain) {
+                return 'unknown[]';
+            }
+
+            // Illuminate\Validation\Rules\ArrayKeys only exists from Laravel 13.24; guard before instanceof.
+            $arrayKeysClass = 'Illuminate\Validation\Rules\ArrayKeys';
+
+            if (class_exists($arrayKeysClass) && $rule instanceof $arrayKeysClass) {
                 return 'unknown[]';
             }
 
