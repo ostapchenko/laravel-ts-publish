@@ -9064,12 +9064,12 @@
                 },
                 {
                     "name": "week_days_when_has",
-                    "type": "StatusType[] | null",
+                    "type": "AsEnum<typeof Status>[] | null",
                     "optional": true
                 },
                 {
-                    "name": "members_when_loaded_fcc",
-                    "type": "unknown",
+                    "name": "week_days_when_appended",
+                    "type": "AsEnum<typeof Status>[] | null",
                     "optional": true
                 },
                 {
@@ -10845,6 +10845,11 @@
                 },
                 {
                     "name": "fcc_enum",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "fcc_enum_collection",
                     "type": "unknown",
                     "optional": false
                 },

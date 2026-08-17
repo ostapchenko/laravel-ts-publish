@@ -39,16 +39,15 @@ class EnumCollectionResource extends JsonResource
                 'week_days' => EnumResource::collection($this->week_days),
             ],
 
-            // whenHas() never resolves its value argument — it re-derives the type from the
-            // named attribute directly, so this pins the existing (correct, conservative)
-            // attribute-derived fallback rather than an AsEnum rewrite. See report.
+            // whenHas() never resolves its value argument for its own type — it re-derives the
+            // type from the named attribute directly — but IS checked for EnumResource shape, so
+            // this first-class-callable value still gets the AsEnum rewrite, not the raw type.
             'week_days_when_has' => $this->whenHas('week_days', EnumResource::collection(...)),
 
-            // First-class callable inside whenLoaded(): the callable carries no argument at the
-            // call site, so the enum can't be resolved statically — must degrade to unknown,
-            // not guess. Contrast with PostResource::collection(...) at TagResource.php:30,
-            // which resolves fine because its element type comes from the class name alone.
-            'members_when_loaded_fcc' => $this->whenLoaded('members', EnumResource::collection(...)),
+            // Same mechanism via whenAppended(), with an ordinary (non-first-class-callable)
+            // value: whenAppended() never forwards the attribute value to a Closure, so the FCC
+            // form isn't reachable there in practice, but this eagerly-evaluated form is.
+            'week_days_when_appended' => $this->whenAppended('week_days', EnumResource::collection($this->week_days)),
 
             // Local variable ->map(), distinct from $this->relation->map(): the outer whenLoaded
             // closure captures $members, which then calls ->map() on a bare variable.

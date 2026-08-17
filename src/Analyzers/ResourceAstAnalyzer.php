@@ -1272,6 +1272,11 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->whenHas('attribute') — the attribute name is the first arg string.
      *
+     * The value arg (2nd) is never evaluated for its own type: Laravel invokes it with the named
+     * attribute's own value, so the attribute is authoritative for type and array-ness. It IS
+     * checked for EnumResource::make()/::collection() shape, since that decides whether the enum
+     * channel is 'enumFqcn' (wrapped — gets the AsEnum rewrite) or 'directEnumFqcn' (read as-is).
+     *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenHas(MethodCall $call): array
@@ -1285,7 +1290,8 @@ class ResourceAstAnalyzer
             $result = ['type' => $info['type'], 'optional' => false];
 
             if ($info['enumFqcn'] !== null) {
-                $result['directEnumFqcn'] = $info['enumFqcn'];
+                $wrapped = count($args) >= 2 && $this->isEnumResourceWrapCall($args[1]->value);
+                $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
             }
 
             return $this->applyConditionalDefault($result, $call, 2);
@@ -1296,7 +1302,10 @@ class ResourceAstAnalyzer
 
     /**
      * Analyze $this->whenAppended('attribute', $value, $default) — types from the named attribute,
-     * the same way whenHas() does, since the appended accessor is what surfaces.
+     * the same way whenHas() does, since the appended accessor is what surfaces. Unlike whenHas()/
+     * whenLoaded(), Laravel's whenAppended() invokes a Closure value with no arguments at all, so
+     * only a non-first-class-callable EnumResource::make()/::collection() value is realistically
+     * reachable here — still checked for consistency, since it costs nothing.
      *
      * @return ValueExpressionResult
      */
@@ -1312,10 +1321,29 @@ class ResourceAstAnalyzer
         $result = ['type' => $info['type'], 'optional' => false];
 
         if ($info['enumFqcn'] !== null) {
-            $result['directEnumFqcn'] = $info['enumFqcn'];
+            $wrapped = count($args) >= 2 && $this->isEnumResourceWrapCall($args[1]->value);
+            $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
         }
 
         return $this->applyConditionalDefault($result, $call, 2);
+    }
+
+    /**
+     * Whether a whenHas()/whenAppended() value argument is EnumResource::make()/::collection() —
+     * including the first-class-callable form — signalling the named attribute is EnumResource-
+     * wrapped rather than read directly.
+     */
+    private function isEnumResourceWrapCall(Expr $value): bool
+    {
+        if (! $value instanceof StaticCall || ! $value->name instanceof Identifier) {
+            return false;
+        }
+
+        $className = $this->resolveStaticCallClassName($value);
+
+        return $className !== null
+            && $this->isEnumResourceClass($className)
+            && in_array($value->name->toString(), ['make', 'collection'], true);
     }
 
     /**

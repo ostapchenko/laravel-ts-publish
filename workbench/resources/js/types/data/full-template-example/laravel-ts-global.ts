@@ -2060,7 +2060,7 @@ declare global {
             week_days: app.enums.StatusType[] | null;
             wrapped_week_days: { week_days: app.enums.StatusType[] | null };
             week_days_when_has?: app.enums.StatusType[] | null;
-            members_when_loaded_fcc?: unknown;
+            week_days_when_appended?: app.enums.StatusType[] | null;
             members_via_var?: app.enums.RoleType[];
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
@@ -2648,6 +2648,7 @@ declare global {
             empty_user: UserResource;
             empty_enum: unknown;
             fcc_enum: unknown;
+            fcc_enum_collection: unknown;
             not_enum: unknown;
             uncast_enum: unknown;
             empty_new_enum: unknown;

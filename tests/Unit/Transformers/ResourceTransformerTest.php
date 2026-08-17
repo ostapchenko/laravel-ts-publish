@@ -2017,23 +2017,23 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
             ->toBe('{ week_days: AsEnum<typeof Status>[] | null }');
     });
 
-    // whenHas() never analyzes its value argument, so this never reaches the AsEnum rewrite — it
-    // resolves through the direct-enum-collection channel instead: a real type, correctly imported,
-    // not a fabricated AsEnum wrap and not `unknown`. See report for the analyzeWhenHas() gap.
-    test('first-class callable inside whenHas() stays the plain attribute-derived array type', function () {
+    // whenHas() never analyzes its value argument for a type, but IS checked for EnumResource
+    // shape, so the wrapped first-class-callable value still gets the AsEnum rewrite — this is
+    // the real reported bug pattern: $this->whenHas('kinds', EnumResource::collection(...)).
+    test('first-class callable inside whenHas() rewrites to AsEnum<typeof Status>[] | null', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
-        expect($data->properties['week_days_when_has']['type'])->toBe('StatusType[] | null')
+        expect($data->properties['week_days_when_has']['type'])->toBe('AsEnum<typeof Status>[] | null')
             ->and($data->properties['week_days_when_has']['optional'])->toBeTrue();
     });
 
-    test('first-class callable inside whenLoaded() stays unknown, not a guessed AsEnum type', function () {
+    test('EnumResource::collection() value inside whenAppended() rewrites to AsEnum<typeof Status>[] | null', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
-        expect($data->properties['members_when_loaded_fcc']['type'])->toBe('unknown')
-            ->and($data->properties['members_when_loaded_fcc']['optional'])->toBeTrue();
+        expect($data->properties['week_days_when_appended']['type'])->toBe('AsEnum<typeof Status>[] | null')
+            ->and($data->properties['week_days_when_appended']['optional'])->toBeTrue();
     });
 
     test('local variable ->map() with an EnumResource::make() body rewrites to AsEnum<typeof Role>[]', function () {

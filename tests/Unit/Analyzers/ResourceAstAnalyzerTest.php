@@ -688,22 +688,24 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
             ->toBe('{ week_days: AsEnum<typeof Status>[] | null }');
     });
 
-    // whenHas() never analyzes its value argument — it re-derives the type from the named
-    // attribute directly (see analyzeWhenHas()) — so the EnumResource::collection(...) value is
-    // never reached and this resolves through the ordinary direct-enum-collection channel.
-    test('first-class callable inside whenHas() falls back to the attribute-derived type', function () {
+    // whenHas() never resolves its value argument's own type — the attribute supplies type and
+    // array-ness — but IS checked for EnumResource::make()/::collection() shape (isEnumResourceWrapCall()),
+    // so this first-class-callable value still promotes to the 'enumFqcn' (wrapped) channel.
+    test('first-class callable inside whenHas() promotes to the enumFqcn (wrapped) channel', function () {
         expect($this->props['week_days_when_has']['type'])->toBe('StatusType[] | null')
-            ->and($this->analysis->directEnumFqcns)->toHaveKey('week_days_when_has')
-            ->and($this->analysis->directEnumFqcns['week_days_when_has'])->toBe(Status::class)
-            ->and($this->analysis->enumResources)->not->toHaveKey('week_days_when_has');
+            ->and($this->analysis->enumResources)->toHaveKey('week_days_when_has')
+            ->and($this->analysis->enumResources['week_days_when_has'])->toBe(Status::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('week_days_when_has');
     });
 
-    // whenLoaded() DOES analyze its value argument, so this reaches analyzeEnumResourceCollection()
-    // with a first-class callable — no argument to resolve the enum from — and must degrade to
-    // unknown rather than guess, mirroring analyzeEnumResourceMake()'s FCC bail-out.
-    test('first-class callable inside whenLoaded() degrades to unknown, not a guessed type', function () {
-        expect($this->props['members_when_loaded_fcc']['type'])->toBe('unknown')
-            ->and($this->props['members_when_loaded_fcc']['optional'])->toBeTrue();
+    // whenAppended() applies the identical check, for an ordinary (non-FCC) EnumResource::collection()
+    // value — whenAppended() never forwards the attribute value to a Closure, so only this eagerly-
+    // evaluated form is realistically reachable there.
+    test('EnumResource::collection() value inside whenAppended() promotes to the enumFqcn channel', function () {
+        expect($this->props['week_days_when_appended']['type'])->toBe('StatusType[] | null')
+            ->and($this->analysis->enumResources)->toHaveKey('week_days_when_appended')
+            ->and($this->analysis->enumResources['week_days_when_appended'])->toBe(Status::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('week_days_when_appended');
     });
 
     // $variable->map() (not $this->relation->map()) with a body entirely EnumResource::make(...)
@@ -1538,6 +1540,13 @@ describe('ResourceAstAnalyzer with QuirkyResource', function () {
 
         expect($fccEnum['type'])->toBe('unknown')
             ->and($fccEnum['optional'])->toBeFalse();
+    });
+
+    test('resolves EnumResource::collection first-class callable as unknown', function () {
+        $fccEnumCollection = collect($this->analysis->properties)->firstWhere('name', 'fcc_enum_collection');
+
+        expect($fccEnumCollection['type'])->toBe('unknown')
+            ->and($fccEnumCollection['optional'])->toBeFalse();
     });
 
     test('resolves nonexistent model attribute as unknown', function () {
