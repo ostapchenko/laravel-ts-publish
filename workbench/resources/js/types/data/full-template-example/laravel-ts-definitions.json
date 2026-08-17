@@ -4844,6 +4844,79 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\Merchant": {
+            "name": "Merchant",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                },
+                {
+                    "name": "owner",
+                    "type": "User | null"
+                },
+                {
+                    "name": "staff",
+                    "type": "User[]"
+                },
+                {
+                    "name": "history_event",
+                    "type": "TrackingEvent | null"
+                },
+                {
+                    "name": "filing",
+                    "type": "Activity | null"
+                },
+                {
+                    "name": "alert",
+                    "type": "DatabaseNotification | null"
+                },
+                {
+                    "name": "owner_count",
+                    "type": "number"
+                },
+                {
+                    "name": "staff_count",
+                    "type": "number"
+                },
+                {
+                    "name": "history_event_count",
+                    "type": "number"
+                },
+                {
+                    "name": "filing_count",
+                    "type": "number"
+                },
+                {
+                    "name": "alert_count",
+                    "type": "number"
+                },
+                {
+                    "name": "owner_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "staff_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "history_event_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "filing_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "alert_exists",
+                    "type": "boolean"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\ModelWithNestedTraitExtends": {
             "name": "ModelWithNestedTraitExtends",
             "properties": [
@@ -9736,6 +9809,56 @@
                     "name": "meta",
                     "type": "{ extensions: unknown; maxSizeMb: unknown; sizeUnit: string; icon: unknown }",
                     "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\MerchantResource": {
+            "name": "MerchantResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "owner_via_closure",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "owner_explicit",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "owner_direct",
+                    "type": "UserResource",
+                    "optional": false
+                },
+                {
+                    "name": "staff_via_closure",
+                    "type": "UserResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "staff_explicit",
+                    "type": "UserResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "history_event",
+                    "type": "EventLogResource",
+                    "optional": true
+                },
+                {
+                    "name": "filing",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "alert",
+                    "type": "unknown",
+                    "optional": true
                 }
             ]
         },

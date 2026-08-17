@@ -420,6 +420,31 @@ declare global {
             name: string;
             other_col: string;
         }
+        /**
+         * Exercises Model::toResource()/Collection::toResourceCollection(): `owner`/`staff` resolve by
+         * convention, `historyEvent` via #[UseResource], `filing`/`alert` have no resolvable resource.
+         */
+        export interface Merchant {
+            // Columns
+            id: number;
+            name: string;
+            // Relations
+            owner: User | null;
+            owner_count: number;
+            owner_exists: boolean;
+            staff: User[];
+            staff_count: number;
+            staff_exists: boolean;
+            history_event: TrackingEvent | null;
+            history_event_count: number;
+            history_event_exists: boolean;
+            filing: Activity | null;
+            filing_count: number;
+            filing_exists: boolean;
+            alert: illuminate.notifications.DatabaseNotification | null;
+            alert_count: number;
+            alert_exists: boolean;
+        }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
             id: number;
@@ -2317,6 +2342,21 @@ declare global {
             name: unknown;
             value: unknown;
             meta: { extensions: unknown; maxSizeMb: unknown; sizeUnit: string; icon: unknown };
+        }
+        /**
+         * Exercises Model::toResource() / Collection::toResourceCollection() resolution: naming
+         * convention, #[UseResource], explicit arguments, and the unresolvable negative cases.
+         */
+        export interface MerchantResource {
+            id: number;
+            owner_via_closure?: UserResource;
+            owner_explicit?: UserResource;
+            owner_direct: UserResource;
+            staff_via_closure?: UserResource[];
+            staff_explicit?: UserResource[];
+            history_event?: EventLogResource;
+            filing?: unknown;
+            alert?: unknown;
         }
         /**
          * Exercises resolveClosureReturnExpression with a Closure passed to merge().

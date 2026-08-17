@@ -39,6 +39,7 @@ use Workbench\App\Http\Resources\EmptyResource;
 use Workbench\App\Http\Resources\EmptyWithMixinResource;
 use Workbench\App\Http\Resources\EnumCollectionResource;
 use Workbench\App\Http\Resources\EnumNullFirstResource;
+use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\ExtendedAddressResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
 use Workbench\App\Http\Resources\HelperCallResource;
@@ -53,6 +54,7 @@ use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypePositiveInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
 use Workbench\App\Http\Resources\MediaTypeUnknownResource;
+use Workbench\App\Http\Resources\MerchantResource;
 use Workbench\App\Http\Resources\MergeClosureResource;
 use Workbench\App\Http\Resources\MergeMultiBranchClosureResource;
 use Workbench\App\Http\Resources\MiscCollection;
@@ -104,6 +106,7 @@ use Workbench\App\Models\Address;
 use Workbench\App\Models\Category;
 use Workbench\App\Models\Comment;
 use Workbench\App\Models\Image;
+use Workbench\App\Models\Merchant;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
@@ -5054,4 +5057,63 @@ test('a reflected $this->method() return dispatches its enum and model FQCNs', f
         ->and($analysis->directEnumFqcns)->toContain(Status::class)
         ->and($props['fallback_owner']['type'])->toBe('User')
         ->and($analysis->modelFqcns)->toContain(User::class);
+});
+
+describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceCollection())', function () {
+    beforeEach(function () {
+        $reflection = new ReflectionClass(MerchantResource::class);
+        $this->props = collect(
+            (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze()->properties,
+        )->keyBy('name');
+        $this->nested = (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze()->nestedResources;
+    });
+
+    test('whenLoaded closure toResource() resolves the related model by naming convention', function () {
+        expect($this->props['owner_via_closure']['type'])->toBe('UserResource')
+            ->and($this->props['owner_via_closure']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('owner_via_closure', UserResource::class);
+    });
+
+    test('whenLoaded closure toResource(SomeResource::class) honours the explicit argument', function () {
+        expect($this->props['owner_explicit']['type'])->toBe('UserResource')
+            ->and($this->props['owner_explicit']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('owner_explicit', UserResource::class);
+    });
+
+    test('$this->relation->toResource() resolves directly, without a whenLoaded wrapper', function () {
+        expect($this->props['owner_direct']['type'])->toBe('UserResource')
+            ->and($this->props['owner_direct']['optional'])->toBeFalse()
+            ->and($this->nested)->toHaveKey('owner_direct', UserResource::class);
+    });
+
+    test('whenLoaded closure toResourceCollection() resolves the element model by convention', function () {
+        expect($this->props['staff_via_closure']['type'])->toBe('UserResource[]')
+            ->and($this->props['staff_via_closure']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('staff_via_closure', UserResource::class);
+    });
+
+    test('whenLoaded closure toResourceCollection(SomeResource::class) honours the explicit argument', function () {
+        expect($this->props['staff_explicit']['type'])->toBe('UserResource[]')
+            ->and($this->props['staff_explicit']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('staff_explicit', UserResource::class);
+    });
+
+    test('toResource() prefers the #[UseResource] attribute over the naming convention', function () {
+        expect($this->props['history_event']['type'])->toBe('EventLogResource')
+            ->and($this->props['history_event']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('history_event', EventLogResource::class);
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\UseResource'),
+        'UseResource attribute requires Laravel 12.29+',
+    );
+
+    test('toResource() degrades to unknown when the related model has no matching resource class', function () {
+        expect($this->props['filing']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('filing');
+    });
+
+    test('toResource() degrades to unknown when the related model is not under a \Models\ namespace', function () {
+        expect($this->props['alert']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('alert');
+    });
 });

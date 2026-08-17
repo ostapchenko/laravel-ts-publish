@@ -16,6 +16,7 @@ export * from './kpi';
 export * from './laravel13-attributes';
 export * from './laravel13-connection';
 export * from './laravel13-visible';
+export * from './merchant';
 export * from './model-with-nested-trait-extends';
 export * from './model-with-parent-extends';
 export * from './model-with-trait-extends';

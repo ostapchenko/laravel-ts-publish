@@ -21,6 +21,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Str;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
@@ -852,6 +853,20 @@ class ResourceAstAnalyzer
         if ($this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
             /** @var MethodCall $expr */
             return $this->applyConditionalDefault($this->unknownResult(), $expr, 3);
+        }
+
+        // $model->toResource()/toResourceCollection() — a whenLoaded closure param bound to a
+        // model, or $this->relation accessed directly. Checked by method name alone so both
+        // receiver shapes share one resolution path; see resolveToResourceReceiverModel().
+        if ($expr instanceof MethodCall && $expr->name instanceof Identifier && $expr->name->toString() === 'toResource') {
+            return $this->analyzeToResourceCall($expr);
+        }
+
+        if ($expr instanceof MethodCall
+            && $expr->name instanceof Identifier
+            && $expr->name->toString() === 'toResourceCollection'
+        ) {
+            return $this->analyzeToResourceCollectionCall($expr);
         }
 
         // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
@@ -1721,6 +1736,272 @@ class ResourceAstAnalyzer
         }
 
         return null;
+    }
+
+    /**
+     * Analyze `$model->toResource()` / `$model->toResource(SomeResource::class)`. An explicit
+     * argument wins outright; otherwise the receiver's model resolves via resolveResourceForModel().
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeToResourceCall(MethodCall $call): array
+    {
+        $result = $this->unknownResult();
+        $args = $call->getArgs();
+
+        if ($args !== []) {
+            $explicit = $this->resolveClassConstArgument($args[0]->value);
+
+            if ($explicit === null || ! $this->isResourceClass($explicit)) {
+                return $result;
+            }
+
+            /** @var class-string $explicit */
+            return [...$result, 'type' => class_basename($explicit), 'optional' => false, 'resourceFqcn' => $explicit];
+        }
+
+        $modelFqcn = $this->resolveToResourceReceiverModel($call->var);
+        $resourceFqcn = $modelFqcn !== null ? $this->resolveResourceForModel($modelFqcn) : null;
+
+        if ($resourceFqcn === null) {
+            return $result;
+        }
+
+        return [...$result, 'type' => class_basename($resourceFqcn), 'optional' => false, 'resourceFqcn' => $resourceFqcn];
+    }
+
+    /**
+     * Analyze `$collection->toResourceCollection()` / `->toResourceCollection(SomeResource::class)`.
+     * An explicit argument wins outright; otherwise the receiver's model resolves via
+     * resolveResourceCollectionForModel().
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeToResourceCollectionCall(MethodCall $call): array
+    {
+        $result = $this->unknownResult();
+        $args = $call->getArgs();
+
+        if ($args !== []) {
+            $explicit = $this->resolveClassConstArgument($args[0]->value);
+
+            if ($explicit === null || ! $this->isResourceClass($explicit)) {
+                return $result;
+            }
+
+            /** @var class-string $explicit */
+            return [
+                ...$result,
+                'type' => $this->wrapCollectionElementType(class_basename($explicit), new ReflectionClass($explicit)),
+                'optional' => false,
+                'resourceFqcn' => $explicit,
+            ];
+        }
+
+        $modelFqcn = $this->resolveToResourceReceiverModel($call->var);
+        $resolved = $modelFqcn !== null ? $this->resolveResourceCollectionForModel($modelFqcn) : null;
+
+        if ($resolved === null) {
+            return $result;
+        }
+
+        return [
+            ...$result,
+            'type' => $this->wrapCollectionElementType(
+                class_basename($resolved['resourceFqcn']),
+                new ReflectionClass($resolved['collectionFqcn']),
+            ),
+            'optional' => false,
+            'resourceFqcn' => $resolved['resourceFqcn'],
+        ];
+    }
+
+    /**
+     * Resolve the model class backing a toResource()/toResourceCollection() receiver: a whenLoaded
+     * closure parameter (analyzeWhenLoaded()'s bindings) or `$this->relation` accessed directly.
+     *
+     * @return class-string<Model>|null
+     */
+    protected function resolveToResourceReceiverModel(Expr $receiver): ?string
+    {
+        if ($receiver instanceof Variable && is_string($receiver->name)) {
+            return $this->varModelBindings[$receiver->name]
+                ?? $this->varCollectionBindings[$receiver->name]['modelFqcn']
+                ?? $this->closureRelationModelClass;
+        }
+
+        if ($receiver instanceof PropertyFetch && $this->isThisPropertyFetch($receiver) && $receiver->name instanceof Identifier) {
+            return $this->resolveModelRelationTypeInfo($receiver->name->toString())['modelFqcn'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a `SomeClass::class` argument node to its FQCN.
+     */
+    protected function resolveClassConstArgument(Expr $expr): ?string
+    {
+        if ($expr instanceof ClassConstFetch && $expr->class instanceof Name) {
+            return $expr->class->toString();
+        }
+
+        return null;
+    }
+
+    /**
+     * Reproduce Model::toResource()'s guessResource(): the #[UseResource] attribute first, then
+     * the naming-convention candidates, Resource-suffixed candidate first.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return class-string|null
+     */
+    protected function resolveResourceForModel(string $modelFqcn): ?string
+    {
+        $fromAttribute = $this->resolveUseResourceAttribute($modelFqcn);
+
+        if ($fromAttribute !== null) {
+            return $fromAttribute;
+        }
+
+        foreach ($this->guessResourceNames($modelFqcn) as $candidate) {
+            if ($this->isResourceClass($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Reproduce Collection::toResourceCollection()'s guessResourceCollection() order: the
+     * #[UseResourceCollection] attribute, then #[UseResource], then the naming convention —
+     * trying `{Guessed}Collection` classes before the bare guessed resources.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return array{collectionFqcn: class-string, resourceFqcn: class-string}|null
+     */
+    protected function resolveResourceCollectionForModel(string $modelFqcn): ?array
+    {
+        $collectionFqcn = $this->resolveUseResourceCollectionAttribute($modelFqcn);
+
+        if ($collectionFqcn !== null) {
+            $resourceFqcn = $this->collectedResourceClass($collectionFqcn);
+
+            if ($resourceFqcn !== null) {
+                return ['collectionFqcn' => $collectionFqcn, 'resourceFqcn' => $resourceFqcn];
+            }
+        }
+
+        $resourceFqcn = $this->resolveUseResourceAttribute($modelFqcn);
+
+        if ($resourceFqcn !== null) {
+            return ['collectionFqcn' => $resourceFqcn, 'resourceFqcn' => $resourceFqcn];
+        }
+
+        $candidates = $this->guessResourceNames($modelFqcn);
+
+        foreach ($candidates as $candidate) {
+            $collectionCandidate = $candidate.'Collection';
+
+            if (class_exists($collectionCandidate) && is_a($collectionCandidate, ResourceCollection::class, true)) {
+                $collectedFqcn = $this->collectedResourceClass($collectionCandidate);
+
+                if ($collectedFqcn !== null) {
+                    return ['collectionFqcn' => $collectionCandidate, 'resourceFqcn' => $collectedFqcn];
+                }
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($this->isResourceClass($candidate)) {
+                return ['collectionFqcn' => $candidate, 'resourceFqcn' => $candidate];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Reproduce Model::guessResourceName()'s `\Models\` to `\Http\Resources\` naming convention.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return list<class-string>
+     */
+    protected function guessResourceNames(string $modelFqcn): array
+    {
+        if (! str_contains($modelFqcn, '\\Models\\')) {
+            return [];
+        }
+
+        $basename = class_basename($modelFqcn);
+        $relativeNamespace = Str::after($modelFqcn, '\\Models\\');
+
+        $relativeNamespace = str_contains($relativeNamespace, '\\')
+            ? Str::beforeLast($relativeNamespace, '\\'.$basename)
+            : '';
+
+        $potentialResource = sprintf(
+            '%s\\Http\\Resources\\%s%s',
+            Str::before($modelFqcn, '\\Models'),
+            $relativeNamespace !== '' ? $relativeNamespace.'\\' : '',
+            $basename,
+        );
+
+        /** @var list<class-string> */
+        return [$potentialResource.'Resource', $potentialResource];
+    }
+
+    /**
+     * Read the #[UseResource] attribute directly off a model class.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return class-string|null
+     */
+    protected function resolveUseResourceAttribute(string $modelFqcn): ?string
+    {
+        $attributeFqcn = 'Illuminate\Database\Eloquent\Attributes\UseResource';
+
+        if (! class_exists($attributeFqcn) || ! class_exists($modelFqcn)) {
+            return null;
+        }
+
+        $attributes = new ReflectionClass($modelFqcn)->getAttributes($attributeFqcn);
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        $resourceFqcn = $attributes[0]->newInstance()->class;
+
+        return $this->isResourceClass($resourceFqcn) ? $resourceFqcn : null;
+    }
+
+    /**
+     * Read the #[UseResourceCollection] attribute directly off a model class.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return class-string|null
+     */
+    protected function resolveUseResourceCollectionAttribute(string $modelFqcn): ?string
+    {
+        $attributeFqcn = 'Illuminate\Database\Eloquent\Attributes\UseResourceCollection';
+
+        if (! class_exists($attributeFqcn) || ! class_exists($modelFqcn)) {
+            return null;
+        }
+
+        $attributes = new ReflectionClass($modelFqcn)->getAttributes($attributeFqcn);
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        $collectionFqcn = $attributes[0]->newInstance()->class;
+
+        return class_exists($collectionFqcn) && is_a($collectionFqcn, ResourceCollection::class, true)
+            ? $collectionFqcn
+            : null;
     }
 
     /**

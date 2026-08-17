@@ -13,7 +13,8 @@ and remove the row.
 
 | Class | Min Laravel | Guarded at | Tests skipped at | Convert when floor ≥ |
 | --- | --- | --- | --- | --- |
-| `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php` | `12.29.0` |
+| `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php`, `src/Analyzers/ResourceAstAnalyzer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php`, `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `12.29.0` |
+| `Illuminate\Database\Eloquent\Attributes\UseResourceCollection` | `12.29.0` | `src/Analyzers/ResourceAstAnalyzer.php` | none | `12.29.0` |
 | `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php`, `src/Analyzers/Inertia/InertiaPageAnalyzer.php` | none | `13.0.0` |
 | `Illuminate\Http\Resources\Attributes\PreserveKeys` | `13.0.0` | `src/Analyzers/Concerns/ChecksPreserveKeys.php` | `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Table` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
@@ -76,6 +77,11 @@ without a fresh tag search.
   `v13.23.0`, present starting `v13.24.0` (the fluent `Rule::arrayKeys()` factory in `Rule.php`
   appears in the same tag) and at every release since. This is an exact minimum, not a range —
   the same shape as `UseResource`.
+- **`UseResourceCollection`**: lives beside `UseResource` in the same
+  `Illuminate\Database\Eloquent\Attributes` directory, so checked directly rather than assumed:
+  `src/Illuminate/Database/Eloquent/Attributes/UseResourceCollection.php` 404s at `v12.28.0` and
+  `v12.28.1`, and is present at `v12.29.0` and `v13.0.0` — the identical cutover to `UseResource`,
+  consistent with both attributes shipping in the same PR (laravel/framework#56966).
 
 ## Scanner coverage and blind spots
 
