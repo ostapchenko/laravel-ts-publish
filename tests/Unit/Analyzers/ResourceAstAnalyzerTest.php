@@ -5359,4 +5359,14 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->toBe('(UserResource & ProfileResource & { note: string })[]')
             ->and($this->props['members_double_spread']['optional'])->toBeTrue();
     });
+
+    test('an untyped map() closure param falls back to the receiver\'s own relation binding', function () {
+        expect($this->props['members_with_profile_untyped']['type'])
+            ->toBe('(UserResource & { profile: ProfileResource })[]')
+            ->and($this->props['members_with_profile_untyped']['optional'])->toBeTrue();
+    });
+
+    test('an untyped map() closure param on a receiver bound to a singular relation stays unknown', function () {
+        expect($this->props['owner_map_untyped']['type'])->toBe('unknown');
+    });
 });

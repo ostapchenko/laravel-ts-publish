@@ -63,6 +63,29 @@ class NestedResourceSpreadResource extends JsonResource
                     'note' => 'x',
                 ]
             )),
+
+            // The reported shape's actual signature: the map() closure param carries NO type hint
+            // (as in the real report). analyzeVariableMapCall() must fall back to $members' own
+            // relation binding instead of bailing to unknown.
+            'members_with_profile_untyped' => $this->whenLoaded('members', function ($members) use ($request) {
+                $members->loadMissing('profile');
+
+                return $members->map(function ($member) use ($request) {
+                    return [
+                        ...UserResource::make($member)->resolve($request),
+                        'profile' => new ProfileResource($member->profile),
+                    ];
+                });
+            }),
+
+            // Negative: the map() closure param is untyped AND the receiver ($owner) is bound to a
+            // SINGULAR relation, not a collection — no varCollectionBindings entry to fall back to,
+            // so this must stay unknown rather than guessing.
+            'owner_map_untyped' => $this->whenLoaded('owner', function ($owner) {
+                return $owner->map(function ($x) {
+                    return ['value' => $x];
+                });
+            }),
         ];
     }
 }

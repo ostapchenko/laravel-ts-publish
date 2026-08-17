@@ -161,7 +161,8 @@ class ResourceAstAnalyzer
 
     /**
      * Closure params bound to a whole relation collection rather than one element — a to-many
-     * `whenLoaded` param. Only a bare return of the param reads this; anything else resolves normally.
+     * `whenLoaded` param. Read for a bare return of the param, and as the element-model fallback
+     * for an untyped `->map()` closure param.
      *
      * @var array<string, array{type: string, modelFqcn: class-string<Model>}>
      */
@@ -5341,14 +5342,14 @@ class ResourceAstAnalyzer
 
         $firstParam = $params[0];
 
-        // Require a named class type hint (already FQCN-resolved by NameResolver)
-        if (! ($firstParam->type instanceof Name)) {
-            return null;
-        }
+        // A named class type hint (already FQCN-resolved by NameResolver) wins when present — it's
+        // the more specific signal. Otherwise fall back to the receiver's own relation binding, the
+        // same one analyzeWhenLoaded() already populated for a to-many param.
+        $paramClass = $firstParam->type instanceof Name
+            ? $firstParam->type->toString()
+            : $this->resolveMapReceiverElementModel($call->var);
 
-        $paramClass = $firstParam->type->toString();
-
-        if (! class_exists($paramClass) || ! is_a($paramClass, Model::class, true)) {
+        if ($paramClass === null || ! class_exists($paramClass) || ! is_a($paramClass, Model::class, true)) {
             return null;
         }
 
@@ -5376,6 +5377,22 @@ class ResourceAstAnalyzer
         $bodyResult['optional'] = false;
 
         return $this->demoteUnrebuildableEnumShape($bodyResult);
+    }
+
+    /**
+     * Resolve an untyped `$variable->map()` closure param's element model from the receiver's own
+     * relation binding (analyzeWhenLoaded()'s varCollectionBindings), used only when the closure
+     * itself carries no type hint to read instead.
+     *
+     * @return class-string<Model>|null
+     */
+    private function resolveMapReceiverElementModel(Expr $receiver): ?string
+    {
+        if (! ($receiver instanceof Variable) || ! is_string($receiver->name)) {
+            return null;
+        }
+
+        return $this->varCollectionBindings[$receiver->name]['modelFqcn'] ?? null;
     }
 
     /**

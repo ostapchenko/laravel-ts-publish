@@ -2491,6 +2491,8 @@ declare global {
             members_bare?: UserResource[];
             members_model_spread?: { flag: boolean }[];
             members_double_spread?: (UserResource & ProfileResource & { note: string })[];
+            members_with_profile_untyped?: (UserResource & { profile: ProfileResource })[];
+            owner_map_untyped?: unknown;
         }
         export interface NonArrayReturnResource {
         }

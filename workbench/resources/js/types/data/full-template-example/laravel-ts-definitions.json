@@ -10196,6 +10196,16 @@
                     "name": "members_double_spread",
                     "type": "(UserResource & ProfileResource & { note: string })[]",
                     "optional": true
+                },
+                {
+                    "name": "members_with_profile_untyped",
+                    "type": "(UserResource & { profile: ProfileResource })[]",
+                    "optional": true
+                },
+                {
+                    "name": "owner_map_untyped",
+                    "type": "unknown",
+                    "optional": true
                 }
             ]
         },
