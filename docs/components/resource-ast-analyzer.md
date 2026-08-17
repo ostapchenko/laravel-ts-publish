@@ -529,6 +529,10 @@ generic `$this->method()` branch, which reflects a declared return type and emit
 strictly worse than the optional `unknown` an unrecognized conditional should produce, since a required
 key tells the consumer the value is always present.
 
+All five (`unless`, `whenAppended`, `whenExistsLoaded`, `transform`, `mergeUnless`) also belong to
+`InspectsAstNodes::$conditionalMethods`, the separate list consulted when one of them wraps a *nested
+resource constructor* (`Resource::make(...)`/`new Resource(...)`), so that case is optional too.
+
 ### `unless()` and `mergeUnless()` reuse `when()`/`mergeWhen()` unchanged
 
 `ConditionallyLoadsAttributes::unless($condition, $value, $default)` is

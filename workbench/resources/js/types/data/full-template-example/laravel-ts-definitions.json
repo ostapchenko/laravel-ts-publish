@@ -8265,6 +8265,16 @@
                     "optional": false
                 },
                 {
+                    "name": "unless_user_resource",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "transform_user_resource",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
                     "name": "merge_unless_label",
                     "type": "string",
                     "optional": true

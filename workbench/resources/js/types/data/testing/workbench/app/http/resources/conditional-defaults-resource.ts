@@ -1,4 +1,5 @@
 import type { User } from '../../models';
+import type { UserResource } from '.';
 
 /**
  * Exercises the conditional family's default argument. An explicit default means the key is always
@@ -35,5 +36,7 @@ export interface ConditionalDefaultsResource
     exists_with_default: boolean | string;
     transform_no_default?: boolean;
     transform_with_default: boolean | number;
+    unless_user_resource?: UserResource;
+    transform_user_resource?: UserResource;
     merge_unless_label?: string;
 }

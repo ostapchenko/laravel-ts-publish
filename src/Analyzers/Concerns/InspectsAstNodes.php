@@ -36,6 +36,7 @@ trait InspectsAstNodes
     protected array $conditionalMethods = [
         'when', 'whenHas', 'whenNotNull', 'whenLoaded',
         'whenCounted', 'whenAggregated', 'whenPivotLoaded', 'whenPivotLoadedAs',
+        'unless', 'whenAppended', 'whenExistsLoaded', 'transform', 'mergeUnless',
     ];
 
     /**

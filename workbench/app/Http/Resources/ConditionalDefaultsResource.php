@@ -81,6 +81,11 @@ class ConditionalDefaultsResource extends JsonResource
             'transform_no_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== ''),
             'transform_with_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== '', 0),
 
+            // Nested resource constructors wrapping a conditional must be optional: the inner call can
+            // produce a MissingValue. StaticCall and New_ take separate detection paths.
+            'unless_user_resource' => UserResource::make($this->unless($this->id > 0, $this->user)),
+            'transform_user_resource' => new UserResource($this->transform($this->user, fn ($user) => $user)),
+
             // mergeUnless mirrors mergeWhen's dispatch (index 1, always optional). If the dispatch were
             // wrong, this key would be silently absent from the output rather than typed as unknown.
             $this->mergeUnless($this->id > 0, [

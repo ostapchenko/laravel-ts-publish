@@ -4137,6 +4137,20 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — unless/whenAp
             ->and($props['transform_with_default']['optional'])->toBeFalse();
     });
 
+    // unless/transform were absent from $conditionalMethods, the list a nested resource constructor
+    // consults, so wrapping one in either emitted a required property instead of optional. StaticCall
+    // (::make()) and New_ (new Resource()) take separate detection paths, so both need coverage.
+    it('marks a nested resource constructor wrapping unless/transform as optional', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['unless_user_resource']['type'])->toBe('UserResource')
+            ->and($props['unless_user_resource']['optional'])->toBeTrue();
+
+        expect($props['transform_user_resource']['type'])->toBe('UserResource')
+            ->and($props['transform_user_resource']['optional'])->toBeTrue();
+    });
+
     // mergeUnless mirrors mergeWhen: array/closure argument at index 1, always optional. If the dispatch
     // string or operator were wrong, analyzeMergeExpression() would return an empty ResourceAnalysis and
     // this key would be silently missing from the output entirely — not typed 'unknown', just absent.
