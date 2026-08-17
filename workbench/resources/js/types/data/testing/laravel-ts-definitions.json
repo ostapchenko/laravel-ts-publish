@@ -7727,6 +7727,21 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\CaseSpreadResource": {
+            "name": "CaseSpreadResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "case_title",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\CategoryResource": {
             "name": "CategoryResource",
             "properties": [

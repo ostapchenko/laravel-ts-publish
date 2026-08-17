@@ -17,6 +17,7 @@ use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
+use Workbench\App\Http\Resources\CaseSpreadResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureParamShadowResource;
@@ -1655,6 +1656,19 @@ describe('ResourceAstAnalyzer with mutually recursive spread methods', function 
 
         expect($props)->toHaveKey('name')
             ->and($props['name']['type'])->toBe('string');
+    });
+});
+
+describe('ResourceAstAnalyzer with a case-mismatched spread call site', function () {
+    it('resolves a spread method whose call-site casing differs from its declaration', function () {
+        $reflection = new ReflectionClass(CaseSpreadResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Post::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props['id']['type'])->toBe('number')
+            ->and($props['case_title']['type'])->toBe('string');
     });
 });
 

@@ -270,7 +270,8 @@ which method names are currently on that re-entry stack; a method already on the
 (`alpha()` spreads `beta()`, `beta()` spreads `alpha()`) — degrades to an empty analysis rather than
 recursing. The entry is set right after the `hasMethod()` check and cleared in the same `finally`
 that already restores `$localVarBindings`/`$resolvingLocalVars`/`$varModelBindings`, so it clears on
-the exception path too.
+the exception path too. The NodeFinder predicate that locates the target method compares names with
+`strcasecmp()`, so call-site casing is normalized to match PHP's own case-insensitive method dispatch.
 
 Before this guard existed, a mutually recursive spread had no way to terminate: each call re-entered
 `analyzeThisMethodSpread()` for the other method, which re-entered the AST parser, until PHP's memory

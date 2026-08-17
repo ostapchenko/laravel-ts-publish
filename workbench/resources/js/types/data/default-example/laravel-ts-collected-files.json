@@ -77,6 +77,7 @@
     "app\/Http\/Resources\/BareMethodReturnResource.php",
     "app\/Http\/Resources\/BaseSharedResource.php",
     "app\/Http\/Resources\/BooleanExprResource.php",
+    "app\/Http\/Resources\/CaseSpreadResource.php",
     "app\/Http\/Resources\/CategoryResource.php",
     "app\/Http\/Resources\/ChildSharedResource.php",
     "app\/Http\/Resources\/ClosureControlFlowResource.php",

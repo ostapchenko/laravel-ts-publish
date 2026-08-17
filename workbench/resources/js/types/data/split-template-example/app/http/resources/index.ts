@@ -6,6 +6,7 @@ export * from './bare-func-call-resource';
 export * from './bare-method-return-resource';
 export * from './base-shared-resource';
 export * from './boolean-expr-resource';
+export * from './case-spread-resource';
 export * from './category-resource';
 export * from './child-shared-resource';
 export * from './closure-control-flow-resource';

@@ -1667,6 +1667,14 @@ declare global {
             user_bio?: string | null;
         }
         /**
+         * A spread whose call-site casing differs from the declared method. PHP method calls are
+         * case-insensitive, so this is valid, runnable code the analyzer must still resolve.
+         */
+        export interface CaseSpreadResource {
+            id: number;
+            case_title: string;
+        }
+        /**
          * Exercises: self-referencing Resource::make and Resource::collection,
          * when conditional, whenCounted, cross-resource PostResource::collection.
          */

@@ -2149,7 +2149,7 @@ class ResourceAstAnalyzer
 
         $finder = new NodeFinder;
         $targetMethod = $finder->findFirst($stmts, function (Node $node) use ($methodName): bool {
-            return $node instanceof ClassMethod && $node->name->toString() === $methodName;
+            return $node instanceof ClassMethod && strcasecmp($node->name->toString(), $methodName) === 0;
         });
 
         if (! $targetMethod instanceof ClassMethod || $targetMethod->stmts === null) {
