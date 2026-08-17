@@ -3297,6 +3297,22 @@
                     "jsDocMetadata": []
                 },
                 {
+                    "fieldPath": "priority_level",
+                    "tsType": "1 | 2 | 3",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "legacy_code",
+                    "tsType": "'1' | '2' | '3'",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
                     "fieldPath": "is_authenticated",
                     "tsType": "boolean",
                     "isRequired": true,

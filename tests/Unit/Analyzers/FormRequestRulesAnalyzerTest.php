@@ -277,6 +277,27 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($pref->isRequired)->toBeFalse();
         });
 
+        // ValidationRuleParser::parse() always parses string-form params as strings, so numeric-looking
+        // params need the sibling `integer` rule as a signal to emit unquoted, matching what
+        // `Rule::in([1, 2, 3])` (the object form) already emits for the same values.
+        it('string-form in with a sibling integer rule emits unquoted numeric literals', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $priority = collect($nodes)->firstWhere('fieldPath', 'priority_level');
+            expect($priority->tsType)->toBe('1 | 2 | 3');
+        });
+
+        // Contrast: a declared `string` field's `in:1,2,3` params stay quoted string literals — the
+        // numeric trigger must not retype a field the rules explicitly say is a string.
+        it('string-form in on a declared string field keeps quoted string literals', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $legacy = collect($nodes)->firstWhere('fieldPath', 'legacy_code');
+            expect($legacy->tsType)->toBe("'1' | '2' | '3'");
+        });
+
         it('maps Rule::string() fluent object to string type', function () {
             $nodes = (new FormRequestRulesAnalyzer)->analyze(RuleClassRequest::class);
             $node = collect($nodes)->firstWhere('fieldPath', 'title');

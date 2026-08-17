@@ -140,6 +140,15 @@ class UtilityRulesRequest extends FormRequest
             // sometimes — only validated when present in the input
             'optional_preference' => ['sometimes', 'string', 'in:light,dark,system'],
 
+            // A sibling `integer` rule signals the field is numeric, so string-form `in:1,2,3` params
+            // (always strings per ValidationRuleParser::parse()) must emit unquoted numeric literals —
+            // matching what `Rule::in([1, 2, 3])` emits for the same field.
+            'priority_level' => ['required', 'integer', 'in:1,2,3'],
+
+            // Contrast: a declared `string` field keeps its `in:1,2,3` params quoted, since nothing here
+            // says the values are meant as numbers.
+            'legacy_code' => ['required', 'string', 'in:1,2,3'],
+
             // Helper fields referenced by other rules above
             'is_authenticated' => ['required', 'boolean'],
             'role' => ['required', 'string', 'in:user,admin,moderator'],

@@ -544,7 +544,7 @@ class FormRequestRulesAnalyzer
             // String-form `in:a,b,c` gets the same position-independent priority as the In object,
             // so an earlier `string`/`integer` rule cannot shadow the literal union.
             if (is_string($rule) && strtolower($rule) === 'in' && $params !== []) {
-                return $this->resolveInFromParams($params);
+                return $this->resolveInFromParams($params, $rules);
             }
         }
 
@@ -599,7 +599,7 @@ class FormRequestRulesAnalyzer
                 $ruleLower === 'array' => 'unknown[]',
                 $ruleLower === 'list' => 'unknown[]',
                 $ruleLower === 'array_keys' => 'unknown[]',
-                $ruleLower === 'in' => $this->resolveInFromParams($params),
+                $ruleLower === 'in' => $this->resolveInFromParams($params, $rules),
                 default => null,
             };
 
@@ -634,16 +634,49 @@ class FormRequestRulesAnalyzer
     /**
      * Resolve the TypeScript union type from `in:a,b,c` params.
      *
+     * ValidationRuleParser::parse() always parses string-form params as strings, so a numeric-looking
+     * value needs an explicit signal to emit unquoted — a sibling `integer`/`int`/`numeric` rule on the
+     * same field is that signal, matching what `Rule::in([1, 2, 3])` already emits for the same values.
+     *
      * @param  list<mixed>  $params
+     * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
      */
-    protected function resolveInFromParams(array $params): string
+    protected function resolveInFromParams(array $params, array $rules): string
     {
+        $numeric = $this->hasNumericTypeSibling($rules);
+
         $literals = array_map(
-            fn (mixed $v): string => LaravelTsPublish::toJsLiteral($v),
+            fn (mixed $v): string => LaravelTsPublish::toJsLiteral(
+                $numeric && is_string($v) && is_numeric($v) ? $v + 0 : $v,
+            ),
             array_filter($params, fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
         return $literals !== [] ? implode(' | ', $literals) : 'string';
+    }
+
+    /**
+     * Whether a field's sibling rules declare it numeric (`integer`/`int`/`numeric`).
+     *
+     * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
+     */
+    protected function hasNumericTypeSibling(array $rules): bool
+    {
+        foreach ($rules as [$rule]) {
+            if (! is_string($rule)) {
+                continue;
+            }
+
+            // ValidationRuleParser::parse() returns PascalCase names (alpha_dash → AlphaDash); undo that.
+            $pascalToSnake = preg_replace('/[A-Z]/', '_$0', lcfirst($rule));
+            $ruleLower = strtolower(is_string($pascalToSnake) ? $pascalToSnake : $rule);
+
+            if (in_array($ruleLower, ['integer', 'int', 'numeric'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

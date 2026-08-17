@@ -3494,6 +3494,8 @@ declare global {
             contact_method: string | null;
             permissions: { read: unknown; write: unknown };
             optional_preference?: 'light' | 'dark' | 'system';
+            priority_level: 1 | 2 | 3;
+            legacy_code: '1' | '2' | '3';
             is_authenticated: boolean;
             role: 'user' | 'admin' | 'moderator';
             display_name?: string | null;
