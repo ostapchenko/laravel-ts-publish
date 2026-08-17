@@ -42,9 +42,9 @@ not a plain nested array — PHPStan (this project runs level 10) rejects a dire
 `composeTrieNode()` then collapses the trie bottom-up. The branches are checked in this order,
 and the order is load-bearing:
 
-1. **A node carrying `syntheticArrayKeys`** (from `required_array_keys`/`in_array_keys`/`array:`) merges
-   pseudo-children for those keys into whatever real children it already has, then re-enters the list
-   below — see [synthesized array keys](#synthesized-array-keys-required_array_keys-in_array_keys-array).
+1. **A node carrying `syntheticArrayKeys`** (from `required_array_keys`/`in_array_keys`/`array:`/`array_keys:`)
+   merges pseudo-children for those keys into whatever real children it already has, then re-enters the
+   list below — see [synthesized array keys](#synthesized-array-keys-required_array_keys-in_array_keys-array-array_keys).
 2. **A node with no children** returns its own leaf as-is — this is the existing flat behavior,
    completely unchanged for fields with no dotted continuation (`title`, `email`, `published`, …).
 3. **A node whose keys are *all* explicit numeric indices** (`allKeysAreNumeric()`) composes as a
@@ -229,9 +229,9 @@ never required" override is gone: it existed only because dotted keys used to su
 pseudo-top-level fields you could never actually supply. Now that they compose into a real
 nested property, their own `required` rule is exactly what should decide their optionality.
 
-## Synthesized array keys: `required_array_keys`, `in_array_keys`, `array:`
+## Synthesized array keys: `required_array_keys`, `in_array_keys`, `array:`, `array_keys:`
 
-Three rules describe a key set for an otherwise-untyped array, and `resolveSyntheticArrayKeys()`
+Four rules describe a key set for an otherwise-untyped array, and `resolveSyntheticArrayKeys()`
 composes all of them the same way: each declared key becomes a synthesized `unknown`-typed
 pseudo-child, so `composeTrieNode()` takes the same object-node branch as a real nested rule set.
 The rules differ only in the optionality they imply, per Laravel's own validator
@@ -242,6 +242,7 @@ The rules differ only in the optionality they imply, per Laravel's own validator
 | `required_array_keys:a,b` | *all* listed keys must be present (`array_all`) | required (`a: T`) |
 | `in_array_keys:a,b` | *at least one* listed key must be present (`array_any`) | optional (`a?: T`) |
 | `array:a,b` | restricts which keys are *allowed*; presence unenforced | optional (`a?: T`) |
+| `array_keys:a,b` | restricts which keys are allowed; requires ≥1 listed key; presence of any given key unenforced | optional (`a?: T`) |
 
 ```php
 'permissions' => ['required', 'array', 'required_array_keys:read,write'],

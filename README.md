@@ -433,7 +433,7 @@ import type { StorePostRequest } from '@js/types/data/form-requests';
 
 Key capabilities:
 
-- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type. `required_array_keys:a,b`, `in_array_keys:a,b`, and `array:a,b` name an array's keys without a full nested shape, resolving to a keyed object (`config: { timezone?: unknown }`) instead of `unknown[]`.
+- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type. `required_array_keys:a,b`, `in_array_keys:a,b`, `array:a,b`, and `array_keys:a,b` name an array's keys without a full nested shape, resolving to a keyed object (`config: { timezone?: unknown }`) instead of `unknown[]`.
 - **Nested/wildcard composition** — `parent.*.child` and `parent.child` dot-notation rules compose recursively into their nearest undotted ancestor (`tags.*` → `tags: string[]`, `order.items.*.sku` → `order?: { items?: { sku: string }[] }`) instead of surviving as separate flat, quoted keys. Declaring the parent's own rules (e.g. `'order' => ['required', 'array']`) makes the composed key required instead of optional.
 - **Presence & nullability** — `required`/`sometimes` control whether a field is optional (`?`), `nullable` adds `| null`, and `missing`/`prohibited` fields are excluded from the interface entirely.
 - **`#[TsCasts]`** — override or add field types on the request class itself, the same attribute used by models and resources.
