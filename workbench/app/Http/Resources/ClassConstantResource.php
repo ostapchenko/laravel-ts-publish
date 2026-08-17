@@ -6,7 +6,6 @@ namespace Workbench\App\Http\Resources;
 
 use AbeTwoThree\LaravelTsPublish\EnumResource;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 use Workbench\App\Enums\Status;
 use Workbench\App\Models\Order;
 use Workbench\App\Services\ChannelDefaults;
@@ -18,9 +17,11 @@ use Workbench\App\Services\ChannelDefaults;
  *
  * @mixin Order
  */
-class ClassConstantResource extends JsonResource
+class ClassConstantResource extends AbstractVersionedResource
 {
     protected const int SCHEMA_VERSION = 2;
+
+    protected const Status DEFAULT_STATUS = Status::Draft;
 
     /**
      * @return array<string, mixed>
@@ -34,13 +35,32 @@ class ClassConstantResource extends JsonResource
             'max_retries' => ChannelDefaults::MAX_RETRIES,
             // self::CONSTANT referenced from within the resource.
             'schema_version' => self::SCHEMA_VERSION,
+            // parent::CONSTANT referenced from AbstractVersionedResource.
+            'base_version' => parent::BASE_VERSION,
+            // A constant whose own value is another class's enum case.
+            'default_status' => self::DEFAULT_STATUS,
             // Reached through ?? — the left arm is an undefined model attribute (unknown).
             'fallback_channels' => $this->totally_unmapped_field ?? ChannelDefaults::DEFAULT_CHANNELS,
-            // Negative case: a plain-list constant analyzeInlineArray() can't shape — stays unknown.
+            // A plain list where every element agrees — resolves to string[].
             'channel_tags' => ChannelDefaults::CHANNEL_TAGS,
-            // Regression pin: `Foo::class` still types as a plain string, not a resource/model type.
+            // A list whose elements don't agree — resolves to a union element array.
+            'mixed_tags' => ChannelDefaults::MIXED_TAGS,
+            // A list nested inside a keyed constant — each value must resolve to string[], not
+            // the Record<string, unknown> a keyless item would misreport through the AST pipeline.
+            'nested_tags' => ChannelDefaults::NESTED_TAGS,
+            // Negative case: references an undefined constant, degrading to unknown at read time
+            // rather than aborting the whole generation run.
+            'broken_channels' => ChannelDefaults::BROKEN,
+            // Negative case: one element past MAX_CONSTANT_ARRAY_ELEMENTS.
+            'over_element_limit' => ChannelDefaults::OVER_ELEMENT_LIMIT,
+            // Negative case: one level past MAX_CONSTANT_ARRAY_DEPTH.
+            'over_depth_limit' => ChannelDefaults::OVER_DEPTH_LIMIT,
+            // New behaviour: `Foo::class` now types as a plain string, not a resource/model type —
+            // the four risky call sites (EnumResource::make(), toResource(...), #[Collects], the
+            // $collects default) are guarded separately by their own untouched fixtures.
             'resource_marker' => self::class,
-            // Regression pin: an enum case reached through EnumResource::make() is unaffected.
+            // Unaffected: an enum case reached through EnumResource::make() — a separate,
+            // pre-existing path this feature does not touch.
             'status_marker' => EnumResource::make(Status::Draft),
         ];
     }

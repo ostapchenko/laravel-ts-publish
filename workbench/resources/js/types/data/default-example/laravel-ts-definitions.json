@@ -8200,12 +8200,47 @@
                     "optional": false
                 },
                 {
+                    "name": "base_version",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "default_status",
+                    "type": "StatusType",
+                    "optional": false
+                },
+                {
                     "name": "fallback_channels",
                     "type": "{ in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } }",
                     "optional": false
                 },
                 {
                     "name": "channel_tags",
+                    "type": "string[]",
+                    "optional": false
+                },
+                {
+                    "name": "mixed_tags",
+                    "type": "(string | number)[]",
+                    "optional": false
+                },
+                {
+                    "name": "nested_tags",
+                    "type": "{ primary: string[]; secondary: string[] }",
+                    "optional": false
+                },
+                {
+                    "name": "broken_channels",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "over_element_limit",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "over_depth_limit",
                     "type": "unknown",
                     "optional": false
                 },

@@ -1816,8 +1816,15 @@ declare global {
             owner_minimum_channels: { in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } };
             max_retries: number;
             schema_version: number;
+            base_version: number;
+            default_status: app.enums.StatusType;
             fallback_channels: { in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } };
-            channel_tags: unknown;
+            channel_tags: string[];
+            mixed_tags: (string | number)[];
+            nested_tags: { primary: string[]; secondary: string[] };
+            broken_channels: unknown;
+            over_element_limit: unknown;
+            over_depth_limit: unknown;
             resource_marker: string;
             status_marker: app.enums.StatusType;
         }

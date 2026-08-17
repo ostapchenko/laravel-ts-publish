@@ -79,6 +79,8 @@ use ReflectionClass;
 use ReflectionEnum;
 use ReflectionMethod;
 use ReflectionNamedType;
+use Throwable;
+use UnitEnum;
 
 /**
  * Analyzes a JsonResource's toArray() body to extract property names, types, and optional markers via AST.
@@ -702,10 +704,9 @@ class ResourceAstAnalyzer
             }
         }
 
-        // SomeClass::CONSTANT / self::CONSTANT / static::CONSTANT as a value — resolve the
-        // constant's own value. `Foo::class` and enum-case fetches are excluded inside the helper,
-        // so this cannot divert the dedicated Foo::class / enum-case paths used elsewhere (e.g.
-        // EnumResource::make(), toResource(SomeResource::class), #[Collects]).
+        // SomeClass::CONSTANT / self::CONSTANT / static::CONSTANT as a value. `Foo::class` and
+        // enum-case fetches are excluded inside the helper, so this never diverts those paths
+        // (EnumResource::make(), toResource(SomeResource::class), #[Collects]).
         if ($expr instanceof ClassConstFetch && $expr->class instanceof Name && $expr->name instanceof Identifier) {
             $constantResult = $this->resolveClassConstantValueExpression($expr);
 
@@ -1870,9 +1871,8 @@ class ResourceAstAnalyzer
 
     /**
      * Resolve `SomeClass::CONSTANT` as a value expression. Reads the constant via reflection and
-     * feeds its PHP value back through analyzeValueExpression() as a synthetic AST node, reusing
-     * every existing scalar/array branch (including analyzeInlineArray()'s shape builder) instead
-     * of a second value-to-TS mapper. Returns null for anything not a resolvable plain constant.
+     * feeds its PHP value back through analyzeConstantValue(), reusing analyzeValueExpression()'s
+     * scalar dispatch for leaves. Returns null for anything not a resolvable plain constant.
      *
      * @return ValueExpressionResult|null
      */
@@ -1884,18 +1884,26 @@ class ResourceAstAnalyzer
 
         $constName = $expr->name->toString();
 
-        // `Foo::class` is a compile-time magic constant, not a real declared one — reflection
-        // can't read it. It is a string at runtime, so it types as `string` directly.
-        if ($constName === 'class') {
+        // `Foo::class`/`Foo::CLASS` (the keyword is case-insensitive) is a compile-time magic
+        // constant, not a real declared one — reflection can't read it. It is a string at runtime.
+        if (strtolower($constName) === 'class') {
             return ['type' => 'string', 'optional' => false];
         }
 
         $className = $expr->class->toString();
 
-        // Resolve `self`/`static` so a constant declared on the resource itself is readable,
-        // matching how analyzeNewResource()/analyzeStaticCall() already treat those keywords.
+        // Resolve self/static/parent so a constant declared on the resource (or its parent) is
+        // readable, matching how analyzeNewResource()/analyzeStaticCall() treat those keywords.
         if ($className === 'self' || $className === 'static') {
             $className = $this->resourceReflection->getName();
+        } elseif ($className === 'parent') {
+            $parentReflection = $this->resourceReflection->getParentClass();
+
+            if ($parentReflection === false) {
+                return null;
+            }
+
+            $className = $parentReflection->getName();
         }
 
         if (! class_exists($className) && ! interface_exists($className) && ! enum_exists($className)) {
@@ -1917,13 +1925,21 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        return $this->analyzeConstantValue($constantReflection->getValue());
+        try {
+            $value = $constantReflection->getValue();
+        } catch (Throwable) {
+            // The initializer can reference another undefined constant; PHP evaluates a class
+            // constant's value lazily, so that only surfaces here, not at class-load time.
+            return null;
+        }
+
+        return $this->analyzeConstantValue($value);
     }
 
     /**
-     * Convert a reflected constant's PHP value into a TS type by building a synthetic AST node
-     * and reusing analyzeValueExpression()'s scalar/array dispatch, rather than a parallel
-     * value-to-TS mapper.
+     * Convert a reflected constant's PHP value into a TS type, recursing into arrays. A scalar
+     * reuses analyzeValueExpression()'s existing dispatch via a synthetic AST node instead of a
+     * parallel value-to-TS mapper; a constant typed as another enum's case resolves to that enum.
      *
      * @return ValueExpressionResult|null
      */
@@ -1933,9 +1949,20 @@ class ResourceAstAnalyzer
             return $this->analyzeConstantArrayValue($value);
         }
 
-        // A class constant's value is always a compile-time literal — null/bool/int/float/string/
-        // array. Anything else (only reachable via an enum case, already excluded by the caller)
-        // can't be resolved.
+        // A constant's initializer may itself be another class's enum case (`Status::Live`),
+        // which getValue() hands back as the enum instance rather than a scalar.
+        if ($value instanceof UnitEnum) {
+            $enumFqcn = $value::class;
+
+            return [
+                'type' => LaravelTsPublish::toTsType($enumFqcn)['type'],
+                'optional' => false,
+                'directEnumFqcn' => $enumFqcn,
+            ];
+        }
+
+        // Defensive: a class-constant expression can't construct an arbitrary object (`new` isn't
+        // allowed there), so only an enum instance — handled above — reaches this as non-scalar.
         if (! is_null($value) && ! is_bool($value) && ! is_int($value) && ! is_float($value) && ! is_string($value)) {
             return null; // @codeCoverageIgnore
         }
@@ -1944,28 +1971,87 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Convert a reflected constant's array value into a TS type, bailing to unknown for a plain
-     * list or an oversized/deeply-nested shape rather than misreporting either.
+     * Convert a reflected constant's array value into a TS shape: empty stays `never[]`, a keyed
+     * array becomes an inline object, a plain list becomes an element array, and either bails to
+     * unknown when the array exceeds constantArrayWithinLimits().
      *
      * @param  array<array-key, mixed>  $value
      * @return ValueExpressionResult|null
      */
     protected function analyzeConstantArrayValue(array $value): ?array
     {
-        if ($value !== []) {
-            // A plain sequential list has no key to shape a property from — analyzeInlineArray()
-            // builds record-style shapes keyed by name, so every element would be silently
-            // dropped, misreporting an actual list as an empty Record<string, unknown>.
-            if (array_is_list($value)) {
-                return null;
-            }
-
-            if (! $this->constantArrayWithinLimits($value)) {
-                return null;
-            }
+        if ($value === []) {
+            return ['type' => 'never[]', 'optional' => false];
         }
 
-        return $this->analyzeValueExpression(new BuilderFactory()->val($value));
+        if (! $this->constantArrayWithinLimits($value)) {
+            return null;
+        }
+
+        return array_is_list($value)
+            ? $this->analyzeConstantListValue($value)
+            : $this->analyzeConstantRecordValue($value);
+    }
+
+    /**
+     * Convert a plain-list constant array into an element type: `T[]` when every element agrees,
+     * `(A | B)[]` when they don't, or null (unknown) when any element can't itself be resolved.
+     *
+     * Recurses through analyzeConstantValue() — rather than delegating the whole array back to the
+     * AST pipeline — so a list nested inside a keyed constant (analyzeConstantRecordValue()) is
+     * resolved the same way a top-level one is: analyzeReturnArray() has no key to shape a keyless
+     * item from and would otherwise silently drop every element.
+     *
+     * @param  list<mixed>  $value
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeConstantListValue(array $value): ?array
+    {
+        $types = [];
+
+        foreach ($value as $item) {
+            $itemResult = $this->analyzeConstantValue($item);
+
+            if ($itemResult === null || $itemResult['type'] === 'unknown') {
+                return null;
+            }
+
+            $types[] = $itemResult['type'];
+        }
+
+        $types = array_values(array_unique($types));
+        $elementType = count($types) === 1 ? $types[0] : '('.implode(' | ', $types).')';
+
+        return ['type' => $elementType.'[]', 'optional' => false];
+    }
+
+    /**
+     * Convert a keyed constant array into an inline object, formatted the same way
+     * analyzeInlineArray() builds one. A member that can't itself be resolved types as `unknown`
+     * rather than failing the whole shape, matching analyzeReturnArray()'s per-property behaviour.
+     *
+     * @param  array<array-key, mixed>  $value
+     * @return ValueExpressionResult
+     */
+    protected function analyzeConstantRecordValue(array $value): array
+    {
+        $parts = [];
+
+        foreach ($value as $key => $item) {
+            if (! is_string($key)) {
+                continue; // @codeCoverageIgnore — array_is_list() already routed pure-list arrays elsewhere
+            }
+
+            $itemResult = $this->analyzeConstantValue($item) ?? $this->unknownResult();
+            $formattedKey = LaravelTsPublish::validJsObjectKey($key);
+            $parts[] = "{$formattedKey}: {$itemResult['type']}";
+        }
+
+        if ($parts === []) {
+            return ['type' => 'Record<string, unknown>', 'optional' => false]; // @codeCoverageIgnore
+        }
+
+        return ['type' => '{ '.implode('; ', $parts).' }', 'optional' => false];
     }
 
     /**

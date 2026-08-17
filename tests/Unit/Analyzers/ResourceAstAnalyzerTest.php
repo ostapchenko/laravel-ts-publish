@@ -5078,14 +5078,35 @@ test('SomeClass::CONSTANT resolves the constant value without regressing Foo::cl
     expect($props['owner_minimum_channels']['type'])->toBe($nestedChannelsShape)
         ->and($props['max_retries']['type'])->toBe('number')
         ->and($props['schema_version']['type'])->toBe('number')
+        // parent::CONSTANT, resolved from AbstractVersionedResource via getParentClass().
+        ->and($props['base_version']['type'])->toBe('number')
+        // A constant whose own initializer is another class's enum case.
+        ->and($props['default_status']['type'])->toBe('StatusType')
+        ->and($analysis->directEnumFqcns)->toContain(Status::class)
         // The left arm ($this->totally_unmapped_field) is unresolvable, so the constant on the
         // right — the same kind eaglesys's default_subscription_channels falls back to — wins.
         ->and($props['fallback_channels']['type'])->toBe($nestedChannelsShape)
-        // A plain-list constant has no key to shape a property from; must stay unknown.
-        ->and($props['channel_tags']['type'])->toBe('unknown')
-        // Regression pin: `Foo::class` still types as a plain string, not a resource/model type.
+        // A plain list where every element agrees resolves to an element array.
+        ->and($props['channel_tags']['type'])->toBe('string[]')
+        // A list whose elements don't agree resolves to a union element array.
+        ->and($props['mixed_tags']['type'])->toBe('(string | number)[]')
+        // A list nested inside a keyed constant resolves the same way a top-level one does,
+        // rather than the Record<string, unknown> a keyless item would otherwise misreport.
+        ->and($props['nested_tags']['type'])->toBe('{ primary: string[]; secondary: string[] }')
+        // Negative case: an undefined-constant reference degrades to unknown at read time
+        // instead of throwing and aborting the whole generation run.
+        ->and($props['broken_channels']['type'])->toBe('unknown')
+        // Negative case: one element past MAX_CONSTANT_ARRAY_ELEMENTS.
+        ->and($props['over_element_limit']['type'])->toBe('unknown')
+        // Negative case: one level past MAX_CONSTANT_ARRAY_DEPTH.
+        ->and($props['over_depth_limit']['type'])->toBe('unknown')
+        // New behaviour: `Foo::class` now types as a plain string instead of unknown. The four
+        // risky call sites named in the brief never reach this code path at all (they resolve
+        // their ClassConstFetch argument directly, without going through analyzeValueExpression),
+        // so this assertion documents new behaviour rather than guarding those separate paths.
         ->and($props['resource_marker']['type'])->toBe('string')
-        // Regression pin: an enum case reached through EnumResource::make() is unaffected.
+        // Unaffected: an enum case reached through EnumResource::make() — a separate,
+        // pre-existing path (resolveEnumFromPropertyArg()) this feature does not touch.
         ->and($props['status_marker']['type'])->toContain('Status')
         ->and($analysis->enumResources)->toHaveKey('status_marker', Status::class);
 });
