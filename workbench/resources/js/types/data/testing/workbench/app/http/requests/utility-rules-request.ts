@@ -50,6 +50,7 @@ export interface UtilityRulesRequest {
     optional_preference?: 'light' | 'dark' | 'system';
     priority_level: 1 | 2 | 3;
     legacy_code: '1' | '2' | '3';
+    padded_numeric_code: '007' | '2.50';
     is_authenticated: boolean;
     role: 'user' | 'admin' | 'moderator';
     display_name?: string | null;

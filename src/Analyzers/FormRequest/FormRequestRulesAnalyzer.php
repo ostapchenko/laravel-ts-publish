@@ -637,17 +637,21 @@ class FormRequestRulesAnalyzer
      * ValidationRuleParser::parse() always parses string-form params as strings, so a numeric-looking
      * value needs an explicit signal to emit unquoted — a sibling `integer`/`int`/`numeric` rule on the
      * same field is that signal, matching what `Rule::in([1, 2, 3])` already emits for the same values.
+     * A param only coerces when `+0` round-trips losslessly back to the same text: `validateIn()`
+     * compares `(string) $value` against the literal param, so a padded/reformatted value like `'007'`
+     * or `'2.50'` must stay a quoted string — emitting `7`/`2.5` would describe a value Laravel itself
+     * rejects for that field.
      *
      * @param  list<mixed>  $params
      * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
      */
-    protected function resolveInFromParams(array $params, array $rules): string
+    protected function resolveInFromParams(array $params, array $rules = []): string
     {
         $numeric = $this->hasNumericTypeSibling($rules);
 
         $literals = array_map(
             fn (mixed $v): string => LaravelTsPublish::toJsLiteral(
-                $numeric && is_string($v) && is_numeric($v) ? $v + 0 : $v,
+                $numeric && is_string($v) && is_numeric($v) && $v === (string) ($v + 0) ? $v + 0 : $v,
             ),
             array_filter($params, fn (mixed $v): bool => $v !== null && $v !== ''),
         );

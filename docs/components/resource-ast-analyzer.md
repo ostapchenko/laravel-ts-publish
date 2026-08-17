@@ -366,8 +366,8 @@ the union are decided by the shared `applyConditionalDefault()` helper described
 [below](#every-handler-unions-the-default-arm-in-through-applyconditionaldefault), which `whenNotNull()` and
 `whenNull()` reach with `$index: 1`. The default's own type is analyzed independently via
 `analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
-wins at runtime — unless the default is a closure requiring a parameter, in which case it is never analyzed
-at all; see below.
+wins at runtime — unless the default is a closure requiring a parameter, none of which this pair ever
+supplies, in which case it is never analyzed at all; see below.
 
 ### A default closure requiring more parameters than Laravel supplies is unreachable and never analyzed
 
@@ -440,7 +440,7 @@ What the filtering never does is change `optional`. Before the arity rule above 
 unresolved-*default* direction: the closure's `$status` param was unbound, so `EnumResource::make($status)`
 resolved to `unknown`, and the property emitted `OrderStatusType`, required, because the explicit second
 argument still meant Laravel always emitted the key. That closure requires `$status`, though, so it is now
-caught earlier by [the arity rule](#a-default-closure-requiring-a-parameter-is-unreachable-and-never-analyzed)
+caught earlier by [the arity rule](#a-default-closure-requiring-more-parameters-than-laravel-supplies-is-unreachable-and-never-analyzed)
 and never reaches `analyzeValueExpression()` at all — `OrderStatusType`, required, is correct by the same
 evidence but for a different reason. `ConditionalDefaultsResource::pivot_loaded_with_default` still
 exercises the unresolved-*value*-arm direction, via `whenPivotLoaded()`'s hard-coded `unknown` value arm:

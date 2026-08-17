@@ -298,6 +298,18 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($legacy->tsType)->toBe("'1' | '2' | '3'");
         });
 
+        // Guard: '007' -> 7 and '2.50' -> 2.5 both lose information through +0 coercion. validateIn()
+        // compares (string) $value against the literal param, so the unquoted, renormalized number would
+        // describe a value Laravel itself rejects for this field — these must stay quoted even though the
+        // field carries the numeric-trigger `numeric` rule.
+        it('keeps a padded or reformatted numeric in: param quoted instead of renormalizing it', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $padded = collect($nodes)->firstWhere('fieldPath', 'padded_numeric_code');
+            expect($padded->tsType)->toBe("'007' | '2.50'");
+        });
+
         it('maps Rule::string() fluent object to string type', function () {
             $nodes = (new FormRequestRulesAnalyzer)->analyze(RuleClassRequest::class);
             $node = collect($nodes)->firstWhere('fieldPath', 'title');

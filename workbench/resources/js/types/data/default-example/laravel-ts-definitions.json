@@ -3313,6 +3313,14 @@
                     "jsDocMetadata": []
                 },
                 {
+                    "fieldPath": "padded_numeric_code",
+                    "tsType": "'007' | '2.50'",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
                     "fieldPath": "is_authenticated",
                     "tsType": "boolean",
                     "isRequired": true,
