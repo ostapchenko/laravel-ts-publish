@@ -1,7 +1,7 @@
 import { type AsEnum } from '@tolki/ts';
 
 import { Status } from '../../enums';
-import type { StatusType } from '../../enums';
+import type { OrderStatusType, StatusType } from '../../enums';
 
 /**
  * Regression fixture for Task 17A: SomeClass::CONSTANT as a property value resolves to a real TS
@@ -24,6 +24,10 @@ export interface ClassConstantResource
     broken_channels: unknown;
     over_element_limit: unknown;
     over_depth_limit: unknown;
+    status_map: { status: OrderStatusType };
+    status_list: OrderStatusType[];
+    all_int_keys: Record<string, unknown>;
+    mixed_keys: { a: number };
     resource_marker: string;
     status_marker: AsEnum<typeof Status>;
 }

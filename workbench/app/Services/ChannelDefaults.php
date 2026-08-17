@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Workbench\App\Services;
 
+use Workbench\App\Enums\OrderStatus;
+
 /**
  * Class constants referenced from ClassConstantResource (Task 17A): resolveClassConstantValueExpression()
  * reads a constant's value via reflection and feeds it back through analyzeConstantValue(), which
@@ -83,4 +85,36 @@ class ChannelDefaults
     public const array OVER_DEPTH_LIMIT = [
         'a' => ['b' => ['c' => ['d' => ['e' => ['f' => 'too deep']]]]],
     ];
+
+    /**
+     * An enum case nested inside a keyed constant — its FQCN must survive being embedded so the
+     * generated file still imports it, not just resolve to the right type string.
+     *
+     * @var array<string, OrderStatus>
+     */
+    public const array STATUS_MAP = ['status' => OrderStatus::Pending];
+
+    /**
+     * An enum case nested inside a list constant — same import-propagation requirement, list shape.
+     *
+     * @var list<OrderStatus>
+     */
+    public const array STATUS_LIST = [OrderStatus::Pending, OrderStatus::Shipped];
+
+    /**
+     * All-int, non-sequential keys — array_is_list() is false, but no key is a string either, so
+     * every member is dropped. Resolves to Record<string, unknown>, not a regression: matches how
+     * resolveKeyName() already treats a non-string AST array key everywhere else in this class.
+     *
+     * @var array<int, string>
+     */
+    public const array ALL_INT_KEYS = [200 => 'OK', 404 => 'Not Found'];
+
+    /**
+     * A mix of string and int keys — the int-keyed member is dropped, the string-keyed one keeps
+     * its real type, matching resolveKeyName()'s existing non-string-key behaviour.
+     *
+     * @var array<array-key, int|string>
+     */
+    public const array MIXED_KEYS = ['a' => 1, 5 => 'x'];
 }

@@ -8245,6 +8245,26 @@
                     "optional": false
                 },
                 {
+                    "name": "status_map",
+                    "type": "{ status: OrderStatusType }",
+                    "optional": false
+                },
+                {
+                    "name": "status_list",
+                    "type": "OrderStatusType[]",
+                    "optional": false
+                },
+                {
+                    "name": "all_int_keys",
+                    "type": "Record<string, unknown>",
+                    "optional": false
+                },
+                {
+                    "name": "mixed_keys",
+                    "type": "{ a: number }",
+                    "optional": false
+                },
+                {
                     "name": "resource_marker",
                     "type": "string",
                     "optional": false

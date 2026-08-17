@@ -1900,7 +1900,7 @@ class ResourceAstAnalyzer
             $parentReflection = $this->resourceReflection->getParentClass();
 
             if ($parentReflection === false) {
-                return null;
+                return null; // @codeCoverageIgnore — every JsonResource subclass has a parent
             }
 
             $className = $parentReflection->getName();
@@ -2008,6 +2008,7 @@ class ResourceAstAnalyzer
     protected function analyzeConstantListValue(array $value): ?array
     {
         $types = [];
+        $embeddedEnumFqcns = [];
 
         foreach ($value as $item) {
             $itemResult = $this->analyzeConstantValue($item);
@@ -2017,12 +2018,19 @@ class ResourceAstAnalyzer
             }
 
             $types[] = $itemResult['type'];
+            $embeddedEnumFqcns = [...$embeddedEnumFqcns, ...$this->collectConstantEnumFqcns($itemResult)];
         }
 
         $types = array_values(array_unique($types));
         $elementType = count($types) === 1 ? $types[0] : '('.implode(' | ', $types).')';
 
-        return ['type' => $elementType.'[]', 'optional' => false];
+        $result = ['type' => $elementType.'[]', 'optional' => false];
+
+        if ($embeddedEnumFqcns !== []) {
+            $result['embeddedEnumFqcns'] = array_values(array_unique($embeddedEnumFqcns));
+        }
+
+        return $result;
     }
 
     /**
@@ -2030,28 +2038,61 @@ class ResourceAstAnalyzer
      * analyzeInlineArray() builds one. A member that can't itself be resolved types as `unknown`
      * rather than failing the whole shape, matching analyzeReturnArray()'s per-property behaviour.
      *
+     * An int-keyed member (not routed to analyzeConstantListValue(), since the array as a whole
+     * isn't a list — e.g. `[200 => 'OK', 404 => 'Not Found']`) is dropped, matching how
+     * resolveKeyName() already treats a non-string AST array key everywhere else in this class.
+     *
      * @param  array<array-key, mixed>  $value
      * @return ValueExpressionResult
      */
     protected function analyzeConstantRecordValue(array $value): array
     {
         $parts = [];
+        $embeddedEnumFqcns = [];
 
         foreach ($value as $key => $item) {
             if (! is_string($key)) {
-                continue; // @codeCoverageIgnore — array_is_list() already routed pure-list arrays elsewhere
+                continue;
             }
 
             $itemResult = $this->analyzeConstantValue($item) ?? $this->unknownResult();
             $formattedKey = LaravelTsPublish::validJsObjectKey($key);
             $parts[] = "{$formattedKey}: {$itemResult['type']}";
+            $embeddedEnumFqcns = [...$embeddedEnumFqcns, ...$this->collectConstantEnumFqcns($itemResult)];
         }
 
         if ($parts === []) {
-            return ['type' => 'Record<string, unknown>', 'optional' => false]; // @codeCoverageIgnore
+            return ['type' => 'Record<string, unknown>', 'optional' => false];
         }
 
-        return ['type' => '{ '.implode('; ', $parts).' }', 'optional' => false];
+        $result = ['type' => '{ '.implode('; ', $parts).' }', 'optional' => false];
+
+        if ($embeddedEnumFqcns !== []) {
+            $result['embeddedEnumFqcns'] = array_values(array_unique($embeddedEnumFqcns));
+        }
+
+        return $result;
+    }
+
+    /**
+     * Gather the enum FQCNs a resolved constant element carries — its own directEnumFqcn (a bare
+     * enum-case leaf) plus any already-embedded ones (a nested list/record containing one) — so
+     * analyzeConstantListValue()/analyzeConstantRecordValue() can propagate them to their caller via
+     * the same embeddedEnumFqcns channel analyzeInlineArray() uses to make the import land.
+     *
+     * @param  ValueExpressionResult  $itemResult
+     * @return list<class-string>
+     */
+    protected function collectConstantEnumFqcns(array $itemResult): array
+    {
+        /** @var list<class-string> $fqcns */
+        $fqcns = $itemResult['embeddedEnumFqcns'] ?? [];
+
+        if (isset($itemResult['directEnumFqcn'])) {
+            $fqcns[] = $itemResult['directEnumFqcn'];
+        }
+
+        return $fqcns;
     }
 
     /**

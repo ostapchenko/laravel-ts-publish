@@ -1825,6 +1825,10 @@ declare global {
             broken_channels: unknown;
             over_element_limit: unknown;
             over_depth_limit: unknown;
+            status_map: { status: app.enums.OrderStatusType };
+            status_list: app.enums.OrderStatusType[];
+            all_int_keys: Record<string, unknown>;
+            mixed_keys: { a: number };
             resource_marker: string;
             status_marker: app.enums.StatusType;
         }

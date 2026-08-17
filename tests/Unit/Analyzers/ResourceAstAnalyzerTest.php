@@ -5100,10 +5100,18 @@ test('SomeClass::CONSTANT resolves the constant value without regressing Foo::cl
         ->and($props['over_element_limit']['type'])->toBe('unknown')
         // Negative case: one level past MAX_CONSTANT_ARRAY_DEPTH.
         ->and($props['over_depth_limit']['type'])->toBe('unknown')
+        // An enum case nested inside a keyed constant — the FQCN must survive embedding.
+        ->and($props['status_map']['type'])->toBe('{ status: OrderStatusType }')
+        ->and($analysis->directEnumFqcns)->toContain(OrderStatus::class)
+        // An enum case nested inside a list constant — same requirement, list shape.
+        ->and($props['status_list']['type'])->toBe('OrderStatusType[]')
+        // All-int, non-sequential keys: every member is dropped, not a regression.
+        ->and($props['all_int_keys']['type'])->toBe('Record<string, unknown>')
+        // A mixed string/int-keyed constant: the int-keyed member is silently dropped.
+        ->and($props['mixed_keys']['type'])->toBe('{ a: number }')
         // New behaviour: `Foo::class` now types as a plain string instead of unknown. The four
-        // risky call sites named in the brief never reach this code path at all (they resolve
-        // their ClassConstFetch argument directly, without going through analyzeValueExpression),
-        // so this assertion documents new behaviour rather than guarding those separate paths.
+        // risky call sites never reach this branch — they resolve their ClassConstFetch argument
+        // directly, without going through analyzeValueExpression() — so this is new behaviour, not a guard.
         ->and($props['resource_marker']['type'])->toBe('string')
         // Unaffected: an enum case reached through EnumResource::make() — a separate,
         // pre-existing path (resolveEnumFromPropertyArg()) this feature does not touch.
