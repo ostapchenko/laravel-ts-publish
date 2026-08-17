@@ -263,7 +263,9 @@ trait ResolvesModelTypes
             if ($attr !== null) {
                 $tsInfo = $resolver->resolveAttribute($relatedModelClass, $key);
 
-                if ($tsInfo['type'] !== 'unknown') {
+                // Match buildModelDelegatedAnalysis(): only a write-only mutator with no getter is truly
+                // absent at runtime — a getter-backed attribute survives even when its type is unknown.
+                if ($tsInfo['type'] !== 'unknown' || ! $resolver->isOmittedMutator($relatedModelClass, $key)) {
                     $parts[] = $key.': '.$tsInfo['type'];
 
                     /** @var list<class-string> $enumFqcns */

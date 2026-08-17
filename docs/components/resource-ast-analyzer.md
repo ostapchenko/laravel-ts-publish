@@ -107,10 +107,14 @@ return. `OrderOnlyResource`'s fixture pins this against `search_index` directly.
 
 The relations half of the inaccuracy above is untouched — `Model::except()` never returns a
 relation either, and that stays out of scope. `resolveFilteredRelationType()`'s except branch
-(`$this->relation->except([...])`) still tests the blunter `$tsInfo['type'] !== 'unknown'` rather
-than `isOmittedMutator()`, so unlike `buildModelDelegatedAnalysis()` it also drops a mutator that
-*has* a getter but resolves to an untypeable `unknown` — a known, un-fixed inconsistency between
-the two `except()` paths.
+(`$this->relation->except([...])`) now applies the same `isOmittedMutator()` rule as
+`buildModelDelegatedAnalysis()`: only a write-only mutator with no getter and no docblock `Get`
+generic drops out, so a mutator that *has* a getter but resolves to an untypeable `unknown`
+survives as `key: unknown`, matching the whole-model path. The two `except()` paths now agree.
+A side effect on the sibling include branch (`$this->relation->only([...])`) follows from the
+same shared gate: an explicitly-named getter-backed accessor that resolves to `unknown` now also
+survives instead of vanishing from the inline shape — runtime-faithful, since `Model::only()`
+resolves through `getAttribute()`, which does return that key.
 
 ### `exclude_hidden` on the top-level resource, not just relation filters
 

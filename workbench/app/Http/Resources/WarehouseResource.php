@@ -37,6 +37,7 @@ class WarehouseResource extends RoutableResource
             'last_user_activity_by_typed_short' => $this->last_user_activity_by_typed_short,
             'last_user_activity_by_partial' => $this->last_user_activity_by?->only('id', 'name'),
             'last_user_activity_by_mostly' => $this->last_user_activity_by?->except(['id', 'name']),
+            'last_checked_by_mostly' => $this->last_checked_by?->except(['created_at', 'updated_at']),
         ];
     }
 }

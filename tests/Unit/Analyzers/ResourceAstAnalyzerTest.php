@@ -102,6 +102,7 @@ use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Address;
 use Workbench\App\Models\Category;
 use Workbench\App\Models\Comment;
+use Workbench\App\Models\Image;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
@@ -4907,6 +4908,19 @@ test('a relation except() drops hidden columns from the derived key list', funct
     expect($type)->not->toContain('password')
         ->and($type)->not->toContain('remember_token')
         ->and($type)->toContain('email: string');
+});
+
+test('relation except() keeps a getter-backed mutator whose type is unknown', function () {
+    $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
+    {
+        /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>} */
+        public function expose(): array
+        {
+            return $this->resolveFilteredRelationType(Image::class, ['created_at', 'updated_at'], false);
+        }
+    };
+
+    expect($analyzer->expose()['type'])->toContain('no_docblock_accessor: unknown');
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {
