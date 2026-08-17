@@ -606,6 +606,15 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->analysis->inlineModelFqcns['member_profiles'])->toContain(User::class);
     });
 
+    test('->map->only() reached directly off the relation resolves the HigherOrderCollectionProxy', function () {
+        // arrayWrapType() parenthesizes on any '|', including one nested inside the braces — same
+        // as member_profiles above, not a defect specific to this proxy.
+        expect($this->props['member_map_only']['type'])->toBe('({ id: number; role: RoleType | null })[]')
+            ->and($this->props['member_map_only']['optional'])->toBeFalse()
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_map_only')
+            ->and($this->analysis->inlineEnumFqcns['member_map_only'])->toContain(Role::class);
+    });
+
     test('pluck() after the relation root resolves to the column type, array-wrapped', function () {
         expect($this->props['member_emails']['type'])->toBe('string[]')
             ->and($this->props['member_emails']['optional'])->toBeFalse();
@@ -5197,10 +5206,9 @@ test('SomeClass::CONSTANT resolves the constant value without regressing Foo::cl
 describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceCollection())', function () {
     beforeEach(function () {
         $reflection = new ReflectionClass(MerchantResource::class);
-        $this->props = collect(
-            (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze()->properties,
-        )->keyBy('name');
-        $this->nested = (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze()->nestedResources;
+        $this->analysis = (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+        $this->nested = $this->analysis->nestedResources;
     });
 
     test('whenLoaded closure toResource() resolves the related model by naming convention', function () {
@@ -5297,4 +5305,24 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
         ! class_exists('Illuminate\Database\Eloquent\Attributes\UseResourceCollection'),
         'UseResourceCollection attribute requires Laravel 12.29+',
     );
+
+    test('whenLoaded closure ->map->only() resolves the HigherOrderCollectionProxy per element', function () {
+        // arrayWrapType() parenthesizes on any '|', including one nested inside the braces.
+        expect($this->props['staff_map_only']['type'])
+            ->toBe('({ id: number; name: string; role: RoleType | null; last_login_at: string | null })[]')
+            ->and($this->props['staff_map_only']['optional'])->toBeTrue()
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('staff_map_only')
+            ->and($this->analysis->inlineEnumFqcns['staff_map_only'])->toContain(Role::class);
+    });
+
+    test('whenLoaded closure ->map->except() resolves the complement per element', function () {
+        expect($this->props['registrars_map_except']['type'])->toBe('{ name: string }[]')
+            ->and($this->props['registrars_map_except']['optional'])->toBeTrue();
+    });
+
+    test('->map->only() on a singular relation param stays unknown, not the element shape', function () {
+        // historyEvent is a BelongsTo: $m binds to varModelBindings, not varCollectionBindings,
+        // so the ->map proxy must not match — a guess here would silently mistype a real property.
+        expect($this->props['history_event_map_only']['type'])->toBe('unknown');
+    });
 });

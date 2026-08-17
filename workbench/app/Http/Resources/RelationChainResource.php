@@ -11,7 +11,8 @@ use Workbench\App\Models\Team;
 
 /**
  * Exercises collection method chains rooted at a many-relation
- * ($this->members->take(5)->map(...)->values()).
+ * ($this->members->take(5)->map(...)->values()), plus the ->map->only()
+ * HigherOrderCollectionProxy reached directly off the relation.
  *
  * @mixin Team
  */
@@ -42,6 +43,10 @@ class RelationChainResource extends JsonResource
                 'role' => $member->role,
                 'owner' => $this->owner,
             ])->values(),
+
+            // ->map->only(): the HigherOrderCollectionProxy reached directly off the relation,
+            // with no whenLoaded closure param involved — the receiver is $this->members itself.
+            'member_map_only' => $this->members->map->only(['id', 'role']),
 
             // pluck() after the relation root → the plucked column's type, array-wrapped.
             'member_emails' => $this->members->pluck('email'),

@@ -982,6 +982,19 @@ class ResourceAstAnalyzer
             return $this->analyzeRelationFilter($expr);
         }
 
+        // $var->map->only([...]) / ->except([...]) — Laravel's HigherOrderCollectionProxy on `map`:
+        // call the filter method on every element and collect the results. The PropertyFetch here is
+        // literally named 'map' (the proxy), never 'this' — disjoint from the relation guard above.
+        if (($expr instanceof MethodCall || $expr instanceof NullsafeMethodCall)
+            && $expr->name instanceof Identifier
+            && in_array($expr->name->toString(), $this->supportedAttributeFilters(), true)
+            && $expr->var instanceof PropertyFetch
+            && $expr->var->name instanceof Identifier
+            && $expr->var->name->toString() === 'map'
+        ) {
+            return $this->analyzeMapProxyFilter($expr);
+        }
+
         if ($expr instanceof Array_) {
             return $this->analyzeInlineArray($expr);
         }
@@ -3811,6 +3824,87 @@ class ResourceAstAnalyzer
             'embeddedModelFqcns' => $filterResult['modelFqcns'],
             'customImports' => $filterResult['customImports'],
         ];
+    }
+
+    /**
+     * Analyze `$var->map->only([...])` / `$var->map->except([...])` — Laravel's HigherOrderCollectionProxy
+     * on `map`, which runs the filter method against every element and collects the results.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeMapProxyFilter(MethodCall|NullsafeMethodCall $call): array
+    {
+        $result = $this->unknownResult();
+
+        $methodName = $call->name instanceof Identifier ? $call->name->toString() : null;
+
+        if ($methodName === null) {
+            return $result; // @codeCoverageIgnore
+        }
+
+        /** @var PropertyFetch $mapFetch */
+        $mapFetch = $call->var;
+        $elementModel = $this->resolveMapProxyElementModel($mapFetch->var);
+
+        if ($elementModel === null) {
+            return $result;
+        }
+
+        $keys = $this->extractFilterKeys($call);
+
+        if ($keys === null || $keys === []) {
+            return $result;
+        }
+
+        $filterResult = $this->resolveFilteredRelationType($elementModel, $keys, $methodName === 'only');
+
+        if ($filterResult['type'] === 'unknown') {
+            return $result;
+        }
+
+        $inlineType = $this->arrayWrapType($filterResult['type']);
+
+        if ($call instanceof NullsafeMethodCall) {
+            $inlineType .= ' | null';
+        }
+
+        return [
+            ...$result,
+            'type' => $inlineType,
+            'embeddedEnumFqcns' => $filterResult['enumFqcns'],
+            'embeddedModelFqcns' => $filterResult['modelFqcns'],
+            'customImports' => $filterResult['customImports'],
+        ];
+    }
+
+    /**
+     * Resolve the element model behind a `->map` proxy receiver: a whenLoaded to-many closure
+     * parameter, or `$this->relation` itself. A singular relation's bound variable is not a
+     * collection and must not match, so it returns null rather than guessing a shape.
+     *
+     * @return class-string<Model>|null
+     */
+    protected function resolveMapProxyElementModel(Expr $receiver): ?string
+    {
+        if ($receiver instanceof Variable
+            && is_string($receiver->name)
+            && isset($this->varCollectionBindings[$receiver->name])
+        ) {
+            return $this->varCollectionBindings[$receiver->name]['modelFqcn'];
+        }
+
+        if ($receiver instanceof PropertyFetch
+            && $this->isThisPropertyFetch($receiver)
+            && $receiver->name instanceof Identifier
+        ) {
+            $relationInfo = $this->resolveModelRelationTypeInfo($receiver->name->toString());
+
+            if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
+                return $relationInfo['modelFqcn'];
+            }
+        }
+
+        return null;
     }
 
     /**

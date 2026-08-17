@@ -15,6 +15,10 @@ use Workbench\App\Models\Merchant;
  * (registrar/registrars/suppliers) the three resolution orderings against a losing
  * candidate that also exists, so an inverted order would visibly fail.
  *
+ * Also reuses the staff/registrars/historyEvent relations for the ->map->only()/->except()
+ * HigherOrderCollectionProxy: a to-many whenLoaded param is a bound collection and matches,
+ * a singular one (historyEvent) is not and must stay unknown.
+ *
  * @mixin Merchant
  */
 #[TsResource(model: Merchant::class)]
@@ -38,6 +42,14 @@ class MerchantResource extends JsonResource
             'registrar' => $this->whenLoaded('registrar', fn ($m) => $m->toResource()),
             'registrars' => $this->whenLoaded('registrars', fn ($rows) => $rows->toResourceCollection()),
             'suppliers' => $this->whenLoaded('suppliers', fn ($rows) => $rows->toResourceCollection()),
+            // ->map->only(): the HigherOrderCollectionProxy on a bound to-many closure param —
+            // element shape, array-wrapped, with a nullable column and an enum column.
+            'staff_map_only' => $this->whenLoaded('staff', fn ($rows) => $rows->map->only(['id', 'name', 'role', 'last_login_at'])),
+            // ->map->except(): same proxy, the complement variant, on a small element model.
+            'registrars_map_except' => $this->whenLoaded('registrars', fn ($rows) => $rows->map->except(['id'])),
+            // Negative: historyEvent is singular (BelongsTo), so $m binds to varModelBindings,
+            // not varCollectionBindings — the proxy must not match and stays unknown.
+            'history_event_map_only' => $this->whenLoaded('historyEvent', fn ($m) => $m->map->only(['status'])),
         ];
     }
 }

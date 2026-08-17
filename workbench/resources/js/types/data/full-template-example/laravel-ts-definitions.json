@@ -10076,6 +10076,21 @@
                     "name": "suppliers",
                     "type": "SupplierSummaryResource[]",
                     "optional": true
+                },
+                {
+                    "name": "staff_map_only",
+                    "type": "({ id: number; name: string; role: RoleType | null; last_login_at: string | null })[]",
+                    "optional": true
+                },
+                {
+                    "name": "registrars_map_except",
+                    "type": "{ name: string }[]",
+                    "optional": true
+                },
+                {
+                    "name": "history_event_map_only",
+                    "type": "unknown",
+                    "optional": true
                 }
             ]
         },
@@ -11291,6 +11306,11 @@
                 {
                     "name": "member_profiles",
                     "type": "({ id: number; role: RoleType | null; owner: User })[]",
+                    "optional": false
+                },
+                {
+                    "name": "member_map_only",
+                    "type": "({ id: number; role: RoleType | null })[]",
                     "optional": false
                 },
                 {

@@ -2421,6 +2421,10 @@ declare global {
          * convention, #[UseResource], explicit arguments, the unresolvable negative cases, and
          * (registrar/registrars/suppliers) the three resolution orderings against a losing
          * candidate that also exists, so an inverted order would visibly fail.
+         *
+         * Also reuses the staff/registrars/historyEvent relations for the ->map->only()/->except()
+         * HigherOrderCollectionProxy: a to-many whenLoaded param is a bound collection and matches,
+         * a singular one (historyEvent) is not and must stay unknown.
          */
         export interface MerchantResource {
             id: number;
@@ -2435,6 +2439,9 @@ declare global {
             registrar?: RegistrarResource;
             registrars?: unknown;
             suppliers?: SupplierSummaryResource[];
+            staff_map_only?: ({ id: number; name: string; role: workbench.app.enums.RoleType | null; last_login_at: string | null })[];
+            registrars_map_except?: { name: string }[];
+            history_event_map_only?: unknown;
         }
         /**
          * Exercises resolveClosureReturnExpression with a Closure passed to merge().
@@ -2810,12 +2817,14 @@ declare global {
         }
         /**
          * Exercises collection method chains rooted at a many-relation
-         * ($this->members->take(5)->map(...)->values()).
+         * ($this->members->take(5)->map(...)->values()), plus the ->map->only()
+         * HigherOrderCollectionProxy reached directly off the relation.
          */
         export interface RelationChainResource {
             first_members: workbench.app.models.User[];
             member_cards: { id: number; name: string }[];
             member_profiles: ({ id: number; role: workbench.app.enums.RoleType | null; owner: workbench.app.models.User })[];
+            member_map_only: ({ id: number; role: workbench.app.enums.RoleType | null })[];
             member_emails: string[];
             member_roles: (workbench.app.enums.RoleType | null)[];
             member_role_resources: workbench.app.enums.RoleType[];
