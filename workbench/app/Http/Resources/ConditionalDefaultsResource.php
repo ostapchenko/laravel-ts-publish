@@ -81,6 +81,15 @@ class ConditionalDefaultsResource extends JsonResource
             'transform_no_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== ''),
             'transform_with_default' => $this->transform($this->full_address, fn (string $address): bool => $address !== '', 0),
 
+            // transform()'s default is invoked via the global transform() helper's $default($value) — one
+            // argument — unlike the rest of the family's zero-argument value($default), so a one-parameter
+            // closure default runs cleanly and its arm must union in.
+            'transform_with_one_param_default' => $this->transform(
+                $this->full_address,
+                fn (string $address): bool => $address !== '',
+                fn (string $address): int => strlen($address),
+            ),
+
             // Nested resource constructors wrapping a conditional must be optional: the inner call can
             // produce a MissingValue. StaticCall and New_ take separate detection paths.
             'unless_user_resource' => UserResource::make($this->unless($this->id > 0, $this->user)),

@@ -1201,11 +1201,13 @@ class ResourceAstAnalyzer
      *
      * An explicit default always makes the property required, since Laravel then always emits the key.
      * The default's type unions in when it resolves; otherwise the value arm's own type stands alone.
+     * $defaultArgCount is how many arguments Laravel invokes the default with — 0 for the value($default)
+     * family, 1 for transform()'s $default($value) — and is forwarded to closureRequiresArguments().
      *
      * @param  ValueExpressionResult  $value
      * @return ValueExpressionResult
      */
-    protected function applyConditionalDefault(array $value, MethodCall $call, int $index): array
+    protected function applyConditionalDefault(array $value, MethodCall $call, int $index, int $defaultArgCount = 0): array
     {
         if (! $this->hasExplicitDefaultArg($call, $index)) {
             return [...$value, 'optional' => true];
@@ -1213,9 +1215,9 @@ class ResourceAstAnalyzer
 
         $defaultExpr = $call->getArgs()[$index]->value;
 
-        // A default closure requiring a parameter can never run (value($default) forwards nothing),
-        // so its arm is unreachable — the value arm stands alone, still required.
-        if ($this->closureRequiresArguments($defaultExpr)) {
+        // A default closure requiring more parameters than Laravel supplies it can never run, so its
+        // arm is unreachable — the value arm stands alone, still required.
+        if ($this->closureRequiresArguments($defaultExpr, $defaultArgCount)) {
             return [...$value, 'optional' => false];
         }
 
@@ -1478,7 +1480,9 @@ class ResourceAstAnalyzer
 
             $this->closureParamExprBindings = $previousBindings;
 
-            return $this->applyConditionalDefault($inner, $call, 2);
+            // transform()'s default runs through the global transform() helper's $default($value) — one
+            // argument — unlike the rest of the family's zero-argument value($default).
+            return $this->applyConditionalDefault($inner, $call, 2, defaultArgCount: 1);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore

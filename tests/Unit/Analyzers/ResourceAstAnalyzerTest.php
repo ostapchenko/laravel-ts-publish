@@ -3962,6 +3962,17 @@ describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNot
             ->and($prop['type'])->toBe('string | number')
             ->and($prop['optional'])->toBeFalse();
     });
+
+    // whenNotNull($this->notes, fn (...$args) => 1) — a variadic-only parameter accepts zero or more
+    // arguments, so value($default) invoking it with zero args still runs cleanly. Its arm must still
+    // union in: string (from notes) | number (from the literal), required.
+    test('whenNotNull() default arm with a variadic parameter still invokes cleanly — string | number, required', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length_variadic_default');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('string | number')
+            ->and($prop['optional'])->toBeFalse();
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4150,6 +4161,17 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — unless/whenAp
 
         expect($props['transform_with_default']['type'])->toBe('boolean | number')
             ->and($props['transform_with_default']['optional'])->toBeFalse();
+    });
+
+    // transform()'s default is invoked via the global transform() helper's $default($value) — one
+    // argument — unlike the rest of the family's zero-argument value($default). A one-parameter closure
+    // default therefore runs cleanly and must union in, not be treated as unreachable.
+    it('unions a one-parameter transform() default instead of excluding it as unreachable', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['transform_with_one_param_default']['type'])->toBe('boolean | number')
+            ->and($props['transform_with_one_param_default']['optional'])->toBeFalse();
     });
 
     // unless/transform were absent from $conditionalMethods, the list a nested resource constructor
@@ -4913,7 +4935,7 @@ test('a relation except() drops hidden columns from the derived key list', funct
 test('relation except() keeps a getter-backed mutator whose type is unknown', function () {
     $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
     {
-        /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>} */
+        /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: array<string, list<string>>} */
         public function expose(): array
         {
             return $this->resolveFilteredRelationType(Image::class, ['created_at', 'updated_at'], false);

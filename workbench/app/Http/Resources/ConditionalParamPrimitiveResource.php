@@ -47,6 +47,9 @@ class ConditionalParamPrimitiveResource extends JsonResource
             // A closure default whose parameter has its own default invokes cleanly with zero args,
             // so its arm must still union in.
             'notes_length_or_default' => $this->whenNotNull($this->notes, fn ($notes = '') => strlen($notes)),
+
+            // A variadic-only closure default also accepts zero args, so it must still union in too.
+            'notes_length_variadic_default' => $this->whenNotNull($this->notes, fn (...$args) => 1),
         ];
     }
 }

@@ -36,6 +36,7 @@ export interface ConditionalDefaultsResource
     exists_with_default: boolean | string;
     transform_no_default?: boolean;
     transform_with_default: boolean | number;
+    transform_with_one_param_default: boolean | number;
     unless_user_resource?: UserResource;
     transform_user_resource?: UserResource;
     merge_unless_label?: string;

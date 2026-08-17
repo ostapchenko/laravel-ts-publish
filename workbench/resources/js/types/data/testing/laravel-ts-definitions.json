@@ -8432,6 +8432,11 @@
                     "optional": false
                 },
                 {
+                    "name": "transform_with_one_param_default",
+                    "type": "boolean | number",
+                    "optional": false
+                },
+                {
                     "name": "unless_user_resource",
                     "type": "UserResource",
                     "optional": true
@@ -8638,6 +8643,11 @@
                 },
                 {
                     "name": "notes_length_or_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "notes_length_variadic_default",
                     "type": "string | number",
                     "optional": false
                 }

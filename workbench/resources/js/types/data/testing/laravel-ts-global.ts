@@ -1860,6 +1860,7 @@ declare global {
             exists_with_default: boolean | string;
             transform_no_default?: boolean;
             transform_with_default: boolean | number;
+            transform_with_one_param_default: boolean | number;
             unless_user_resource?: UserResource;
             transform_user_resource?: UserResource;
             merge_unless_label?: string;
@@ -1952,6 +1953,7 @@ declare global {
             notes_upper?: string;
             notes_length: string;
             notes_length_or_default: string | number;
+            notes_length_variadic_default: string | number;
         }
         /**
          * Exercises collectDirectReturns elseif, else, and loop branches

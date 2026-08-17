@@ -16,4 +16,5 @@ export interface ConditionalParamPrimitiveResource
     notes_upper?: string;
     notes_length: string;
     notes_length_or_default: string | number;
+    notes_length_variadic_default: string | number;
 }

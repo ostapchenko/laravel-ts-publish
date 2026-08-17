@@ -172,24 +172,28 @@ trait InspectsAstNodes
     }
 
     /**
-     * Whether an expression is a closure or arrow function declaring at least one required parameter.
+     * Whether a closure/arrow function declares more required parameters than Laravel will supply it.
      *
-     * Laravel invokes every conditional default via value($default) with zero arguments, so such
-     * a closure throws ArgumentCountError instead of producing a value.
+     * Most of the conditional family invokes its default via value($default) — zero arguments — so the
+     * default parameter is $providedArgs = 0. The global transform() helper is the one exception: it
+     * invokes its default via $default($value), one argument, so its caller passes $providedArgs = 1.
+     * Either way, a required parameter beyond that count throws ArgumentCountError instead of a value.
      */
-    protected function closureRequiresArguments(Expr $expr): bool
+    protected function closureRequiresArguments(Expr $expr, int $providedArgs = 0): bool
     {
         if (! $expr instanceof ClosureExpr && ! $expr instanceof ArrowFunction) {
             return false;
         }
 
+        $requiredParams = 0;
+
         foreach ($expr->params as $param) {
             if ($param->default === null && ! $param->variadic) {
-                return true;
+                $requiredParams++;
             }
         }
 
-        return false;
+        return $requiredParams > $providedArgs;
     }
 
     /**

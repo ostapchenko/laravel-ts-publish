@@ -369,31 +369,36 @@ the union are decided by the shared `applyConditionalDefault()` helper described
 wins at runtime — unless the default is a closure requiring a parameter, in which case it is never analyzed
 at all; see below.
 
-### A default closure requiring a parameter is unreachable and never analyzed
+### A default closure requiring more parameters than Laravel supplies is unreachable and never analyzed
 
-Laravel invokes every conditional default via `value($default)` with **zero** arguments (verified against
-`ConditionallyLoadsAttributes.php` in the installed Laravel 13 vendor tree): `when()` calls it directly,
-`whenNull()`/`whenNotNull()` delegate to `when()`, and `whenLoaded()`, `whenHas()`, `whenCounted()`,
-`whenAggregated()`, `whenExistsLoaded()` each call `value($default)` on their own miss path. A closure or
-arrow function passed as the default that declares at least one required parameter therefore throws
-`ArgumentCountError` at runtime instead of producing a value — it can never contribute to the property's
-type.
+Laravel invokes *almost* every conditional default via `value($default)` with **zero** arguments (verified
+against `ConditionallyLoadsAttributes.php` in the installed Laravel 13 vendor tree): `when()` calls it
+directly, `whenNull()`/`whenNotNull()` delegate to `when()`, and `whenLoaded()`, `whenHas()`,
+`whenCounted()`, `whenAggregated()`, `whenExistsLoaded()` each call `value($default)` on their own miss
+path. `transform()` is the one exception: it delegates to the global `transform()` helper
+(`Support/helpers.php`), whose miss path calls an unfilled default as `$default($value)` — **one**
+argument, not zero. A closure or arrow function passed as the default that declares more required
+parameters than its caller actually supplies therefore throws `ArgumentCountError` at runtime instead of
+producing a value — it can never contribute to the property's type.
 
-`applyConditionalDefault()` checks this before analyzing the default expression at all:
-`InspectsAstNodes::closureRequiresArguments(Expr $expr)` returns `true` when `$expr` is a `Closure` or
-`ArrowFunction` with at least one parameter that has neither a default value nor is variadic. When it does,
-`applyConditionalDefault()` returns the value arm's result alone with `optional: false` — the same
-"unresolved default leaves the value arm standing" policy used elsewhere in this helper — without ever
-calling `analyzeValueExpression()` on the default's body.
+`applyConditionalDefault($value, $call, $index, $defaultArgCount = 0)` checks this before analyzing the
+default expression at all: `InspectsAstNodes::closureRequiresArguments(Expr $expr, int $providedArgs = 0)`
+returns `true` when `$expr` is a `Closure` or `ArrowFunction` whose count of parameters lacking both a
+default value and a variadic marker exceeds `$providedArgs`. Every handler leaves `$defaultArgCount` at its
+default of `0` except `analyzeTransform()`, which passes `defaultArgCount: 1` to match the global helper's
+one-argument call. When the check trips, `applyConditionalDefault()` returns the value arm's result alone
+with `optional: false` — the same "unresolved default leaves the value arm standing" policy used elsewhere
+in this helper — without ever calling `analyzeValueExpression()` on the default's body.
 
-The check is uniform across the whole family because it sits at `applyConditionalDefault()`, the one choke
-point every handler's default argument passes through. It does not need to special-case the per-method
-`value($value, $resolved)` asymmetry described [below](#unlessmergeunless-delegate-whenappended-whenexistsloaded-and-transform-are-new-handlers):
-that asymmetry only affects *value*-arm closures (which receive the resolved value as an argument), and
+The check sits at `applyConditionalDefault()`, the one choke point every handler's default argument passes
+through, with the per-method argument count as an explicit parameter rather than a special case. It does
+not need to special-case the per-method `value($value, $resolved)` asymmetry described
+[below](#unlessmergeunless-delegate-whenappended-whenexistsloaded-and-transform-are-new-handlers): that
+asymmetry only affects *value*-arm closures (which receive the resolved value as an argument), and
 value-arm closures never reach `applyConditionalDefault()` — only the default argument does. A parameter
 with its own default (`fn ($notes = '') => strlen($notes)`) or a variadic parameter (`fn (...$args) => ...`)
-still invokes cleanly with zero arguments, so closures shaped like those are not excluded and still union
-their return type in as usual.
+still invokes cleanly with zero (or `$defaultArgCount`) arguments, so closures shaped like those are not
+excluded and still union their return type in as usual.
 
 ### An empty-array default collapses instead of widening the property
 
@@ -578,7 +583,12 @@ runtime can return it in place of the flag.
 value-argument handling but analyzes `$args[1]` (the callback) instead of `$args[0]`, binding the
 callback's first parameter to `$args[0]`'s `$this->prop` expression via `bindClosureParamsFromCondition()`
 the same way `analyzeWhen()` binds a value closure to its condition, then hands the result to
-`applyConditionalDefault()` with index 2, exactly like `analyzeWhen()` does.
+`applyConditionalDefault()` with index 2, exactly like `analyzeWhen()` does — except for
+`defaultArgCount: 1`: the same `transform()` helper invokes an unfilled default as `$default($value)`,
+one argument, not the `value($default)`/zero-argument call every other handler's default receives (see
+[above](#a-default-closure-requiring-more-parameters-than-laravel-supplies-is-unreachable-and-never-analyzed)).
+A one-parameter closure default is therefore reachable here and unions in, where the same shape would be
+excluded as unreachable anywhere else in the family.
 
 ## `#[Collects]` resolution is Laravel-version-guarded
 
