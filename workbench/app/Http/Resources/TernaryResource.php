@@ -56,6 +56,13 @@ class TernaryResource extends JsonResource
                 ? EnumResource::make($this->status)
                 : $this->status,
 
+            // ── Enum type vs enum resource (reversed arm order) ────────────
+            // Same pair as status_resource_or_type with the arms swapped. The globals writer must fold
+            // this ordering too, or it emits app.enums.StatusType | app.enums.StatusType.
+            'status_type_or_resource' => $this->is_pinned
+                ? $this->status
+                : EnumResource::make($this->status),
+
             // ── Enum resource vs enum resource (different classes) ─────────
             // Branches resolve to two different enum types.
             // Expected TypeScript: AsEnum<typeof Status> | AsEnum<typeof Visibility> union.

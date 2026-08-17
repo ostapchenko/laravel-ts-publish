@@ -1999,6 +1999,11 @@ class LaravelTsPublish
                 .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
             $typeStr = preg_replace($pairPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
 
+            // Same pair reversed: the bare alias would be re-qualified afterwards, recreating the duplicate.
+            $reversedPattern = '/(?<![A-Za-z0-9_$.])'.preg_quote($bareTypeName, '/').'\s*\|\s*AsEnum<typeof\s+'
+                .preg_quote($constAlias, '/').'\s*>/';
+            $typeStr = preg_replace($reversedPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
+
             $singlePattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>/';
             $typeStr = preg_replace($singlePattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
         }

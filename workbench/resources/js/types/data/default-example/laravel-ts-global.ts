@@ -2981,6 +2981,7 @@ declare global {
             status_or_null: app.enums.StatusType | null;
             status_or_status: app.enums.StatusType;
             status_resource_or_type: app.enums.StatusType;
+            status_type_or_resource: app.enums.StatusType;
             status_or_visibility: app.enums.StatusType | app.enums.VisibilityType | null;
             category_or_null: CategoryResource | null;
             category_or_category: CategoryResource;

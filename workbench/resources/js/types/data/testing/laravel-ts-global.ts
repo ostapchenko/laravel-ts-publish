@@ -2981,6 +2981,7 @@ declare global {
             status_or_null: workbench.app.enums.StatusType | null;
             status_or_status: workbench.app.enums.StatusType;
             status_resource_or_type: workbench.app.enums.StatusType;
+            status_type_or_resource: workbench.app.enums.StatusType;
             status_or_visibility: workbench.app.enums.StatusType | workbench.app.enums.VisibilityType | null;
             category_or_null: CategoryResource | null;
             category_or_category: CategoryResource;

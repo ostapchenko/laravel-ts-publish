@@ -12035,6 +12035,11 @@
                     "optional": false
                 },
                 {
+                    "name": "status_type_or_resource",
+                    "type": "AsEnum<typeof Status> | StatusType",
+                    "optional": false
+                },
+                {
                     "name": "status_or_visibility",
                     "type": "AsEnum<typeof Status> | AsEnum<typeof Visibility> | null",
                     "optional": false

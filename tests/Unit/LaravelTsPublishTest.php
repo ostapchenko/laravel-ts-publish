@@ -2200,6 +2200,15 @@ describe('rewriteAsEnumToType', function () {
 
         expect($result)->toBe('enums.StatusType | StatusTypeExtra');
     });
+
+    test('folds the reversed pair ordering', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'StatusType | AsEnum<typeof Status>',
+            ['Status' => 'app.enums.StatusType'],
+        );
+
+        expect($result)->toBe('app.enums.StatusType');
+    });
 });
 
 describe('splitTopLevelUnion', function () {
