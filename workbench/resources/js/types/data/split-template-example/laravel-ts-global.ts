@@ -956,6 +956,7 @@ declare global {
             has_member: boolean;
             /** Number of members */
             member_count: number;
+            status_history: app.enums.StatusType[];
             // Relations
             /** The user who owns this team */
             owner: User;
@@ -2046,6 +2047,21 @@ declare global {
             ownedTeams: app.models.Team[];
             images: app.models.Image[];
             notifications: illuminate.notifications.DatabaseNotification[];
+        }
+        /**
+         * Exercises EnumResource::collection() across its backing shapes: an accessor returning
+         * list<Enum>, an AsEnumCollection cast, a first-class callable value, and a local
+         * variable ->map() (not $this->relation->map()). All should emit an array-wrapped
+         * AsEnum utility type, not the unresolved EnumResource itself.
+         */
+        export interface EnumCollectionResource {
+            id: number;
+            status_history: app.enums.StatusType[];
+            week_days: app.enums.StatusType[] | null;
+            wrapped_week_days: { week_days: app.enums.StatusType[] | null };
+            week_days_when_has?: app.enums.StatusType[] | null;
+            members_when_loaded_fcc?: unknown;
+            members_via_var?: app.enums.RoleType[];
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
         export interface EnumNullFirstResource {

@@ -27,6 +27,7 @@ export * from './delegating-resource';
 export * from './delegating-with-mixin-resource';
 export * from './empty-resource';
 export * from './empty-with-mixin-resource';
+export * from './enum-collection-resource';
 export * from './enum-null-first-resource';
 export * from './event-log-resource';
 export * from './extended-address-resource';

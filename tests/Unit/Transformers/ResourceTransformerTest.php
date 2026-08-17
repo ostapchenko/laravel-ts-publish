@@ -16,6 +16,7 @@ use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
 use Workbench\App\Http\Resources\EmptyResource;
 use Workbench\App\Http\Resources\EmptyWithMixinResource;
+use Workbench\App\Http\Resources\EnumCollectionResource;
 use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\FqcnMixinResource;
 use Workbench\App\Http\Resources\ImageDelegatedResource;
@@ -29,6 +30,7 @@ use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\ProfileResource;
+use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\ServiceDeskResource;
 use Workbench\App\Http\Resources\TernaryResource;
@@ -46,6 +48,7 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
 use Workbench\App\Models\Sales\Report\Report as SalesReport;
+use Workbench\App\Models\Team;
 use Workbench\App\Models\TrackingEvent;
 use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
@@ -1964,6 +1967,91 @@ describe('ResourceTransformer with ResourceWrappedEnumResource — inline array 
         expect($data->properties['priority_when_not_null_make']['type'])
             ->toBe('AsEnum<typeof Priority> | PriorityType | null')
             ->and($data->properties['priority_when_not_null_make']['optional'])->toBeFalse();
+    });
+});
+
+describe('ResourceTransformer with RelationChainResource — EnumResource::make() array-wrapped by a map() chain', function () {
+    // Regression pin for change #2: EnumResource::make() wraps each element, so the JSON is an
+    // array of flattened enum objects, not raw enum values — AsEnum<typeof Role>[] is correct;
+    // the old RoleType[] (a plain, un-rewritten type import) was wrong.
+    test('member_role_resources rewrites to AsEnum<typeof Role>[] with tolki enabled', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['member_role_resources']['type'])->toBe('AsEnum<typeof Role>[]')
+            ->and($data->properties['member_role_resources']['optional'])->toBeFalse();
+    });
+
+    test('member_role_resources stays the plain array type without tolki', function () {
+        config()->set('ts-publish.enums.use_tolki_package', false);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['member_role_resources']['type'])->toBe('RoleType[]')
+            ->and($data->properties['member_role_resources']['optional'])->toBeFalse();
+    });
+});
+
+describe('ResourceTransformer with EnumCollectionResource — EnumResource::collection() shapes', function () {
+    test('accessor-backed list<Enum> rewrites to AsEnum<typeof Status>[]', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['status_history']['type'])->toBe('AsEnum<typeof Status>[]')
+            ->and($data->properties['status_history']['optional'])->toBeFalse();
+    });
+
+    // Matches the model precedent at workbench team.ts: week_days: AsEnum<typeof Status>[] | null.
+    test('AsEnumCollection cast rewrites to AsEnum<typeof Status>[] | null', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['week_days']['type'])->toBe('AsEnum<typeof Status>[] | null')
+            ->and($data->properties['week_days']['optional'])->toBeFalse();
+    });
+
+    test('EnumResource::collection() inside an inline array keeps AsEnum<typeof Status>[]', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['wrapped_week_days']['type'])
+            ->toBe('{ week_days: AsEnum<typeof Status>[] | null }');
+    });
+
+    // whenHas() never analyzes its value argument, so this never reaches the AsEnum rewrite — it
+    // resolves through the direct-enum-collection channel instead: a real type, correctly imported,
+    // not a fabricated AsEnum wrap and not `unknown`. See report for the analyzeWhenHas() gap.
+    test('first-class callable inside whenHas() stays the plain attribute-derived array type', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['week_days_when_has']['type'])->toBe('StatusType[] | null')
+            ->and($data->properties['week_days_when_has']['optional'])->toBeTrue();
+    });
+
+    test('first-class callable inside whenLoaded() stays unknown, not a guessed AsEnum type', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['members_when_loaded_fcc']['type'])->toBe('unknown')
+            ->and($data->properties['members_when_loaded_fcc']['optional'])->toBeTrue();
+    });
+
+    test('local variable ->map() with an EnumResource::make() body rewrites to AsEnum<typeof Role>[]', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['members_via_var']['type'])->toBe('AsEnum<typeof Role>[]')
+            ->and($data->properties['members_via_var']['optional'])->toBeTrue();
+    });
+
+    test('EnumResource::collection() properties generate value imports (hasEnums) when tolki enabled', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        $allValueImports = $data->valueImports !== [] ? array_merge(...array_values($data->valueImports)) : [];
+
+        expect($allValueImports)->toContain('Status')
+            ->and($allValueImports)->toContain('Role');
     });
 });
 

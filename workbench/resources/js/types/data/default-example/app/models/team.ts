@@ -34,6 +34,12 @@ export interface TeamMutators
     has_member: boolean;
     /** Number of members */
     member_count: number;
+    status_history: StatusType[];
+}
+
+export interface TeamMutatorsResource extends Omit<TeamMutators, 'status_history'>
+{
+    status_history: AsEnum<typeof Status>[];
 }
 
 export interface TeamRelations
@@ -53,4 +59,4 @@ export interface TeamRelations
 
 export interface TeamAll extends Team, TeamMutators, TeamRelations {}
 
-export interface TeamAllResource extends TeamResource, TeamMutators, TeamRelations {}
+export interface TeamAllResource extends TeamResource, TeamMutatorsResource, TeamRelations {}

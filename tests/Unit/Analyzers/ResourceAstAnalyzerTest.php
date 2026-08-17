@@ -37,6 +37,7 @@ use Workbench\App\Http\Resources\DelegatingResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
 use Workbench\App\Http\Resources\EmptyResource;
 use Workbench\App\Http\Resources\EmptyWithMixinResource;
+use Workbench\App\Http\Resources\EnumCollectionResource;
 use Workbench\App\Http\Resources\EnumNullFirstResource;
 use Workbench\App\Http\Resources\ExtendedAddressResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
@@ -605,14 +606,17 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['member_roles']['optional'])->toBeFalse();
     });
 
-    // A map() body that is entirely EnumResource::make() must carry 'directEnumFqcn', not 'enumFqcn':
-    // ResourceTransformer::rewriteEnumResourceTypes() rewrites 'enumFqcn' keys to a bare AsEnum<...>.
-    test('map() body that is entirely EnumResource::make() stays an array and is not enumFqcn-tagged', function () {
+    // A map() body that is entirely EnumResource::make() must stay 'enumFqcn'-tagged (not demoted to
+    // 'directEnumFqcn'): ResourceTransformer::rewriteEnumResourceTypes() reads 'enumFqcn' keys to
+    // rewrite the property to AsEnum<...>[], which is what an array of EnumResource-wrapped enum
+    // objects actually is. The array-wrapped analyzer type itself is untouched by this rewrite —
+    // it stays the bare element type array, and the transformer rebuilds AsEnum<typeof Role>[] on top.
+    test('map() body that is entirely EnumResource::make() stays an array and is enumFqcn-tagged', function () {
         expect($this->props['member_role_resources']['type'])->toBe('RoleType[]')
             ->and($this->props['member_role_resources']['optional'])->toBeFalse()
-            ->and($this->analysis->directEnumFqcns)->toHaveKey('member_role_resources')
-            ->and($this->analysis->directEnumFqcns['member_role_resources'])->toBe(Role::class)
-            ->and($this->analysis->enumResources)->not->toHaveKey('member_role_resources');
+            ->and($this->analysis->enumResources)->toHaveKey('member_role_resources')
+            ->and($this->analysis->enumResources['member_role_resources'])->toBe(Role::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('member_role_resources');
     });
 
     // A string ('strtoupper') or array ([$this, 'method']) callable has no closure body to analyze.
@@ -653,6 +657,61 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
     test('values() at the end of a key-preserving chain restores the plain array type', function () {
         expect($this->props['members_skipped']['type'])->toBe('User[]')
             ->and($this->analysis->modelFqcns['members_skipped'])->toBe(User::class);
+    });
+});
+
+describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collection() shapes)', function () {
+    beforeEach(function () {
+        $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(EnumCollectionResource::class), Team::class))
+            ->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('accessor-backed list<Enum> stays enumFqcn-tagged and array-shaped', function () {
+        expect($this->props['status_history']['type'])->toBe('StatusType[]')
+            ->and($this->analysis->enumResources)->toHaveKey('status_history')
+            ->and($this->analysis->enumResources['status_history'])->toBe(Status::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('status_history');
+    });
+
+    test('AsEnumCollection cast stays enumFqcn-tagged, array-shaped, and nullable', function () {
+        expect($this->props['week_days']['type'])->toBe('StatusType[] | null')
+            ->and($this->analysis->enumResources)->toHaveKey('week_days')
+            ->and($this->analysis->enumResources['week_days'])->toBe(Status::class);
+    });
+
+    // analyzeInlineArray() computes its own AsEnum rewrite eagerly, so the [] survives here even
+    // though the top-level properties above stay as their bare, un-rewritten element-array type
+    // until ResourceTransformer::rewriteEnumResourceTypes() runs.
+    test('EnumResource::collection() inside an inline array keeps its [] suffix', function () {
+        expect($this->props['wrapped_week_days']['type'])
+            ->toBe('{ week_days: AsEnum<typeof Status>[] | null }');
+    });
+
+    // whenHas() never analyzes its value argument — it re-derives the type from the named
+    // attribute directly (see analyzeWhenHas()) — so the EnumResource::collection(...) value is
+    // never reached and this resolves through the ordinary direct-enum-collection channel.
+    test('first-class callable inside whenHas() falls back to the attribute-derived type', function () {
+        expect($this->props['week_days_when_has']['type'])->toBe('StatusType[] | null')
+            ->and($this->analysis->directEnumFqcns)->toHaveKey('week_days_when_has')
+            ->and($this->analysis->directEnumFqcns['week_days_when_has'])->toBe(Status::class)
+            ->and($this->analysis->enumResources)->not->toHaveKey('week_days_when_has');
+    });
+
+    // whenLoaded() DOES analyze its value argument, so this reaches analyzeEnumResourceCollection()
+    // with a first-class callable — no argument to resolve the enum from — and must degrade to
+    // unknown rather than guess, mirroring analyzeEnumResourceMake()'s FCC bail-out.
+    test('first-class callable inside whenLoaded() degrades to unknown, not a guessed type', function () {
+        expect($this->props['members_when_loaded_fcc']['type'])->toBe('unknown')
+            ->and($this->props['members_when_loaded_fcc']['optional'])->toBeTrue();
+    });
+
+    // $variable->map() (not $this->relation->map()) with a body entirely EnumResource::make(...)
+    // must stay array-shaped and enumFqcn-tagged, the same contract as the relation-chain case.
+    test('local variable ->map() with an EnumResource::make() body stays array-shaped and enumFqcn-tagged', function () {
+        expect($this->props['members_via_var']['type'])->toBe('RoleType[]')
+            ->and($this->analysis->enumResources)->toHaveKey('members_via_var')
+            ->and($this->analysis->enumResources['members_via_var'])->toBe(Role::class);
     });
 });
 

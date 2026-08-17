@@ -51,10 +51,12 @@ class RelationChainResource extends JsonResource
             // parses as RoleType | (null[]) — genuinely wrong, not merely ugly).
             'member_roles' => $this->members->pluck('role'),
 
-            // map() body is ENTIRELY EnumResource::make(...) — no array literal wrapping —
-            // so the result carries a singular 'enumFqcn' (not 'directEnumFqcn'). Must still
-            // render as an array (RoleType[]) and must not let ResourceTransformer's
-            // tolki AsEnum rewrite collapse it back down to a singular AsEnum<typeof Role>.
+            // map() body is ENTIRELY EnumResource::make(...) — no array literal wrapping — so the
+            // result carries a singular 'enumFqcn' (not 'directEnumFqcn'), array-wrapped by the
+            // chain analyzer. ResourceTransformer's tolki rewrite must render it as a collection
+            // (AsEnum<typeof Role>[]), not collapse it to a singular AsEnum<typeof Role>: each
+            // element really is wrapped by EnumResource::make(), so the JSON is an array of
+            // flattened enum objects.
             'member_role_resources' => $this->members->take(5)->map(fn ($member) => EnumResource::make($member->role))->values(),
 
             // map() argument is a string callable, not a Closure/ArrowFunction — must not be

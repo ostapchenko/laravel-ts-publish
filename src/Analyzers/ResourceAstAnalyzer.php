@@ -1574,6 +1574,13 @@ class ResourceAstAnalyzer
             return $this->analyzeEnumResourceMake($call);
         }
 
+        // EnumResource::collection($this->prop) — must precede the generic isResourceClass()
+        // checks below: EnumResource extends JsonResource, so those would match it too and
+        // yield the unsuffixed 'EnumResource[]' instead of resolving the wrapped enum.
+        if ($this->isEnumResourceClass($className) && $methodName === 'collection') {
+            return $this->analyzeEnumResourceCollection($call);
+        }
+
         // SomeCollection::make()/::collection() on a ResourceCollection subclass. Must precede the generic
         // checks below: ResourceCollection extends JsonResource, so isResourceClass() matches it too and
         // would yield the unsuffixed collection name instead of 'OrderItemResource[]'.
@@ -1812,6 +1819,46 @@ class ResourceAstAnalyzer
         }
 
         return $this->resolveEnumFromPropertyArg($args[0]->value) ?? $result;
+    }
+
+    /**
+     * Analyze EnumResource::collection($this->prop) — resolve the enum class and array-wrap it.
+     *
+     * A first-class callable carries no argument at the call site to resolve the enum from — the
+     * value is supplied later by whichever conditional method invokes it — so it degrades to
+     * unknown rather than guessing, matching analyzeEnumResourceMake()'s FCC bail-out.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeEnumResourceCollection(StaticCall $call): array
+    {
+        $result = $this->unknownResult();
+
+        if ($call->isFirstClassCallable()) {
+            return $result;
+        }
+
+        $args = $call->getArgs();
+
+        if (count($args) < 1) {
+            return $result;
+        }
+
+        $enumResult = $this->resolveEnumFromPropertyArg($args[0]->value);
+
+        if ($enumResult === null) {
+            return $result;
+        }
+
+        // The resolved property may already be a collection type (an AsEnumCollection cast or a
+        // list<Enum> accessor both resolve their own '[]' already) — only wrap when it isn't.
+        $type = $enumResult['type'];
+        $alreadyCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
+
+        return [
+            ...$enumResult,
+            'type' => $alreadyCollection ? $type : $this->arrayWrapType($type),
+        ];
     }
 
     /**
@@ -3182,13 +3229,14 @@ class ResourceAstAnalyzer
             $type = $prop['type'];
 
             // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
-            // top-level enum resource transformer.
+            // top-level enum resource transformer. A collection keeps its `[]` suffix.
             if ($useTolki && isset($analysis->enumResources[$prop['name']])) {
                 $fqcn = $analysis->enumResources[$prop['name']];
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
                 $constName = $tsInfo['enums'][0] ?? class_basename($fqcn);
                 $nullable = str_contains($type, 'null');
-                $type = 'AsEnum<typeof '.$constName.'>'.($nullable ? ' | null' : '');
+                $isCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
+                $type = 'AsEnum<typeof '.$constName.'>'.($isCollection ? '[]' : '').($nullable ? ' | null' : '');
             }
 
             return $prop['optional']
@@ -3658,15 +3706,10 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        // A map body that is entirely `EnumResource::make(...)` returns a singular 'enumFqcn', the contract
-        // ResourceTransformer::rewriteEnumResourceTypes() reads to overwrite the property with a bare,
-        // non-array `AsEnum<typeof X>`. Array-wrapping breaks that, so re-tag it as 'directEnumFqcn':
-        // still imported, no longer eligible for the singular-type rewrite.
-        if (isset($bodyResult['enumFqcn']) && ! isset($bodyResult['directEnumFqcn'])) {
-            $bodyResult['directEnumFqcn'] = $bodyResult['enumFqcn'];
-            unset($bodyResult['enumFqcn']);
-        }
-
+        // A map body that is entirely `EnumResource::make(...)` returns a singular 'enumFqcn' — keep it
+        // live (do not demote to 'directEnumFqcn') so ResourceTransformer's tolki rewrite sees the
+        // collection and renders `AsEnum<typeof X>[]`, matching the array of wrapped enum objects
+        // EnumResource::make() actually produces per element.
         $mapped = $this->arrayWrapType($bodyResult['type']);
 
         return [
@@ -4427,7 +4470,9 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        $bodyResult['type'] = $bodyResult['type'].'[]';
+        // arrayWrapType(), not a raw '[]' suffix: a union body (e.g. a mixed AsEnum/direct-enum
+        // ternary) must be parenthesized before the array suffix binds.
+        $bodyResult['type'] = $this->arrayWrapType($bodyResult['type']);
         $bodyResult['optional'] = false;
 
         return $bodyResult;

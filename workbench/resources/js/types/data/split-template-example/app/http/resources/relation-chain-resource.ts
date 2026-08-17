@@ -1,3 +1,6 @@
+import { type AsEnum } from '@tolki/ts';
+
+import { Role } from '../../enums';
 import type { RoleType } from '../../enums';
 import type { User } from '../../models';
 
@@ -14,7 +17,7 @@ export interface RelationChainResource
     member_profiles: ({ id: number; role: RoleType | null; owner: User })[];
     member_emails: string[];
     member_roles: (RoleType | null)[];
-    member_role_resources: RoleType[];
+    member_role_resources: AsEnum<typeof Role>[];
     member_names_upper: unknown;
     member_formatted: unknown;
     member_mapped_fcc: unknown;

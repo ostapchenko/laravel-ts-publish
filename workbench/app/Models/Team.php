@@ -80,4 +80,12 @@ class Team extends Model
             get: fn (): int => $this->members()->count(),
         );
     }
+
+    /** @return Attribute<list<Status>, never> */
+    protected function statusHistory(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): array => [Status::Draft, Status::Published],
+        );
+    }
 }

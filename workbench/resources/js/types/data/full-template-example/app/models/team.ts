@@ -27,6 +27,7 @@ export interface Team
     has_member: boolean;
     /** Number of members */
     member_count: number;
+    status_history: StatusType[];
     // Relations
     /** The user who owns this team */
     owner: User;
@@ -40,7 +41,8 @@ export interface Team
     members_exists: boolean;
 }
 
-export interface TeamResource extends Omit<Team, 'week_days'>
+export interface TeamResource extends Omit<Team, 'week_days' | 'status_history'>
 {
     week_days: AsEnum<typeof Status>[] | null;
+    status_history: AsEnum<typeof Status>[];
 }

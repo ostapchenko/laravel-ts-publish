@@ -83,7 +83,7 @@ class ResourceTransformer extends CoreTransformer
     /** @var array<class-string, string> FQCN => resource interface name */
     protected array $resourceFqcnMap = [];
 
-    /** @var array<string, array{fqcn: class-string, nullable: bool}> property => enum info for EnumResource::make() properties */
+    /** @var array<string, array{fqcn: class-string, nullable: bool, isCollection: bool}> property => enum info for EnumResource::make()/::collection() properties */
     protected array $enumResourceProperties = [];
 
     /** @var array<class-string, string> FQCN => model interface name */
@@ -430,8 +430,11 @@ class ResourceTransformer extends CoreTransformer
             $tsInfo = LaravelTsPublish::toTsType($fqcn);
             $this->enumFqcnMap[$fqcn] = $tsInfo['enumTypes'][0] ?? class_basename($fqcn).'Type';
             $this->enumConstMap[$fqcn] = $tsInfo['enums'][0] ?? class_basename($fqcn);
-            $nullable = str_contains($this->properties[$propName]['type'] ?? '', 'null');
-            $this->enumResourceProperties[$propName] = ['fqcn' => $fqcn, 'nullable' => $nullable];
+            $type = $this->properties[$propName]['type'] ?? '';
+            $nullable = str_contains($type, 'null');
+            // $type itself may already carry '| null' here, so the suffix check must strip it first.
+            $isCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
+            $this->enumResourceProperties[$propName] = ['fqcn' => $fqcn, 'nullable' => $nullable, 'isCollection' => $isCollection];
             $this->propertyEnumFqcns[$propName] = $fqcn;
         }
 
@@ -577,13 +580,19 @@ class ResourceTransformer extends CoreTransformer
             }
 
             $constName = $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']];
+            $isMixed = isset($this->directEnumProperties[$propName]);
 
             // Mixed ternary: one branch wraps the enum, the other reads it directly — emit both forms.
-            if (isset($this->directEnumProperties[$propName])) {
+            if ($isMixed) {
                 $enumTypeName = $this->enumFqcnMap[$info['fqcn']];
                 $type = 'AsEnum<typeof '.$constName.'> | '.$enumTypeName;
             } else {
                 $type = 'AsEnum<typeof '.$constName.'>';
+            }
+
+            if ($info['isCollection']) {
+                // A mixed union must be parenthesized before the array suffix binds.
+                $type = $isMixed ? '('.$type.')[]' : $type.'[]';
             }
 
             if ($info['nullable']) {
@@ -596,7 +605,7 @@ class ResourceTransformer extends CoreTransformer
             ];
 
             // The type import survives only if some property still reads this enum directly.
-            $usedForDirectAccess = isset($this->directEnumProperties[$propName]);
+            $usedForDirectAccess = $isMixed;
 
             if (! $usedForDirectAccess) {
                 foreach ($this->directEnumProperties as $prop => $propFqcn) {

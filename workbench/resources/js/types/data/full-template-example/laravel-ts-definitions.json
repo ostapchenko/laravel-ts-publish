@@ -6410,6 +6410,10 @@
                     "type": "number"
                 },
                 {
+                    "name": "status_history",
+                    "type": "StatusType[]"
+                },
+                {
                     "name": "owner",
                     "type": "User"
                 },
@@ -9035,6 +9039,46 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\EnumCollectionResource": {
+            "name": "EnumCollectionResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "status_history",
+                    "type": "AsEnum<typeof Status>[]",
+                    "optional": false
+                },
+                {
+                    "name": "week_days",
+                    "type": "AsEnum<typeof Status>[] | null",
+                    "optional": false
+                },
+                {
+                    "name": "wrapped_week_days",
+                    "type": "{ week_days: AsEnum<typeof Status>[] | null }",
+                    "optional": false
+                },
+                {
+                    "name": "week_days_when_has",
+                    "type": "StatusType[] | null",
+                    "optional": true
+                },
+                {
+                    "name": "members_when_loaded_fcc",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "members_via_var",
+                    "type": "AsEnum<typeof Role>[]",
+                    "optional": true
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\EnumNullFirstResource": {
             "name": "EnumNullFirstResource",
             "properties": [
@@ -10881,7 +10925,7 @@
                 },
                 {
                     "name": "member_role_resources",
-                    "type": "RoleType[]",
+                    "type": "AsEnum<typeof Role>[]",
                     "optional": false
                 },
                 {
