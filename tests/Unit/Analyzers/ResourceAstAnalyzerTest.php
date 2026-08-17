@@ -3926,10 +3926,9 @@ describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNot
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) — the default closure declares a required
-    // $notes param, but Laravel invokes every conditional default via value($default) with zero arguments,
-    // so this arm is an ArgumentCountError at runtime. The analyzer excludes it as unreachable, leaving the
-    // value arm (string, from notes) standing alone.
+    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) declares a required $notes param, but Laravel
+    // invokes every conditional default via value($default) with zero arguments — an ArgumentCountError at
+    // runtime. The analyzer excludes this arm as unreachable, leaving the value arm (string) standing alone.
     test('whenNotNull() default arm requiring a parameter is unreachable — string alone, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length');
 
