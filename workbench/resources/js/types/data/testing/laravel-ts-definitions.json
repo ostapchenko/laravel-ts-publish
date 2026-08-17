@@ -8456,6 +8456,11 @@
                 },
                 {
                     "name": "notes_length",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "notes_length_or_default",
                     "type": "string | number",
                     "optional": false
                 }

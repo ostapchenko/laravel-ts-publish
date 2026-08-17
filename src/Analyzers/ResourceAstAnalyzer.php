@@ -1209,7 +1209,15 @@ class ResourceAstAnalyzer
             return [...$value, 'optional' => true];
         }
 
-        $default = $this->analyzeValueExpression($call->getArgs()[$index]->value);
+        $defaultExpr = $call->getArgs()[$index]->value;
+
+        // A default closure requiring a parameter can never run (value($default) forwards nothing),
+        // so its arm is unreachable — the value arm stands alone, still required.
+        if ($this->closureRequiresArguments($defaultExpr)) {
+            return [...$value, 'optional' => false];
+        }
+
+        $default = $this->analyzeValueExpression($defaultExpr);
 
         // An `unknown` on either arm carries no type to union: an unresolved default leaves the value arm
         // standing, and an unresolved value arm already admits whatever the default could produce.

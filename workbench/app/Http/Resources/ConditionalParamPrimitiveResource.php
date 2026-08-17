@@ -39,9 +39,14 @@ class ConditionalParamPrimitiveResource extends JsonResource
             // when() with arrow fn receiving the truthy value as param
             'notes_upper' => $this->when($this->notes, fn ($notes) => strtoupper($notes)),
 
-            // whenNotNull($value, $default) — the arrow fn is the *default* argument, not a callback bound
-            // to $value; $notes here is unbound, but strlen()'s return type resolves via reflection anyway.
+            // whenNotNull($value, $default) invokes the default via value($default) with zero arguments.
+            // This closure requires $notes, so the call would throw ArgumentCountError — the analyzer
+            // treats the default arm as unreachable and excludes it (notes_length: string).
             'notes_length' => $this->whenNotNull($this->notes, fn ($notes) => strlen($notes)),
+
+            // A closure default whose parameter has its own default invokes cleanly with zero args,
+            // so its arm must still union in.
+            'notes_length_or_default' => $this->whenNotNull($this->notes, fn ($notes = '') => strlen($notes)),
         ];
     }
 }

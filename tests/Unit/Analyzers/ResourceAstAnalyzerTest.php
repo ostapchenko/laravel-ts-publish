@@ -3902,9 +3902,9 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // Policy pin: whenNotNull's default isn't a callback, so this closure param is unbound and its own
-    // EnumResource::make($status) resolves to 'unknown' — the value arm's type stands alone rather than
-    // being unioned with it, and the explicit second argument still makes the key required.
+    // Policy pin: the default closure declares a required $status param, so value($default) invoking it
+    // with zero args would throw — the arity rule excludes the default arm as unreachable before body
+    // analysis runs, leaving the value arm's own type standing, correct by evidence, still required.
     test('full closure param → EnumResource::make keeps its type, still required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
@@ -3926,12 +3926,23 @@ describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNot
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) — $notes is NOT bound to the value (there is
-    // no callback form); the default arm is analyzed on its own, and strlen()'s return type resolves via PHP
-    // reflection regardless of its argument. Value (string, from notes) unions with default (number),
-    // required — not the old buggy `number`-alone, optional reading.
-    test('whenNotNull() default arm resolves independently of the value — string | number, required', function () {
+    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) — the default closure declares a required
+    // $notes param, but Laravel invokes every conditional default via value($default) with zero arguments,
+    // so this arm is an ArgumentCountError at runtime. The analyzer excludes it as unreachable, leaving the
+    // value arm (string, from notes) standing alone.
+    test('whenNotNull() default arm requiring a parameter is unreachable — string alone, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('string')
+            ->and($prop['optional'])->toBeFalse();
+    });
+
+    // whenNotNull($this->notes, fn ($notes = '') => strlen($notes)) — the default closure's parameter has
+    // its own default, so value($default) invoking it with zero args still runs cleanly. Its arm must still
+    // union in: string (from notes) | number (from strlen), required.
+    test('whenNotNull() default arm with an optional parameter still invokes cleanly — string | number, required', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length_or_default');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('string | number')

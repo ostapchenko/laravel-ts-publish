@@ -171,6 +171,27 @@ trait InspectsAstNodes
     }
 
     /**
+     * Whether an expression is a closure or arrow function declaring at least one required parameter.
+     *
+     * Laravel invokes every conditional default via value($default) with zero arguments, so such
+     * a closure throws ArgumentCountError instead of producing a value.
+     */
+    protected function closureRequiresArguments(Expr $expr): bool
+    {
+        if (! $expr instanceof ClosureExpr && ! $expr instanceof ArrowFunction) {
+            return false;
+        }
+
+        foreach ($expr->params as $param) {
+            if ($param->default === null && ! $param->variadic) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Recursively collect Return_ expressions, descending into control-flow blocks but not nested closures.
      *
      * @param  array<Stmt>  $stmts
