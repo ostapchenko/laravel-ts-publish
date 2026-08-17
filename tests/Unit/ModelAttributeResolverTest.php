@@ -7,6 +7,7 @@ use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Workbench\App\Models\Activity;
 use Workbench\App\Models\Admin\Store;
+use Workbench\App\Models\ArrayObjectCastFixture;
 use Workbench\App\Models\Attachment;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
@@ -475,6 +476,14 @@ describe('@property docblock refinement', function () {
 
         expect($info['type'])->toBe('Record<string, unknown> | null');
     });
+});
+
+test('an AsArrayObject cast resolves to the array-or-record union', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    $result = $resolver->resolveAttribute(ArrayObjectCastFixture::class, 'owner_snapshot');
+
+    expect($result['type'])->toBe('unknown[] | Record<string, unknown> | null');
 });
 
 describe('write-only accessor waterfall', function () {

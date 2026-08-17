@@ -3819,6 +3819,39 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\ArrayObjectCastFixture": {
+            "name": "ArrayObjectCastFixture",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "tags",
+                    "type": "string | null"
+                },
+                {
+                    "name": "related_users",
+                    "type": "string | null"
+                },
+                {
+                    "name": "meta_info",
+                    "type": "string | null"
+                },
+                {
+                    "name": "owner_snapshot",
+                    "type": "unknown[] | Record<string, unknown> | null"
+                },
+                {
+                    "name": "created_at",
+                    "type": "string | null"
+                },
+                {
+                    "name": "updated_at",
+                    "type": "string | null"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\Attachment": {
             "name": "Attachment",
             "properties": [
