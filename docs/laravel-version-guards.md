@@ -22,6 +22,7 @@ and remove the row.
 | `Illuminate\Database\Eloquent\Attributes\Appends` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Connection` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Validation\Rules\ArrayKeys` | `13.24.0` | `src/Analyzers/FormRequest/FormRequestRulesAnalyzer.php` | `tests/Unit/Analyzers/FormRequestRulesAnalyzerTest.php` | `13.24.0` |
+| `Illuminate\Database\Eloquent\Attributes\RouteKey` | `13.0.0` | `src/Transformers/RouteTransformer.php` (overridesRouteKey()) | `tests/Unit/Transformers/RouteTransformerTest.php` | `13.0.0` |
 
 The `PreserveKeys` row's guard covers only the `#[PreserveKeys]` *attribute* form, read via
 `ReflectionClass::getAttributes()` in `collectionPreservesKeys()`. Laravel's older
@@ -64,6 +65,10 @@ all six are absent at `v12.66.0` and present at `v13.0.0`, the same shape as `Co
 this finding directly — recording `Min Laravel: 13.0.0` / `Convert when floor ≥: 13.0.0` for the
 five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows above without re-deriving it.
 Task 10 used the same finding for the `PreserveKeys` row above, once its `src/` guard was added.
+Task 11 used it again for the `RouteKey` row above: `RouteKey` lives in the same
+`Illuminate\Database\Eloquent\Attributes` directory as `Table`/`Hidden`/`Visible`/`Appends`/
+`Connection`, so the directory-level absent-at-`v12.66.0`/present-at-`v13.0.0` finding covers it
+without a fresh tag search.
 
 - **`ArrayKeys`**: binary-searched across all 32 published `v13.*` tags for
   `src/Illuminate/Validation/Rules/ArrayKeys.php`, after first confirming it 404s at both `v12.0.0`

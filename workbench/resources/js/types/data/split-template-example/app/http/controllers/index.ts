@@ -1,3 +1,4 @@
+export { default as AttributeRouteKeyController } from './attribute-route-key-controller';
 export { default as CustomKeyController } from './custom-key-controller';
 export { default as CustomKeyNameController } from './custom-key-name-controller';
 export { default as CustomRouteKeyController } from './custom-route-key-controller';

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use Workbench\Accounting\Http\Controllers\TwoFactorController;
+use Workbench\App\Http\Controllers\AttributeRouteKeyController;
 use Workbench\App\Http\Controllers\CustomKeyController;
 use Workbench\App\Http\Controllers\CustomKeyNameController;
 use Workbench\App\Http\Controllers\CustomRouteKeyController;
@@ -66,6 +67,8 @@ Route::get('/posts/status/{status}', [EnumBoundController::class, 'byStatus'])->
 Route::get('/articles/{article:slug}', [CustomKeyController::class, 'show'])->name('articles.show');
 
 Route::get('/slug-posts/{slugPost}', [CustomRouteKeyController::class, 'show'])->name('slug-posts.show');
+
+Route::get('/attribute-route-key-posts/{post}', [AttributeRouteKeyController::class, 'show'])->name('attribute-route-key-posts.show');
 
 Route::get('/params/{camelCase}/camel', [ParameterCaseController::class, 'camel'])->name('params.camel');
 Route::get('/params/{snake_case}/snake', [ParameterCaseController::class, 'snake'])->name('params.snake');

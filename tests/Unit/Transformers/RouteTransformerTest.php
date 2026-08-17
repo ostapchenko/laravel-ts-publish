@@ -6,6 +6,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Transformers\RouteTransformer;
 use Workbench\Accounting\Http\Controllers\TwoFactorController;
 use Workbench\Accounting\Http\Requests\VerifyTwoFactorRequest;
+use Workbench\App\Http\Controllers\AttributeRouteKeyController;
 use Workbench\App\Http\Controllers\CustomKeyController;
 use Workbench\App\Http\Controllers\CustomKeyNameController;
 use Workbench\App\Http\Controllers\CustomRouteKeyController;
@@ -247,6 +248,16 @@ test('model with custom getRouteKeyName emits correct _routeKey via instantiatio
         ->and($show['args'][0])->toHaveKey('_routeKey')
         ->and($show['args'][0]['_routeKey'])->toBe('slug');
 });
+
+test('model carrying only #[RouteKey] emits its key via instantiation', function () {
+    $transformer = new RouteTransformer(AttributeRouteKeyController::class);
+    $show = collect($transformer->actions)->firstWhere('methodName', 'show');
+
+    expect($show['args'])->toHaveCount(1)
+        ->and($show['args'][0]['name'])->toBe('post')
+        ->and($show['args'][0])->toHaveKey('_routeKey')
+        ->and($show['args'][0]['_routeKey'])->toBe('slug');
+})->skip(! class_exists('Illuminate\Database\Eloquent\Attributes\RouteKey'), 'RouteKey attribute requires Laravel 13+');
 
 test('camelCase param name is preserved exactly', function () {
     $transformer = new RouteTransformer(ParameterCaseController::class);

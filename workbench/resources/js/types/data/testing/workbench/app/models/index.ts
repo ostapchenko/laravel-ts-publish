@@ -2,6 +2,7 @@ export * from './activity';
 export * from './address';
 export * from './array-object-cast-fixture';
 export * from './attachment';
+export * from './attribute-route-key-post';
 export * from './base-extendable-model';
 export * from './base-shared-extendable-model';
 export * from './category';

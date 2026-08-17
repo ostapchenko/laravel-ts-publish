@@ -517,7 +517,7 @@ class RouteTransformer extends CoreTransformer
     }
 
     /**
-     * Check whether a model class overrides getRouteKeyName(), getKeyName(), or $primaryKey.
+     * Check whether a model class overrides getRouteKeyName(), getKeyName(), $primaryKey, or carries #[RouteKey].
      *
      * @param  class-string  $className
      */
@@ -548,6 +548,14 @@ class RouteTransformer extends CoreTransformer
             if ($prop->getDeclaringClass()->getName() !== Model::class) {
                 return true;
             }
+        }
+
+        // Laravel 13's #[RouteKey] attribute is resolved by Model::getRouteKeyName(), so it counts
+        // as an override too. String FQCN behind class_exists() — see docs/laravel-version-guards.md.
+        $routeKeyAttribute = 'Illuminate\Database\Eloquent\Attributes\RouteKey';
+
+        if (class_exists($routeKeyAttribute) && $reflection->getAttributes($routeKeyAttribute) !== []) {
+            return true;
         }
 
         return false;
