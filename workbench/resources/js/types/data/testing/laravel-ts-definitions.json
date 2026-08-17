@@ -9409,6 +9409,46 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\FluentSelfResource": {
+            "name": "FluentSelfResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "parent_fluent",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_fluent_make",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_fluent_chain",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_fluent_docblock",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_summary",
+                    "type": "unknown",
+                    "optional": true
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\FqcnMixinResource": {
             "name": "FqcnMixinResource",
             "properties": [

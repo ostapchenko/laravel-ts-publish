@@ -106,6 +106,7 @@
     "app\/Http\/Resources\/EnumNullFirstResource.php",
     "app\/Http\/Resources\/EventLogResource.php",
     "app\/Http\/Resources\/ExtendedAddressResource.php",
+    "app\/Http\/Resources\/FluentSelfResource.php",
     "app\/Http\/Resources\/FqcnMixinResource.php",
     "app\/Http\/Resources\/GuardClauseClosureResource.php",
     "app\/Http\/Resources\/HelperCallResource.php",

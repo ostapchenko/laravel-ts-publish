@@ -910,6 +910,20 @@ class ResourceAstAnalyzer
             return $this->analyzeStaticCall($expr->var);
         }
 
+        // A fluent method chained onto a resource-resolving receiver — `new self($x)->foo()`,
+        // `SomeResource::make($x)->foo()`, or a chain of such calls — keeps the receiver's type
+        // when the method's own declared return type hands the same instance back.
+        if ($expr instanceof MethodCall
+            && $expr->name instanceof Identifier
+            && ($expr->var instanceof New_ || $expr->var instanceof StaticCall || $expr->var instanceof MethodCall)
+        ) {
+            $selfReturning = $this->analyzeSelfReturningResourceMethodCall($expr);
+
+            if ($selfReturning !== null) {
+                return $selfReturning;
+            }
+        }
+
         // `$this::staticMethod()` — the resource itself is the receiver.
         if ($expr instanceof StaticCall
             && $expr->class instanceof Variable
@@ -1699,6 +1713,69 @@ class ResourceAstAnalyzer
         }
 
         return $result;
+    }
+
+    /**
+     * Resolve a fluent method chained onto a receiver that itself resolves to a resource — e.g.
+     * `new self($x)->foo()`, `SomeResource::make($x)->foo()`, or a chain of such calls. The
+     * receiver's own resolved result is returned unchanged when the method preserves it; any other
+     * declared return type (or an unreflectable receiver) yields null so the caller degrades normally.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeSelfReturningResourceMethodCall(MethodCall $expr): ?array
+    {
+        if (! $expr->name instanceof Identifier) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $receiverResult = $this->analyzeValueExpression($expr->var);
+        $resourceFqcn = $receiverResult['resourceFqcn'] ?? null;
+
+        // Guards against a receiver resolving to a collection/array shape (e.g. ::collection()):
+        // only a singular resource instance can meaningfully receive an instance method call.
+        if ($resourceFqcn === null
+            || ! class_exists($resourceFqcn)
+            || $receiverResult['type'] !== class_basename($resourceFqcn)
+        ) {
+            return null;
+        }
+
+        $methodName = $expr->name->toString();
+
+        if (! method_exists($resourceFqcn, $methodName)) {
+            return null;
+        }
+
+        $method = new ReflectionMethod($resourceFqcn, $methodName);
+
+        return $this->methodPreservesReceiverType($method, $resourceFqcn) ? $receiverResult : null;
+    }
+
+    /**
+     * Whether a method's declared return type says it hands the same instance back — a native
+     * `static`, `self`, or the resource class itself; falling back to a `@return $this` docblock
+     * only when no native return type is declared at all.
+     */
+    protected function methodPreservesReceiverType(ReflectionMethod $method, string $resourceFqcn): bool
+    {
+        $returnType = $method->getReturnType();
+
+        if ($returnType instanceof ReflectionNamedType) {
+            $name = $returnType->getName();
+
+            return $name === 'static' || $name === 'self' || $name === $resourceFqcn;
+        }
+
+        $docComment = $method->getDocComment();
+
+        if ($docComment === false) {
+            return false;
+        }
+
+        $returnTag = LaravelTsPublish::extractReturnTypeFromDocblock($docComment);
+
+        return $returnTag !== null && trim($returnTag) === '$this';
     }
 
     /**

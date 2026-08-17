@@ -1,0 +1,66 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Workbench\App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Workbench\App\Models\Category;
+
+/**
+ * Regression fixture for Task 17C: a fluent method chained onto a receiver that resolves to a
+ * resource (`new self($x)`, `self::make($x)`, or a chain of both) keeps the receiver's type when
+ * the method's declared return type hands the same instance back.
+ *
+ * @mixin Category
+ */
+class FluentSelfResource extends JsonResource
+{
+    /**
+     * The eaglesys shape: a native `: static` return type.
+     */
+    public function markPreview(): static
+    {
+        return $this;
+    }
+
+    /**
+     * No native return type — only the `@return $this` docblock signals it preserves the instance.
+     *
+     * @return $this
+     */
+    public function withoutMetadata()
+    {
+        return $this;
+    }
+
+    /**
+     * Negative case: declares a real return type that is not self-returning.
+     */
+    public function summary(): array
+    {
+        return ['id' => $this->id];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            // new self($x)->fluentMethod() where fluentMethod() declares `: static`.
+            'parent_fluent' => $this->whenLoaded('parent', fn () => new self($this->parent)->markPreview()),
+            // SomeResource::make($x)->fluentMethod().
+            'parent_fluent_make' => $this->whenLoaded('parent', fn () => self::make($this->parent)->markPreview()),
+            // A two-call chain: the rule composes across more than one fluent link.
+            'parent_fluent_chain' => $this->whenLoaded('parent', fn () => new self($this->parent)->markPreview()->withoutMetadata()),
+            // Docblock-only `@return $this` fallback, no native return type declared.
+            'parent_fluent_docblock' => $this->whenLoaded('parent', fn () => new self($this->parent)->withoutMetadata()),
+            // Negative case: summary() declares `: array`, not self-returning — must stay unknown.
+            'parent_summary' => $this->whenLoaded('parent', fn () => new self($this->parent)->summary()),
+        ];
+    }
+}

@@ -43,6 +43,7 @@ use Workbench\App\Http\Resources\EnumCollectionResource;
 use Workbench\App\Http\Resources\EnumNullFirstResource;
 use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\ExtendedAddressResource;
+use Workbench\App\Http\Resources\FluentSelfResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
 use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
@@ -936,6 +937,68 @@ describe('ResourceAstAnalyzer with CategoryResource', function () {
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('CategoryResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceAstAnalyzer with FluentSelfResource', function () {
+    test('new self($x)->fluentMethod() with a native : static return type preserves the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('self::make($x)->fluentMethod() preserves the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_make');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a two-call fluent chain composes and still preserves the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_chain');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a fluent method with no native return type falls back to the @return $this docblock', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_docblock');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a chained method declaring a non-self return type does not preserve the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_summary');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('unknown')
             ->and($prop['optional'])->toBeTrue();
     });
 });
