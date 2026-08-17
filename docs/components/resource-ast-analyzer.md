@@ -361,7 +361,34 @@ the union are decided by the shared `applyConditionalDefault()` helper described
 [below](#every-handler-unions-the-default-arm-in-through-applyconditionaldefault), which `whenNotNull()` and
 `whenNull()` reach with `$index: 1`. The default's own type is analyzed independently via
 `analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
-wins at runtime.
+wins at runtime — unless the default is a closure requiring a parameter, in which case it is never analyzed
+at all; see below.
+
+### A default closure requiring a parameter is unreachable and never analyzed
+
+Laravel invokes every conditional default via `value($default)` with **zero** arguments (verified against
+`ConditionallyLoadsAttributes.php` in the installed Laravel 13 vendor tree): `when()` calls it directly,
+`whenNull()`/`whenNotNull()` delegate to `when()`, and `whenLoaded()`, `whenHas()`, `whenCounted()`,
+`whenAggregated()`, `whenExistsLoaded()` each call `value($default)` on their own miss path. A closure or
+arrow function passed as the default that declares at least one required parameter therefore throws
+`ArgumentCountError` at runtime instead of producing a value — it can never contribute to the property's
+type.
+
+`applyConditionalDefault()` checks this before analyzing the default expression at all:
+`InspectsAstNodes::closureRequiresArguments(Expr $expr)` returns `true` when `$expr` is a `Closure` or
+`ArrowFunction` with at least one parameter that has neither a default value nor is variadic. When it does,
+`applyConditionalDefault()` returns the value arm's result alone with `optional: false` — the same
+"unresolved default leaves the value arm standing" policy used elsewhere in this helper — without ever
+calling `analyzeValueExpression()` on the default's body.
+
+The check is uniform across the whole family because it sits at `applyConditionalDefault()`, the one choke
+point every handler's default argument passes through. It does not need to special-case the per-method
+`value($value, $resolved)` asymmetry described [below](#unlessmergeunless-delegate-whenappended-whenexistsloaded-and-transform-are-new-handlers):
+that asymmetry only affects *value*-arm closures (which receive the resolved value as an argument), and
+value-arm closures never reach `applyConditionalDefault()` — only the default argument does. A parameter
+with its own default (`fn ($notes = '') => strlen($notes)`) or a variadic parameter (`fn (...$args) => ...`)
+still invokes cleanly with zero arguments, so closures shaped like those are not excluded and still union
+their return type in as usual.
 
 ### An empty-array default collapses instead of widening the property
 
@@ -397,13 +424,17 @@ fails to resolve **either** arm, and it has two justifications, not one:
   no-type-regressions-to-`unknown` discipline exists to prevent. Filtering the unresolvable arm out is what
   keeps a resolvable sibling arm's type surfacing at all.
 
-What the filtering never does is change `optional`. `ConditionalParamFullClosureResource::status_resource` —
-`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })` — has an
-unresolvable *default*: the closure param is unbound, so `EnumResource::make($status)` resolves to
-`unknown`. The property emits `OrderStatusType`, and stays **required**, because the explicit second
-argument means Laravel always emits the key. `ConditionalDefaultsResource::pivot_loaded_with_default`
-exercises the other direction, via `whenPivotLoaded()`'s hard-coded `unknown` value arm: `unknown`,
-also required.
+What the filtering never does is change `optional`. Before the arity rule above existed,
+`ConditionalParamFullClosureResource::status_resource` —
+`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })` — demonstrated the
+unresolved-*default* direction: the closure's `$status` param was unbound, so `EnumResource::make($status)`
+resolved to `unknown`, and the property emitted `OrderStatusType`, required, because the explicit second
+argument still meant Laravel always emitted the key. That closure requires `$status`, though, so it is now
+caught earlier by [the arity rule](#a-default-closure-requiring-a-parameter-is-unreachable-and-never-analyzed)
+and never reaches `analyzeValueExpression()` at all — `OrderStatusType`, required, is correct by the same
+evidence but for a different reason. `ConditionalDefaultsResource::pivot_loaded_with_default` still
+exercises the unresolved-*value*-arm direction, via `whenPivotLoaded()`'s hard-coded `unknown` value arm:
+`unknown`, also required.
 
 ### A model-level `#[TsCasts]` override can mask this fix in the final output
 
