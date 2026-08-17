@@ -8,6 +8,17 @@ FormRequest's `rules()` array into `FormRequestRuleNode`s ready for interface ge
 composes `parent.*.child`/`parent.child` rule keys into their nearest undotted ancestor instead
 of emitting them as separate flat, quoted keys.
 
+## Rule priority: position-independent passes before declaration order
+
+`resolveTsType()` resolves a single node's rule list in fixed pass order, not declaration order:
+`File` (also catching `ImageFile`, which extends it), `AnyOf`, `Enum`, then `In` — both the object
+form (`Rule::in(...)`) and the string form (`'in:a,b,c'`) — then a pass over the other rule-object
+types (`StringRule`, `Email`, `Numeric`, …). Only after all of those fail to match does a final
+declaration-ordered loop run, matching each remaining string rule (`'string'`, `'integer'`, a bare
+parameterless `'in'`, …) in the order it was written. Because `In` is resolved in the
+position-independent pass, `['string', 'in:a,b']` and `['in:a,b', 'string']` both type as
+`'a' | 'b'` — an earlier `string`/`integer` rule can never shadow the literal union.
+
 ## Trie collapse: dot-paths compose into their ancestor
 
 `normalizeRules()` hands the raw rules to `buildRuleTrie()`, which splits every rule key on `.`

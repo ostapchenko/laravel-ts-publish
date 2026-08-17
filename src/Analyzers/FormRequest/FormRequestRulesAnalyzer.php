@@ -535,13 +535,15 @@ class FormRequestRulesAnalyzer
             }
         }
 
-        foreach ($rules as [$rule]) {
+        foreach ($rules as [$rule, $params]) {
             if ($rule instanceof In) {
                 return $this->resolveInType($rule);
             }
 
-            if (is_string($rule) && strtolower($rule) === 'in') {
-                // Handled via In object above; string form should already be parsed
+            // String-form `in:a,b,c` gets the same position-independent priority as the In object,
+            // so an earlier `string`/`integer` rule cannot shadow the literal union.
+            if (is_string($rule) && strtolower($rule) === 'in' && $params !== []) {
+                return $this->resolveInFromParams($params);
             }
         }
 

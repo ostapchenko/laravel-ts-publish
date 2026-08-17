@@ -259,6 +259,23 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('string');
         });
 
+        it('string-form in outranks an earlier string rule', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $role = collect($nodes)->firstWhere('fieldPath', 'role');
+            expect($role->tsType)->toBe("'user' | 'admin' | 'moderator'");
+        });
+
+        it('string-form in under sometimes stays optional with the literal union', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $pref = collect($nodes)->firstWhere('fieldPath', 'optional_preference');
+            expect($pref->tsType)->toBe("'light' | 'dark' | 'system'");
+            expect($pref->isRequired)->toBeFalse();
+        });
+
         it('maps Rule::string() fluent object to string type', function () {
             $nodes = (new FormRequestRulesAnalyzer)->analyze(RuleClassRequest::class);
             $node = collect($nodes)->firstWhere('fieldPath', 'title');

@@ -3260,7 +3260,7 @@
                 },
                 {
                     "fieldPath": "optional_preference",
-                    "tsType": "string",
+                    "tsType": "'light' | 'dark' | 'system'",
                     "isRequired": false,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3276,7 +3276,7 @@
                 },
                 {
                     "fieldPath": "role",
-                    "tsType": "string",
+                    "tsType": "'user' | 'admin' | 'moderator'",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3302,7 +3302,7 @@
                 },
                 {
                     "fieldPath": "environment",
-                    "tsType": "string",
+                    "tsType": "'development' | 'staging' | 'production'",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3382,7 +3382,7 @@
                 },
                 {
                     "fieldPath": "plan",
-                    "tsType": "string",
+                    "tsType": "'free' | 'basic' | 'premium'",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,

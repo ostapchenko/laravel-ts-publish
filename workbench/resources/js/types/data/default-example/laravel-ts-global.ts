@@ -3440,12 +3440,12 @@ declare global {
             mobile: string | null;
             contact_method: string | null;
             permissions: { read: unknown; write: unknown };
-            optional_preference?: string;
+            optional_preference?: 'light' | 'dark' | 'system';
             is_authenticated: boolean;
-            role: string;
+            role: 'user' | 'admin' | 'moderator';
             display_name?: string | null;
             primary_email: string;
-            environment: string;
+            environment: 'development' | 'staging' | 'production';
             new_field?: string | null;
             option_a?: string | null;
             option_b?: string | null;
@@ -3455,7 +3455,7 @@ declare global {
             is_free: boolean;
             is_paid_subscriber: boolean;
             accept_free_terms: boolean;
-            plan: string;
+            plan: 'free' | 'basic' | 'premium';
             pay_with_bank_transfer?: boolean | null;
             send_notifications: boolean;
             send_sms: boolean;
