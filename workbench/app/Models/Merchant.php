@@ -12,6 +12,9 @@ use Illuminate\Notifications\DatabaseNotification;
 /**
  * Exercises Model::toResource()/Collection::toResourceCollection(): `owner`/`staff` resolve by
  * convention, `historyEvent` via #[UseResource], `filing`/`alert` have no resolvable resource.
+ * `registrar`/`registrars`/`suppliers` pin the three resolution orderings against a losing
+ * candidate that also exists, so an inverted order would visibly fail (see
+ * ResourceAstAnalyzerTest.php's MerchantResource ordering describe block).
  */
 class Merchant extends Model
 {
@@ -38,5 +41,20 @@ class Merchant extends Model
     public function alert(): BelongsTo
     {
         return $this->belongsTo(DatabaseNotification::class);
+    }
+
+    public function registrar(): BelongsTo
+    {
+        return $this->belongsTo(Registrar::class);
+    }
+
+    public function registrars(): HasMany
+    {
+        return $this->hasMany(Registrar::class);
+    }
+
+    public function suppliers(): HasMany
+    {
+        return $this->hasMany(Supplier::class);
     }
 }

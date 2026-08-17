@@ -1883,14 +1883,17 @@ class ResourceAstAnalyzer
      */
     protected function resolveResourceCollectionForModel(string $modelFqcn): ?array
     {
+        // Vendor returns `new $useResourceCollection($this)` unconditionally once the attribute
+        // names an existing class — it never falls through to #[UseResource] or the naming
+        // convention, even when the element type can't be determined here. Match that: stop hard.
         $collectionFqcn = $this->resolveUseResourceCollectionAttribute($modelFqcn);
 
         if ($collectionFqcn !== null) {
             $resourceFqcn = $this->collectedResourceClass($collectionFqcn);
 
-            if ($resourceFqcn !== null) {
-                return ['collectionFqcn' => $collectionFqcn, 'resourceFqcn' => $resourceFqcn];
-            }
+            return $resourceFqcn !== null
+                ? ['collectionFqcn' => $collectionFqcn, 'resourceFqcn' => $resourceFqcn]
+                : null;
         }
 
         $resourceFqcn = $this->resolveUseResourceAttribute($modelFqcn);
@@ -1901,15 +1904,17 @@ class ResourceAstAnalyzer
 
         $candidates = $this->guessResourceNames($modelFqcn);
 
+        // Same shape here: vendor's own loop returns `new $resourceCollection($this)` the moment
+        // `class_exists($resourceCollection)` passes for a candidate, never trying the next one.
         foreach ($candidates as $candidate) {
             $collectionCandidate = $candidate.'Collection';
 
             if (class_exists($collectionCandidate) && is_a($collectionCandidate, ResourceCollection::class, true)) {
                 $collectedFqcn = $this->collectedResourceClass($collectionCandidate);
 
-                if ($collectedFqcn !== null) {
-                    return ['collectionFqcn' => $collectionCandidate, 'resourceFqcn' => $collectedFqcn];
-                }
+                return $collectedFqcn !== null
+                    ? ['collectionFqcn' => $collectionCandidate, 'resourceFqcn' => $collectedFqcn]
+                    : null;
             }
         }
 

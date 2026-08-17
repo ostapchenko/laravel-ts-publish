@@ -4876,6 +4876,18 @@
                     "type": "DatabaseNotification | null"
                 },
                 {
+                    "name": "registrar",
+                    "type": "Registrar | null"
+                },
+                {
+                    "name": "registrars",
+                    "type": "Registrar[]"
+                },
+                {
+                    "name": "suppliers",
+                    "type": "Supplier[]"
+                },
+                {
                     "name": "owner_count",
                     "type": "number"
                 },
@@ -4896,6 +4908,18 @@
                     "type": "number"
                 },
                 {
+                    "name": "registrar_count",
+                    "type": "number"
+                },
+                {
+                    "name": "registrars_count",
+                    "type": "number"
+                },
+                {
+                    "name": "suppliers_count",
+                    "type": "number"
+                },
+                {
                     "name": "owner_exists",
                     "type": "boolean"
                 },
@@ -4913,6 +4937,18 @@
                 },
                 {
                     "name": "alert_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "registrar_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "registrars_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "suppliers_exists",
                     "type": "boolean"
                 }
             ]
@@ -5979,6 +6015,19 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\Registrar": {
+            "name": "Registrar",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\Sales\\Report\\Report": {
             "name": "Report",
             "properties": [
@@ -6233,6 +6282,19 @@
                 {
                     "name": "assignee_exists",
                     "type": "boolean"
+                }
+            ]
+        },
+        "Workbench\\App\\Models\\Supplier": {
+            "name": "Supplier",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
                 }
             ]
         },
@@ -9859,6 +9921,21 @@
                     "name": "alert",
                     "type": "unknown",
                     "optional": true
+                },
+                {
+                    "name": "registrar",
+                    "type": "RegistrarResource",
+                    "optional": true
+                },
+                {
+                    "name": "registrars",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "suppliers",
+                    "type": "SupplierSummaryResource[]",
+                    "optional": true
                 }
             ]
         },
@@ -11028,6 +11105,36 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\Registrar": {
+            "name": "Registrar",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\RegistrarGroupCollection": {
+            "name": "RegistrarGroupCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "unknown",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\RegistrarResource": {
+            "name": "RegistrarResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\RelationChainResource": {
             "name": "RelationChainResource",
             "properties": [
@@ -12087,6 +12194,36 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\SupplierCollection": {
+            "name": "SupplierCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "SupplierSummaryResource[]",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\SupplierResource": {
+            "name": "SupplierResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\SupplierSummaryResource": {
+            "name": "SupplierSummaryResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\TagResource": {
             "name": "TagResource",
             "properties": [
@@ -12358,6 +12495,16 @@
                 {
                     "name": "coordinates",
                     "type": "GeoPoint",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\TrackingEventResource": {
+            "name": "TrackingEventResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
                     "optional": false
                 }
             ]

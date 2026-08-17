@@ -423,6 +423,9 @@ declare global {
         /**
          * Exercises Model::toResource()/Collection::toResourceCollection(): `owner`/`staff` resolve by
          * convention, `historyEvent` via #[UseResource], `filing`/`alert` have no resolvable resource.
+         * `registrar`/`registrars`/`suppliers` pin the three resolution orderings against a losing
+         * candidate that also exists, so an inverted order would visibly fail (see
+         * ResourceAstAnalyzerTest.php's MerchantResource ordering describe block).
          */
         export interface Merchant {
             // Columns
@@ -444,6 +447,15 @@ declare global {
             alert: illuminate.notifications.DatabaseNotification | null;
             alert_count: number;
             alert_exists: boolean;
+            registrar: Registrar | null;
+            registrar_count: number;
+            registrar_exists: boolean;
+            registrars: Registrar[];
+            registrars_count: number;
+            registrars_exists: boolean;
+            suppliers: Supplier[];
+            suppliers_count: number;
+            suppliers_exists: boolean;
         }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
@@ -829,6 +841,17 @@ declare global {
             labels: string[];
         }
         /**
+         * Exercises two orderings: singular toResource() must prefer the Resource-suffixed naming
+         * candidate (RegistrarResource) over the bare one (Registrar), which also exists; and
+         * #[UseResourceCollection] must stop hard even when its target's element is undeterminable,
+         * never falling through to the RegistrarResource naming-convention guess.
+         */
+        export interface Registrar {
+            // Columns
+            id: number;
+            name: string;
+        }
+        /**
          * A help-desk ticket linked to a customer Order and optionally assigned to a CRM agent.
          *
          * Exercises the inline model FQCN collision scenario: two relations to classes with the
@@ -904,6 +927,16 @@ declare global {
             assignee: TaskOwner;
             assignee_count: number;
             assignee_exists: boolean;
+        }
+        /**
+         * Exercises toResourceCollection()'s naming-convention order: the guessed SupplierCollection
+         * class must win over the bare SupplierResource fallback, and since it collects a different
+         * resource (SupplierSummaryResource), the two orderings are visibly distinguishable.
+         */
+        export interface Supplier {
+            // Columns
+            id: number;
+            name: string;
         }
         export interface Tag {
             // Columns
@@ -2345,7 +2378,9 @@ declare global {
         }
         /**
          * Exercises Model::toResource() / Collection::toResourceCollection() resolution: naming
-         * convention, #[UseResource], explicit arguments, and the unresolvable negative cases.
+         * convention, #[UseResource], explicit arguments, the unresolvable negative cases, and
+         * (registrar/registrars/suppliers) the three resolution orderings against a losing
+         * candidate that also exists, so an inverted order would visibly fail.
          */
         export interface MerchantResource {
             id: number;
@@ -2357,6 +2392,9 @@ declare global {
             history_event?: EventLogResource;
             filing?: unknown;
             alert?: unknown;
+            registrar?: RegistrarResource;
+            registrars?: unknown;
+            suppliers?: SupplierSummaryResource[];
         }
         /**
          * Exercises resolveClosureReturnExpression with a Closure passed to merge().
@@ -2708,6 +2746,29 @@ declare global {
             fallback_owner: app.models.User;
         }
         /**
+         * The bare naming candidate for the Registrar model — deliberately present so the
+         * Resource-suffixed-first ordering test is non-vacuous: this class must lose to
+         * RegistrarResource.
+         */
+        export interface Registrar {
+            id: number;
+        }
+        /**
+         * The #[UseResourceCollection] target for Registrar. Deliberately declares no $collects and has
+         * no matching RegistrarGroupResource/RegistrarGroup class, so its element type is undeterminable —
+         * this must degrade to unknown rather than silently falling through to RegistrarResource.
+         */
+        export interface RegistrarGroupCollection {
+            data: unknown;
+        }
+        /**
+         * The Resource-suffixed naming candidate for Registrar — must win over the bare Registrar
+         * resource below, since Model::guessResourceName() tries the suffixed name first.
+         */
+        export interface RegistrarResource {
+            id: number;
+        }
+        /**
          * Exercises collection method chains rooted at a many-relation
          * ($this->members->take(5)->map(...)->values()).
          */
@@ -2980,6 +3041,29 @@ declare global {
             autocomplete: { value: number; label: string };
             summaries: { key: string; label: string }[];
         }
+        /**
+         * The guessed {Supplier}Collection class — must be tried before the bare SupplierResource
+         * fallback, and collects SupplierSummaryResource rather than SupplierResource so the two
+         * possible orderings produce visibly different element types.
+         */
+        export interface SupplierCollection {
+            data: SupplierSummaryResource[];
+        }
+        /**
+         * The bare guessed-resource fallback for Supplier — deliberately present so the
+         * {Guessed}Collection-first ordering test is non-vacuous: this class must lose to
+         * SupplierCollection (which collects SupplierSummaryResource, not this one).
+         */
+        export interface SupplierResource {
+            id: number;
+        }
+        /**
+         * The resource SupplierCollection actually collects — must win over the bare SupplierResource
+         * fallback when toResourceCollection() resolves a Supplier[] collection by naming convention.
+         */
+        export interface SupplierSummaryResource {
+            id: number;
+        }
         /** Exercises: whenCounted on two polymorphic relations. */
         export interface TagResource {
             id: number;
@@ -3070,6 +3154,13 @@ declare global {
             role: string;
             injected_field: Record<string, unknown>;
             coordinates: GeoPoint;
+        }
+        /**
+         * The naming-convention candidate for Workbench\App\Models\TrackingEvent — deliberately present so
+         * the #[UseResource(EventLogResource::class)] precedence test is non-vacuous: this class must lose.
+         */
+        export interface TrackingEventResource {
+            id: number;
         }
         export interface TraitSpreadCoverageResource {
             id: number;

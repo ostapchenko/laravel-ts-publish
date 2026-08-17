@@ -11,7 +11,9 @@ use Workbench\App\Models\Merchant;
 
 /**
  * Exercises Model::toResource() / Collection::toResourceCollection() resolution: naming
- * convention, #[UseResource], explicit arguments, and the unresolvable negative cases.
+ * convention, #[UseResource], explicit arguments, the unresolvable negative cases, and
+ * (registrar/registrars/suppliers) the three resolution orderings against a losing
+ * candidate that also exists, so an inverted order would visibly fail.
  *
  * @mixin Merchant
  */
@@ -33,6 +35,9 @@ class MerchantResource extends JsonResource
             'history_event' => $this->whenLoaded('historyEvent', fn ($m) => $m->toResource()),
             'filing' => $this->whenLoaded('filing', fn ($m) => $m->toResource()),
             'alert' => $this->whenLoaded('alert', fn ($m) => $m->toResource()),
+            'registrar' => $this->whenLoaded('registrar', fn ($m) => $m->toResource()),
+            'registrars' => $this->whenLoaded('registrars', fn ($rows) => $rows->toResourceCollection()),
+            'suppliers' => $this->whenLoaded('suppliers', fn ($rows) => $rows->toResourceCollection()),
         ];
     }
 }

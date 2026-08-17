@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
+use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
 use Workbench\Accounting\Models\Payment;
@@ -81,6 +82,8 @@ use Workbench\App\Http\Resources\PreserveKeysPropertyCollection;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\QuirkyResource;
 use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
+use Workbench\App\Http\Resources\Registrar as BareRegistrarResource;
+use Workbench\App\Http\Resources\RegistrarResource;
 use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\ShadowedClosureParamResource;
@@ -89,11 +92,14 @@ use Workbench\App\Http\Resources\SpreadWithClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardDoubleClosureReturnResource;
 use Workbench\App\Http\Resources\StaticCallResource;
+use Workbench\App\Http\Resources\SupplierResource;
+use Workbench\App\Http\Resources\SupplierSummaryResource;
 use Workbench\App\Http\Resources\TagResource;
 use Workbench\App\Http\Resources\TeamMemberResource;
 use Workbench\App\Http\Resources\TeamResource;
 use Workbench\App\Http\Resources\TernaryResource;
 use Workbench\App\Http\Resources\ToArrayCastsResource;
+use Workbench\App\Http\Resources\TrackingEventResource as AppTrackingEventResource;
 use Workbench\App\Http\Resources\TraitSpreadCoverageResource;
 use Workbench\App\Http\Resources\UnitEnumResource;
 use Workbench\App\Http\Resources\UserCollection;
@@ -5099,6 +5105,11 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
     });
 
     test('toResource() prefers the #[UseResource] attribute over the naming convention', function () {
+        // Non-vacuous: Workbench\App\Http\Resources\TrackingEventResource is the naming-convention
+        // candidate for the related model and genuinely exists — an inverted order would resolve
+        // to it instead of EventLogResource, so this assertion can actually discriminate.
+        expect(class_exists(AppTrackingEventResource::class))->toBeTrue();
+
         expect($this->props['history_event']['type'])->toBe('EventLogResource')
             ->and($this->props['history_event']['optional'])->toBeTrue()
             ->and($this->nested)->toHaveKey('history_event', EventLogResource::class);
@@ -5108,12 +5119,53 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
     );
 
     test('toResource() degrades to unknown when the related model has no matching resource class', function () {
+        // Guards the fixture itself: if either candidate ever gets created, this test would need
+        // a different negative case rather than silently passing for the wrong reason.
+        expect(class_exists('Workbench\App\Http\Resources\ActivityResource'))->toBeFalse()
+            ->and(class_exists('Workbench\App\Http\Resources\Activity'))->toBeFalse();
+
         expect($this->props['filing']['type'])->toBe('unknown')
             ->and($this->nested)->not->toHaveKey('filing');
     });
 
     test('toResource() degrades to unknown when the related model is not under a \Models\ namespace', function () {
+        // Guards the fixture itself: DatabaseNotification must stay outside \Models\ for this to
+        // exercise guessResourceName()'s bail-to-[] branch rather than the no-candidate-exists one.
+        expect(str_contains(DatabaseNotification::class, '\Models\\'))->toBeFalse();
+
         expect($this->props['alert']['type'])->toBe('unknown')
             ->and($this->nested)->not->toHaveKey('alert');
     });
+
+    test('toResource() prefers the Resource-suffixed naming candidate over the bare one', function () {
+        // Non-vacuous: Workbench\App\Http\Resources\Registrar (bare) also exists — an inverted
+        // candidate order would resolve to it instead of RegistrarResource.
+        expect(class_exists(BareRegistrarResource::class))->toBeTrue();
+
+        expect($this->props['registrar']['type'])->toBe('RegistrarResource')
+            ->and($this->props['registrar']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('registrar', RegistrarResource::class);
+    });
+
+    test('toResourceCollection() prefers the guessed {X}Collection class over the bare resource', function () {
+        // Non-vacuous: SupplierResource (the bare fallback) also exists and collects a DIFFERENT
+        // element than SupplierCollection does, so the two possible orderings are distinguishable.
+        expect(class_exists(SupplierResource::class))->toBeTrue();
+
+        expect($this->props['suppliers']['type'])->toBe('SupplierSummaryResource[]')
+            ->and($this->props['suppliers']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('suppliers', SupplierSummaryResource::class);
+    });
+
+    test('toResourceCollection() degrades to unknown when #[UseResourceCollection]\'s element is undeterminable, without falling through', function () {
+        // RegistrarResource exists and would be the WRONG fallback element type if the matched
+        // #[UseResourceCollection] attribute fell through instead of stopping hard.
+        expect(class_exists(RegistrarResource::class))->toBeTrue();
+
+        expect($this->props['registrars']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('registrars');
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\UseResourceCollection'),
+        'UseResourceCollection attribute requires Laravel 12.29+',
+    );
 });
