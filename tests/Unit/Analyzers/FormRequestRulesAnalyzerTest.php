@@ -485,6 +485,15 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($preferences->isRequired)->toBeFalse();
         });
 
+        it('array_keys synthesizes optional keys like array:a,b', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $map = collect($nodes)->firstWhere('fieldPath', 'attributes_map');
+            expect($map->tsType)->toBe('{ color?: unknown; size?: unknown }');
+            expect($map->isRequired)->toBeTrue();
+        });
+
         it('merges required_array_keys synthesis with a real declared child, real child winning the collision', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(ArrayRulesRequest::class);

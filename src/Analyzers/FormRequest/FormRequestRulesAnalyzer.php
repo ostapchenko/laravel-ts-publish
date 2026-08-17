@@ -590,6 +590,7 @@ class FormRequestRulesAnalyzer
                 in_array($ruleLower, ['file', 'image', 'mimes', 'mimetypes', 'extensions'], true) => 'File',
                 $ruleLower === 'array' => 'unknown[]',
                 $ruleLower === 'list' => 'unknown[]',
+                $ruleLower === 'array_keys' => 'unknown[]',
                 $ruleLower === 'in' => $this->resolveInFromParams($params),
                 default => null,
             };
@@ -781,9 +782,10 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Resolve the keys declared by `required_array_keys:a,b`, `in_array_keys:a,b`, or `array:a,b`,
-     * mapped to whether Laravel's validator guarantees that key's presence. `required_array_keys`
-     * demands every listed key; the other two never guarantee a single key, so theirs come back optional.
+     * Resolve the keys declared by `required_array_keys:a,b`, `in_array_keys:a,b`, `array:a,b`,
+     * or `array_keys:a,b`, mapped to whether Laravel's validator guarantees that key's presence.
+     * `required_array_keys` demands every listed key; the other three never guarantee a single
+     * key, so theirs come back optional.
      *
      * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
      * @return array<string, bool> key name => whether the declaring rule requires it
@@ -806,7 +808,7 @@ class FormRequestRulesAnalyzer
 
             if ($ruleLower === 'required_array_keys') {
                 $requiredKeys = [...$requiredKeys, ...$keys];
-            } elseif (in_array($ruleLower, ['in_array_keys', 'array'], true)) {
+            } elseif (in_array($ruleLower, ['in_array_keys', 'array', 'array_keys'], true)) {
                 $optionalKeys = [...$optionalKeys, ...$keys];
             }
         }

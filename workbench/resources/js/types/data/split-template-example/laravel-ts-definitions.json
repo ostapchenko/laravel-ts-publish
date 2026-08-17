@@ -1582,6 +1582,14 @@
                     "jsDocMetadata": []
                 },
                 {
+                    "fieldPath": "attributes_map",
+                    "tsType": "{ color?: unknown; size?: unknown }",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
                     "fieldPath": "preferences",
                     "tsType": "{ theme?: unknown; locale?: unknown }",
                     "isRequired": false,

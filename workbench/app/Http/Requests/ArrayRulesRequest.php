@@ -9,7 +9,7 @@ use Illuminate\Validation\Rule;
 
 /**
  * Exercises all array-category validation rules:
- * array, array:k1,k2, between, contains, doesnt_contain, distinct, in_array,
+ * array, array:k1,k2, array_keys, between, contains, doesnt_contain, distinct, in_array,
  * in_array_keys, list, max, min, required_array_keys, size.
  *
  * Also demonstrates nested/wildcard dot-notation rules for validating
@@ -53,6 +53,10 @@ class ArrayRulesRequest extends FormRequest
 
             // in_array_keys — array must have at least one of the given keys
             'config' => ['required', 'array', 'in_array_keys:timezone'],
+
+            // array_keys:k1,k2 — restricts the array's keys to the given set, like array:k1,k2,
+            // but as a standalone rule that itself requires at least one listed key
+            'attributes_map' => ['required', 'array_keys:color,size'],
 
             // array:k1,k2 — array's keys are restricted to (at most) the given key set
             'preferences' => ['nullable', 'array:theme,locale'],
