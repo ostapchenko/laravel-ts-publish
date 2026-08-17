@@ -9068,8 +9068,13 @@
                     "optional": true
                 },
                 {
-                    "name": "week_days_when_appended",
-                    "type": "AsEnum<typeof Status>[] | null",
+                    "name": "week_days_when_has_default",
+                    "type": "StatusType[] | null | string",
+                    "optional": false
+                },
+                {
+                    "name": "status_history_when_appended",
+                    "type": "AsEnum<typeof Status>[]",
                     "optional": true
                 },
                 {
@@ -10931,6 +10936,11 @@
                 {
                     "name": "member_role_resources",
                     "type": "AsEnum<typeof Role>[]",
+                    "optional": false
+                },
+                {
+                    "name": "member_role_resources_filtered",
+                    "type": "RoleType[] | Record<string, RoleType>",
                     "optional": false
                 },
                 {

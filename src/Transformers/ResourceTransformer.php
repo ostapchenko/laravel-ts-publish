@@ -591,7 +591,9 @@ class ResourceTransformer extends CoreTransformer
             }
 
             if ($info['isCollection']) {
-                // A mixed union must be parenthesized before the array suffix binds.
+                // Unpinned: needs a non-nullable same-FQCN mixed pairing, map-wrapped; the
+                // workbench's only candidate (User::role) is nullable, so isRebuildableEnumShape()
+                // demotes it instead. Leave the parenthesization in — dropping it would mis-parse.
                 $type = $isMixed ? '('.$type.')[]' : $type.'[]';
             }
 

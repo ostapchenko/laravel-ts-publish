@@ -1294,7 +1294,9 @@ class ResourceAstAnalyzer
                 $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
             }
 
-            return $this->applyConditionalDefault($result, $call, 2);
+            // An explicit default unions in an extra arm applyConditionalDefault() can't undo,
+            // so re-check rebuildability on the final, post-default type.
+            return $this->demoteUnrebuildableEnumShape($this->applyConditionalDefault($result, $call, 2));
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
@@ -1325,7 +1327,7 @@ class ResourceAstAnalyzer
             $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
         }
 
-        return $this->applyConditionalDefault($result, $call, 2);
+        return $this->demoteUnrebuildableEnumShape($this->applyConditionalDefault($result, $call, 2));
     }
 
     /**
@@ -3251,15 +3253,29 @@ class ResourceAstAnalyzer
 
         $useTolki = Config::boolean('ts-publish.enums.use_tolki_package');
 
-        $parts = array_map(function (array $prop) use ($analysis, $useTolki): string {
+        // A property whose analyzer type isn't a rebuildable X/X[] shape (e.g. a keyed Record arm
+        // from a non-sequential map chain) can't survive the AsEnum rewrite below — demote it to
+        // the direct-enum channel first, same guard the top-level enumFqcn/directEnumFqcn split uses.
+        $enumResources = $analysis->enumResources;
+        $directEnumFqcns = $analysis->directEnumFqcns;
+        $propTypesByName = array_column($analysis->properties, 'type', 'name');
+
+        foreach ($enumResources as $propName => $fqcn) {
+            if (! $this->isRebuildableEnumShape($propTypesByName[$propName] ?? '')) {
+                $directEnumFqcns[$propName] = $fqcn;
+                unset($enumResources[$propName]);
+            }
+        }
+
+        $parts = array_map(function (array $prop) use ($enumResources, $useTolki): string {
             $key = LaravelTsPublish::validJsObjectKey($prop['name']);
 
             $type = $prop['type'];
 
             // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
             // top-level enum resource transformer. A collection keeps its `[]` suffix.
-            if ($useTolki && isset($analysis->enumResources[$prop['name']])) {
-                $fqcn = $analysis->enumResources[$prop['name']];
+            if ($useTolki && isset($enumResources[$prop['name']])) {
+                $fqcn = $enumResources[$prop['name']];
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
                 $constName = $tsInfo['enums'][0] ?? class_basename($fqcn);
                 $nullable = str_contains($type, 'null');
@@ -3283,12 +3299,12 @@ class ResourceAstAnalyzer
                  : array_merge(...array_values($analysis->inlineEnumFqcns));
 
             $embeddedEnumFqcns = array_values(array_unique([
-                ...array_values($analysis->directEnumFqcns),
+                ...array_values($directEnumFqcns),
                 // Propagate any deeply-nested direct enum FQCNs from sub-inline-arrays.
                 ...$nestedInlineEnumFqcns,
             ]));
 
-            $enumResourceFqcns = array_values($analysis->enumResources);
+            $enumResourceFqcns = array_values($enumResources);
             // Propagate any deeply-nested enum resource FQCNs from sub-inline-arrays.
             foreach ($analysis->inlineEnumResourceFqcns as $nestedFqcns) {
                 foreach ($nestedFqcns as $fqcn) {
@@ -3734,17 +3750,15 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        // A map body that is entirely `EnumResource::make(...)` returns a singular 'enumFqcn' — keep it
-        // live (do not demote to 'directEnumFqcn') so ResourceTransformer's tolki rewrite sees the
-        // collection and renders `AsEnum<typeof X>[]`, matching the array of wrapped enum objects
-        // EnumResource::make() actually produces per element.
+        // A map body entirely `EnumResource::make(...)` carries a live 'enumFqcn' through, demoted
+        // below when the keyed Record arm makes the shape unrebuildable.
         $mapped = $this->arrayWrapType($bodyResult['type']);
 
-        return [
+        return $this->demoteUnrebuildableEnumShape([
             ...$bodyResult,
             'type' => $sequentialKeys ? $mapped : $this->keyedObjectArm($mapped),
             'optional' => false,
-        ];
+        ]);
     }
 
     /**
@@ -3792,6 +3806,41 @@ class ResourceAstAnalyzer
         ));
 
         return $members === [] ? 'unknown' : implode(' | ', $members);
+    }
+
+    /**
+     * Whether $type is a shape ResourceTransformer::rewriteEnumResourceTypes() can rebuild
+     * losslessly: a single non-null top-level union member, itself a bare identifier or that
+     * identifier array-suffixed, with at most an outer `| null`. A keyed `Record<...>` arm, an
+     * extra default arm, or any other union the rebuild can't reproduce fails this check.
+     */
+    private function isRebuildableEnumShape(string $type): bool
+    {
+        $nonNullMembers = array_values(array_filter(
+            LaravelTsPublish::splitTopLevelUnion($type),
+            fn (string $member): bool => $member !== 'null',
+        ));
+
+        return count($nonNullMembers) === 1
+            && preg_match('/^[A-Za-z_]\w*(\[\])?$/', $nonNullMembers[0]) === 1;
+    }
+
+    /**
+     * Demote a surviving 'enumFqcn' to 'directEnumFqcn' when the final type isn't a rebuildable
+     * shape (see isRebuildableEnumShape()) — the transformer's rewrite would otherwise discard
+     * whatever it can't reproduce, so the analyzer's own type string must survive untouched instead.
+     *
+     * @param  ValueExpressionResult  $result
+     * @return ValueExpressionResult
+     */
+    private function demoteUnrebuildableEnumShape(array $result): array
+    {
+        if (isset($result['enumFqcn']) && ! $this->isRebuildableEnumShape($result['type'])) {
+            $result['directEnumFqcn'] = $result['enumFqcn'];
+            unset($result['enumFqcn']);
+        }
+
+        return $result;
     }
 
     /**
@@ -4503,7 +4552,7 @@ class ResourceAstAnalyzer
         $bodyResult['type'] = $this->arrayWrapType($bodyResult['type']);
         $bodyResult['optional'] = false;
 
-        return $bodyResult;
+        return $this->demoteUnrebuildableEnumShape($bodyResult);
     }
 
     /**

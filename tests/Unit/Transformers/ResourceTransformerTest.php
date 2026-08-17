@@ -1989,6 +1989,17 @@ describe('ResourceTransformer with RelationChainResource — EnumResource::make(
         expect($data->properties['member_role_resources']['type'])->toBe('RoleType[]')
             ->and($data->properties['member_role_resources']['optional'])->toBeFalse();
     });
+
+    // filter() clears sequential keys, so the map body's keyed Record arm can't be rebuilt by the
+    // AsEnum rewrite — it must stay demoted, keeping RoleType[] | Record<string, RoleType> intact
+    // rather than collapsing to a bare, wrong AsEnum<typeof Role>.
+    test('member_role_resources_filtered keeps its keyed Record arm with tolki enabled', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['member_role_resources_filtered']['type'])
+            ->toBe('RoleType[] | Record<string, RoleType>');
+    });
 });
 
 describe('ResourceTransformer with EnumCollectionResource — EnumResource::collection() shapes', function () {
@@ -2028,12 +2039,23 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
             ->and($data->properties['week_days_when_has']['optional'])->toBeTrue();
     });
 
-    test('EnumResource::collection() value inside whenAppended() rewrites to AsEnum<typeof Status>[] | null', function () {
+    test('EnumResource::collection() value inside whenAppended() rewrites to AsEnum<typeof Status>[]', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
-        expect($data->properties['week_days_when_appended']['type'])->toBe('AsEnum<typeof Status>[] | null')
-            ->and($data->properties['week_days_when_appended']['optional'])->toBeTrue();
+        expect($data->properties['status_history_when_appended']['type'])->toBe('AsEnum<typeof Status>[]')
+            ->and($data->properties['status_history_when_appended']['optional'])->toBeTrue();
+    });
+
+    // An explicit default arm's 'string' type can't fold into the AsEnum rebuild, so the promotion
+    // demotes back to directEnumFqcn and the full union (default arm included) survives untouched.
+    test('whenHas() with an explicit default keeps the full union, not a collapsed AsEnum', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['week_days_when_has_default']['type'])
+            ->toBe('StatusType[] | null | string')
+            ->and($data->properties['week_days_when_has_default']['optional'])->toBeFalse();
     });
 
     test('local variable ->map() with an EnumResource::make() body rewrites to AsEnum<typeof Role>[]', function () {

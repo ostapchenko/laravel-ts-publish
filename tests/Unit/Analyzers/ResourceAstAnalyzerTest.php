@@ -606,17 +606,24 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['member_roles']['optional'])->toBeFalse();
     });
 
-    // A map() body that is entirely EnumResource::make() must stay 'enumFqcn'-tagged (not demoted to
-    // 'directEnumFqcn'): ResourceTransformer::rewriteEnumResourceTypes() reads 'enumFqcn' keys to
-    // rewrite the property to AsEnum<...>[], which is what an array of EnumResource-wrapped enum
-    // objects actually is. The array-wrapped analyzer type itself is untouched by this rewrite —
-    // it stays the bare element type array, and the transformer rebuilds AsEnum<typeof Role>[] on top.
+    // Must stay 'enumFqcn'-tagged (not demoted): the transformer's AsEnum rewrite needs that
+    // channel to render the wrapped-object array as AsEnum<typeof Role>[], not plain RoleType[].
     test('map() body that is entirely EnumResource::make() stays an array and is enumFqcn-tagged', function () {
         expect($this->props['member_role_resources']['type'])->toBe('RoleType[]')
             ->and($this->props['member_role_resources']['optional'])->toBeFalse()
             ->and($this->analysis->enumResources)->toHaveKey('member_role_resources')
             ->and($this->analysis->enumResources['member_role_resources'])->toBe(Role::class)
             ->and($this->analysis->directEnumFqcns)->not->toHaveKey('member_role_resources');
+    });
+
+    // filter() clears sequential keys, so the map body ends up keyedObjectArm()-wrapped — a shape
+    // the AsEnum rewrite can't reproduce, so 'enumFqcn' must demote to 'directEnumFqcn' here.
+    test('filter() before an EnumResource::make() map body demotes to directEnumFqcn', function () {
+        expect($this->props['member_role_resources_filtered']['type'])
+            ->toBe('RoleType[] | Record<string, RoleType>')
+            ->and($this->analysis->directEnumFqcns)->toHaveKey('member_role_resources_filtered')
+            ->and($this->analysis->directEnumFqcns['member_role_resources_filtered'])->toBe(Role::class)
+            ->and($this->analysis->enumResources)->not->toHaveKey('member_role_resources_filtered');
     });
 
     // A string ('strtoupper') or array ([$this, 'method']) callable has no closure body to analyze.
@@ -702,10 +709,21 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
     // value — whenAppended() never forwards the attribute value to a Closure, so only this eagerly-
     // evaluated form is realistically reachable there.
     test('EnumResource::collection() value inside whenAppended() promotes to the enumFqcn channel', function () {
-        expect($this->props['week_days_when_appended']['type'])->toBe('StatusType[] | null')
-            ->and($this->analysis->enumResources)->toHaveKey('week_days_when_appended')
-            ->and($this->analysis->enumResources['week_days_when_appended'])->toBe(Status::class)
-            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('week_days_when_appended');
+        expect($this->props['status_history_when_appended']['type'])->toBe('StatusType[]')
+            ->and($this->analysis->enumResources)->toHaveKey('status_history_when_appended')
+            ->and($this->analysis->enumResources['status_history_when_appended'])->toBe(Status::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('status_history_when_appended');
+    });
+
+    // An explicit default arm unions in a 'string' type applyConditionalDefault() can't fold into
+    // AsEnum<typeof X>[] — the promoted 'enumFqcn' must demote back so the real union survives.
+    test('whenHas() with an explicit default demotes and keeps the full union', function () {
+        expect($this->props['week_days_when_has_default']['type'])
+            ->toBe('StatusType[] | null | string')
+            ->and($this->props['week_days_when_has_default']['optional'])->toBeFalse()
+            ->and($this->analysis->directEnumFqcns)->toHaveKey('week_days_when_has_default')
+            ->and($this->analysis->directEnumFqcns['week_days_when_has_default'])->toBe(Status::class)
+            ->and($this->analysis->enumResources)->not->toHaveKey('week_days_when_has_default');
     });
 
     // $variable->map() (not $this->relation->map()) with a body entirely EnumResource::make(...)

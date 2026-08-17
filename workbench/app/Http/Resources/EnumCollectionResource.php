@@ -44,10 +44,18 @@ class EnumCollectionResource extends JsonResource
             // this first-class-callable value still gets the AsEnum rewrite, not the raw type.
             'week_days_when_has' => $this->whenHas('week_days', EnumResource::collection(...)),
 
+            // An explicit default arm unions in a type applyConditionalDefault() can't fold into
+            // AsEnum<typeof X>[] — the promoted 'enumFqcn' must demote back to 'directEnumFqcn'
+            // so the real union (including the default's own type) survives instead of the
+            // rebuild silently dropping both the default arm and the array.
+            'week_days_when_has_default' => $this->whenHas('week_days', EnumResource::collection(...), 'none'),
+
             // Same mechanism via whenAppended(), with an ordinary (non-first-class-callable)
             // value: whenAppended() never forwards the attribute value to a Closure, so the FCC
             // form isn't reachable there in practice, but this eagerly-evaluated form is.
-            'week_days_when_appended' => $this->whenAppended('week_days', EnumResource::collection($this->week_days)),
+            // status_history (an accessor, not a cast column) is the realistic pairing here:
+            // whenAppended() surfaces $appends entries, which are accessor-computed by nature.
+            'status_history_when_appended' => $this->whenAppended('status_history', EnumResource::collection($this->status_history)),
 
             // Local variable ->map(), distinct from $this->relation->map(): the outer whenLoaded
             // closure captures $members, which then calls ->map() on a bare variable.

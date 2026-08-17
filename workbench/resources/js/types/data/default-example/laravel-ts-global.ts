@@ -2060,7 +2060,8 @@ declare global {
             week_days: app.enums.StatusType[] | null;
             wrapped_week_days: { week_days: app.enums.StatusType[] | null };
             week_days_when_has?: app.enums.StatusType[] | null;
-            week_days_when_appended?: app.enums.StatusType[] | null;
+            week_days_when_has_default: app.enums.StatusType[] | null | string;
+            status_history_when_appended?: app.enums.StatusType[];
             members_via_var?: app.enums.RoleType[];
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
@@ -2677,6 +2678,7 @@ declare global {
             member_emails: string[];
             member_roles: (app.enums.RoleType | null)[];
             member_role_resources: app.enums.RoleType[];
+            member_role_resources_filtered: app.enums.RoleType[] | Record<string, app.enums.RoleType>;
             member_names_upper: unknown;
             member_formatted: unknown;
             member_mapped_fcc: unknown;
