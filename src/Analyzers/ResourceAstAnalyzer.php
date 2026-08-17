@@ -4009,7 +4009,13 @@ class ResourceAstAnalyzer
             return ['type' => 'never[]', 'optional' => false];
         }
 
-        if ($analysis->properties === []) {
+        // A spread whose value resolves to a bare named resource (not an array/collection of one)
+        // intersects that resource with the literal's own explicit keys. analyzeReturnArray()'s item
+        // loop only recognizes four specific top-level spread shapes and silently drops anything
+        // else, so this walk catches what it misses without duplicating its bookkeeping.
+        $spreadResourceFqcns = $this->collectInlineArraySpreadResources($array);
+
+        if ($analysis->properties === [] && $spreadResourceFqcns === []) {
             return ['type' => 'Record<string, unknown>', 'optional' => false];
         }
 
@@ -4050,7 +4056,16 @@ class ResourceAstAnalyzer
                 : "{$key}: {$type}";
         }, $analysis->properties);
 
-        $result = ['type' => '{ '.implode('; ', $parts).' }', 'optional' => false];
+        // Each spread resource intersects, in source order, with an object literal of the
+        // remaining explicit keys — omitted entirely when there are none to intersect with.
+        $spreadTypeNames = array_map(fn (string $fqcn): string => class_basename($fqcn), $spreadResourceFqcns);
+        $type = match (true) {
+            $spreadResourceFqcns === [] => '{ '.implode('; ', $parts).' }',
+            $parts === [] => implode(' & ', $spreadTypeNames),
+            default => implode(' & ', [...$spreadTypeNames, '{ '.implode('; ', $parts).' }']),
+        };
+
+        $result = ['type' => $type, 'optional' => false];
 
         // Propagate import metadata so FQCNs referenced inside the inline object reach the outer analysis.
         // With Tolki enabled, enum resources need value imports (const) rather than type imports; direct
@@ -4102,10 +4117,12 @@ class ResourceAstAnalyzer
         }
 
         // Nested resources are tracked separately so they merge into resource imports, not model imports.
-        if ($analysis->nestedResources !== []) {
-            $result['embeddedResourceFqcns'] = array_values(array_unique(
-                array_values($analysis->nestedResources),
-            ));
+        // Spread resources travel the same channel so their import reaches the outer analysis too.
+        if ($analysis->nestedResources !== [] || $spreadResourceFqcns !== []) {
+            $result['embeddedResourceFqcns'] = array_values(array_unique([
+                ...array_values($analysis->nestedResources),
+                ...$spreadResourceFqcns,
+            ]));
         }
 
         // A #[TsType(import: …)] token inside the inline object is spelled in the emitted type string,
@@ -4115,6 +4132,50 @@ class ResourceAstAnalyzer
         }
 
         return $result;
+    }
+
+    /**
+     * Collect the resource FQCNs of every spread in an inline array whose value resolves to a
+     * bare named resource, in source order — the arms an intersection type is built from.
+     *
+     * @return list<class-string>
+     */
+    private function collectInlineArraySpreadResources(Array_ $array): array
+    {
+        /** @var list<class-string> $spreadResourceFqcns */
+        $spreadResourceFqcns = [];
+
+        foreach ($array->items as $item) {
+            if ($item->key !== null || ! $item->unpack || $this->isKnownArraySpreadShape($item->value)) {
+                continue;
+            }
+
+            $spreadResult = $this->analyzeValueExpression($item->value);
+
+            if (isset($spreadResult['resourceFqcn']) && $spreadResult['type'] === class_basename($spreadResult['resourceFqcn'])) {
+                $spreadResourceFqcns[] = $spreadResult['resourceFqcn'];
+            }
+        }
+
+        return $spreadResourceFqcns;
+    }
+
+    /**
+     * Whether a spread's value matches one of the four shapes analyzeReturnArray()'s item loop
+     * already flattens into named properties (parent::toArray(), ->only()/->except(), a bare
+     * `$this->method()`, or a bare function call) — already handled, so not a resource candidate.
+     */
+    private function isKnownArraySpreadShape(Expr $value): bool
+    {
+        if ($this->isParentToArrayCall($value)) {
+            return true;
+        }
+
+        if ($value instanceof MethodCall && $value->var instanceof Variable && $value->var->name === 'this') {
+            return true;
+        }
+
+        return $value instanceof FuncCall;
     }
 
     /**
@@ -4548,12 +4609,12 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Suffix a type with `[]`, parenthesizing a union first: TypeScript binds `[]` tighter than `|`,
-     * so `string | null[]` parses as `string | (null[])`, not `(string | null)[]`.
+     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
+     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`.
      */
     private function arrayWrapType(string $type): string
     {
-        return str_contains($type, '|') ? '('.$type.')[]' : $type.'[]';
+        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
     }
 
     /**

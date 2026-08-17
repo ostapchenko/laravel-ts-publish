@@ -63,6 +63,7 @@ use Workbench\App\Http\Resources\MergeMultiBranchClosureResource;
 use Workbench\App\Http\Resources\MiscCollection;
 use Workbench\App\Http\Resources\ModelWrappedPropResource;
 use Workbench\App\Http\Resources\MutuallyRecursiveSpreadResource;
+use Workbench\App\Http\Resources\NestedResourceSpreadResource;
 use Workbench\App\Http\Resources\NonArrayReturnResource;
 use Workbench\App\Http\Resources\NonThisReceiverSpreadResource;
 use Workbench\App\Http\Resources\OrderClosureResource;
@@ -82,6 +83,7 @@ use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\PreserveKeysCollection;
 use Workbench\App\Http\Resources\PreserveKeysPropertyCollection;
 use Workbench\App\Http\Resources\ProductResource;
+use Workbench\App\Http\Resources\ProfileResource;
 use Workbench\App\Http\Resources\QuirkyResource;
 use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
 use Workbench\App\Http\Resources\Registrar as BareRegistrarResource;
@@ -5324,5 +5326,37 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
         // historyEvent is a BelongsTo: $m binds to varModelBindings, not varCollectionBindings,
         // so the ->map proxy must not match — a guess here would silently mistype a real property.
         expect($this->props['history_event_map_only']['type'])->toBe('unknown');
+    });
+});
+
+describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-resource inside a nested array)', function () {
+    beforeEach(function () {
+        $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(NestedResourceSpreadResource::class), Team::class))
+            ->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('spread of a resolved resource plus a sibling key intersects, inside a mapped multi-statement closure', function () {
+        expect($this->props['members_with_profile']['type'])
+            ->toBe('(UserResource & { profile: ProfileResource })[]')
+            ->and($this->props['members_with_profile']['optional'])->toBeTrue()
+            ->and(array_values($this->analysis->nestedResources))->toContain(UserResource::class)
+            ->and(array_values($this->analysis->nestedResources))->toContain(ProfileResource::class);
+    });
+
+    test('spread alone with no sibling keys collapses to just the resource type', function () {
+        expect($this->props['members_bare']['type'])->toBe('UserResource[]')
+            ->and($this->props['members_bare']['optional'])->toBeTrue();
+    });
+
+    test('spread of a Model->toArray() (not a resource) keeps today\'s behaviour: the spread contributes nothing', function () {
+        expect($this->props['members_model_spread']['type'])->toBe('{ flag: boolean }[]')
+            ->and($this->props['members_model_spread']['optional'])->toBeTrue();
+    });
+
+    test('two resource spreads plus a sibling key intersect in order', function () {
+        expect($this->props['members_double_spread']['type'])
+            ->toBe('(UserResource & ProfileResource & { note: string })[]')
+            ->and($this->props['members_double_spread']['optional'])->toBeTrue();
     });
 });

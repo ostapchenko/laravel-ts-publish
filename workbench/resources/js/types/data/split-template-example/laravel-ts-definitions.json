@@ -10169,6 +10169,36 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\NestedResourceSpreadResource": {
+            "name": "NestedResourceSpreadResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "members_with_profile",
+                    "type": "(UserResource & { profile: ProfileResource })[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_bare",
+                    "type": "UserResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_model_spread",
+                    "type": "{ flag: boolean }[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_double_spread",
+                    "type": "(UserResource & ProfileResource & { note: string })[]",
+                    "optional": true
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\NonArrayReturnResource": {
             "name": "NonArrayReturnResource",
             "properties": []
