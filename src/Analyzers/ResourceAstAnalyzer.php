@@ -22,6 +22,7 @@ use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
+use PhpParser\BuilderFactory;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
@@ -118,6 +119,12 @@ class ResourceAstAnalyzer
     use InspectsAstNodes;
     use ResolvesClassNames;
     use ResolvesModelTypes;
+
+    /** Total-element cap for a class constant's array before it bails to unknown; see constantArrayWithinLimits(). */
+    private const int MAX_CONSTANT_ARRAY_ELEMENTS = 200;
+
+    /** Nesting-depth cap for a class constant's array before it bails to unknown; see constantArrayWithinLimits(). */
+    private const int MAX_CONSTANT_ARRAY_DEPTH = 5;
 
     /**
      * Wrapped class from an `instanceof` guard in toArray(); fallback when resolveClassOnProperty() returns null.
@@ -692,6 +699,18 @@ class ResourceAstAnalyzer
             }
             if (in_array($constName, ['true', 'false'], true)) {
                 return ['type' => 'boolean', 'optional' => false];
+            }
+        }
+
+        // SomeClass::CONSTANT / self::CONSTANT / static::CONSTANT as a value — resolve the
+        // constant's own value. `Foo::class` and enum-case fetches are excluded inside the helper,
+        // so this cannot divert the dedicated Foo::class / enum-case paths used elsewhere (e.g.
+        // EnumResource::make(), toResource(SomeResource::class), #[Collects]).
+        if ($expr instanceof ClassConstFetch && $expr->class instanceof Name && $expr->name instanceof Identifier) {
+            $constantResult = $this->resolveClassConstantValueExpression($expr);
+
+            if ($constantResult !== null) {
+                return $constantResult;
             }
         }
 
@@ -1847,6 +1866,141 @@ class ResourceAstAnalyzer
         }
 
         return null;
+    }
+
+    /**
+     * Resolve `SomeClass::CONSTANT` as a value expression. Reads the constant via reflection and
+     * feeds its PHP value back through analyzeValueExpression() as a synthetic AST node, reusing
+     * every existing scalar/array branch (including analyzeInlineArray()'s shape builder) instead
+     * of a second value-to-TS mapper. Returns null for anything not a resolvable plain constant.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function resolveClassConstantValueExpression(ClassConstFetch $expr): ?array
+    {
+        if (! $expr->class instanceof Name || ! $expr->name instanceof Identifier) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $constName = $expr->name->toString();
+
+        // `Foo::class` is a compile-time magic constant, not a real declared one — reflection
+        // can't read it. It is a string at runtime, so it types as `string` directly.
+        if ($constName === 'class') {
+            return ['type' => 'string', 'optional' => false];
+        }
+
+        $className = $expr->class->toString();
+
+        // Resolve `self`/`static` so a constant declared on the resource itself is readable,
+        // matching how analyzeNewResource()/analyzeStaticCall() already treat those keywords.
+        if ($className === 'self' || $className === 'static') {
+            $className = $this->resourceReflection->getName();
+        }
+
+        if (! class_exists($className) && ! interface_exists($className) && ! enum_exists($className)) {
+            return null;
+        }
+
+        $classReflection = new ReflectionClass($className);
+
+        if (! $classReflection->hasConstant($constName)) {
+            return null;
+        }
+
+        $constantReflection = $classReflection->getReflectionConstant($constName);
+
+        // Enum cases resolve through resolveEnumFromPropertyArg()'s dedicated branch instead
+        // (EnumResource::make(Status::Active) etc.) — a bare case fetch here must not be
+        // reinterpreted as a plain constant's literal value.
+        if ($constantReflection === false || $constantReflection->isEnumCase()) {
+            return null;
+        }
+
+        return $this->analyzeConstantValue($constantReflection->getValue());
+    }
+
+    /**
+     * Convert a reflected constant's PHP value into a TS type by building a synthetic AST node
+     * and reusing analyzeValueExpression()'s scalar/array dispatch, rather than a parallel
+     * value-to-TS mapper.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeConstantValue(mixed $value): ?array
+    {
+        if (is_array($value)) {
+            return $this->analyzeConstantArrayValue($value);
+        }
+
+        // A class constant's value is always a compile-time literal — null/bool/int/float/string/
+        // array. Anything else (only reachable via an enum case, already excluded by the caller)
+        // can't be resolved.
+        if (! is_null($value) && ! is_bool($value) && ! is_int($value) && ! is_float($value) && ! is_string($value)) {
+            return null; // @codeCoverageIgnore
+        }
+
+        return $this->analyzeValueExpression(new BuilderFactory()->val($value));
+    }
+
+    /**
+     * Convert a reflected constant's array value into a TS type, bailing to unknown for a plain
+     * list or an oversized/deeply-nested shape rather than misreporting either.
+     *
+     * @param  array<array-key, mixed>  $value
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeConstantArrayValue(array $value): ?array
+    {
+        if ($value !== []) {
+            // A plain sequential list has no key to shape a property from — analyzeInlineArray()
+            // builds record-style shapes keyed by name, so every element would be silently
+            // dropped, misreporting an actual list as an empty Record<string, unknown>.
+            if (array_is_list($value)) {
+                return null;
+            }
+
+            if (! $this->constantArrayWithinLimits($value)) {
+                return null;
+            }
+        }
+
+        return $this->analyzeValueExpression(new BuilderFactory()->val($value));
+    }
+
+    /**
+     * Guard a class-constant array against inlining an unreadable type: too many total elements
+     * or nested too deep. Both limits are generous for realistic config-shaped constants (the
+     * eaglesys OWNER_MINIMUM_CHANNELS shape is 2 levels deep with about a dozen elements) while
+     * blocking a large external lookup table from bloating every resource that references it.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    protected function constantArrayWithinLimits(array $value): bool
+    {
+        if (count($value, COUNT_RECURSIVE) > self::MAX_CONSTANT_ARRAY_ELEMENTS) {
+            return false;
+        }
+
+        return $this->constantArrayDepth($value) <= self::MAX_CONSTANT_ARRAY_DEPTH;
+    }
+
+    /**
+     * Compute the deepest nesting level of an array, counting the array itself as depth 1.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    protected function constantArrayDepth(array $value, int $depth = 1): int
+    {
+        $deepest = $depth;
+
+        foreach ($value as $item) {
+            if (is_array($item)) {
+                $deepest = max($deepest, $this->constantArrayDepth($item, $depth + 1));
+            }
+        }
+
+        return $deepest;
     }
 
     /**

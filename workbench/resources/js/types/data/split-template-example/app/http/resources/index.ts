@@ -9,6 +9,7 @@ export * from './boolean-expr-resource';
 export * from './case-spread-resource';
 export * from './category-resource';
 export * from './child-shared-resource';
+export * from './class-constant-resource';
 export * from './closure-control-flow-resource';
 export * from './closure-param-shadow-resource';
 export * from './closure-union-metadata-resource';

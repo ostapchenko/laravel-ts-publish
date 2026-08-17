@@ -20,6 +20,7 @@ use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CaseSpreadResource;
 use Workbench\App\Http\Resources\CategoryResource;
+use Workbench\App\Http\Resources\ClassConstantResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureParamShadowResource;
 use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
@@ -5063,6 +5064,30 @@ test('a reflected $this->method() return dispatches its enum and model FQCNs', f
         ->and($analysis->directEnumFqcns)->toContain(Status::class)
         ->and($props['fallback_owner']['type'])->toBe('User')
         ->and($analysis->modelFqcns)->toContain(User::class);
+});
+
+test('SomeClass::CONSTANT resolves the constant value without regressing Foo::class or enum cases', function () {
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(ClassConstantResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    $nestedChannelsShape = '{ in_app: { status_updates: boolean; comments: boolean }; '
+        .'digest: { status_updates: boolean; comments: boolean } }';
+
+    expect($props['owner_minimum_channels']['type'])->toBe($nestedChannelsShape)
+        ->and($props['max_retries']['type'])->toBe('number')
+        ->and($props['schema_version']['type'])->toBe('number')
+        // The left arm ($this->totally_unmapped_field) is unresolvable, so the constant on the
+        // right — the same kind eaglesys's default_subscription_channels falls back to — wins.
+        ->and($props['fallback_channels']['type'])->toBe($nestedChannelsShape)
+        // A plain-list constant has no key to shape a property from; must stay unknown.
+        ->and($props['channel_tags']['type'])->toBe('unknown')
+        // Regression pin: `Foo::class` still types as a plain string, not a resource/model type.
+        ->and($props['resource_marker']['type'])->toBe('string')
+        // Regression pin: an enum case reached through EnumResource::make() is unaffected.
+        ->and($props['status_marker']['type'])->toContain('Status')
+        ->and($analysis->enumResources)->toHaveKey('status_marker', Status::class);
 });
 
 describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceCollection())', function () {

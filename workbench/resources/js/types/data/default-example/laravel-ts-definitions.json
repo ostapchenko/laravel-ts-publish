@@ -8181,6 +8181,46 @@
             "name": "ChildSharedResource",
             "properties": []
         },
+        "Workbench\\App\\Http\\Resources\\ClassConstantResource": {
+            "name": "ClassConstantResource",
+            "properties": [
+                {
+                    "name": "owner_minimum_channels",
+                    "type": "{ in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } }",
+                    "optional": false
+                },
+                {
+                    "name": "max_retries",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "schema_version",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "fallback_channels",
+                    "type": "{ in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } }",
+                    "optional": false
+                },
+                {
+                    "name": "channel_tags",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "resource_marker",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "status_marker",
+                    "type": "AsEnum<typeof Status>",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\ClosureControlFlowResource": {
             "name": "ClosureControlFlowResource",
             "properties": [

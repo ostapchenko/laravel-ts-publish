@@ -83,6 +83,7 @@
     "app\/Http\/Resources\/CaseSpreadResource.php",
     "app\/Http\/Resources\/CategoryResource.php",
     "app\/Http\/Resources\/ChildSharedResource.php",
+    "app\/Http\/Resources\/ClassConstantResource.php",
     "app\/Http\/Resources\/ClosureControlFlowResource.php",
     "app\/Http\/Resources\/ClosureParamShadowResource.php",
     "app\/Http\/Resources\/ClosureUnionMetadataResource.php",
