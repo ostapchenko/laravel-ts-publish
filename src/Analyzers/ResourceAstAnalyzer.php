@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers;
 
+use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
@@ -111,6 +112,7 @@ use ReflectionNamedType;
  */
 class ResourceAstAnalyzer
 {
+    use ChecksPreserveKeys;
     use FiltersModelAttributes;
     use InspectsAstNodes;
     use ResolvesClassNames;
@@ -1678,40 +1680,6 @@ class ResourceAstAnalyzer
         }
 
         return null;
-    }
-
-    /**
-     * Whether a resource collection keeps its source keys, making the payload a JSON object rather
-     * than an array. Laravel honours the attribute and the property equally.
-     *
-     * @template T of object
-     *
-     * @param  ReflectionClass<T>  $reflection
-     */
-    protected function collectionPreservesKeys(ReflectionClass $reflection): bool
-    {
-        $attribute = 'Illuminate\Http\Resources\Attributes\PreserveKeys';
-
-        if (class_exists($attribute) && $reflection->getAttributes($attribute) !== []) {
-            return true;
-        }
-
-        return ($reflection->getDefaultProperties()['preserveKeys'] ?? false) === true;
-    }
-
-    /**
-     * Wrap a collected element type as `Record<string, R>` when the reflected class preserves its
-     * keys, or as `R[]` otherwise — the single point every collection-typing call site shares.
-     *
-     * @template T of object
-     *
-     * @param  ReflectionClass<T>  $reflection
-     */
-    protected function wrapCollectionElementType(string $elementType, ReflectionClass $reflection): string
-    {
-        return $this->collectionPreservesKeys($reflection)
-            ? "Record<string, {$elementType}>"
-            : $elementType.'[]';
     }
 
     /**
