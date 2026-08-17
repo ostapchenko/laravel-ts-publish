@@ -44,6 +44,14 @@ class FluentSelfResource extends JsonResource
     }
 
     /**
+     * Nullable native return type — the declared shape includes null, so the emitted type must too.
+     */
+    public function whenAuthorized(): ?static
+    {
+        return $this->is_active ? $this : null;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array
@@ -61,6 +69,8 @@ class FluentSelfResource extends JsonResource
             'parent_fluent_docblock' => $this->whenLoaded('parent', fn () => new self($this->parent)->withoutMetadata()),
             // Negative case: summary() declares `: array`, not self-returning — must stay unknown.
             'parent_summary' => $this->whenLoaded('parent', fn () => new self($this->parent)->summary()),
+            // `?static` — must keep the resource type but add `| null`, not just the bare resource.
+            'parent_fluent_nullable' => $this->whenLoaded('parent', fn () => new self($this->parent)->whenAuthorized()),
         ];
     }
 }

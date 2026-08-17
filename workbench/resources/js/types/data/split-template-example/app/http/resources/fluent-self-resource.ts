@@ -14,4 +14,5 @@ export interface FluentSelfResource
     parent_fluent_chain?: FluentSelfResource;
     parent_fluent_docblock?: FluentSelfResource;
     parent_summary?: unknown;
+    parent_fluent_nullable?: FluentSelfResource | null;
 }

@@ -1001,6 +1001,18 @@ describe('ResourceAstAnalyzer with FluentSelfResource', function () {
             ->and($prop['type'])->toBe('unknown')
             ->and($prop['optional'])->toBeTrue();
     });
+
+    test('a chained method declaring ?static appends | null to the preserved resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_nullable');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource | null')
+            ->and($prop['optional'])->toBeTrue();
+    });
 });
 
 describe('ResourceAstAnalyzer with InvoiceResource', function () {

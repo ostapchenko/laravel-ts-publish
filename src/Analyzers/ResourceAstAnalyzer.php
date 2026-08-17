@@ -1732,12 +1732,10 @@ class ResourceAstAnalyzer
         $receiverResult = $this->analyzeValueExpression($expr->var);
         $resourceFqcn = $receiverResult['resourceFqcn'] ?? null;
 
-        // Guards against a receiver resolving to a collection/array shape (e.g. ::collection()):
-        // only a singular resource instance can meaningfully receive an instance method call.
-        if ($resourceFqcn === null
-            || ! class_exists($resourceFqcn)
-            || $receiverResult['type'] !== class_basename($resourceFqcn)
-        ) {
+        // A collection receiver (e.g. ::collection()) resolves to an AnonymousResourceCollection
+        // instance, not a $resourceFqcn instance — reflecting the method below would validate
+        // against the wrong receiver, so exclude it rather than misfire on e.g. ->additional().
+        if ($resourceFqcn === null || $receiverResult['type'] !== class_basename($resourceFqcn)) {
             return null;
         }
 
@@ -1749,13 +1747,22 @@ class ResourceAstAnalyzer
 
         $method = new ReflectionMethod($resourceFqcn, $methodName);
 
-        return $this->methodPreservesReceiverType($method, $resourceFqcn) ? $receiverResult : null;
+        if (! $this->methodPreservesReceiverType($method, $resourceFqcn)) {
+            return null;
+        }
+
+        if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null')) {
+            $receiverResult['type'] .= ' | null';
+        }
+
+        return $receiverResult;
     }
 
     /**
      * Whether a method's declared return type says it hands the same instance back — a native
      * `static`, `self`, or the resource class itself; falling back to a `@return $this` docblock
-     * only when no native return type is declared at all.
+     * only when no native return type is declared at all. A union or intersection return type is
+     * rejected outright and never falls through to the docblock.
      */
     protected function methodPreservesReceiverType(ReflectionMethod $method, string $resourceFqcn): bool
     {
@@ -1767,15 +1774,32 @@ class ResourceAstAnalyzer
             return $name === 'static' || $name === 'self' || $name === $resourceFqcn;
         }
 
+        if ($returnType !== null) {
+            return false;
+        }
+
         $docComment = $method->getDocComment();
 
         if ($docComment === false) {
             return false;
         }
 
-        $returnTag = LaravelTsPublish::extractReturnTypeFromDocblock($docComment);
+        // extractReturnTypeFromDocblock()'s final fallback is `\S+`, so the token it returns
+        // can never carry surrounding whitespace — no trim() needed before comparing.
+        return LaravelTsPublish::extractReturnTypeFromDocblock($docComment) === '$this';
+    }
 
-        return $returnTag !== null && trim($returnTag) === '$this';
+    /**
+     * Whether a self-returning method's native return type also allows null (`?static`). The
+     * docblock-only `@return $this` fallback carries no nullability signal, so this only
+     * inspects a `ReflectionNamedType` — the same shape methodPreservesReceiverType() required
+     * to have already matched before this is ever called.
+     */
+    protected function methodReturnAllowsNull(ReflectionMethod $method): bool
+    {
+        $returnType = $method->getReturnType();
+
+        return $returnType instanceof ReflectionNamedType && $returnType->allowsNull();
     }
 
     /**
