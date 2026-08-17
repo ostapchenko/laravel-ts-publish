@@ -19,6 +19,7 @@ use Workbench\App\Http\Controllers\InertiaController;
 use Workbench\App\Http\Controllers\InertiaFormRequestController;
 use Workbench\App\Http\Controllers\InertiaNamedCollectionsController;
 use Workbench\App\Http\Controllers\InertiaPaginationsController;
+use Workbench\App\Http\Controllers\InertiaPreserveKeysController;
 use Workbench\App\Http\Controllers\InertiaResourceSharedTemplate;
 use Workbench\App\Http\Controllers\InertiaSingleResourceController;
 use Workbench\App\Http\Controllers\InertiaTsCastsController;
@@ -134,6 +135,11 @@ Route::get('/collection/named', [InertiaNamedCollectionsController::class, 'name
 
 Route::get('/collection/flat-paginated', [InertiaNamedCollectionsController::class, 'flatCollectionPaginated'])->name('collection.flat-paginated');
 Route::get('/collection/flat', [InertiaNamedCollectionsController::class, 'flatCollection'])->name('collection.flat');
+
+Route::get('/preserve-keys/named', [InertiaPreserveKeysController::class, 'named'])->name('preserve-keys.named');
+Route::get('/preserve-keys/named-paginated', [InertiaPreserveKeysController::class, 'namedPaginated'])->name('preserve-keys.named-paginated');
+Route::get('/preserve-keys/flat-paginated', [InertiaPreserveKeysController::class, 'flatPaginated'])->name('preserve-keys.flat-paginated');
+Route::get('/preserve-keys/anonymous-paginated', [InertiaPreserveKeysController::class, 'anonymousPaginated'])->name('preserve-keys.anonymous-paginated');
 
 Route::get('/ts-casts', [InertiaTsCastsController::class, 'index'])->name('ts-casts.index');
 Route::get('/inertia-form-request/create', [InertiaFormRequestController::class, 'create'])->name('inertia-form-request.create');

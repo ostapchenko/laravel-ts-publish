@@ -2545,11 +2545,32 @@ declare global {
             data: Record<string, TeamResource>;
         }
         /**
+         * Key-preserving AND flat ($wrap = null): the paginated Inertia prop must emit a keyed
+         * record data member, not JsonResourcePaginator's array one. Property form, so the fixture
+         * behaves identically on Laravel 12.
+         */
+        export type PreserveKeysFlatCollection = Record<string, TeamResource>;
+        /**
          * A collection that keeps its source keys, so the payload is a JSON object rather than an array.
          * Uses the property form, which predates the attribute and works on Laravel 12.
          */
         export interface PreserveKeysPropertyCollection {
             data: Record<string, TeamResource>;
+        }
+        /**
+         * Singular resource whose ::collection() preserves keys via $preserveKeys — exercises the
+         * anonymous (static-collection) Inertia path. Delegates to TeamResource's toArray() shape.
+         */
+        export interface PreserveKeysTeamResource {
+            id: number;
+            name: string;
+            slug: string;
+            description?: string | null;
+            is_active: boolean;
+            owner?: UserResource;
+            members?: TeamMemberResource[];
+            members_count?: number;
+            settings?: Record<string, unknown> | null;
         }
         /**
          * Exercises: multiple whenAggregated (sum/min/max), whenNotNull, when,

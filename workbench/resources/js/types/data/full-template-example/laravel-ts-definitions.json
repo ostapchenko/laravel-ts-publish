@@ -10468,6 +10468,10 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysFlatCollection": {
+            "name": "PreserveKeysFlatCollection",
+            "typeAlias": "Record<string, TeamResource>"
+        },
         "Workbench\\App\\Http\\Resources\\PreserveKeysPropertyCollection": {
             "name": "PreserveKeysPropertyCollection",
             "properties": [
@@ -10475,6 +10479,56 @@
                     "name": "data",
                     "type": "Record<string, TeamResource>",
                     "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysTeamResource": {
+            "name": "PreserveKeysTeamResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "slug",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "description",
+                    "type": "string | null",
+                    "optional": true
+                },
+                {
+                    "name": "is_active",
+                    "type": "boolean",
+                    "optional": false
+                },
+                {
+                    "name": "owner",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "members",
+                    "type": "TeamMemberResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_count",
+                    "type": "number",
+                    "optional": true
+                },
+                {
+                    "name": "settings",
+                    "type": "Record<string, unknown> | null",
+                    "optional": true
                 }
             ]
         },

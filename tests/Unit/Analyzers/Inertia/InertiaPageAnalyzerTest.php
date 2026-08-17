@@ -16,6 +16,9 @@ use Workbench\App\Http\Controllers\PostInertiaController;
 use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
+use Workbench\App\Http\Resources\PreserveKeysFlatCollection;
+use Workbench\App\Http\Resources\PreserveKeysTeamResource;
+use Workbench\App\Http\Resources\TeamResource;
 use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Post;
 
@@ -498,6 +501,47 @@ test('rewritePaginatedResourceProps rewrites flat collection to JsonResourcePagi
         ->and($externalImports)->toBe(['@tolki/types' => ['JsonResourcePaginator']]);
 })->skip(fn () => ! version_compare(app()->version(), '13', '>='));
 
+test('rewritePaginatedResourceProps leaves a non-preserving flat collection as a plain JsonResourcePaginator (control)', function () {
+    $mock = Mockery::mock(ResponseCollector::class);
+
+    $analyzer = new class($mock) extends InertiaPageAnalyzer
+    {
+        /** @return array{string, list<class-string>, array<string, list<string>>} */
+        public function expose(string $typeString, array $fqcns, array $paginatedResourceProps): array
+        {
+            return $this->rewritePaginatedResourceProps($typeString, $fqcns, $paginatedResourceProps);
+        }
+    };
+
+    $typeString = 'Inertia.SharedData & { posts: PostFlatCollection }';
+    [$resultType] = $analyzer->expose($typeString, [PostFlatCollection::class], ['posts' => PostFlatCollection::class]);
+
+    expect($resultType)->toContain('JsonResourcePaginator<')
+        ->and($resultType)->not->toContain('Omit<')
+        ->and($resultType)->not->toContain('Record<string,');
+});
+
+test('rewritePaginatedResourceProps emits the keyed record shape for a preserve-keys flat collection', function () {
+    $mock = Mockery::mock(ResponseCollector::class);
+
+    $analyzer = new class($mock) extends InertiaPageAnalyzer
+    {
+        /** @return array{string, list<class-string>, array<string, list<string>>} */
+        public function expose(string $typeString, array $fqcns, array $paginatedResourceProps): array
+        {
+            return $this->rewritePaginatedResourceProps($typeString, $fqcns, $paginatedResourceProps);
+        }
+    };
+
+    $typeString = 'Inertia.SharedData & { teams: PreserveKeysFlatCollection }';
+    [$resultType, $resultFqcns, $externalImports] = $analyzer->expose($typeString, [PreserveKeysFlatCollection::class], ['teams' => PreserveKeysFlatCollection::class]);
+
+    expect($resultType)->toBe("Inertia.SharedData & { teams: Omit<JsonResourcePaginator<TeamResource>, 'data'> & { data: Record<string, TeamResource> } }")
+        ->and($resultFqcns)->not->toContain(PreserveKeysFlatCollection::class)
+        ->and($resultFqcns)->toContain(TeamResource::class)
+        ->and($externalImports)->toBe(['@tolki/types' => ['JsonResourcePaginator']]);
+});
+
 // ─── analyze() shared-template isolation ──────────────────────────
 
 test('analyze() isolates props when different methods share the same component name - paginated collection method', function () {
@@ -626,6 +670,45 @@ test('rewritePaginatedStaticCollectionProps leaves non-paginated props unchanged
 
     expect($resultType)->toContain('items: AnonymousResourceCollection<unknown>')
         ->and($resultType)->toContain('warehouses: JsonResourcePaginator<WarehouseResource>');
+});
+
+test('rewritePaginatedStaticCollectionProps leaves a non-preserving resource as a plain JsonResourcePaginator (control)', function () {
+    $mock = Mockery::mock(ResponseCollector::class);
+
+    $analyzer = new class($mock) extends InertiaPageAnalyzer
+    {
+        /** @return array{string, list<class-string>, array<string, list<string>>} */
+        public function expose(string $typeString, array $fqcns, array $paginatedStaticCollectionProps): array
+        {
+            return $this->rewritePaginatedStaticCollectionProps($typeString, $fqcns, $paginatedStaticCollectionProps);
+        }
+    };
+
+    $typeString = 'Inertia.SharedData & { posts: AnonymousResourceCollection<unknown> }';
+    [$resultType, , $externalImports] = $analyzer->expose($typeString, [], ['posts' => PostResource::class]);
+
+    expect($resultType)->toBe('Inertia.SharedData & { posts: JsonResourcePaginator<PostResource> }')
+        ->and($externalImports)->toBe(['@tolki/types' => ['JsonResourcePaginator']]);
+});
+
+test('rewritePaginatedStaticCollectionProps emits the keyed record shape for a preserve-keys resource', function () {
+    $mock = Mockery::mock(ResponseCollector::class);
+
+    $analyzer = new class($mock) extends InertiaPageAnalyzer
+    {
+        /** @return array{string, list<class-string>, array<string, list<string>>} */
+        public function expose(string $typeString, array $fqcns, array $paginatedStaticCollectionProps): array
+        {
+            return $this->rewritePaginatedStaticCollectionProps($typeString, $fqcns, $paginatedStaticCollectionProps);
+        }
+    };
+
+    $typeString = 'Inertia.SharedData & { teams: AnonymousResourceCollection<unknown> }';
+    [$resultType, $resultFqcns, $externalImports] = $analyzer->expose($typeString, [], ['teams' => PreserveKeysTeamResource::class]);
+
+    expect($resultType)->toBe("Inertia.SharedData & { teams: Omit<JsonResourcePaginator<PreserveKeysTeamResource>, 'data'> & { data: Record<string, PreserveKeysTeamResource> } }")
+        ->and($resultFqcns)->toContain(PreserveKeysTeamResource::class)
+        ->and($externalImports)->toBe(['@tolki/types' => ['JsonResourcePaginator']]);
 });
 
 // ─── analyze() paginated Resource::collection() ───────────────────
