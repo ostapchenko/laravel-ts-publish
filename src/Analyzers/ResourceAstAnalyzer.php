@@ -4016,11 +4016,12 @@ class ResourceAstAnalyzer
             return ['type' => 'never[]', 'optional' => false];
         }
 
-        // A spread whose value resolves to a bare named resource (not an array/collection of one)
-        // intersects that resource with the literal's own explicit keys.
-        $spreadResourceFqcns = $this->collectInlineArraySpreadResources($array);
+        // A spread whose value resolves to a bare named resource (not an array/collection of one),
+        // or to a bound model's toArray(), intersects that type with the literal's own explicit keys.
+        $spreadArms = $this->collectInlineArraySpreadArms($array);
+        $spreadFqcns = array_column($spreadArms, 'fqcn');
 
-        if ($analysis->properties === [] && $spreadResourceFqcns === []) {
+        if ($analysis->properties === [] && $spreadArms === []) {
             return ['type' => 'Record<string, unknown>', 'optional' => false];
         }
 
@@ -4051,10 +4052,10 @@ class ResourceAstAnalyzer
         // own keys a later spread arm or an explicit key also sets — PHP's `[...a, ...b, 'k' => v]`
         // lets the later assignment win, `&` does not, so the earlier arm needs Omit<>'d.
         $spreadArmTypes = array_values(array_unique(
-            $this->buildSpreadArmTypes($spreadResourceFqcns, array_column($analysis->properties, 'name')),
+            $this->buildSpreadArmTypes($spreadFqcns, array_column($analysis->properties, 'name')),
         ));
         $type = match (true) {
-            $spreadResourceFqcns === [] => '{ '.implode('; ', $parts).' }',
+            $spreadArms === [] => '{ '.implode('; ', $parts).' }',
             $parts === [] => implode(' & ', $spreadArmTypes),
             default => implode(' & ', [...$spreadArmTypes, '{ '.implode('; ', $parts).' }']),
         };
@@ -4094,9 +4095,15 @@ class ResourceAstAnalyzer
             $embeddedEnumResourceFqcns = [];
         }
 
-        $embeddedModelFqcns = array_values(array_unique(
-            array_values($analysis->modelFqcns),
-        ));
+        // Each spread arm's import travels the channel matching its kind, or the emitted `Model &`
+        // token would be looked up among the resources and never resolve to an import.
+        $spreadModelFqcns = array_column(array_filter($spreadArms, fn (array $arm): bool => $arm['isModel']), 'fqcn');
+        $spreadResourceFqcns = array_column(array_filter($spreadArms, fn (array $arm): bool => ! $arm['isModel']), 'fqcn');
+
+        $embeddedModelFqcns = array_values(array_unique([
+            ...array_values($analysis->modelFqcns),
+            ...$spreadModelFqcns,
+        ]));
 
         if ($embeddedEnumFqcns !== []) {
             $result['embeddedEnumFqcns'] = $embeddedEnumFqcns;
@@ -4129,48 +4136,78 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Collect the resource FQCNs of every spread in an inline array whose value resolves to a
-     * bare named resource, in source order — the arms an intersection type is built from.
+     * Collect every spread in an inline array resolving to a bare named resource or to a bound
+     * model's toArray(), in source order — the arms an intersection type is built from.
      *
-     * @return list<class-string>
+     * @return list<array{fqcn: class-string, isModel: bool}>
      */
-    private function collectInlineArraySpreadResources(Array_ $array): array
+    private function collectInlineArraySpreadArms(Array_ $array): array
     {
-        /** @var list<class-string> $spreadResourceFqcns */
-        $spreadResourceFqcns = [];
+        /** @var list<array{fqcn: class-string, isModel: bool}> $spreadArms */
+        $spreadArms = [];
 
         foreach ($array->items as $item) {
             if ($item->key !== null || ! $item->unpack || $this->isKnownArraySpreadShape($item->value)) {
                 continue;
             }
 
+            $modelFqcn = $this->spreadModelToArrayFqcn($item->value);
+
+            if ($modelFqcn !== null) {
+                $spreadArms[] = ['fqcn' => $modelFqcn, 'isModel' => true];
+
+                continue;
+            }
+
             $spreadResult = $this->analyzeValueExpression($item->value);
 
             if (isset($spreadResult['resourceFqcn']) && $spreadResult['type'] === class_basename($spreadResult['resourceFqcn'])) {
-                $spreadResourceFqcns[] = $spreadResult['resourceFqcn'];
+                $spreadArms[] = ['fqcn' => $spreadResult['resourceFqcn'], 'isModel' => false];
             }
         }
 
-        return $spreadResourceFqcns;
+        return $spreadArms;
+    }
+
+    /**
+     * Resolve `$var->toArray()`, where `$var` is a closure-bound model, to that model's FQCN.
+     *
+     * `$this->toArray()` is the resource's own method and is handled elsewhere, so it is excluded
+     * by name — `$this` parses as a `Variable` too, which would otherwise match incidentally.
+     *
+     * @return class-string<Model>|null
+     */
+    private function spreadModelToArrayFqcn(Expr $expr): ?string
+    {
+        if (! $expr instanceof MethodCall
+            || ! $expr->name instanceof Identifier
+            || $expr->name->toString() !== 'toArray'
+            || ! $expr->var instanceof Variable
+            || ! is_string($expr->var->name)
+            || $expr->var->name === 'this') {
+            return null;
+        }
+
+        return $this->varModelBindings[$expr->var->name] ?? $this->closureRelationModelClass;
     }
 
     /**
      * Build each spread's intersection arm, `Omit<>`'d against every key a later arm or an
      * explicit key will overwrite at runtime. `Omit<T, K>` doesn't require `K extends keyof T`,
-     * so a later resource's own shape never has to be resolved — only its name, for `keyof`.
+     * so a later arm's own shape never has to be resolved — only its name, for `keyof`.
      *
-     * @param  list<class-string>  $spreadResourceFqcns
+     * @param  list<class-string>  $spreadFqcns
      * @param  list<string>  $explicitKeyNames
      * @return list<string>
      */
-    private function buildSpreadArmTypes(array $spreadResourceFqcns, array $explicitKeyNames): array
+    private function buildSpreadArmTypes(array $spreadFqcns, array $explicitKeyNames): array
     {
         $explicitKeyLiterals = array_map(fn (string $key): string => "'{$key}'", $explicitKeyNames);
 
-        return array_map(function (int $index) use ($spreadResourceFqcns, $explicitKeyLiterals): string {
+        return array_map(function (int $index) use ($spreadFqcns, $explicitKeyLiterals): string {
             $laterArmNames = array_values(array_unique(array_map(
                 fn (string $fqcn): string => class_basename($fqcn),
-                array_slice($spreadResourceFqcns, $index + 1),
+                array_slice($spreadFqcns, $index + 1),
             )));
 
             $excluded = [
@@ -4178,10 +4215,10 @@ class ResourceAstAnalyzer
                 ...array_map(fn (string $name): string => "keyof {$name}", $laterArmNames),
             ];
 
-            $armName = class_basename($spreadResourceFqcns[$index]);
+            $armName = class_basename($spreadFqcns[$index]);
 
             return $excluded === [] ? $armName : 'Omit<'.$armName.', '.implode(' | ', $excluded).'>';
-        }, array_keys($spreadResourceFqcns));
+        }, array_keys($spreadFqcns));
     }
 
     /**

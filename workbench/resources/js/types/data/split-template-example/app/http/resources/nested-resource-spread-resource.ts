@@ -1,3 +1,4 @@
+import type { User } from '../../models';
 import type { ProfileResource, TeamMemberResource, UserResource } from '.';
 
 /**
@@ -15,7 +16,7 @@ export interface NestedResourceSpreadResource
     id: number;
     members_with_profile?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
     members_bare?: UserResource[];
-    members_model_spread?: { flag: boolean }[];
+    members_model_spread?: (Omit<User, 'flag'> & { flag: boolean })[];
     members_double_spread?: (Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[];
     members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
     owner_map_untyped?: unknown;

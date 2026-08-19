@@ -344,6 +344,63 @@ analysis on re-entry rather than recursing until memory runs out. See `BareMetho
 the workbench and the corresponding test in `ResourceAstAnalyzerTest` for the transitive case
 (`toArray()` → `data()` → `nested()`).
 
+## Inline-array spreads become intersection arms
+
+An inline array literal that spreads a named type alongside its own keys —
+`[...UserResource::make($m)->resolve($request), 'profile' => new ProfileResource($m->profile)]` —
+emits an intersection rather than flattening the spread's keys inline. `analyzeInlineArray()`
+collects the arms via `collectInlineArraySpreadArms()` and builds each one with
+`buildSpreadArmTypes()`. Two arm kinds are recognised, both handled identically once collected:
+
+- **A resource arm** — a spread whose value resolves to a *bare* named resource (not an array or
+  collection of one). The guard is that the result carries a `resourceFqcn` *and* its emitted type
+  is exactly that resource's basename, so `UserResource[]` never becomes an arm.
+- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model, resolved by
+  `spreadModelToArrayFqcn()` against `$varModelBindings`, falling back to
+  `$closureRelationModelClass` for an untyped closure param. `$this->toArray()` is excluded by name:
+  it is the resource's own method and `isKnownArraySpreadShape()` already flattens it.
+
+Model detection is deliberately **local to the collector**. `analyzeValueExpression()` still types a
+bare `$member->toArray()` as `unknown[]` everywhere else, because giving it a `modelFqcn` generally
+would change every non-spread `toArray()` call in the corpus.
+
+### The `Omit<>` subtraction rule
+
+Each arm is `Omit<>`'d against every key a *later* arm or an explicit sibling key will overwrite.
+This is not cosmetic: PHP's `[...$a, ...$b, 'k' => $v]` lets the later assignment win, and
+TypeScript's `&` does not — it intersects both, collapsing a colliding key to `never` when the two
+types disagree. Subtracting the overridden keys from the earlier arm is what makes the emitted type
+mean what the PHP means.
+
+The subtraction is **unconditional**: an explicit key is Omitted whether or not the arm actually
+declares it. `Omit<T, K>` does not require `K extends keyof T`, so this is well-typed either way,
+and it lets `buildSpreadArmTypes()` work from `class_basename()` alone — a later arm's own shape
+never has to be resolved, only its name, for `keyof`. `NestedResourceSpreadResource` pins both
+sides of that: `members_double_spread` Omits `'note'` from `UserResource`, which has no `note` key,
+and `members_model_spread` Omits `'flag'` from `User`, which has no `flag` column.
+
+Arm order is source order, because the subtraction reads every arm *after* the current index. The
+two kinds are tracked together for that reason, and split only when the imports are dispatched:
+resource arms travel `embeddedResourceFqcns`, model arms `embeddedModelFqcns`, or the emitted token
+would be looked up in the wrong channel and never resolve to an import.
+
+### What a model arm's bare `{Model}` does not say
+
+A model arm emits the bare `{Model}` interface, which is the honest floor rather than an exact
+match for `toArray()`'s runtime output. Three known gaps:
+
+- `Model::toArray()` also appends `relationsToArray()`, which bare `{Model}` omits. Unknowable
+  statically; the same trade-off `Omit<Model, keys>` already makes for relation filters.
+- A model *with* `$appends` surfaces those at runtime, but under `model-split` they live in
+  `{Model}Mutators`, not bare `{Model}`.
+- `$hidden` columns are excluded at runtime but present in bare `{Model}` unless `exclude_hidden`
+  is set — see the existing `publishedColumnNames()` coupling.
+
+The first gap is the one a consumer notices: a relation loaded on `$member` before the spread is in
+the JSON payload but not in the type. `members_model_spread` is accurate for its fixture only
+because `User` declares no `$appends`, so `attributesToArray()` is columns only and the generated
+`User` interface under `model-split` is columns only too.
+
 ## `whenNotNull()`/`whenNull()` read `($value, $default)`, not a callback
 
 `analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull)` handles both `$this->whenNotNull($value,

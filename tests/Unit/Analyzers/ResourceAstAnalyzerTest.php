@@ -5394,9 +5394,12 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->and($this->props['members_bare']['optional'])->toBeTrue();
     });
 
-    test('spread of a Model->toArray() (not a resource) keeps today\'s behaviour: the spread contributes nothing', function () {
-        expect($this->props['members_model_spread']['type'])->toBe('{ flag: boolean }[]')
-            ->and($this->props['members_model_spread']['optional'])->toBeTrue();
+    test('a spread of a bound model\'s toArray() intersects the model with the literal\'s own keys', function () {
+        // 'flag' is not a User column, but the arm is Omit<>'d anyway — the same unconditional
+        // subtraction members_double_spread pins for 'note' against UserResource.
+        expect($this->props['members_model_spread']['type'])->toBe("(Omit<User, 'flag'> & { flag: boolean })[]")
+            ->and($this->props['members_model_spread']['optional'])->toBeTrue()
+            ->and(array_values($this->analysis->modelFqcns))->toContain(User::class);
     });
 
     test('two resource spreads plus a sibling key intersect in order, each Omit<>\'d against what later overrides it', function () {
