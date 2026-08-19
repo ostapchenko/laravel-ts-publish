@@ -43,12 +43,26 @@ export const anonymousPaginated = annotatePageProps<AnonymousPaginatedPageProps>
     component: 'PreserveKeys/AnonymousPaginated',
 }));
 
+export type InlinePaginatedPageProps = Inertia.SharedData & { teams: PreserveKeysCollection & ResourcePagination };
+
+/**
+ * Paginates inline inside the render array with no intermediate variable — pins that the
+ * paginator is still detected, so the prop types as a paginator and not a bare collection.
+ */
+export const inlinePaginated = annotatePageProps<InlinePaginatedPageProps>()(defineRoute({
+    name: 'preserve-keys.inline-paginated',
+    url: '/preserve-keys/inline-paginated',
+    methods: ['get', 'head'] as const,
+    component: 'PreserveKeys/Inline',
+}));
+
 /** @see Workbench\App\Http\Controllers\InertiaPreserveKeysController */
 const InertiaPreserveKeysController = {
     named,
     namedPaginated,
     flatPaginated,
     anonymousPaginated,
+    inlinePaginated,
 };
 
 export default InertiaPreserveKeysController;

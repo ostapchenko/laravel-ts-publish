@@ -50,4 +50,15 @@ class InertiaPreserveKeysController
             'teams' => PreserveKeysTeamResource::collection($teams),
         ]);
     }
+
+    /**
+     * Paginates inline inside the render array with no intermediate variable — pins that the
+     * paginator is still detected, so the prop types as a paginator and not a bare collection.
+     */
+    public function inlinePaginated(): Response
+    {
+        return Inertia::render('PreserveKeys/Inline', [
+            'teams' => new PreserveKeysCollection(Team::query()->paginate(10)),
+        ]);
+    }
 }
