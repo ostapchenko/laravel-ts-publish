@@ -54,9 +54,11 @@ class NestedResourceSpreadResource extends JsonResource
             // with the literal's sibling keys, exactly as a resource spread does. The arm is
             // Omit<>'d against 'flag' unconditionally, without resolving User's real columns.
             //
-            // The bare {Model} interface is the honest floor, not a perfect match: toArray() also
-            // appends relationsToArray() (absent here), $appends would live in {Model}Mutators
-            // under model-split, and $hidden columns stay in {Model} unless exclude_hidden is set.
+            // The bare {Model} interface is the honest floor, not a perfect match. toArray() is
+            // attributesToArray() + relationsToArray(); bare {Model} carries the first (columns and
+            // $appends both render into it) but not the second, so a loaded relation would be in the
+            // payload and not the type. $hidden runs the other way: stripped at runtime, kept in
+            // {Model} unless exclude_hidden is set.
             'members_model_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
                 fn (User $member) => [...$member->toArray(), 'flag' => true]
             )),

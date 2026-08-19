@@ -230,12 +230,20 @@ Both use the same word-boundary pattern — the lookbehind excludes `.` so a nam
 `foo.RoleType` is left alone, the lookahead stops `RoleType` matching the prefix of
 `RoleTypeExtra`.
 
-Substitution matters because the analyzer's type is often richer than `X`/`X[]`. The shape the
-corpus pins is the key-clearing chain (`filter()->map(fn (…) => EnumResource::make(…))`), which
-emits `RoleType[] | Record<string, RoleType>`. Substitution also covers shapes no fixture
-currently produces — a conditional with an explicit default would add an arm such as
-`RoleType | string` — but treat those as illustrative: nothing in the corpus emits an
-`AsEnum<typeof X> | string` today, so only the container shape above is pinned.
+Substitution matters because the analyzer's type is often richer than `X`/`X[]`, and the corpus
+pins two such shapes:
+
+| Fixture | Analyzer type | After substitution |
+| --- | --- | --- |
+| `RelationChainResource::$member_role_resources_filtered` — a key-clearing chain, `filter()->map(fn (…) => EnumResource::make(…))` | `RoleType[] \| Record<string, RoleType>` | `AsEnum<typeof Role>[] \| Record<string, AsEnum<typeof Role>>` |
+| `EnumCollectionResource::$week_days_when_has_default` — a conditional with an explicit default, `whenHas('week_days', EnumResource::collection(...), 'none')` | `WeekDaysType[] \| null \| string` | `AsEnum<typeof WeekDays>[] \| null \| string` |
+
+The second is the one that shows substitution wrapping *some* arms and leaving others alone: the
+`string` arm the explicit default contributes names no enum, so it survives untouched while the
+element type is wrapped. `ResourceAstAnalyzerTest.php` pins the analyzer half ("whenHas() with an
+explicit default stays enumFqcn-tagged and keeps the full union") and `ResourceTransformerTest.php`
+the transformer half ("whenHas() with an explicit default keeps the full union, AsEnum-wrapped").
+
 Rebuilding the type from the FQCN — which is what both paths
 used to do — could express only `X`, `X[]`, `X | null`, `X[] | null`, so every richer shape had
 to be demoted out of the `enumResources` channel by a guard (`isRebuildableEnumShape()`) and
@@ -451,19 +459,24 @@ would be looked up in the wrong channel and never resolve to an import.
 ### What a model arm's bare `{Model}` does not say
 
 A model arm emits the bare `{Model}` interface, which is the honest floor rather than an exact
-match for `toArray()`'s runtime output. Three known gaps:
+match for `toArray()`'s runtime output. `Model::toArray()` is
+`array_merge($this->attributesToArray(), $this->relationsToArray())`, so line the two halves up:
 
-- `Model::toArray()` also appends `relationsToArray()`, which bare `{Model}` omits. Unknowable
-  statically; the same trade-off `Omit<Model, keys>` already makes for relation filters.
-- A model *with* `$appends` surfaces those at runtime, but under `model-split` they live in
-  `{Model}Mutators`, not bare `{Model}`.
-- `$hidden` columns are excluded at runtime but present in bare `{Model}` unless `exclude_hidden`
-  is set — see the existing `publishedColumnNames()` coupling.
+- **`attributesToArray()` — matches.** It is columns plus `getArrayableAppends()`, and bare
+  `{Model}` is generated from exactly those two channels: `model-split.blade.php` renders
+  `$data->columns` *and* `$data->appends` into the `export interface {{ $data->modelName }}` body.
+  `Address` proves it — `protected $appends = ['full_address']`, and the generated `Address`
+  interface ends with `full_address: string | null;`. **There is no `$appends` gap.**
+  `{Model}Mutators` holds `$data->mutators`, which is the accessors a model did *not* append.
+- **`relationsToArray()` — the real gap.** Bare `{Model}` omits it, so a relation loaded on
+  `$member` before the spread is in the JSON payload but not in the type. Unknowable statically;
+  the same trade-off `Omit<Model, keys>` already makes for relation filters. Under `model-split`
+  relations live in `{Model}Relations`, which the arm does not reference.
 
-The first gap is the one a consumer notices: a relation loaded on `$member` before the spread is in
-the JSON payload but not in the type. `members_model_spread` is accurate for its fixture only
-because `User` declares no `$appends`, so `attributesToArray()` is columns only and the generated
-`User` interface under `model-split` is columns only too.
+One gap runs the other way: `$hidden` columns are stripped at runtime (`attributesToArray()` goes
+through `getArrayableItems()`) but stay in bare `{Model}` unless `exclude_hidden` is set — see the
+existing `publishedColumnNames()` coupling. So the arm is a superset on the hidden axis and a subset
+on the relations axis.
 
 ## `whenNotNull()`/`whenNull()` read `($value, $default)`, not a callback
 
