@@ -228,6 +228,13 @@ class ResourceAstAnalyzer
         });
 
         if (! $toArrayMethod instanceof ClassMethod || $toArrayMethod->stmts === null) {
+            $inherited = $this->analyzeParentToArray();
+
+            // An empty result means no ancestor declared a toArray() either, so keep delegating.
+            if ($inherited !== null && $inherited->properties !== []) {
+                return $inherited;
+            }
+
             if ($this->isResourceCollection()) {
                 return $this->buildCollectionDelegatedAnalysis();
             }

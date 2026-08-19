@@ -10,6 +10,8 @@ use Workbench\App\Http\Resources\AddressMixinResource;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\Admin\Store as AdminStoreResource;
 use Workbench\App\Http\Resources\ApiPostResource;
+use Workbench\App\Http\Resources\BodylessOrderResource;
+use Workbench\App\Http\Resources\BodylessTeamResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ChildSharedResource;
 use Workbench\App\Http\Resources\CommentResource;
@@ -613,6 +615,31 @@ describe('ResourceTransformer with OrderResource', function () {
         $data = (new ResourceTransformer(OrderResource::class))->data();
 
         expect($data->properties['items']['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceTransformer with a body-less subclass', function () {
+    test('inherits the parent @mixin when the subclass declares no docblock of its own', function () {
+        $data = (new ResourceTransformer(BodylessOrderResource::class))->data();
+
+        expect($data->modelClass)->toBe(Order::class);
+    });
+
+    test('the inherited toArray() shape carries real column types instead of unknown', function () {
+        $data = (new ResourceTransformer(BodylessOrderResource::class))->data();
+
+        expect($data->properties['id']['type'])->toBe('number')
+            ->and($data->properties['total']['type'])->toBe('number')
+            ->and($data->properties['paid_at']['type'])->toBe('string | null')
+            ->and(array_column($data->properties, 'type'))->not->toContain('unknown');
+    });
+
+    test('a body-less subclass with its own @mixin generates the ancestor shape, not an empty interface', function () {
+        $data = (new ResourceTransformer(BodylessTeamResource::class))->data();
+
+        expect($data->modelClass)->toBe(Team::class)
+            ->and($data->properties['name']['type'])->toBe('string')
+            ->and($data->properties['members']['type'])->toBe('TeamMemberResource[]');
     });
 });
 

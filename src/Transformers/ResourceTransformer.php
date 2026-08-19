@@ -220,7 +220,8 @@ class ResourceTransformer extends CoreTransformer
     /**
      * Resolve the backing model class.
      *
-     * Precedence: #[TsResource(model:)], @mixin/@extends, typed $resource, naming convention, #[UseResource].
+     * Precedence: #[TsResource(model:)], own @mixin/@extends, inherited @mixin/@extends, typed
+     * $resource, naming convention, #[UseResource].
      */
     protected function resolveModelClass(): self
     {
@@ -236,23 +237,20 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        // The "* " lookbehind keeps prose mentions of the tags mid-description from matching.
-        $docComment = $this->reflectionResource->getDocComment();
-        if ($docComment !== false) {
-            $resolved = null;
-            if (preg_match('/(?<=\* )@mixin\s+([\w\\\\]+)/', $docComment, $matches)) {
-                $resolved = $this->resolveDocblockType($matches[1], $this->reflectionResource);
-            }
+        $ownModel = $this->modelFromDocblock($this->reflectionResource);
 
-            if (preg_match('/(?<=\* )@extends\s+([\w\\\\]+)<([\w\\\\]+)>/', $docComment, $matches)) {
-                $resolved = $this->resolveDocblockType($matches[2], $this->reflectionResource);
-            }
+        if ($ownModel !== null) {
+            $this->modelClass = $ownModel;
 
-            if ($resolved !== null && class_exists($resolved) && is_a($resolved, Model::class, true)) {
-                $this->modelClass = $resolved;
+            return $this;
+        }
 
-                return $this;
-            }
+        $inheritedModel = $this->modelFromAncestorDocblock();
+
+        if ($inheritedModel !== null) {
+            $this->modelClass = $inheritedModel;
+
+            return $this;
         }
 
         $wrappedClass = $this->resolveClassOnProperty($this->reflectionResource);
@@ -279,6 +277,65 @@ class ResourceTransformer extends CoreTransformer
         }
 
         return $this;
+    }
+
+    /**
+     * Read the model named by one class's own @mixin or @extends docblock tag.
+     *
+     * @template T of object
+     *
+     * @param  ReflectionClass<T>  $resource
+     * @return class-string<Model>|null
+     */
+    protected function modelFromDocblock(ReflectionClass $resource): ?string
+    {
+        $docComment = $resource->getDocComment();
+
+        if ($docComment === false) {
+            return null;
+        }
+
+        $resolved = null;
+
+        // The "* " lookbehind keeps prose mentions of the tags mid-description from matching.
+        if (preg_match('/(?<=\* )@mixin\s+([\w\\\\]+)/', $docComment, $matches)) {
+            $resolved = $this->resolveDocblockType($matches[1], $resource);
+        }
+
+        if (preg_match('/(?<=\* )@extends\s+([\w\\\\]+)<([\w\\\\]+)>/', $docComment, $matches)) {
+            $resolved = $this->resolveDocblockType($matches[2], $resource);
+        }
+
+        if ($resolved === null || ! class_exists($resolved) || ! is_a($resolved, Model::class, true)) {
+            return null;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Find the nearest ancestor whose own docblock names a model.
+     *
+     * A body-less subclass inherits its parent's toArray() shape, so it has to inherit the
+     * parent's model too or every column degrades to unknown.
+     *
+     * @return class-string<Model>|null
+     */
+    protected function modelFromAncestorDocblock(): ?string
+    {
+        $parent = $this->reflectionResource->getParentClass();
+
+        while ($parent !== false) {
+            $model = $this->modelFromDocblock($parent);
+
+            if ($model !== null) {
+                return $model;
+            }
+
+            $parent = $parent->getParentClass();
+        }
+
+        return null;
     }
 
     /**

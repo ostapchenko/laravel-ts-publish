@@ -19,9 +19,11 @@ use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BareMethodReturnResource;
+use Workbench\App\Http\Resources\BodylessTeamResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CaseSpreadResource;
 use Workbench\App\Http\Resources\CategoryResource;
+use Workbench\App\Http\Resources\ChildSharedResource;
 use Workbench\App\Http\Resources\ClassConstantResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureParamShadowResource;
@@ -580,6 +582,38 @@ describe('ResourceAstAnalyzer with TeamResource', function () {
 
         expect($settings)->not->toBeNull()
             ->and($settings['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceAstAnalyzer with a body-less subclass', function () {
+    test('a resource with no toArray() of its own inherits the nearest ancestor that has one', function () {
+        $analysis = (new ResourceAstAnalyzer(
+            new ReflectionClass(BodylessTeamResource::class),
+            Team::class,
+        ))->analyze();
+
+        // `created_at` pins the shape as the ancestor's toArray(), not the model-delegated column set,
+        // which yields `id`/`name` too and would leave this test vacuous.
+        expect(array_column($analysis->properties, 'name'))->toContain('id', 'name')
+            ->not->toContain('created_at');
+    });
+
+    test('the inherited shape carries the ancestor nested resources, not just scalar columns', function () {
+        $analysis = (new ResourceAstAnalyzer(
+            new ReflectionClass(BodylessTeamResource::class),
+            Team::class,
+        ))->analyze();
+
+        $members = collect($analysis->properties)->firstWhere('name', 'members');
+
+        expect($members['type'])->toBe('TeamMemberResource[]')
+            ->and($analysis->nestedResources)->toHaveKey('owner');
+    });
+
+    test('an ancestor chain with no toArray() anywhere stays empty rather than borrowing a shape', function () {
+        $analysis = (new ResourceAstAnalyzer(new ReflectionClass(ChildSharedResource::class)))->analyze();
+
+        expect($analysis->properties)->toBe([]);
     });
 });
 

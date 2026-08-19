@@ -5,6 +5,8 @@ export * from './api-post-resource';
 export * from './bare-func-call-resource';
 export * from './bare-method-return-resource';
 export * from './base-shared-resource';
+export * from './bodyless-order-resource';
+export * from './bodyless-team-resource';
 export * from './boolean-expr-resource';
 export * from './case-spread-resource';
 export * from './category-resource';

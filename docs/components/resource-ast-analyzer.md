@@ -805,3 +805,72 @@ touches: the first non-null branch wins on conflict. No fixture exercises that c
 `analyzeReturnArray()` never sets either field, so every branch reaching this method already has
 both null; only `buildCollectionDelegatedAnalysis()` sets them, and it returns directly without
 going through branch merging.
+
+## Resource inheritance: a subclass with no `toArray()` of its own
+
+`analyze()` looks up `toArray` in the **subclass's own file only**. It reads
+`$this->resourceReflection->getFileName()`, parses that source, and finds the method with a
+`NodeFinder` search for a `ClassMethod` whose `name` is `toArray`. Reflection is never consulted for
+the lookup, so a method the subclass merely *inherits* is invisible to it — declaring no
+`toArray()` used to mean falling straight to model or collection delegation, which produced an empty
+interface whenever no model resolved either.
+
+### The ancestor walk and its `properties !== []` termination
+
+When that search finds no `ClassMethod` — or one with a `null` body — `analyze()` now calls
+`analyzeParentToArray()` first, and returns its result **only if `properties !== []`**:
+
+- `analyzeParentToArray()` returns `null` when there is no parent, or the parent is not a
+  `JsonResource`.
+- When the parent *is* `JsonResource` itself it returns `buildModelDelegatedAnalysis()` — the
+  bottom of the chain, not an inherited shape.
+- Otherwise it builds `new self($parentClass, $this->modelClass)` and calls `analyze()` on it. The
+  multi-level walk and its termination therefore come for free through that recursion: each level
+  repeats the own-file lookup and only stops at the nearest ancestor that really declares a body.
+
+The `properties !== []` guard is what keeps the pre-existing behaviour intact. An ancestor chain
+where **nobody** declares a `toArray()` yields an empty analysis at every level, so `analyze()` falls
+through to `isResourceCollection()` → `buildCollectionDelegatedAnalysis()`, or to
+`buildModelDelegatedAnalysis() ?? new ResourceAnalysis`, exactly as before. `ChildSharedResource`
+pins this: `BaseSharedResource` declares no `toArray()` either and the name resolves no model, so it
+still generates `export interface ChildSharedResource extends SharedInterface {}`.
+
+The same guard is why the walk running *before* the `isResourceCollection()` check is safe.
+`Illuminate\Http\Resources\Json\ResourceCollection` does declare a `toArray()`, but both of its
+returns are `$this->collection->map->…->all()` — neither an array literal nor a `$this` receiver the
+analyzer can read — so the recursion yields no properties and body-less collections such as
+`PostCollection` and `PreserveKeysCollection` still reach `buildCollectionDelegatedAnalysis()`.
+
+### An inherited shape needs an inherited model
+
+`ResourceTransformer::resolveModelClass()` used to read the docblock of the resource itself only. A
+body-less child with no docblock of its own resolved no model, and the inherited analysis degraded
+every column to `unknown` — so the walk is only half a feature without a matching docblock walk.
+`modelFromDocblock()` now reads the `@mixin`/`@extends` tags off any one `ReflectionClass`, and
+`modelFromAncestorDocblock()` climbs the parent chain calling it until one resolves. Precedence:
+
+1. `#[TsResource(model:)]`
+2. the resource's own `@mixin` / `@extends`
+3. **the nearest ancestor's `@mixin` / `@extends`**
+4. a typed `$resource` property
+5. the `App\Http\Resources\{Name}Resource` → `App\Models\{Name}` naming convention
+6. `#[UseResource]` on a collected model
+
+Step 3 is the only new one; everything else keeps its previous relative order. `BodylessOrderResource`
+pins it — it declares neither a body nor a `@mixin`, and `Workbench\App\Models\BodylessOrder` does not
+exist, so its `number`/`AsEnum<…>` columns can only come from `OrderResource`'s own `@mixin Order`.
+`BodylessTeamResource` carries its own `@mixin Team` and so pins the analyzer walk alone.
+
+### The explicit `parent::toArray($request)` forms are unchanged
+
+Writing the call out by hand remains fully supported and is still the idiomatic form. Both spellings
+route through the same `analyzeParentToArray()`:
+
+- `...parent::toArray($request)` spread inside an array literal — `analyzeReturnArray()` matches the
+  unpacked item with `isParentToArrayCall()`, then merges the parent analysis in through
+  `syncAnalysisMaps()`. `ApiPostResource` pins this one.
+- a bare `return parent::toArray($request);` — the non-array fallback in `analyze()` matches the
+  `Return_` expression with `isParentToArrayCall()`. `PreserveKeysTeamResource` pins this one.
+
+Because both classes declare a `toArray()`, the own-file lookup succeeds and the new walk is never
+reached for them.

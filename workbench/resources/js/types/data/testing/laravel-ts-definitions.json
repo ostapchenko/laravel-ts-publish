@@ -8054,6 +8054,111 @@
             "name": "BaseSharedResource",
             "properties": []
         },
+        "Workbench\\App\\Http\\Resources\\BodylessOrderResource": {
+            "name": "BodylessOrderResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "status",
+                    "type": "AsEnum<typeof OrderStatus>",
+                    "optional": false
+                },
+                {
+                    "name": "total",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "currency",
+                    "type": "AsEnum<typeof Currency>",
+                    "optional": false
+                },
+                {
+                    "name": "items",
+                    "type": "OrderItem[]",
+                    "optional": true
+                },
+                {
+                    "name": "items_count",
+                    "type": "number",
+                    "optional": true
+                },
+                {
+                    "name": "total_avg",
+                    "type": "number",
+                    "optional": true
+                },
+                {
+                    "name": "paid_at",
+                    "type": "string | null",
+                    "optional": true
+                },
+                {
+                    "name": "shipped_at",
+                    "type": "string | null",
+                    "optional": true
+                },
+                {
+                    "name": "delivered_at",
+                    "type": "string | null",
+                    "optional": true
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\BodylessTeamResource": {
+            "name": "BodylessTeamResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "slug",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "description",
+                    "type": "string | null",
+                    "optional": true
+                },
+                {
+                    "name": "is_active",
+                    "type": "boolean",
+                    "optional": false
+                },
+                {
+                    "name": "owner",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "members",
+                    "type": "TeamMemberResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_count",
+                    "type": "number",
+                    "optional": true
+                },
+                {
+                    "name": "settings",
+                    "type": "Record<string, unknown> | null",
+                    "optional": true
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\BooleanExprResource": {
             "name": "BooleanExprResource",
             "properties": [
