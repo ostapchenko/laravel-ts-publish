@@ -1730,8 +1730,8 @@ class ResourceAstAnalyzer
     /**
      * Resolve a fluent method chained onto a receiver that itself resolves to a resource — e.g.
      * `new self($x)->foo()`, `SomeResource::make($x)->foo()`, or a chain of such calls. The
-     * receiver's own resolved result is returned unchanged when the method preserves it; any other
-     * declared return type (or an unreflectable receiver) yields null so the caller degrades normally.
+     * receiver's own resolved result is returned unchanged when the method preserves it; otherwise
+     * the method's own body is resolved, and an unreflectable receiver yields null to degrade.
      *
      * @return ValueExpressionResult|null
      */
@@ -1759,8 +1759,21 @@ class ResourceAstAnalyzer
 
         $method = new ReflectionMethod($resourceFqcn, $methodName);
 
+        // Not self-returning: the expression is the method's payload, not the resource. Resolving it
+        // needs the receiver's own analyzer, so only the analyzer's own class is in scope — a foreign
+        // resource class returns null and keeps the `unknown` floor rather than claiming its keys.
         if (! $this->methodPreservesReceiverType($method, $resourceFqcn)) {
-            return null;
+            if ($resourceFqcn !== $this->resourceReflection->getName()) {
+                return null;
+            }
+
+            $analysis = $this->analyzeThisMethodSpread($methodName);
+
+            if ($analysis === null || $analysis->properties === []) {
+                return null;
+            }
+
+            return ['type' => $this->buildInlineObjectType($analysis), 'optional' => false];
         }
 
         if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null')) {
@@ -4027,26 +4040,24 @@ class ResourceAstAnalyzer
 
         $useTolki = Config::boolean('ts-publish.enums.use_tolki_package');
 
-        $parts = array_map(function (array $prop) use ($analysis, $useTolki): string {
-            $key = LaravelTsPublish::validJsObjectKey($prop['name']);
+        // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
+        // top-level enum resource transformer. Substituting the bare token in place keeps every
+        // other union arm — a keyed `Record<...>` arm, an extra default arm — intact.
+        if ($useTolki) {
+            foreach ($analysis->properties as &$prop) {
+                if (! isset($analysis->enumResources[$prop['name']])) {
+                    continue;
+                }
 
-            $type = $prop['type'];
-
-            // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
-            // top-level enum resource transformer. Substituting the bare token in place keeps every
-            // other union arm — a keyed `Record<...>` arm, an extra default arm — intact.
-            if ($useTolki && isset($analysis->enumResources[$prop['name']])) {
                 $fqcn = $analysis->enumResources[$prop['name']];
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
                 $constName = $tsInfo['enums'][0] ?? class_basename($fqcn);
                 $bareTypeName = $tsInfo['enumTypes'][0] ?? class_basename($fqcn).'Type';
-                $type = $this->substituteEnumType($type, $bareTypeName, 'AsEnum<typeof '.$constName.'>');
+                $prop['type'] = $this->substituteEnumType($prop['type'], $bareTypeName, 'AsEnum<typeof '.$constName.'>');
             }
 
-            return $prop['optional']
-                ? "{$key}?: {$type}"
-                : "{$key}: {$type}";
-        }, $analysis->properties);
+            unset($prop);
+        }
 
         // Each spread resource intersects with the remaining explicit keys, minus whichever of its
         // own keys a later spread arm or an explicit key also sets — PHP's `[...a, ...b, 'k' => v]`
@@ -4055,9 +4066,9 @@ class ResourceAstAnalyzer
             $this->buildSpreadArmTypes($spreadFqcns, array_column($analysis->properties, 'name')),
         ));
         $type = match (true) {
-            $spreadArms === [] => '{ '.implode('; ', $parts).' }',
-            $parts === [] => implode(' & ', $spreadArmTypes),
-            default => implode(' & ', [...$spreadArmTypes, '{ '.implode('; ', $parts).' }']),
+            $spreadArms === [] => $this->buildInlineObjectType($analysis),
+            $analysis->properties === [] => implode(' & ', $spreadArmTypes),
+            default => implode(' & ', [...$spreadArmTypes, $this->buildInlineObjectType($analysis)]),
         };
 
         $result = ['type' => $type, 'optional' => false];
@@ -4133,6 +4144,26 @@ class ResourceAstAnalyzer
         }
 
         return $result;
+    }
+
+    /**
+     * Flatten an analysis's properties into an inline TypeScript object literal type.
+     *
+     * Any enum-token substitution has to be applied to the properties before this is called.
+     */
+    private function buildInlineObjectType(ResourceAnalysis $analysis): string
+    {
+        if ($analysis->properties === []) {
+            return 'Record<string, unknown>';
+        }
+
+        $parts = array_map(function (array $prop): string {
+            $key = LaravelTsPublish::validJsObjectKey($prop['name']);
+
+            return $prop['optional'] ? "{$key}?: {$prop['type']}" : "{$key}: {$prop['type']}";
+        }, $analysis->properties);
+
+        return '{ '.implode('; ', $parts).' }';
     }
 
     /**

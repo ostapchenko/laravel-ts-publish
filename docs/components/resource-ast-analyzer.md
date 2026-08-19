@@ -344,6 +344,50 @@ analysis on re-entry rather than recursing until memory runs out. See `BareMetho
 the workbench and the corresponding test in `ResourceAstAnalyzerTest` for the transitive case
 (`toArray()` → `data()` → `nested()`).
 
+### A `new self($x)->method()` receiver resolves the same way
+
+`analyzeSelfReturningResourceMethodCall()` handles `new self($x)->method()`, `self::make($x)->method()`
+and chains of both. When `methodPreservesReceiverType()` says the method hands the same instance back —
+a native `static`/`self`/the resource class, or a docblock-only `@return $this` — the receiver's own
+resolved result is returned unchanged. When it says otherwise, the expression has stopped being the
+resource, and the method's *body* is resolved through `analyzeThisMethodSpread()` instead of degrading
+to `unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
+`buildInlineObjectType()` — the same helper `analyzeInlineArray()` assembles its `{ … }` arm with.
+
+Three tiers are possible here and only the last is correct. Do not "improve" this to the receiver type:
+
+| Emitted type | Verdict |
+| --- | --- |
+| `FluentSelfResource` — the receiver type | **Wrong.** The instance is only ever `$this` inside the method and never reaches the payload, so this promises keys the response does not contain. |
+| `unknown` | The safe floor. Honest, but it tells the frontend nothing. |
+| `{ id: number }` — the method body | **Correct.** `FluentSelfResource::summary(): array` returns `['id' => $this->id]`, so `{"id": 123}` is what the response actually carries. |
+
+An empty analysis returns `null` rather than emitting a bare `{}`, because `{}` asserts the payload has
+no keys — a stronger and more often wrong claim than `unknown`.
+
+Recursion needs no new guard. `analyzeThisMethodSpread()`'s existing `$visitedSpreadMethods` entry
+covers this entry point exactly as it covers a `...$this->method()` spread, and the same `finally`
+already restores `$localVarBindings`/`$resolvingLocalVars`/`$varModelBindings`.
+
+### Scope boundary: a foreign resource class receiver still degrades to `unknown`
+
+`analyzeThisMethodSpread()` is hard-bound to `$this->resourceReflection` — it looks the method up with
+`$this->resourceReflection->hasMethod()` and `->getMethod()` — so it can only resolve methods declared
+on (or inherited by) the class the analyzer was constructed for. For `new self($x)` the receiver class
+*is* that class, which is what makes reusing it sound.
+
+`SomeOtherResource::make($x)->summary()` would need a second analyzer instance built on that other
+class, which this does not do. So the hook guards on receiver identity — `$resourceFqcn !==
+$this->resourceReflection->getName()` returns `null` — and the property keeps the `unknown` floor.
+Without that guard the analyzer would resolve *its own* same-named method and emit a shape belonging
+to a different class.
+
+`FluentSelfResource::foreign_summary` pins that boundary in the workbench: it calls
+`new CategoryResource($this->parent)->summary()`, and `CategoryResource::summary()` deliberately
+returns a different shape (`['slug' => $this->slug]`) from `FluentSelfResource::summary()`'s
+`['id' => $this->id]`, so a regression that dropped the guard would emit `{ id: number }` there and
+fail the test. Widening this to foreign receivers is therefore a deliberate change, not an accident.
+
 ## Inline-array spreads become intersection arms
 
 An inline array literal that spreads a named type alongside its own keys —

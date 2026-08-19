@@ -17,6 +17,19 @@ use Workbench\App\Models\Category;
 class CategoryResource extends JsonResource
 {
     /**
+     * Foreign receiver for FluentSelfResource's `foreign_summary` boundary fixture. It deliberately
+     * shares the `summary()` name with FluentSelfResource::summary() and returns a different shape,
+     * so the analyzer resolving this call against its own reflection would emit `{ id: number }`
+     * instead of this method's `{ slug: string }` — the negative test would catch that.
+     *
+     * @return array<string, mixed>
+     */
+    public function summary(): array
+    {
+        return ['slug' => $this->slug];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array

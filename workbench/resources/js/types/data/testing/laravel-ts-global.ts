@@ -2214,7 +2214,8 @@ declare global {
             parent_fluent_make?: FluentSelfResource;
             parent_fluent_chain?: FluentSelfResource;
             parent_fluent_docblock?: FluentSelfResource;
-            parent_summary?: unknown;
+            parent_summary?: { id: number };
+            foreign_summary?: unknown;
             parent_fluent_nullable?: FluentSelfResource | null;
         }
         /** Resource using FQCN @mixin — tests resolveModelClass FQCN branch. */

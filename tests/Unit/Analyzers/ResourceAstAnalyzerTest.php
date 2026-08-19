@@ -1022,12 +1022,24 @@ describe('ResourceAstAnalyzer with FluentSelfResource', function () {
             ->and($prop['optional'])->toBeTrue();
     });
 
-    test('a chained method declaring a non-self return type does not preserve the resource type', function () {
+    test('a chained method with a non-self return type resolves its body instead of degrading to unknown', function () {
         $reflection = new ReflectionClass(FluentSelfResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'parent_summary');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('{ id: number }')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a non-self-returning method on a foreign resource class stays at the unknown floor', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'foreign_summary');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('unknown')
