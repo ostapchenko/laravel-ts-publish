@@ -40,9 +40,11 @@ class MerchantResource extends JsonResource
             'staff_via_closure' => $this->whenLoaded('staff', fn ($rows) => $rows->toResourceCollection()),
             'staff_explicit' => $this->whenLoaded('staff', fn ($rows) => $rows->toResourceCollection(UserResource::class)),
             'history_event' => $this->whenLoaded('historyEvent', fn ($m) => $m->toResource()),
+            // Negative: filing and alert do not have resource classes, so the output is unknown
             'filing' => $this->whenLoaded('filing', fn ($m) => $m->toResource()),
             'alert' => $this->whenLoaded('alert', fn ($m) => $m->toResource()),
             'registrar' => $this->whenLoaded('registrar', fn ($m) => $m->toResource()),
+            // Negative: registrars does not have a resource class, so the output is unknown
             'registrars' => $this->whenLoaded('registrars', fn ($rows) => $rows->toResourceCollection()),
             'suppliers' => $this->whenLoaded('suppliers', fn ($rows) => $rows->toResourceCollection()),
             // ->map->only(): the HigherOrderCollectionProxy on a bound to-many closure param —
