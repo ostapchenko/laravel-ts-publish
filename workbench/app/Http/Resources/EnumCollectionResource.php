@@ -13,8 +13,9 @@ use Workbench\App\Models\User;
 /**
  * Exercises EnumResource::collection() across its backing shapes: an accessor returning
  * list<Enum>, an AsEnumCollection cast, a first-class callable value, and a local
- * variable ->map() (not $this->relation->map()). All should emit an array-wrapped
- * AsEnum utility type, not the unresolved EnumResource itself.
+ * variable ->map() (not $this->relation->map()) — those should all emit an array-wrapped
+ * AsEnum utility type, not the unresolved EnumResource itself. member_role_snapshot is the
+ * one exception: a bare (unwrapped) enum read, pinning a distinct import-GC concern.
  *
  * @mixin Team
  */
@@ -62,6 +63,15 @@ class EnumCollectionResource extends JsonResource
             'members_via_var' => $this->whenLoaded(
                 'members',
                 fn ($members) => $members->map(fn (User $member) => EnumResource::make($member->role))
+            ),
+
+            // A bare (unwrapped) enum read nested inside an inline array — the only other Role
+            // reader in this file, members_via_var, is EnumResource-wrapped. Pins that this
+            // property's own RoleType import survives, and registers in propertyInlineEnumFqcns
+            // (see ResourceTransformer::rewriteEnumResourceTypes()'s import-GC).
+            'member_role_snapshot' => $this->whenLoaded(
+                'members',
+                fn ($members) => $members->map(fn (User $member) => ['role' => $member->role])
             ),
         ];
     }

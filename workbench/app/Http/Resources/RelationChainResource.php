@@ -72,6 +72,15 @@ class RelationChainResource extends JsonResource
             'member_role_resources_filtered' => $this->members->filter(fn ($member) => $member->id > 1)
                 ->map(fn ($member) => EnumResource::make($member->role)),
 
+            // Same filter()+map() shape, nested inside an inline array literal this time.
+            // analyzeInlineArray() rebuilds its own AsEnum types rather than substituting, so
+            // isRebuildableEnumShape() must still demote this non-rebuildable Record-arm shape
+            // here too — proving that guard still fires, not just that it still exists.
+            'wrapped_filtered' => [
+                'roles' => $this->members->filter(fn ($member) => $member->id > 1)
+                    ->map(fn ($member) => EnumResource::make($member->role)),
+            ],
+
             // map() argument is a string callable, not a Closure/ArrowFunction — must not be
             // treated as a closure body (which would otherwise resolve 'strtoupper' itself,
             // a plain string literal, as if it were the map's return value).

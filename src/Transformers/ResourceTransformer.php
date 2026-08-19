@@ -647,6 +647,19 @@ class ResourceTransformer extends CoreTransformer
                 }
             }
 
+            // A bare enum read nested inside an inline array (e.g. ['role' => $member->role])
+            // is the semantically correct signal to check here, checked explicitly rather than
+            // relying on dispatchFqcnResults()'s FQCN-keyed directEnumFqcns entries above.
+            if (! $usedForDirectAccess) {
+                foreach ($this->propertyInlineEnumFqcns as $propFqcns) {
+                    if (in_array($info['fqcn'], $propFqcns, true)) {
+                        $usedForDirectAccess = true;
+
+                        break;
+                    }
+                }
+            }
+
             if (! $usedForDirectAccess) {
                 unset($this->enumFqcnMap[$info['fqcn']]);
             }

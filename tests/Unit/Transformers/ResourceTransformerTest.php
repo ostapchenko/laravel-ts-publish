@@ -2000,6 +2000,17 @@ describe('ResourceTransformer with RelationChainResource — EnumResource::make(
         expect($data->properties['member_role_resources_filtered']['type'])
             ->toBe('AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>');
     });
+
+    // Same non-rebuildable shape nested inside an inline array: analyzeInlineArray() still
+    // rebuilds rather than substitutes, so it must still demote here and keep the raw union —
+    // proving isRebuildableEnumShape()'s one remaining call site actually still fires end-to-end.
+    test('wrapped_filtered keeps its raw, un-rewritten union inside the inline array', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['wrapped_filtered']['type'])
+            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
+    });
 });
 
 describe('ResourceTransformer with EnumCollectionResource — EnumResource::collection() shapes', function () {
@@ -2087,6 +2098,20 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
             && in_array('StatusType', $data->typeImports['../../enums'], true);
 
         expect($statusTypeStillImported)->toBeFalse();
+    });
+
+    // A bare enum read nested inside an inline array must keep its own type import: pins
+    // member_role_snapshot's RoleType survives even though members_via_var, the only other
+    // Role-typed property here, is EnumResource-wrapped rather than a direct reader.
+    test('a bare enum read nested inside an inline array keeps its own RoleType import alive', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['member_role_snapshot']['type'])
+            ->toBe('({ role: RoleType | null })[]');
+
+        expect($data->typeImports)->toHaveKey('../../enums');
+        expect($data->typeImports['../../enums'])->toContain('RoleType');
     });
 });
 

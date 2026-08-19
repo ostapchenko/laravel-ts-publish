@@ -9323,6 +9323,11 @@
                     "name": "members_via_var",
                     "type": "AsEnum<typeof Role>[]",
                     "optional": true
+                },
+                {
+                    "name": "member_role_snapshot",
+                    "type": "({ role: RoleType | null })[]",
+                    "optional": true
                 }
             ]
         },
@@ -11408,6 +11413,11 @@
                 {
                     "name": "member_role_resources_filtered",
                     "type": "AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>",
+                    "optional": false
+                },
+                {
+                    "name": "wrapped_filtered",
+                    "type": "{ roles: RoleType[] | Record<string, RoleType> }",
                     "optional": false
                 },
                 {

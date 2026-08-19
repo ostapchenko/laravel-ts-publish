@@ -650,6 +650,14 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->analysis->directEnumFqcns)->not->toHaveKey('member_role_resources_filtered');
     });
 
+    // Same non-rebuildable shape, nested inside an inline array this time: analyzeInlineArray()
+    // still rebuilds its own AsEnum types rather than substituting, so isRebuildableEnumShape()
+    // must still demote here — the raw union survives instead of collapsing to a bare AsEnum.
+    test('filter() before an EnumResource::make() map body demotes inside an inline array', function () {
+        expect($this->props['wrapped_filtered']['type'])
+            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
+    });
+
     // A string ('strtoupper') or array ([$this, 'method']) callable has no closure body to analyze.
     test('map() with a non-closure callable argument stays unknown', function () {
         expect($this->props['member_names_upper']['type'])->toBe('unknown')
@@ -756,6 +764,15 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
         expect($this->props['members_via_var']['type'])->toBe('RoleType[]')
             ->and($this->analysis->enumResources)->toHaveKey('members_via_var')
             ->and($this->analysis->enumResources['members_via_var'])->toBe(Role::class);
+    });
+
+    // A bare (unwrapped) enum read nested inside an inline array registers in inlineEnumFqcns,
+    // a channel distinct from enumResources/directEnumFqcns that ResourceTransformer reads
+    // separately (see propertyInlineEnumFqcns in rewriteEnumResourceTypes()'s import-GC).
+    test('a bare enum read nested inside an inline array registers in inlineEnumFqcns', function () {
+        expect($this->props['member_role_snapshot']['type'])->toBe('({ role: RoleType | null })[]')
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_role_snapshot')
+            ->and($this->analysis->inlineEnumFqcns['member_role_snapshot'])->toContain(Role::class);
     });
 });
 

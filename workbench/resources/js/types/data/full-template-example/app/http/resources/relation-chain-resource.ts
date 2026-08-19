@@ -21,6 +21,7 @@ export interface RelationChainResource
     member_roles: (RoleType | null)[];
     member_role_resources: AsEnum<typeof Role>[];
     member_role_resources_filtered: AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>;
+    wrapped_filtered: { roles: RoleType[] | Record<string, RoleType> };
     member_names_upper: unknown;
     member_formatted: unknown;
     member_mapped_fcc: unknown;

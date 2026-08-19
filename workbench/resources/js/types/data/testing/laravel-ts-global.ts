@@ -2138,8 +2138,9 @@ declare global {
         /**
          * Exercises EnumResource::collection() across its backing shapes: an accessor returning
          * list<Enum>, an AsEnumCollection cast, a first-class callable value, and a local
-         * variable ->map() (not $this->relation->map()). All should emit an array-wrapped
-         * AsEnum utility type, not the unresolved EnumResource itself.
+         * variable ->map() (not $this->relation->map()) — those should all emit an array-wrapped
+         * AsEnum utility type, not the unresolved EnumResource itself. member_role_snapshot is the
+         * one exception: a bare (unwrapped) enum read, pinning a distinct import-GC concern.
          */
         export interface EnumCollectionResource {
             id: number;
@@ -2150,6 +2151,7 @@ declare global {
             week_days_when_has_default: workbench.app.enums.StatusType[] | null | string;
             status_history_when_appended?: workbench.app.enums.StatusType[];
             members_via_var?: workbench.app.enums.RoleType[];
+            member_role_snapshot?: ({ role: workbench.app.enums.RoleType | null })[];
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
         export interface EnumNullFirstResource {
@@ -2862,6 +2864,7 @@ declare global {
             member_roles: (workbench.app.enums.RoleType | null)[];
             member_role_resources: workbench.app.enums.RoleType[];
             member_role_resources_filtered: workbench.app.enums.RoleType[] | Record<string, workbench.app.enums.RoleType>;
+            wrapped_filtered: { roles: workbench.app.enums.RoleType[] | Record<string, workbench.app.enums.RoleType> };
             member_names_upper: unknown;
             member_formatted: unknown;
             member_mapped_fcc: unknown;
