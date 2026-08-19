@@ -56,6 +56,20 @@ export const inlinePaginated = annotatePageProps<InlinePaginatedPageProps>()(def
     component: 'PreserveKeys/Inline',
 }));
 
+export type AnonymousInlinePaginatedPageProps = Inertia.SharedData & { teams: Omit<JsonResourcePaginator<PreserveKeysTeamResource>, 'data'> & { data: Record<string, PreserveKeysTeamResource> } };
+
+/**
+ * Calls Resource::collection() on a paginator invoked inline, with no intermediate variable —
+ * pins that resolveStaticCollectionProps() also resolves the inline form, not just the
+ * resource-constructor form inlinePaginated() above exercises.
+ */
+export const anonymousInlinePaginated = annotatePageProps<AnonymousInlinePaginatedPageProps>()(defineRoute({
+    name: 'preserve-keys.anonymous-inline-paginated',
+    url: '/preserve-keys/anonymous-inline-paginated',
+    methods: ['get', 'head'] as const,
+    component: 'PreserveKeys/AnonymousInline',
+}));
+
 /** @see Workbench\App\Http\Controllers\InertiaPreserveKeysController */
 const InertiaPreserveKeysController = {
     named,
@@ -63,6 +77,7 @@ const InertiaPreserveKeysController = {
     flatPaginated,
     anonymousPaginated,
     inlinePaginated,
+    anonymousInlinePaginated,
 };
 
 export default InertiaPreserveKeysController;

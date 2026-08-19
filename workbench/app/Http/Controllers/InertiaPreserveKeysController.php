@@ -61,4 +61,16 @@ class InertiaPreserveKeysController
             'teams' => new PreserveKeysCollection(Team::query()->paginate(10)),
         ]);
     }
+
+    /**
+     * Calls Resource::collection() on a paginator invoked inline, with no intermediate variable —
+     * pins that resolveStaticCollectionProps() also resolves the inline form, not just the
+     * resource-constructor form inlinePaginated() above exercises.
+     */
+    public function anonymousInlinePaginated(): Response
+    {
+        return Inertia::render('PreserveKeys/AnonymousInline', [
+            'teams' => PreserveKeysTeamResource::collection(Team::query()->paginate(10)),
+        ]);
+    }
 }

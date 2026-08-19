@@ -141,6 +141,7 @@ Route::get('/preserve-keys/named-paginated', [InertiaPreserveKeysController::cla
 Route::get('/preserve-keys/flat-paginated', [InertiaPreserveKeysController::class, 'flatPaginated'])->name('preserve-keys.flat-paginated');
 Route::get('/preserve-keys/anonymous-paginated', [InertiaPreserveKeysController::class, 'anonymousPaginated'])->name('preserve-keys.anonymous-paginated');
 Route::get('/preserve-keys/inline-paginated', [InertiaPreserveKeysController::class, 'inlinePaginated'])->name('preserve-keys.inline-paginated');
+Route::get('/preserve-keys/anonymous-inline-paginated', [InertiaPreserveKeysController::class, 'anonymousInlinePaginated'])->name('preserve-keys.anonymous-inline-paginated');
 
 Route::get('/ts-casts', [InertiaTsCastsController::class, 'index'])->name('ts-casts.index');
 Route::get('/inertia-form-request/create', [InertiaFormRequestController::class, 'create'])->name('inertia-form-request.create');

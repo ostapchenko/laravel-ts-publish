@@ -12,6 +12,7 @@ use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\PreserveKeysCollection;
+use Workbench\App\Http\Resources\PreserveKeysTeamResource;
 use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Post;
 
@@ -167,4 +168,10 @@ test('analyzePaginatedStaticCollectionProps returns empty for non-existent contr
     $analyzer = new ControllerPaginatorAnalyzer('NonExistent\\Controller', 'index');
 
     expect($analyzer->analyzePaginatedStaticCollectionProps())->toBeEmpty();
+});
+
+test('analyzePaginatedStaticCollectionProps detects a paginator called inline as the collection argument', function () {
+    $analyzer = new ControllerPaginatorAnalyzer(InertiaPreserveKeysController::class, 'anonymousInlinePaginated');
+
+    expect($analyzer->analyzePaginatedStaticCollectionProps())->toBe(['teams' => PreserveKeysTeamResource::class]);
 });
