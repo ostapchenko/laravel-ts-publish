@@ -4947,7 +4947,8 @@ class ResourceAstAnalyzer
 
     /**
      * Merge ResourceAnalysis objects from different return branches: a property missing from any
-     * branch becomes optional, and differing types across branches are unioned.
+     * branch becomes optional, every map channel (including the three inline FQCN maps) unions per
+     * key, and the flatTypeAlias/flatTypeAliasFqcn scalars keep the first non-null branch value.
      *
      * @param  list<ResourceAnalysis>  $analyses
      */
@@ -4965,6 +4966,14 @@ class ResourceAstAnalyzer
         $customImports = [];
         /** @var MultiEnumFqcnsMap $multiEnumResourceFqcns */
         $multiEnumResourceFqcns = [];
+        /** @var InlineEnumFqcnsMap $inlineEnumFqcns */
+        $inlineEnumFqcns = [];
+        /** @var InlineModelFqcnsMap $inlineModelFqcns */
+        $inlineModelFqcns = [];
+        /** @var InlineEnumFqcnsMap $inlineEnumResourceFqcns */
+        $inlineEnumResourceFqcns = [];
+        $flatTypeAlias = null;
+        $flatTypeAliasFqcn = null;
 
         foreach ($analyses as $analysis) {
             foreach ($analysis->properties as $prop) {
@@ -4976,6 +4985,8 @@ class ResourceAstAnalyzer
             $directEnumFqcns = [...$directEnumFqcns, ...$analysis->directEnumFqcns];
             $modelFqcns = [...$modelFqcns, ...$analysis->modelFqcns];
             $multiEnumResourceFqcns = [...$multiEnumResourceFqcns, ...$analysis->multiEnumResourceFqcns];
+            $flatTypeAlias ??= $analysis->flatTypeAlias;
+            $flatTypeAliasFqcn ??= $analysis->flatTypeAliasFqcn;
 
             foreach ($analysis->customImports as $path => $names) { // @codeCoverageIgnoreStart
                 $customImports[$path] = array_values(array_unique([
@@ -4983,6 +4994,24 @@ class ResourceAstAnalyzer
                     ...$names,
                 ]));
             } // @codeCoverageIgnoreEnd
+
+            foreach ($analysis->inlineEnumFqcns as $propName => $fqcns) {
+                $inlineEnumFqcns[$propName] = array_values(array_unique(
+                    [...($inlineEnumFqcns[$propName] ?? []), ...$fqcns]
+                ));
+            }
+
+            foreach ($analysis->inlineModelFqcns as $propName => $fqcns) {
+                $inlineModelFqcns[$propName] = array_values(array_unique(
+                    [...($inlineModelFqcns[$propName] ?? []), ...$fqcns]
+                ));
+            }
+
+            foreach ($analysis->inlineEnumResourceFqcns as $propName => $fqcns) {
+                $inlineEnumResourceFqcns[$propName] = array_values(array_unique(
+                    [...($inlineEnumResourceFqcns[$propName] ?? []), ...$fqcns]
+                ));
+            }
         }
 
         /** @var list<array{name: string, type: string, optional: bool, description: string}> */
@@ -5022,7 +5051,12 @@ class ResourceAstAnalyzer
             customImports: $customImports,
             directEnumFqcns: $directEnumFqcns,
             modelFqcns: $modelFqcns,
+            inlineEnumFqcns: $inlineEnumFqcns,
+            inlineModelFqcns: $inlineModelFqcns,
             multiEnumResourceFqcns: $multiEnumResourceFqcns,
+            inlineEnumResourceFqcns: $inlineEnumResourceFqcns,
+            flatTypeAlias: $flatTypeAlias,
+            flatTypeAliasFqcn: $flatTypeAliasFqcn,
         );
     }
 

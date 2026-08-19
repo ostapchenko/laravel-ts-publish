@@ -8997,6 +8997,11 @@
                     "optional": true
                 },
                 {
+                    "name": "inline_enum_branch",
+                    "type": "{ method: AsEnum<typeof PaymentMethod> | null }",
+                    "optional": true
+                },
+                {
                     "name": "draft",
                     "type": "boolean",
                     "optional": true

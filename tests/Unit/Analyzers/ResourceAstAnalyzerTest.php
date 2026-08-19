@@ -9,6 +9,7 @@ use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
 use Workbench\Accounting\Models\Payment;
 use Workbench\App\Enums\OrderStatus;
+use Workbench\App\Enums\PaymentMethod;
 use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Role;
 use Workbench\App\Enums\Status;
@@ -3352,6 +3353,11 @@ describe('ResourceAstAnalyzer with ControlFlowReturnResource (union multiple ret
             ->and($props->firstWhere('name', 'draft')['type'])->toBe('boolean')
             ->and($props->firstWhere('name', 'total')['type'])->toBe('number')
             ->and($props->firstWhere('name', 'status')['type'])->toBe('OrderStatusType');
+    });
+
+    test('mergeReturnBranches carries an enum referenced only inside an inline array literal', function () {
+        expect($this->analysis->inlineEnumResourceFqcns)->toHaveKey('inline_enum_branch')
+            ->and($this->analysis->inlineEnumResourceFqcns['inline_enum_branch'])->toContain(PaymentMethod::class);
     });
 });
 

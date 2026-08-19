@@ -687,3 +687,20 @@ non-paginated, named and anonymous — and preserve-keys only changes two of the
   via `wrapCollectionElementType()` when the collection preserves keys. Fixtures pin this: a
   key-preserving named collection, paginated or not, produces identical output before and after this
   change.
+
+## `mergeReturnBranches()` carries every `syncAnalysisMaps()` channel, plus two flat scalars
+
+A resource with multiple direct `return [...]` branches (`if`/`elseif`/`else`, loop bodies, guard
+clauses) is analyzed per-branch, then unioned by `mergeReturnBranches()`. It carries the same nine
+channels `syncAnalysisMaps()` does — `properties`, `enumResources`, `nestedResources`,
+`directEnumFqcns`, `modelFqcns`, `customImports`, `multiEnumResourceFqcns`, and the three inline
+maps (`inlineEnumFqcns`, `inlineModelFqcns`, `inlineEnumResourceFqcns`) — unioning each inline map
+per property key, exactly like `syncAnalysisMaps()`. Missing this union silently drops a property's
+only enum/model reference when that reference sits inside an inline array literal in one branch,
+emitting a type token with no import.
+
+It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `syncAnalysisMaps()` never
+touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule —
+`analyzeReturnArray()` never sets either field, so every branch reaching this method already has
+both null; only `buildCollectionDelegatedAnalysis()` sets them, and it returns directly without
+going through branch merging.

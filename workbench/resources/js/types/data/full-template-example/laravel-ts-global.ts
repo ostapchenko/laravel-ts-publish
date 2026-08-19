@@ -2068,6 +2068,7 @@ declare global {
         export interface ControlFlowReturnResource {
             id: number;
             archived?: boolean;
+            inline_enum_branch?: { method: app.enums.PaymentMethodType | null };
             draft?: boolean;
             total?: number;
             status?: app.enums.OrderStatusType;

@@ -939,10 +939,9 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Build a map of per-file enum const aliases → namespace-qualified type names.
-     *
-     * Kept per-transformer rather than merged: two resources can use the same unaliased
-     * const name for enums in different namespaces.
+     * Build a map of per-file enum const aliases to namespace-qualified type names, walking
+     * enumPropertyFqcns() so an inline-only EnumResource FQCN qualifies too, not just top-level
+     * and multi ones — otherwise its bare AsEnum<typeof X> leaks into declare global {}.
      *
      * @return array<string, string> constAlias => 'namespace.TypeName'
      */
@@ -950,8 +949,7 @@ class ResourceTransformer extends CoreTransformer
     {
         $map = [];
 
-        foreach ($this->enumResourceProperties as $info) {
-            $fqcn = $info['fqcn'];
+        foreach ($this->enumPropertyFqcns() as $fqcn) {
             $constAlias = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn] ?? null;
 
             // rewriteEnumResourceTypes() may have cleared enumFqcnMap; enumConstMap is never cleared.
@@ -965,22 +963,6 @@ class ResourceTransformer extends CoreTransformer
             $ns = str_replace('/', '.', LaravelTsPublish::namespaceToPath($fqcn));
 
             $map[$constAlias] = $ns.'.'.$typeName;
-        }
-
-        foreach ($this->multiEnumResourceProperties as $fqcns) {
-            foreach ($fqcns as $fqcn) {
-                $constAlias = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn] ?? null;
-                $originalConstName = $this->enumConstMap[$fqcn] ?? null;
-
-                if ($constAlias === null || $originalConstName === null) {
-                    continue; // @codeCoverageIgnore
-                }
-
-                $typeName = $originalConstName.'Type';
-                $ns = str_replace('/', '.', LaravelTsPublish::namespaceToPath($fqcn));
-
-                $map[$constAlias] = $ns.'.'.$typeName;
-            }
         }
 
         return $map;
