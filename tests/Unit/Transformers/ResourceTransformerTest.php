@@ -2001,15 +2001,15 @@ describe('ResourceTransformer with RelationChainResource — EnumResource::make(
             ->toBe('AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>');
     });
 
-    // Same non-rebuildable shape nested inside an inline array: analyzeInlineArray() still
-    // rebuilds rather than substitutes, so it must still demote here and keep the raw union —
-    // proving isRebuildableEnumShape()'s one remaining call site actually still fires end-to-end.
-    test('wrapped_filtered keeps its raw, un-rewritten union inside the inline array', function () {
+    // Same keyed-Record shape nested inside an inline array: analyzeInlineArray() substitutes the
+    // bare RoleType token in place too, so the nested union AsEnum-wraps both arms end-to-end,
+    // exactly like member_role_resources_filtered above.
+    test('wrapped_filtered AsEnum-wraps both arms of its union inside the inline array', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(RelationChainResource::class))->data();
 
         expect($data->properties['wrapped_filtered']['type'])
-            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
+            ->toBe('{ roles: AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>> }');
     });
 });
 

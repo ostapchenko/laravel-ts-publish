@@ -651,12 +651,12 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->analysis->directEnumFqcns)->not->toHaveKey('member_role_resources_filtered');
     });
 
-    // Same non-rebuildable shape, nested inside an inline array this time: analyzeInlineArray()
-    // still rebuilds its own AsEnum types rather than substituting, so isRebuildableEnumShape()
-    // must still demote here — the raw union survives instead of collapsing to a bare AsEnum.
-    test('filter() before an EnumResource::make() map body demotes inside an inline array', function () {
+    // Same keyed-Record shape, nested inside an inline array this time: analyzeInlineArray()
+    // substitutes the bare RoleType token in place, so both union arms come out AsEnum-wrapped —
+    // matching member_role_resources_filtered above, whose PHP shape is identical.
+    test('an EnumResource-wrapped enum inside an inline array literal is substituted, not rebuilt', function () {
         expect($this->props['wrapped_filtered']['type'])
-            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
+            ->toBe('{ roles: AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>> }');
     });
 
     // A string ('strtoupper') or array ([$this, 'method']) callable has no closure body to analyze.

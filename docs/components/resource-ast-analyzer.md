@@ -190,6 +190,30 @@ non-empty) but only the first is importable, so every `classFqcns` entry must pa
 `is_a($fqcn, Model::class, true)` check or the whole result is rejected — accepting the enum
 half while dropping an unimportable class token would still leak a compile error.
 
+### The tolki `AsEnum` wrap substitutes a token; it never rebuilds the type
+
+An `EnumResource::make()`-wrapped property reaches the `enumResources` channel carrying the
+analyzer's own type string, in which the enum appears as its bare TS type name (`RoleType` —
+`TypeScriptTypeInfo::$enumTypes[0]`, i.e. the `#[TsEnum]` name or the class basename, suffixed
+`Type`). With `enums.use_tolki_package` on, **both** rewrite paths turn that into
+`AsEnum<typeof Role>` by *substituting the bare token in place*:
+`ResourceTransformer::substituteEnumResourceType()` for a top-level property, and
+`ResourceAstAnalyzer::substituteEnumType()` for one nested inside an inline array literal.
+Both use the same word-boundary pattern — the lookbehind excludes `.` so a namespace-qualified
+`foo.RoleType` is left alone, the lookahead stops `RoleType` matching the prefix of
+`RoleTypeExtra`.
+
+Substitution matters because the analyzer's type is often richer than `X`/`X[]`. A
+key-clearing chain (`filter()->map(fn (…) => EnumResource::make(…))`) emits
+`RoleType[] | Record<string, RoleType>`; a conditional with an explicit default emits an extra
+arm such as `RoleType | string`. Rebuilding the type from the FQCN — which is what both paths
+used to do — could express only `X`, `X[]`, `X | null`, `X[] | null`, so every richer shape had
+to be demoted out of the `enumResources` channel by a guard (`isRebuildableEnumShape()`) and
+left un-wrapped. That guard is gone: substitution reproduces any shape losslessly, wrapping
+every arm that names the enum and leaving the rest of the union untouched.
+`RelationChainResource::$member_role_resources_filtered` (top level) and `$wrapped_filtered`
+(inline array) pin the two paths against the identical PHP shape — they must never disagree.
+
 ### Multi-model accessor unions are untouched
 
 The other branch of `analyzeRelationFilter()` — an accessor typed as a union of two or more

@@ -4026,34 +4026,20 @@ class ResourceAstAnalyzer
 
         $useTolki = Config::boolean('ts-publish.enums.use_tolki_package');
 
-        // A property whose analyzer type isn't a rebuildable X/X[] shape (e.g. a keyed Record arm
-        // from a non-sequential map chain) can't survive the still-rebuild-based AsEnum rewrite
-        // below — demote it to the direct-enum channel first so the raw type survives untouched.
-        $enumResources = $analysis->enumResources;
-        $directEnumFqcns = $analysis->directEnumFqcns;
-        $propTypesByName = array_column($analysis->properties, 'type', 'name');
-
-        foreach ($enumResources as $propName => $fqcn) {
-            if (! $this->isRebuildableEnumShape($propTypesByName[$propName] ?? '')) {
-                $directEnumFqcns[$propName] = $fqcn;
-                unset($enumResources[$propName]);
-            }
-        }
-
-        $parts = array_map(function (array $prop) use ($enumResources, $useTolki): string {
+        $parts = array_map(function (array $prop) use ($analysis, $useTolki): string {
             $key = LaravelTsPublish::validJsObjectKey($prop['name']);
 
             $type = $prop['type'];
 
             // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
-            // top-level enum resource transformer. A collection keeps its `[]` suffix.
-            if ($useTolki && isset($enumResources[$prop['name']])) {
-                $fqcn = $enumResources[$prop['name']];
+            // top-level enum resource transformer. Substituting the bare token in place keeps every
+            // other union arm — a keyed `Record<...>` arm, an extra default arm — intact.
+            if ($useTolki && isset($analysis->enumResources[$prop['name']])) {
+                $fqcn = $analysis->enumResources[$prop['name']];
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
                 $constName = $tsInfo['enums'][0] ?? class_basename($fqcn);
-                $nullable = str_contains($type, 'null');
-                $isCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
-                $type = 'AsEnum<typeof '.$constName.'>'.($isCollection ? '[]' : '').($nullable ? ' | null' : '');
+                $bareTypeName = $tsInfo['enumTypes'][0] ?? class_basename($fqcn).'Type';
+                $type = $this->substituteEnumType($type, $bareTypeName, 'AsEnum<typeof '.$constName.'>');
             }
 
             return $prop['optional']
@@ -4084,12 +4070,12 @@ class ResourceAstAnalyzer
                  : array_merge(...array_values($analysis->inlineEnumFqcns));
 
             $embeddedEnumFqcns = array_values(array_unique([
-                ...array_values($directEnumFqcns),
+                ...array_values($analysis->directEnumFqcns),
                 // Propagate any deeply-nested direct enum FQCNs from sub-inline-arrays.
                 ...$nestedInlineEnumFqcns,
             ]));
 
-            $enumResourceFqcns = array_values($enumResources);
+            $enumResourceFqcns = array_values($analysis->enumResources);
             // Propagate any deeply-nested enum resource FQCNs from sub-inline-arrays.
             foreach ($analysis->inlineEnumResourceFqcns as $nestedFqcns) {
                 foreach ($nestedFqcns as $fqcn) {
@@ -4671,23 +4657,16 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Whether $type is a shape analyzeInlineArray()'s own AsEnum rebuild can reproduce losslessly:
-     * a single non-null top-level union member, itself a bare identifier or that identifier
-     * array-suffixed, with at most an outer `| null`. A keyed `Record<...>` arm, an extra default
-     * arm, or any other union fails this check, so the raw type is kept unrewritten instead.
+     * Replace a bare enum type-name token with its AsEnum wrap, preserving every other union arm.
      *
-     * ResourceTransformer::rewriteEnumResourceTypes() no longer needs this guard for its own,
-     * top-level rewrite: that rewrite is substitution-based and reproduces any shape losslessly.
+     * Mirrors ResourceTransformer::substituteEnumResourceType(): the lookbehind's `.` keeps a
+     * namespace-qualified `foo.RoleType` unmatched, the lookahead keeps `RoleTypeExtra` unmatched.
      */
-    private function isRebuildableEnumShape(string $type): bool
+    private function substituteEnumType(string $typeStr, string $bareTypeName, string $asEnumType): string
     {
-        $nonNullMembers = array_values(array_filter(
-            LaravelTsPublish::splitTopLevelUnion($type),
-            fn (string $member): bool => $member !== 'null',
-        ));
+        $pattern = '/(?<![A-Za-z0-9_$.])'.preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
 
-        return count($nonNullMembers) === 1
-            && preg_match('/^[A-Za-z_]\w*(\[\])?$/', $nonNullMembers[0]) === 1;
+        return preg_replace($pattern, $asEnumType, $typeStr) ?? $typeStr;
     }
 
     /**

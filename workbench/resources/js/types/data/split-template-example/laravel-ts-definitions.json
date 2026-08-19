@@ -11477,7 +11477,7 @@
                 },
                 {
                     "name": "wrapped_filtered",
-                    "type": "{ roles: RoleType[] | Record<string, RoleType> }",
+                    "type": "{ roles: AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>> }",
                     "optional": false
                 },
                 {
