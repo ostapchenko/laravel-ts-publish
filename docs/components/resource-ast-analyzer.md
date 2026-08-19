@@ -195,10 +195,10 @@ half while dropping an unimportable class token would still leak a compile error
 The `directEnumFqcn` channel and `ResourceTransformer::$directEnumProperties` map share one array
 carrying two structurally different entry kinds: property-name keys pointing to direct-access enum
 FQCNs (from ternary/union branches), and self-keyed FQCN entries (from embedded enums in inline
-relation filters). Only `ResourceTransformer::rewriteEnumResourceTypes()`'s `$isMixed` check is
-key-sensitive, testing whether a property name is a key in the map; two value-comparison loops in
-`rewriteEnumResourceTypes()` and one in `substituteEnumResourceType()` read values only and work
-correctly for both entry kinds.
+relation filters). All three consumers live inside `ResourceTransformer::rewriteEnumResourceTypes()`:
+the `$isMixed` check is key-sensitive, testing whether a property name is a key in the map, while
+the other two — both import-garbage-collection loops — compare values only and work correctly for
+both entry kinds. `substituteEnumResourceType()` never reads this map at all.
 
 ### The tolki `AsEnum` wrap substitutes a token; it never rebuilds the type
 
