@@ -190,6 +190,15 @@ non-empty) but only the first is importable, so every `classFqcns` entry must pa
 `is_a($fqcn, Model::class, true)` check or the whole result is rejected — accepting the enum
 half while dropping an unimportable class token would still leak a compile error.
 
+### `directEnumFqcn` carries two entry kinds
+
+The `directEnumFqcn` channel and `ResourceTransformer::$directEnumProperties` map share one array
+carrying two structurally different entry kinds: property-name keys pointing to direct-access enum
+FQCNs (from ternary/union branches), and self-keyed FQCN entries (from embedded enums in inline
+relation filters). Only `ResourceTransformer::substituteEnumResourceType()`'s `$isMixed` check at
+line 588 is key-sensitive, testing whether a property name is a key in the map; the two import-GC
+loops at lines 631–637 and 689–695 read values only and work correctly for both entry kinds.
+
 ### The tolki `AsEnum` wrap substitutes a token; it never rebuilds the type
 
 An `EnumResource::make()`-wrapped property reaches the `enumResources` channel carrying the

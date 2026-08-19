@@ -113,7 +113,12 @@ class ResourceTransformer extends CoreTransformer
     /** @var array<string, class-string> property name => enum FQCN (from direct enum access) */
     protected array $propertyEnumFqcns = [];
 
-    /** @var array<string, class-string> property name => enum FQCN for properties that have a direct-access branch in a ternary/union alongside an EnumResource branch */
+    /**
+     * Enum FQCNs reachable without an EnumResource wrap, in two entry kinds sharing one map.
+     *
+     * @var array<string, class-string> property name => FQCN for a ternary/union direct-access branch;
+     *                                  FQCN => FQCN for an embedded enum from dispatchFqcnResults()
+     */
     protected array $directEnumProperties = [];
 
     /** @var array<string, list<class-string>> property name => ordered list of enum FQCNs for ternary/union where ALL non-null branches are EnumResource calls with different FQCNs */
