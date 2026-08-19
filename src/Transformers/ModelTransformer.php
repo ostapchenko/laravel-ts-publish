@@ -655,52 +655,23 @@ class ModelTransformer extends CoreTransformer
 
         $nameMap = $this->enumFqcnMap + $this->modelFqcnMap;
 
-        foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $nameMap[$fqcn] ?? null;
-
-            if ($originalName === null || $originalName === $alias) {
-                continue;
-            }
-
-            foreach ($this->columns as $key => $entry) {
-                $this->columns[$key]['type'] = $this->aliasEntryType(
-                    $entry['type'], $fqcn, $originalName, $alias, $this->columnFqcns[$key] ?? [], $nameMap,
-                );
-            }
-
-            foreach ($this->mutators as $key => $entry) {
-                $this->mutators[$key]['type'] = $this->aliasEntryType(
-                    $entry['type'], $fqcn, $originalName, $alias, $this->mutatorFqcns[$key] ?? [], $nameMap,
-                );
-            }
-
-            foreach ($this->appends as $key => $entry) {
-                $this->appends[$key]['type'] = $this->aliasEntryType(
-                    $entry['type'], $fqcn, $originalName, $alias, $this->appendsFqcns[$key] ?? [], $nameMap,
-                );
-            }
-        }
-    }
-
-    /**
-     * Alias one column/mutator/append type string, leaving it untouched when it does not reference the FQCN.
-     *
-     * @param  list<string>  $entryFqcns
-     * @param  array<string, string>  $nameMap
-     */
-    private function aliasEntryType(
-        string $type,
-        string $fqcn,
-        string $originalName,
-        string $alias,
-        array $entryFqcns,
-        array $nameMap,
-    ): string {
-        if (! in_array($fqcn, $entryFqcns, true)) {
-            return $type;
+        foreach ($this->columns as $key => $entry) {
+            $this->columns[$key]['type'] = LaravelTsPublish::aliasPropertyType(
+                $entry['type'], $this->columnFqcns[$key] ?? [], $nameMap, $this->importAliases,
+            );
         }
 
-        return LaravelTsPublish::aliasTypeName($type, $originalName, $alias, $entryFqcns, $nameMap);
+        foreach ($this->mutators as $key => $entry) {
+            $this->mutators[$key]['type'] = LaravelTsPublish::aliasPropertyType(
+                $entry['type'], $this->mutatorFqcns[$key] ?? [], $nameMap, $this->importAliases,
+            );
+        }
+
+        foreach ($this->appends as $key => $entry) {
+            $this->appends[$key]['type'] = LaravelTsPublish::aliasPropertyType(
+                $entry['type'], $this->appendsFqcns[$key] ?? [], $nameMap, $this->importAliases,
+            );
+        }
     }
 
     /**

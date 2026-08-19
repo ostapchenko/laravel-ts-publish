@@ -114,6 +114,19 @@ class Warehouse extends Model
         return Attribute::get(fn (): Image|User|null => null);
     }
 
+    // Fixture: gives a resource a Warehouse-typed value to call only() on, so one property can name three
+    // same-basename relations — manager (App\Models\User) plus primaryContact and secondaryContact (both
+    // Crm\Models\User) — and pin that every occurrence gets aliased, not just the first two.
+    /**
+     * The regional hub this warehouse rolls up to.
+     *
+     * @return Attribute<Warehouse|null, never>
+     */
+    protected function regionalHub(): Attribute
+    {
+        return Attribute::get(fn (): ?Warehouse => null);
+    }
+
     protected function lastUserActivityByTyped(): Attribute
     {
         return Attribute::get(function (): CrmUser|User|null {

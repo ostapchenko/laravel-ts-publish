@@ -1190,6 +1190,8 @@ declare global {
             menu_config: MenuSettingsType | null;
             last_user_activity_by: workbench.crm.models.User | User | null;
             last_checked_by: Image | User | null;
+            /** The regional hub this warehouse rolls up to. */
+            regional_hub: Warehouse | null;
             last_user_activity_by_typed: workbench.crm.models.User | User | null;
             last_user_activity_by_typed_short: workbench.crm.models.User | User | null;
             review_priority: workbench.app.enums.StatusType | workbench.app.enums.PriorityType | null;
@@ -3434,12 +3436,13 @@ declare global {
             manager: workbench.app.models.User | null;
             primary_contact: workbench.crm.models.User | null;
             secondary_contact: workbench.crm.models.User | null;
-            last_user_activity_by: workbench.app.models.User | workbench.crm.models.User | null;
-            last_user_activity_by_typed: workbench.app.models.User | workbench.crm.models.User | null;
-            last_user_activity_by_typed_short: workbench.app.models.User | workbench.crm.models.User | null;
+            last_user_activity_by: workbench.crm.models.User | workbench.app.models.User | null;
+            last_user_activity_by_typed: workbench.crm.models.User | workbench.app.models.User | null;
+            last_user_activity_by_typed_short: workbench.crm.models.User | workbench.app.models.User | null;
             last_user_activity_by_partial: { id: number; name: string } | null;
             last_user_activity_by_mostly: { email: string; company: string | null; status: workbench.crm.enums.StatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: workbench.app.enums.RoleType | null; membership_level: workbench.app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
             last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: workbench.app.enums.RoleType | null; membership_level: workbench.app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
+            regional_hub_contacts: { manager: workbench.app.models.User | null; primaryContact: workbench.crm.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
         }
     }
     export namespace workbench.app.http.resources.admin {

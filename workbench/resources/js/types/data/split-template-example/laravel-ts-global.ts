@@ -1172,6 +1172,8 @@ declare global {
             menu_config: MenuSettingsType | null;
             last_user_activity_by: crm.models.User | User | null;
             last_checked_by: Image | User | null;
+            /** The regional hub this warehouse rolls up to. */
+            regional_hub: Warehouse | null;
             last_user_activity_by_typed: crm.models.User | User | null;
             last_user_activity_by_typed_short: crm.models.User | User | null;
             review_priority: app.enums.StatusType | app.enums.PriorityType | null;
@@ -3434,12 +3436,13 @@ declare global {
             manager: app.models.User | null;
             primary_contact: crm.models.User | null;
             secondary_contact: crm.models.User | null;
-            last_user_activity_by: app.models.User | crm.models.User | null;
-            last_user_activity_by_typed: app.models.User | crm.models.User | null;
-            last_user_activity_by_typed_short: app.models.User | crm.models.User | null;
+            last_user_activity_by: crm.models.User | app.models.User | null;
+            last_user_activity_by_typed: crm.models.User | app.models.User | null;
+            last_user_activity_by_typed_short: crm.models.User | app.models.User | null;
             last_user_activity_by_partial: { id: number; name: string } | null;
             last_user_activity_by_mostly: { email: string; company: string | null; status: crm.enums.StatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
             last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
+            regional_hub_contacts: { manager: app.models.User | null; primaryContact: crm.models.User | null; secondaryContact: crm.models.User | null } | null;
         }
     }
     export namespace app.http.resources.admin {

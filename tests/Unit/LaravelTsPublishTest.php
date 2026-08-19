@@ -984,51 +984,104 @@ describe('generic container docblock types', function () {
     });
 });
 
-describe('aliasTypeName', function () {
-    $nameMap = ['App\\Models\\User' => 'User', 'Crm\\Models\\User' => 'User', 'App\\Models\\Post' => 'Post'];
+describe('aliasPropertyType', function () {
+    $nameMap = [
+        'App\\Models\\User' => 'User',
+        'Crm\\Models\\User' => 'User',
+        'App\\Models\\Post' => 'Post',
+        'App\\Models\\UserProfile' => 'UserProfile',
+    ];
 
     test('replaces every occurrence when the item has one FQCN of that name', function () use ($nameMap) {
-        expect($this->service->aliasTypeName(
-            'User[] | Record<string, User>', 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        expect($this->service->aliasPropertyType(
+            'User[] | Record<string, User>',
+            ['App\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser'],
         ))->toBe('AppUser[] | Record<string, AppUser>');
     });
 
-    test('replaces one occurrence when two FQCNs on the item share the name', function () use ($nameMap) {
-        expect($this->service->aliasTypeName(
-            'User | User', 'User', 'AppUser', ['App\\Models\\User', 'Crm\\Models\\User'], $nameMap,
-        ))->toBe('AppUser | User');
+    test('aliases each occurrence of a shared basename from its own FQCN', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType(
+            'User | User',
+            ['App\\Models\\User', 'Crm\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser', 'Crm\\Models\\User' => 'CrmUser'],
+        ))->toBe('AppUser | CrmUser');
+    });
+
+    test('a repeated basename with more occurrences than FQCNs aliases every occurrence', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType(
+            '{ a: User; b: User[]; c: Record<string, User> }',
+            ['App\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser'],
+        ))->toBe('{ a: AppUser; b: AppUser[]; c: Record<string, AppUser> }');
+    });
+
+    // The leftmost-occurrence heuristic this replaced left the trailing occurrence bare and unimportable.
+    test('the last FQCN covers every occurrence past the end of the queue', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType(
+            '{ manager: User; primaryContact: User; secondaryContact: User }',
+            ['App\\Models\\User', 'Crm\\Models\\User', 'Crm\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser', 'Crm\\Models\\User' => 'CrmUser'],
+        ))->toBe('{ manager: AppUser; primaryContact: CrmUser; secondaryContact: CrmUser }');
     });
 
     // A repeated FQCN would otherwise read as a collision and silently restore single replacement.
     test('a duplicated FQCN is not mistaken for a name collision', function () use ($nameMap) {
-        expect($this->service->aliasTypeName(
+        expect($this->service->aliasPropertyType(
             'User[] | Record<string, User>',
-            'User',
-            'AppUser',
             ['App\\Models\\User', 'App\\Models\\User'],
             $nameMap,
+            ['App\\Models\\User' => 'AppUser'],
         ))->toBe('AppUser[] | Record<string, AppUser>');
     });
 
     test('a non-colliding sibling FQCN does not restrict the replacement', function () use ($nameMap) {
-        expect($this->service->aliasTypeName(
-            'User[] | Record<string, User>', 'User', 'AppUser', ['App\\Models\\User', 'App\\Models\\Post'], $nameMap,
-        ))->toBe('AppUser[] | Record<string, AppUser>');
+        expect($this->service->aliasPropertyType(
+            'User[] | Record<string, User> | Post',
+            ['App\\Models\\User', 'App\\Models\\Post'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser'],
+        ))->toBe('AppUser[] | Record<string, AppUser> | Post');
     });
 
     test('word boundaries keep longer identifiers intact', function () use ($nameMap) {
-        expect($this->service->aliasTypeName(
-            'User | UserProfile | Users', 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        expect($this->service->aliasPropertyType(
+            'User | UserProfile | Users',
+            ['App\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser'],
         ))->toBe('AppUser | UserProfile | Users');
+    });
+
+    // Longest-first alternation: a shorter name that prefixes a longer one must not claim its match.
+    test('a longer registered name is not shadowed by a shorter one that prefixes it', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType(
+            'UserProfile | User',
+            ['App\\Models\\User', 'App\\Models\\UserProfile'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser', 'App\\Models\\UserProfile' => 'AppUserProfile'],
+        ))->toBe('AppUserProfile | AppUser');
     });
 
     // Pick<>/Omit<> relation-filter references (e.g. `Pick<User, 'id' | 'user'>`) carry a bare model
     // token alongside lowercase quoted key literals — the quotes are valid word boundaries, so a key
     // that happens to spell the model name in lowercase must not be mistaken for the bare token.
     test('rewrites the bare model token inside Pick<>/Omit<> without touching quoted key literals', function () use ($nameMap) {
-        expect($this->service->aliasTypeName(
-            "Pick<User, 'id' | 'user'>", 'User', 'AppUser', ['App\\Models\\User'], $nameMap,
+        expect($this->service->aliasPropertyType(
+            "Pick<User, 'id' | 'user'>",
+            ['App\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser'],
         ))->toBe("Pick<AppUser, 'id' | 'user'>");
+    });
+
+    test('an item with no mapped FQCN is returned untouched', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType('User | Post', ['App\\Models\\Team'], $nameMap, []))
+            ->toBe('User | Post');
     });
 });
 

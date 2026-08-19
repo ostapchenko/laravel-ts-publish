@@ -49,6 +49,45 @@ climbs only as far as needed:
   groups with different type names, from processing groups in type-name order rather than
   registration order.
 
+## Rewriting aliased type references
+
+`applyResolvedImportNames()` records an FQCN in `$importAliases` only when its resolved local name
+differs from its type name, then calls the transformer's `rewriteTypeReferences()` once. Each
+transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
+`$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns` in `ModelTransformer`, `$propertyFqcns` in
+`BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`
+in registration order. Callers must not sort that list: source order is the whole contract.
+
+`aliasPropertyType()` builds one queue of aliases per type name, in FQCN source order, then walks
+the type string's occurrences left to right with `preg_replace_callback`:
+
+- **One FQCN owns the name.** Every occurrence is provably it, so every one is rewritten. This is
+  the widened-container case — `User[] | Record<string, User>` from a single `App\Models\User`.
+- **Several FQCNs share the name.** Occurrence N takes FQCN N; once the queue is exhausted the
+  last FQCN covers every remaining occurrence, since a container that widens a union repeats its
+  own trailing element.
+
+It applies `array_unique()` to the incoming list itself (order-preserving, keeping the first
+occurrence), so a repeated FQCN cannot be misread as a name collision.
+
+Occurrence order *is* FQCN source order by construction, not by luck. `mergeTypeScriptInfos()`
+appends to `$types` and `$orderedClassFqcns` inside the same loop iteration and then returns
+`implode(' | ', $types)` alongside `classFqcns => $orderedClassFqcns`, so arm N of a plain class
+union is FQCN N. `ModelAttributeResolver::buildMorphUnionInfo()` does the same for a morph union:
+its type is `implode(' | ', array_map(class_basename(...), $targets))` and its `morphFqcns` is
+`$targets`.
+
+The regex alternation is ordered longest name first, so a shorter name that prefixes a longer one
+(`User` against `UserProfile`) cannot claim its match.
+
+**Invariant: no bare colliding token survives the rewrite.** That is what
+[the unimportable-token gate](../testing/type-inference-gates.md) depends on — a bare `User` left
+in a file that imports only `User as ModelsUser` and `User as CrmUser` is a `TS2304`. The
+predecessor, `aliasTypeName()`, rewrote either every occurrence or exactly one per aliased FQCN,
+which held only while a basename occurred exactly as often as it had FQCNs.
+`WarehouseResource::regional_hub_contacts` — one `App\Models\User` and two `Crm\Models\User`
+named in a single `only()` — is the fixture that pins the difference.
+
 ## Consumers
 
 Each transformer's `resolveImportConflicts()` builds the registry (or registries) that fit its

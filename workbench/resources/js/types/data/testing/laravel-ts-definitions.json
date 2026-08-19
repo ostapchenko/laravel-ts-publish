@@ -7106,6 +7106,10 @@
                     "type": "Image | ManagerUser | null"
                 },
                 {
+                    "name": "regional_hub",
+                    "type": "Warehouse | null"
+                },
+                {
                     "name": "last_user_activity_by_typed",
                     "type": "CrmUser | ManagerUser | null"
                 },
@@ -13439,17 +13443,17 @@
                 },
                 {
                     "name": "last_user_activity_by",
-                    "type": "WorkbenchUser | CrmUser | null",
+                    "type": "CrmUser | WorkbenchUser | null",
                     "optional": false
                 },
                 {
                     "name": "last_user_activity_by_typed",
-                    "type": "WorkbenchUser | CrmUser | null",
+                    "type": "CrmUser | WorkbenchUser | null",
                     "optional": false
                 },
                 {
                     "name": "last_user_activity_by_typed_short",
-                    "type": "WorkbenchUser | CrmUser | null",
+                    "type": "CrmUser | WorkbenchUser | null",
                     "optional": false
                 },
                 {
@@ -13465,6 +13469,11 @@
                 {
                     "name": "last_checked_by_mostly",
                     "type": "{ id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_contacts",
+                    "type": "{ manager: WorkbenchUser | null; primaryContact: CrmUser | null; secondaryContact: CrmUser | null } | null",
                     "optional": false
                 }
             ]

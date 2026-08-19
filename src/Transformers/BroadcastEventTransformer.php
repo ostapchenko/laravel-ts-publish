@@ -475,28 +475,13 @@ class BroadcastEventTransformer extends CoreTransformer
     {
         $nameMap = $this->enumFqcnMap + $this->modelFqcnMap;
 
-        foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $nameMap[$fqcn] ?? null;
-
-            if ($originalName === null || $originalName === $alias) {
-                continue;
-            }
-
-            foreach ($this->properties as $key => $entry) {
-                $entryFqcns = $this->propertyFqcns[$key] ?? [];
-
-                if (! in_array($fqcn, $entryFqcns, true)) {
-                    continue;
-                }
-
-                $this->properties[$key]['type'] = LaravelTsPublish::aliasTypeName(
-                    $entry['type'],
-                    $originalName,
-                    $alias,
-                    $entryFqcns,
-                    $nameMap,
-                );
-            }
+        foreach ($this->properties as $key => $entry) {
+            $this->properties[$key]['type'] = LaravelTsPublish::aliasPropertyType(
+                $entry['type'],
+                $this->propertyFqcns[$key] ?? [],
+                $nameMap,
+                $this->importAliases,
+            );
         }
     }
 

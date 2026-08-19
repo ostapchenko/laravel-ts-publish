@@ -1395,12 +1395,14 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->toHaveKey('last_user_activity_by_typed_short');
 
         // Warehouse::lastUserActivityBy is Attribute<CrmUser|User|null, never>; both share basename 'User'.
+        // mergeTypeScriptInfos() appends to $types and $orderedClassFqcns in one pass, so arm N is FQCN N:
+        // the CRM arm is declared first and must alias first.
         expect($data->properties['last_user_activity_by']['type'])
-            ->toBe('WorkbenchUser | CrmUser | null');
+            ->toBe('CrmUser | WorkbenchUser | null');
         expect($data->properties['last_user_activity_by_typed']['type'])
-            ->toBe('WorkbenchUser | CrmUser | null');
+            ->toBe('CrmUser | WorkbenchUser | null');
         expect($data->properties['last_user_activity_by_typed_short']['type'])
-            ->toBe('WorkbenchUser | CrmUser | null');
+            ->toBe('CrmUser | WorkbenchUser | null');
     });
 
     test('accessor returning a union of two different models generates import aliases', function () {

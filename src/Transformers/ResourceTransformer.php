@@ -935,28 +935,18 @@ class ResourceTransformer extends CoreTransformer
     protected function rewriteTypeReferences(): void
     {
         $nameMap = $this->enumFqcnMap + $this->resourceFqcnMap + $this->modelFqcnMap;
-        $propertyFqcns = $this->mergePropertyFqcnMaps();
 
-        foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $nameMap[$fqcn] ?? null;
-
-            if ($originalName === null || $originalName === $alias) {
-                continue; // @codeCoverageIgnore
+        foreach ($this->mergePropertyFqcnMaps() as $propName => $propFqcns) {
+            if (! isset($this->properties[$propName])) {
+                continue;
             }
 
-            foreach ($propertyFqcns as $propName => $propFqcns) {
-                if (! in_array($fqcn, $propFqcns, true) || ! isset($this->properties[$propName])) {
-                    continue;
-                }
-
-                $this->properties[$propName]['type'] = LaravelTsPublish::aliasTypeName(
-                    $this->properties[$propName]['type'],
-                    $originalName,
-                    $alias,
-                    $propFqcns,
-                    $nameMap,
-                );
-            }
+            $this->properties[$propName]['type'] = LaravelTsPublish::aliasPropertyType(
+                $this->properties[$propName]['type'],
+                $propFqcns,
+                $nameMap,
+                $this->importAliases,
+            );
         }
     }
 
