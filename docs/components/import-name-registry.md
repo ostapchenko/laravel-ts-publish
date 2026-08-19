@@ -56,19 +56,25 @@ differs from its type name, then calls the transformer's `rewriteTypeReferences(
 transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
 `$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns` in `ModelTransformer`, `$propertyFqcns` in
 `BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`
-in registration order. Callers must not sort that list: source order is the whole contract.
+**one entry per occurrence, in registration order**. Callers must neither sort nor dedupe that list:
+multiplicity and order together *are* the contract. `mergePropertyFqcnMaps()` used to end in
+`array_values(array_unique(...))`; dropping that is what lets a property naming the same model twice
+resolve both occurrences to it.
 
 `aliasPropertyType()` builds one queue of aliases per type name, in FQCN source order, then walks
-the type string's occurrences left to right with `preg_replace_callback`:
+the type string's occurrences left to right with `preg_replace_callback`, so occurrence N takes
+FQCN N. When the list is per-occurrence the queue is exact and every occurrence resolves to its own
+model — including the interleaved case `Crm, App, Crm`, where the repeat is *not* the trailing FQCN.
 
-- **One FQCN owns the name.** Every occurrence is provably it, so every one is rewritten. This is
-  the widened-container case — `User[] | Record<string, User>` from a single `App\Models\User`.
-- **Several FQCNs share the name.** Occurrence N takes FQCN N; once the queue is exhausted the
-  last FQCN covers every remaining occurrence, since a container that widens a union repeats its
-  own trailing element.
+Two clamps sit underneath that:
 
-It applies `array_unique()` to the incoming list itself (order-preserving, keeping the first
-occurrence), so a repeated FQCN cannot be misread as a name collision.
+- **One FQCN owns the name.** The queue has length 1, so every occurrence is provably it and every
+  one is rewritten — the widened-container case, `User[] | Record<string, User>` from a single
+  `App\Models\User`.
+- **A queue shorter than the occurrence count.** The last FQCN covers the overflow. This is a
+  backstop against a bare token, not the mechanism: any caller that supplies true multiplicity never
+  reaches it. It cannot recover the right model — deduping `Crm, App, Crm` to `Crm, App` retypes the
+  third occurrence as `App`, which is why the dedupe was removed rather than compensated for.
 
 Occurrence order *is* FQCN source order by construction, not by luck. `mergeTypeScriptInfos()`
 appends to `$types` and `$orderedClassFqcns` inside the same loop iteration and then returns
@@ -84,9 +90,11 @@ The regex alternation is ordered longest name first, so a shorter name that pref
 [the unimportable-token gate](../testing/type-inference-gates.md) depends on — a bare `User` left
 in a file that imports only `User as ModelsUser` and `User as CrmUser` is a `TS2304`. The
 predecessor, `aliasTypeName()`, rewrote either every occurrence or exactly one per aliased FQCN,
-which held only while a basename occurred exactly as often as it had FQCNs.
-`WarehouseResource::regional_hub_contacts` — one `App\Models\User` and two `Crm\Models\User`
-named in a single `only()` — is the fixture that pins the difference.
+which held only while a basename occurred exactly as often as it had *distinct* FQCNs.
+`WarehouseResource::regional_hub_contacts` — `primaryContact`, `manager`, `secondaryContact` named
+in one `only()`, resolving to `Crm\Models\User`, `App\Models\User`, `Crm\Models\User` — pins both
+halves: the old heuristic left the third occurrence bare, and a deduped list retypes it as the app
+user.
 
 ## Consumers
 

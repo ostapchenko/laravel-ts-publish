@@ -1020,13 +1020,49 @@ describe('aliasPropertyType', function () {
     });
 
     // The leftmost-occurrence heuristic this replaced left the trailing occurrence bare and unimportable.
-    test('the last FQCN covers every occurrence past the end of the queue', function () use ($nameMap) {
+    test('a repeated FQCN aliases every occurrence it owns', function () use ($nameMap) {
         expect($this->service->aliasPropertyType(
             '{ manager: User; primaryContact: User; secondaryContact: User }',
             ['App\\Models\\User', 'Crm\\Models\\User', 'Crm\\Models\\User'],
             $nameMap,
             ['App\\Models\\User' => 'AppUser', 'Crm\\Models\\User' => 'CrmUser'],
         ))->toBe('{ manager: AppUser; primaryContact: CrmUser; secondaryContact: CrmUser }');
+    });
+
+    // Deduping the list would collapse the queue to [Crm, App] and hold App for the third occurrence,
+    // silently retyping a CRM user as an app user. Multiplicity, not the clamp, is what resolves this.
+    test('a repeat that is not the last distinct FQCN still resolves to its own model', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType(
+            '{ primaryContact: User; manager: User; secondaryContact: User }',
+            ['Crm\\Models\\User', 'App\\Models\\User', 'Crm\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser', 'Crm\\Models\\User' => 'CrmUser'],
+        ))->toBe('{ primaryContact: CrmUser; manager: AppUser; secondaryContact: CrmUser }');
+    });
+
+    // Two morph unions over the same targets in one type: occurrences run App, Crm, App, Crm. Neither
+    // hold-the-last nor a cycling rule over a deduped queue gets this right; a per-occurrence list does.
+    test('two same-basename unions in one type resolve arm by arm', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType(
+            '{ a: Post | User | User; b: Post | User | User }',
+            [
+                'App\\Models\\Post', 'App\\Models\\User', 'Crm\\Models\\User',
+                'App\\Models\\Post', 'App\\Models\\User', 'Crm\\Models\\User',
+            ],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser', 'Crm\\Models\\User' => 'CrmUser'],
+        ))->toBe('{ a: Post | AppUser | CrmUser; b: Post | AppUser | CrmUser }');
+    });
+
+    // Backstop only: when a caller cannot supply one entry per occurrence, the last FQCN covers the
+    // overflow rather than leaving a bare token, which is what the unimportable-token gate depends on.
+    test('the last FQCN covers occurrences past the end of a short queue', function () use ($nameMap) {
+        expect($this->service->aliasPropertyType(
+            'User | User | User',
+            ['App\\Models\\User', 'Crm\\Models\\User'],
+            $nameMap,
+            ['App\\Models\\User' => 'AppUser', 'Crm\\Models\\User' => 'CrmUser'],
+        ))->toBe('AppUser | CrmUser | CrmUser');
     });
 
     // A repeated FQCN would otherwise read as a collision and silently restore single replacement.

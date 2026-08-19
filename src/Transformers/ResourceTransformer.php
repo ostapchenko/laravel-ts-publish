@@ -979,10 +979,7 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        return array_map(
-            fn (array $propFqcns): array => array_values(array_unique($propFqcns)),
-            $merged,
-        );
+        return $merged;
     }
 
     /**
