@@ -149,6 +149,8 @@ DO NOT EDIT THE FILES IN `workbench/resources/js/types/`!! They are auto generat
 
 If the TypeScript files need to be different then they should be changed by changing the PHP source files, changing the test cases, or changing the transformation logic. Then when the tests run, they will generate the correct TypeScript files.
 
+- `workbench/vendor` is a testbench-generated symlink and is intentionally untracked. Never `git add` it.
+
 ## Git
 
 - Never merge into the `main` branch. That is handled by CI or PRs by the users.
