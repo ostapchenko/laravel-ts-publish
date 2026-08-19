@@ -123,11 +123,23 @@ into a single check over all fields rather than reordering two branches.
 
 ## The `@tolki/ts` patch and `tests/types/tolki-assertions.ts`
 
-`@tolki/ts@0.2.0` ships two declaration files whose first line imports from
+`@tolki/ts` ships two declaration files whose first line imports from
 `'../packages/types/src/index.ts'` — a monorepo source path that does not exist inside the published
 tarball. `dist/enums.d.ts` and `dist/routes.d.ts` both have it, and `dist/index.d.ts` is only
 `export * from './enums'; export * from './routes';`, so the package's **entire** type surface flows
 through one of the two broken imports.
+
+**Versions known to carry the defect: `0.2.0` and `1.0.1`.** The `1.0.1` major bump did not fix it, and
+the two `dist` files are byte-identical between the two releases — so the patch regenerated against
+`1.0.1` is identical to the original `0.2.0` one. Before assuming a newer release is fixed, check the
+**pristine tarball**, never `node_modules`:
+
+```bash
+npm pack @tolki/ts@<version> && tar xzf tolki-ts-<version>.tgz && head -1 package/dist/enums.d.ts
+```
+
+Reading `node_modules` after any install is misleading: `postinstall` has already run `patch-package`, so
+a successfully patched file is indistinguishable from a genuine upstream fix.
 
 `skipLibCheck: true` suppresses the resulting TS2307s, and the failure is then completely silent:
 every exported type degrades to `any`. `AsEnum<typeof Status>` accepted `.totallyBogusProperty` and was
@@ -141,11 +153,16 @@ Two fixes do **not** work:
 | `skipLibCheck: false` | Surfaces the two TS2307s but does not repair the type — still `any` |
 | `paths` mapping in `tsconfig.json` | Never consulted: TypeScript applies `paths` only to *non-relative* specifiers, and `../packages/types/src/index.ts` is relative |
 
-The repair is `patches/@tolki+ts+0.2.0.patch`, applied by `patch-package` from the `postinstall` hook.
+The repair is `patches/@tolki+ts+1.0.1.patch`, applied by `patch-package` from the `postinstall` hook.
 It rewrites both specifiers to the bare name `@tolki/types`, which is why `@tolki/types` is a **direct**
 dependency rather than only a transitive one — the bare specifier must be guaranteed to resolve.
 **Delete the patch, the `postinstall` hook and the direct dependency once a fixed `@tolki/ts` ships**;
 the real fix belongs in that package's dts emitter.
+
+The patch filename encodes the version it was generated against. When `@tolki/ts` is upgraded,
+`patch-package` warns of a version mismatch on install and keeps applying the old patch as long as its
+context lines still match. Regenerate with `npx patch-package @tolki/ts` and delete the stale file, so
+the filename never misstates what is actually installed.
 
 `tests/types/tolki-assertions.ts` is the permanent regression guard and must stay inside `tsconfig.json`'s
 `include`. Note how it is written: an `IsAny<T>` conditional **cannot** work here. When an import fails to
