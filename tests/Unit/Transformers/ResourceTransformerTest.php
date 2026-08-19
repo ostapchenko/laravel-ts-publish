@@ -1991,14 +1991,14 @@ describe('ResourceTransformer with RelationChainResource — EnumResource::make(
     });
 
     // filter() clears sequential keys, so the map body's keyed Record arm can't be rebuilt by the
-    // AsEnum rewrite — it must stay demoted, keeping RoleType[] | Record<string, RoleType> intact
-    // rather than collapsing to a bare, wrong AsEnum<typeof Role>.
-    test('member_role_resources_filtered keeps its keyed Record arm with tolki enabled', function () {
+    // old AsEnum rewrite. The substitution-based rewrite reproduces it losslessly instead, AsEnum-
+    // wrapping both the array arm and the keyed Record arm rather than collapsing to bare RoleType.
+    test('member_role_resources_filtered AsEnum-wraps both its array and keyed Record arms', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(RelationChainResource::class))->data();
 
         expect($data->properties['member_role_resources_filtered']['type'])
-            ->toBe('RoleType[] | Record<string, RoleType>');
+            ->toBe('AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>');
     });
 });
 
@@ -2047,14 +2047,15 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
             ->and($data->properties['status_history_when_appended']['optional'])->toBeTrue();
     });
 
-    // An explicit default arm's 'string' type can't fold into the AsEnum rebuild, so the promotion
-    // demotes back to directEnumFqcn and the full union (default arm included) survives untouched.
-    test('whenHas() with an explicit default keeps the full union, not a collapsed AsEnum', function () {
+    // An explicit default arm's 'string' type can't fold into the old AsEnum rebuild. The
+    // substitution-based rewrite reproduces the full union losslessly instead: the reported bug
+    // was this property emitting the raw StatusType[] instead of the AsEnum-wrapped element type.
+    test('whenHas() with an explicit default keeps the full union, AsEnum-wrapped', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
         expect($data->properties['week_days_when_has_default']['type'])
-            ->toBe('StatusType[] | null | string')
+            ->toBe('AsEnum<typeof Status>[] | null | string')
             ->and($data->properties['week_days_when_has_default']['optional'])->toBeFalse();
     });
 
@@ -2074,6 +2075,18 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
 
         expect($allValueImports)->toContain('Status')
             ->and($allValueImports)->toContain('Role');
+    });
+
+    // Every property that reads Status goes through substitution now — none keeps the bare
+    // StatusType token — so its type import must be garbage-collected, not just its value import.
+    test('bare StatusType type import is dropped once every Status property is AsEnum-substituted', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        $statusTypeStillImported = isset($data->typeImports['../../enums'])
+            && in_array('StatusType', $data->typeImports['../../enums'], true);
+
+        expect($statusTypeStillImported)->toBeFalse();
     });
 });
 

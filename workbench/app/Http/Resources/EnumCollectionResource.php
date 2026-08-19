@@ -44,10 +44,10 @@ class EnumCollectionResource extends JsonResource
             // this first-class-callable value still gets the AsEnum rewrite, not the raw type.
             'week_days_when_has' => $this->whenHas('week_days', EnumResource::collection(...)),
 
-            // An explicit default arm unions in a type applyConditionalDefault() can't fold into
-            // AsEnum<typeof X>[] — the promoted 'enumFqcn' must demote back to 'directEnumFqcn'
-            // so the real union (including the default's own type) survives instead of the
-            // rebuild silently dropping both the default arm and the array.
+            // An explicit default arm unions in an extra type the old AsEnum<typeof X>[] rebuild
+            // couldn't reproduce. ResourceTransformer::rewriteEnumResourceTypes() now substitutes
+            // the bare enum token in place instead of rebuilding, so the array suffix, the `| null`,
+            // and the default's own `| string` arm all survive alongside the AsEnum wrap.
             'week_days_when_has_default' => $this->whenHas('week_days', EnumResource::collection(...), 'none'),
 
             // Same mechanism via whenAppended(), with an ordinary (non-first-class-callable)

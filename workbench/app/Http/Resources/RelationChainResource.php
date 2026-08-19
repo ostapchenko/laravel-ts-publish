@@ -65,10 +65,10 @@ class RelationChainResource extends JsonResource
             'member_role_resources' => $this->members->take(5)->map(fn ($member) => EnumResource::make($member->role))->values(),
 
             // filter() clears sequential keys, so the map body ends up keyedObjectArm()-wrapped:
-            // RoleType[] | Record<string, RoleType>. That shape can't be rebuilt by the AsEnum
-            // rewrite (which only knows X and X[]), so the live 'enumFqcn' from EnumResource::make()
-            // must demote to 'directEnumFqcn' here — the analyzer's own type string survives
-            // untouched instead of collapsing to a bare, wrong AsEnum<typeof Role>.
+            // RoleType[] | Record<string, RoleType>. ResourceTransformer::rewriteEnumResourceTypes()
+            // substitutes the bare RoleType token in place of rebuilding, so both the array arm and
+            // the keyed Record arm come out AsEnum-wrapped: AsEnum<typeof Role>[] | Record<string,
+            // AsEnum<typeof Role>> — not the bare, un-rewritten RoleType this used to collapse to.
             'member_role_resources_filtered' => $this->members->filter(fn ($member) => $member->id > 1)
                 ->map(fn ($member) => EnumResource::make($member->role)),
 

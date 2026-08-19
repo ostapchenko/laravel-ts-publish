@@ -9311,7 +9311,7 @@
                 },
                 {
                     "name": "week_days_when_has_default",
-                    "type": "StatusType[] | null | string",
+                    "type": "AsEnum<typeof Status>[] | null | string",
                     "optional": false
                 },
                 {
@@ -11407,7 +11407,7 @@
                 },
                 {
                     "name": "member_role_resources_filtered",
-                    "type": "RoleType[] | Record<string, RoleType>",
+                    "type": "AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>",
                     "optional": false
                 },
                 {

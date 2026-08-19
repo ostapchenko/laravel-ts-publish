@@ -574,6 +574,11 @@ class ResourceTransformer extends CoreTransformer
             return $this;
         }
 
+        // Snapshotted before the loop: the GC below unsets $this->enumFqcnMap entries as it goes, but
+        // a later property sharing the same FQCN as an earlier, GC'd one still needs its bare name to
+        // build the mixed union or the substitution search token.
+        $originalEnumFqcnMap = $this->enumFqcnMap;
+
         foreach ($this->enumResourceProperties as $propName => $info) {
             if (! isset($this->properties[$propName])) {
                 continue; // @codeCoverageIgnore
@@ -581,24 +586,37 @@ class ResourceTransformer extends CoreTransformer
 
             $constName = $this->constImportAliases[$info['fqcn']] ?? $this->enumConstMap[$info['fqcn']];
             $isMixed = isset($this->directEnumProperties[$propName]);
+            $enumTypeName = $originalEnumFqcnMap[$info['fqcn']];
 
-            // Mixed ternary: one branch wraps the enum, the other reads it directly — emit both forms.
             if ($isMixed) {
-                $enumTypeName = $this->enumFqcnMap[$info['fqcn']];
+                // Mixed ternary: one branch wraps the enum, the other reads it directly. The
+                // analyzer collapses both to a single deduped bare type name, so substitution can't
+                // tell the arms apart here — synthesize the union explicitly instead.
                 $type = 'AsEnum<typeof '.$constName.'> | '.$enumTypeName;
+
+                if ($info['isCollection']) {
+                    // Unpinned: no workbench fixture exercises a mixed same-FQCN wrap/direct
+                    // pairing inside a map-wrapped (array) context. Leave the parenthesization
+                    // in regardless — dropping it would mis-parse if this shape is ever produced.
+                    $type = '('.$type.')[]';
+                }
+
+                if ($info['nullable']) {
+                    $type .= ' | null';
+                }
             } else {
-                $type = 'AsEnum<typeof '.$constName.'>';
-            }
+                // rewriteTypeReferences() already aliased the bare token in $type if this FQCN
+                // collided, so the search token must match that alias, not enumFqcnMap's original.
+                $searchTypeName = $this->importAliases[$info['fqcn']] ?? $enumTypeName;
 
-            if ($info['isCollection']) {
-                // Unpinned: needs a non-nullable same-FQCN mixed pairing, map-wrapped; the
-                // workbench's only candidate (User::role) is nullable, so isRebuildableEnumShape()
-                // demotes it instead. Leave the parenthesization in — dropping it would mis-parse.
-                $type = $isMixed ? '('.$type.')[]' : $type.'[]';
-            }
-
-            if ($info['nullable']) {
-                $type .= ' | null';
+                // Substitute the bare enum type-name token inside the analyzer's own type string,
+                // so any richer shape (an extra default arm, a keyed Record arm) round-trips
+                // untouched — only the wrapped enum's own token changes.
+                $type = $this->substituteEnumResourceType(
+                    $this->properties[$propName]['type'],
+                    $searchTypeName,
+                    'AsEnum<typeof '.$constName.'>',
+                );
             }
 
             $this->properties[$propName] = [
@@ -688,6 +706,19 @@ class ResourceTransformer extends CoreTransformer
         }
 
         return $this;
+    }
+
+    /**
+     * Replace every word-boundary-safe occurrence of a bare enum type name with its AsEnum wrap.
+     *
+     * Preserves everything else in the analyzer's type string — unions, Record arms, extra default
+     * arms — since only the wrapped enum's own token changes, not the shape around it.
+     */
+    protected function substituteEnumResourceType(string $typeStr, string $bareTypeName, string $asEnumType): string
+    {
+        $pattern = '/(?<![A-Za-z0-9_$.])'.preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
+
+        return preg_replace($pattern, $asEnumType, $typeStr) ?? $typeStr;
     }
 
     /**

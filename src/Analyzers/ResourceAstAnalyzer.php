@@ -1357,9 +1357,7 @@ class ResourceAstAnalyzer
                 $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
             }
 
-            // An explicit default unions in an extra arm applyConditionalDefault() can't undo,
-            // so re-check rebuildability on the final, post-default type.
-            return $this->demoteUnrebuildableEnumShape($this->applyConditionalDefault($result, $call, 2));
+            return $this->applyConditionalDefault($result, $call, 2);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
@@ -1390,7 +1388,7 @@ class ResourceAstAnalyzer
             $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
         }
 
-        return $this->demoteUnrebuildableEnumShape($this->applyConditionalDefault($result, $call, 2));
+        return $this->applyConditionalDefault($result, $call, 2);
     }
 
     /**
@@ -4029,8 +4027,8 @@ class ResourceAstAnalyzer
         $useTolki = Config::boolean('ts-publish.enums.use_tolki_package');
 
         // A property whose analyzer type isn't a rebuildable X/X[] shape (e.g. a keyed Record arm
-        // from a non-sequential map chain) can't survive the AsEnum rewrite below — demote it to
-        // the direct-enum channel first, same guard the top-level enumFqcn/directEnumFqcn split uses.
+        // from a non-sequential map chain) can't survive the still-rebuild-based AsEnum rewrite
+        // below — demote it to the direct-enum channel first so the raw type survives untouched.
         $enumResources = $analysis->enumResources;
         $directEnumFqcns = $analysis->directEnumFqcns;
         $propTypesByName = array_column($analysis->properties, 'type', 'name');
@@ -4613,15 +4611,16 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        // A map body entirely `EnumResource::make(...)` carries a live 'enumFqcn' through, demoted
-        // below when the keyed Record arm makes the shape unrebuildable.
+        // A map body entirely `EnumResource::make(...)` carries a live 'enumFqcn' through; the
+        // transformer's substitution-based rewrite reproduces whatever shape results, including
+        // the keyed Record arm a non-sequential filter()/sortBy() introduces.
         $mapped = $this->arrayWrapType($bodyResult['type']);
 
-        return $this->demoteUnrebuildableEnumShape([
+        return [
             ...$bodyResult,
             'type' => $sequentialKeys ? $mapped : $this->keyedObjectArm($mapped),
             'optional' => false,
-        ]);
+        ];
     }
 
     /**
@@ -4672,10 +4671,13 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Whether $type is a shape ResourceTransformer::rewriteEnumResourceTypes() can rebuild
-     * losslessly: a single non-null top-level union member, itself a bare identifier or that
-     * identifier array-suffixed, with at most an outer `| null`. A keyed `Record<...>` arm, an
-     * extra default arm, or any other union the rebuild can't reproduce fails this check.
+     * Whether $type is a shape analyzeInlineArray()'s own AsEnum rebuild can reproduce losslessly:
+     * a single non-null top-level union member, itself a bare identifier or that identifier
+     * array-suffixed, with at most an outer `| null`. A keyed `Record<...>` arm, an extra default
+     * arm, or any other union fails this check, so the raw type is kept unrewritten instead.
+     *
+     * ResourceTransformer::rewriteEnumResourceTypes() no longer needs this guard for its own,
+     * top-level rewrite: that rewrite is substitution-based and reproduces any shape losslessly.
      */
     private function isRebuildableEnumShape(string $type): bool
     {
@@ -4686,24 +4688,6 @@ class ResourceAstAnalyzer
 
         return count($nonNullMembers) === 1
             && preg_match('/^[A-Za-z_]\w*(\[\])?$/', $nonNullMembers[0]) === 1;
-    }
-
-    /**
-     * Demote a surviving 'enumFqcn' to 'directEnumFqcn' when the final type isn't a rebuildable
-     * shape (see isRebuildableEnumShape()) — the transformer's rewrite would otherwise discard
-     * whatever it can't reproduce, so the analyzer's own type string must survive untouched instead.
-     *
-     * @param  ValueExpressionResult  $result
-     * @return ValueExpressionResult
-     */
-    private function demoteUnrebuildableEnumShape(array $result): array
-    {
-        if (isset($result['enumFqcn']) && ! $this->isRebuildableEnumShape($result['type'])) {
-            $result['directEnumFqcn'] = $result['enumFqcn'];
-            unset($result['enumFqcn']);
-        }
-
-        return $result;
     }
 
     /**
@@ -5415,7 +5399,7 @@ class ResourceAstAnalyzer
         $bodyResult['type'] = $this->arrayWrapType($bodyResult['type']);
         $bodyResult['optional'] = false;
 
-        return $this->demoteUnrebuildableEnumShape($bodyResult);
+        return $bodyResult;
     }
 
     /**
