@@ -23,9 +23,9 @@ position-independent pass, `['string', 'in:a,b']` and `['in:a,b', 'string']` bot
 
 `ValidationRuleParser::parse()` always parses string-form `in:a,b,c` params as strings, so
 `resolveInFromParams()` needs an explicit signal before it emits an unquoted numeric literal instead
-of a quoted string one. That signal is `hasNumericTypeSibling()`, called from both of
-`resolveInFromParams()`'s call sites — the position-independent `'in'` short-circuit and the `'in'`
-arm of `resolveTsType()`'s declaration-ordered match — and it now shares a single
+of a quoted string one. That signal is `hasNumericTypeSibling()`, called once *inside*
+`resolveInFromParams()` — so both of its call sites, the position-independent `'in'` short-circuit
+and the `'in'` arm of `resolveTsType()`'s declaration-ordered match, get it — and it now shares a single
 `NUMERIC_TYPE_RULES` constant with the match's own `'number'` arm: `integer`, `int`, `numeric`,
 `decimal`, `digits`, `digits_between`. The two used to drift — `hasNumericTypeSibling()` recognized
 only the first three, so `['digits:1', 'in:1,2,3']` typed `number` from its own rule but still

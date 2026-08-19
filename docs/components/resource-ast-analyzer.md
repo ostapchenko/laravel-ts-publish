@@ -95,9 +95,9 @@ model. A real database column is never dropped by this check even when its own r
 `unknown`, matching `transformColumns()`, which always keeps a column.
 
 The skip is gated on `$excludeHidden` — true for the implicit paths, false only for `only()` — for
-the same reason `HasAttributes::except()`/`only()` themselves diverge: `except()` (`:2146`) iterates
+the same reason `HasAttributes::except()`/`only()` themselves diverge: `except()` iterates
 `getAttributes()`, which a write-only mutator was never added to, so it truly cannot appear;
-`only()` (`:2129`) instead calls `getAttribute($key)` per named key, which *does* return the key
+`only()` instead calls `getAttribute($key)` per named key, which *does* return the key
 (as `null`, absent a getter to transform a stored value) even for a write-only mutator. So
 `return $this->only(['search_index'])` keeps `search_index: unknown` — `unknown` because nothing
 here infers a type from a *setter*, and that already admits the `null` `getAttribute()` would
@@ -112,14 +112,16 @@ relations, since `mergeAttributeFromAttributeCasts()` never merges a get-only `A
 `$attributes` in the first place. `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` pins the full
 result for `Image` against the columns `create_images_table` declares, not against prior output.
 
-One user-visible consequence: naming a relation in the exclusion list is now a no-op.
-`WarehouseResource`'s `$this->last_checked_by?->except(['created_at', 'updated_at', 'imageable'])`
-emits the same type it would without `'imageable'`, because that key was never in the list to
-subtract from.
+One user-visible consequence: naming a relation or an accessor in the exclusion list is now a no-op.
+The key list is built by subtracting the named keys from a set that has *already* been intersected
+with `databaseColumnNames()`, so a name that is not a column was never in the set to subtract from
+and its removal changes nothing. This follows from the mechanism rather than from a fixture — no
+workbench resource names a non-column key in an `except()` list, and `WarehouseResource` stopped
+doing so when its `only()` counterpart was reworked for same-basename aliasing.
 
 The relation-emitting arm of that loop stays reachable, because the include branch still needs it:
 `$this->relation->only(['posts'])` names a relation key directly, and `HasAttributes::only()`
-(`:2129`) calls `getAttribute($key)` per named key, which resolves accessors and relations alike.
+calls `getAttribute($key)` per named key, which resolves accessors and relations alike.
 So the two branches now diverge *by design*, for exactly the reason spelled out above — the same
 divergence Eloquent itself has — rather than by oversight. `ResourceAstAnalyzerTest.php` pins the
 include branch's accessor-and-relation resolution alongside the except branch's column list.
@@ -228,10 +230,13 @@ Both use the same word-boundary pattern — the lookbehind excludes `.` so a nam
 `foo.RoleType` is left alone, the lookahead stops `RoleType` matching the prefix of
 `RoleTypeExtra`.
 
-Substitution matters because the analyzer's type is often richer than `X`/`X[]`. A
-key-clearing chain (`filter()->map(fn (…) => EnumResource::make(…))`) emits
-`RoleType[] | Record<string, RoleType>`; a conditional with an explicit default emits an extra
-arm such as `RoleType | string`. Rebuilding the type from the FQCN — which is what both paths
+Substitution matters because the analyzer's type is often richer than `X`/`X[]`. The shape the
+corpus pins is the key-clearing chain (`filter()->map(fn (…) => EnumResource::make(…))`), which
+emits `RoleType[] | Record<string, RoleType>`. Substitution also covers shapes no fixture
+currently produces — a conditional with an explicit default would add an arm such as
+`RoleType | string` — but treat those as illustrative: nothing in the corpus emits an
+`AsEnum<typeof X> | string` today, so only the container shape above is pinned.
+Rebuilding the type from the FQCN — which is what both paths
 used to do — could express only `X`, `X[]`, `X | null`, `X[] | null`, so every richer shape had
 to be demoted out of the `enumResources` channel by a guard (`isRebuildableEnumShape()`) and
 left un-wrapped. That guard is gone: substitution reproduces any shape losslessly, wrapping
@@ -864,7 +869,7 @@ non-paginated, named and anonymous — and preserve-keys only changes two of the
 ## `mergeReturnBranches()` carries every `syncAnalysisMaps()` channel, plus two flat scalars
 
 A resource with multiple direct `return [...]` branches (`if`/`elseif`/`else`, loop bodies, guard
-clauses) is analyzed per-branch, then unioned by `mergeReturnBranches()`. It carries the same nine
+clauses) is analyzed per-branch, then unioned by `mergeReturnBranches()`. It carries the same ten
 channels `syncAnalysisMaps()` does — `properties`, `enumResources`, `nestedResources`,
 `directEnumFqcns`, `modelFqcns`, `customImports`, `multiEnumResourceFqcns`, and the three inline
 maps (`inlineEnumFqcns`, `inlineModelFqcns`, `inlineEnumResourceFqcns`) — unioning each inline map
@@ -932,6 +937,14 @@ Step 3 is the only new one; everything else keeps its previous relative order. `
 pins it — it declares neither a body nor a `@mixin`, and `Workbench\App\Models\BodylessOrder` does not
 exist, so its `number`/`AsEnum<…>` columns can only come from `OrderResource`'s own `@mixin Order`.
 `BodylessTeamResource` carries its own `@mixin Team` and so pins the analyzer walk alone.
+
+**The docblock walk is not scoped to the body-less case.** The body-less resource is what motivated
+it, but `resolveModelClass()` runs `modelFromAncestorDocblock()` unconditionally once step 2 fails,
+so *any* resource lacking its own `@mixin`/`@extends` — body or no body — now resolves an ancestor's
+before falling through to the `$resource` property and the naming convention. That is arguably the
+right scope, since an ancestor's `@mixin` describes the same model either way, and it moved nothing
+in the generated trees; but read the precedence list above as the whole rule, not as a body-less
+special case.
 
 ### The explicit `parent::toArray($request)` forms are unchanged
 

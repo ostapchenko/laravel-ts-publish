@@ -91,7 +91,13 @@ its type is `implode(' | ', array_map(class_basename(...), $targets))` and its `
 The regex alternation is ordered longest name first, so a shorter name that prefixes a longer one
 (`User` against `UserProfile`) cannot claim its match.
 
-**Invariant: no bare colliding token survives the rewrite.** That is what
+**Invariant: no bare colliding token survives `aliasPropertyType()`.** Every name that reaches a
+queue is rewritten at every occurrence, because the cursor clamps to the queue's last entry rather
+than running off the end. The invariant is scoped to this helper on purpose:
+`ModelTransformer::rewriteTypeReferences()` aliases a *morph relation* union through its own
+`$relationAliases` walk, which has no such clamp — when `isset($nameToAliases[$bare][$idx])` fails
+it leaves the member bare. That channel is a known gap, not part of this invariant.
+The invariant is what
 [the unimportable-token gate](../testing/type-inference-gates.md) depends on — a bare `User` left
 in a file that imports only `User as ModelsUser` and `User as CrmUser` is a `TS2304`. The
 predecessor, `aliasTypeName()`, rewrote either every occurrence or exactly one per aliased FQCN,
