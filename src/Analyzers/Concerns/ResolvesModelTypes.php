@@ -236,17 +236,19 @@ trait ResolvesModelTypes
         if ($include) {
             $resolveKeys = $keys;
         } else {
-            // except() derives its key list from every attribute, so it is implicit — unlike the
-            // include branch above, which takes the caller's own keys and must not be filtered.
+            // HasAttributes::except() iterates getAttributes() only — never $this->relations, and never a
+            // get-only accessor, which mergeAttributeFromAttributeCasts() refuses to merge back. Columns only.
             $excludeHidden = $resolver->excludeHiddenAttributes();
+            $dbColumns = $resolver->databaseColumnNames($relatedModelClass);
 
             $attrNames = $relatedAttributes
                 ->reject(fn (array $attr): bool => $excludeHidden && $attr['hidden'])
                 ->pluck('name')
+                ->filter(fn (mixed $name): bool => in_array($name, $dbColumns, true))
                 ->all();
-            $relationNames = $relatedRelations->pluck('name')->all();
+
             $resolveKeys = array_values(array_filter(
-                array_merge($attrNames, $relationNames),
+                $attrNames,
                 fn (mixed $k) => ! in_array($k, $keys, true),
             ));
         }
@@ -266,8 +268,8 @@ trait ResolvesModelTypes
             if ($attr !== null) {
                 $tsInfo = $resolver->resolveAttribute($relatedModelClass, $key);
 
-                // Match buildModelDelegatedAnalysis(): only a write-only mutator with no getter is truly
-                // absent at runtime — a getter-backed attribute survives even when its type is unknown.
+                // The except branch yields columns now, so in practice this gate is only()'s: a write-only
+                // mutator with no getter and no docblock Get has no shape to emit, unlike a getter-backed one.
                 if ($tsInfo['type'] !== 'unknown' || ! $resolver->isOmittedMutator($relatedModelClass, $key)) {
                     $parts[] = $key.': '.$tsInfo['type'];
 

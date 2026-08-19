@@ -1425,12 +1425,14 @@ describe('ResourceTransformer with union model accessor types', function () {
 
         $type = $data->properties['last_user_activity_by_mostly']['type'];
 
-        // Workbench\Crm\Models\User has email, company, status, created_at, updated_at — no id or name —
-        // so each model contributes its own inline object to the union.
+        // Each model contributes its own inline object to the union, and Model::except() returns database
+        // columns only: no accessors (initials, is_premium) and no relations (images, posts, …).
         expect($type)
             ->not->toBe('unknown')
-            ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null; images: Image[] }')
-            ->toContain('{ email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: Profile | null; posts: Post[]; comments: Comment[]; orders: Order[]; addresses: Address[]; teams: Team[]; ownedTeams: Team[]; images: Image[]; notifications: DatabaseNotification[] }')
+            ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null }')
+            ->toContain('{ email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null }')
+            ->not->toContain('images: Image[]')
+            ->not->toContain('initials: string')
             ->toEndWith('| null');
     });
 

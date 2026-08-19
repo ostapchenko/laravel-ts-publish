@@ -59,8 +59,8 @@ is template-dependent, so the correctness argument below is scoped to
   `.../full-template-example/app/http/resources/order-item-resource.ts` — byte-identical to the
   one in the `split-template-example` tree — spans all of those too, and describes a value with
   mutators and relations on it that `Model::except()` does not return at runtime. That is the
-  same inaccuracy the old inline expansion had (see the end of this section); under `model-full`
-  the Omit reference inherits it rather than fixing it. It still compiles — `Omit<T, K>` does not
+  inaccuracy the inline expansion used to share (see the end of this section, where it is now
+  fixed); under `model-full` the Omit reference still carries it. It still compiles — `Omit<T, K>` does not
   constrain `K` — and it is still a superset of the truth rather than a wrong-typed property, but
   it is not the tight match the split template gives.
 
@@ -81,12 +81,10 @@ so a get-only accessor can never surface even once it has been accessed. **At ru
 a loaded relation and both get-only accessors (`excerpt`, `readingTime`) touched beforehand; the
 result was identical to an untouched instance, and neither the relation nor either accessor
 appeared. Under `model-split`, the bare-model `Omit<Model, keys>` this analyzer emits matches that
-ground truth exactly. The *old* inline expansion's `except()` branch — which unions `$attrNames` (columns +
-mutators) with `$relationNames` and subtracts the excluded keys — is the one that was
-inaccurate: it shows relations and mutators `Model::except()` never actually returns at
-runtime. That mismatch predates this feature and is unrelated to `only()`/`except()` no longer
-being re-derived inline; it isn't fixed here (out of scope), but is worth knowing if you're
-relying on the shape of an `except()`-filtered relation for a key that isn't a column.
+ground truth exactly. The *old* inline expansion's `except()` branch — which unioned every
+attribute name (columns **and** accessors) with every relation name and subtracted the excluded
+keys — was the one that disagreed: it showed relations and accessors `Model::except()` never
+actually returns at runtime. That is fixed; see **Relations half fixed too** below.
 
 **Mutator half fixed in a later pass:** `buildModelDelegatedAnalysis()`'s own property set — used
 by whole-model delegation and `return $this->except([...])`, not the relation-filter inline path
@@ -105,16 +103,32 @@ the same reason `HasAttributes::except()`/`only()` themselves diverge: `except()
 here infers a type from a *setter*, and that already admits the `null` `getAttribute()` would
 return. `OrderOnlyResource`'s fixture pins this against `search_index` directly.
 
-The relations half of the inaccuracy above is untouched — `Model::except()` never returns a
-relation either, and that stays out of scope. `resolveFilteredRelationType()`'s except branch
-(`$this->relation->except([...])`) now applies the same `isOmittedMutator()` rule as
-`buildModelDelegatedAnalysis()`: only a write-only mutator with no getter and no docblock `Get`
-generic drops out, so a mutator that *has* a getter but resolves to an untypeable `unknown`
-survives as `key: unknown`, matching the whole-model path. The two `except()` paths now agree.
-A side effect on the sibling include branch (`$this->relation->only([...])`) follows from the
-same shared gate: an explicitly-named getter-backed accessor that resolves to `unknown` now also
-survives instead of vanishing from the inline shape — runtime-faithful, since `Model::only()`
-resolves through `getAttribute()`, which does return that key.
+**Relations half fixed too:** `resolveFilteredRelationType()`'s except branch
+(`$this->relation->except([...])`) no longer unions relation names into its key list at all. It
+intersects the related model's attribute list with `ModelAttributeResolver::databaseColumnNames()`
+and subtracts the excluded keys, so the emitted shape is database columns only — the same set
+`HasAttributes::except()` produces by iterating `getAttributes()`. Accessors drop out with the
+relations, since `mergeAttributeFromAttributeCasts()` never merges a get-only `Attribute` back into
+`$attributes` in the first place. `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` pins the full
+result for `Image` against the columns `create_images_table` declares, not against prior output.
+
+One user-visible consequence: naming a relation in the exclusion list is now a no-op.
+`WarehouseResource`'s `$this->last_checked_by?->except(['created_at', 'updated_at', 'imageable'])`
+emits the same type it would without `'imageable'`, because that key was never in the list to
+subtract from.
+
+The relation-emitting arm of that loop stays reachable, because the include branch still needs it:
+`$this->relation->only(['posts'])` names a relation key directly, and `HasAttributes::only()`
+(`:2129`) calls `getAttribute($key)` per named key, which resolves accessors and relations alike.
+So the two branches now diverge *by design*, for exactly the reason spelled out above — the same
+divergence Eloquent itself has — rather than by oversight. `ResourceAstAnalyzerTest.php` pins the
+include branch's accessor-and-relation resolution alongside the except branch's column list.
+
+`isOmittedMutator()` still guards that loop, but with the except branch restricted to columns it is
+in practice the include branch's gate: a named write-only mutator with no getter and no docblock
+`Get` generic has no shape to emit, while a getter-backed accessor that resolves to `unknown`
+survives as `key: unknown` — runtime-faithful, since `Model::only()` resolves through
+`getAttribute()`, which does return that key.
 
 ### `exclude_hidden` on the top-level resource, not just relation filters
 
@@ -135,7 +149,8 @@ go through `getArrayableItems()`, which strips it.
   method, then subtracts the named keys; a hidden column that was never named to be *kept* falls
   out with the rest.
 - **`$this->relation->except([...])`** — `resolveFilteredRelationType()`'s except branch builds its
-  key list from every attribute and relation name on the related model.
+  key list from every database column on the related model (never an accessor or a relation name),
+  so a hidden column the caller never named falls out with the rest.
 
 **Explicit — `exclude_hidden` leaves it alone:**
 

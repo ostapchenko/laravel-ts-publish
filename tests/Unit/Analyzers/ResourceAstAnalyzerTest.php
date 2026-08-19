@@ -5201,7 +5201,9 @@ test('a relation except() drops hidden columns from the derived key list', funct
         ->and($type)->toContain('email: string');
 });
 
-test('relation except() keeps a getter-backed mutator whose type is unknown', function () {
+test('relation except() expands to database columns only, matching Model::except() at runtime', function () {
+    // HasAttributes::except() iterates getAttributes(): it never reads $this->relations, and
+    // mergeAttributeFromAttributeCasts() refuses to merge a get-only Attribute back into $attributes.
     $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
     {
         /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: array<string, list<string>>} */
@@ -5211,7 +5213,26 @@ test('relation except() keeps a getter-backed mutator whose type is unknown', fu
         }
     };
 
-    expect($analyzer->expose()['type'])->toContain('no_docblock_accessor: unknown');
+    // Every column create_images_table declares, in migration order, minus the two excluded keys.
+    $expected = '{ id: number; imageable_type: string; imageable_id: number; url: string; '
+        .'alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; '
+        .'width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null }';
+
+    expect($analyzer->expose()['type'])->toBe($expected);
+});
+
+test('relation only() still resolves a named accessor and a named relation, unlike except()', function () {
+    // HasAttributes::only() calls getAttribute() per named key, so both do come back at runtime.
+    $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
+    {
+        /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: array<string, list<string>>} */
+        public function expose(): array
+        {
+            return $this->resolveFilteredRelationType(User::class, ['name', 'initials', 'posts'], true);
+        }
+    };
+
+    expect($analyzer->expose()['type'])->toBe('{ name: string; initials: string; posts: Post[] }');
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {

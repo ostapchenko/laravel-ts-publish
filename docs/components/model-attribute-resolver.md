@@ -309,6 +309,17 @@ deciding whether `$this->relation->only(['a', 'b'])` can reference `Pick<Model, 
 instead of expanding inline (see [ResourceAstAnalyzer § When a Pick/Omit reference is
 emitted](resource-ast-analyzer.md#when-a-pickomit-reference-is-emitted)).
 
+Which of the two a call site wants turns on the question it is asking. `publishedColumnNames()`
+answers "may I name this key against the generated interface?", so it must track what
+`transformColumns()` emitted. `databaseColumnNames()` answers "is this name a real column at all?",
+which is what the runtime-fidelity call sites need and why `$hidden` membership is irrelevant to
+them: `ResourceAstAnalyzer::resolveFilteredRelationType()`'s except branch intersects the related
+model's attribute list with it so an inlined `$this->relation->except([...])` expands to columns
+only, matching `HasAttributes::except()`, and `buildModelDelegatedAnalysis()` reads it as
+`$dbColumns` to keep `isOmittedMutator()` from ever dropping a real column. Both apply
+`excludeHiddenAttributes()` themselves, separately from the listing, so they get the hidden-column
+rule without borrowing `publishedColumnNames()`' interface-compatibility rule.
+
 Whether the two lists actually differ is controlled by `ts-publish.models.exclude_hidden`
 (`excludeHiddenAttributes()`), which defaults to `false`: `$hidden` attributes are published by
 default, so `databaseColumnNames()` and `publishedColumnNames()` agree for every model unless the
