@@ -129,6 +129,13 @@ jobs:
 
       - name: Gate - the @tolki/ts type surface resolves
         run: |
+          # Without this the gate fails OPEN: drop tests/types from tsconfig's include and tsc checks
+          # nothing there, so the grep below is empty and the step passes with the guard disabled.
+          if ! npx tsc --noEmit -p tsconfig.json --listFiles | grep -q 'tests/types/tolki-assertions\.ts'; then
+            echo "FAIL - tests/types/tolki-assertions.ts is not in the tsc program, so the guard never ran"
+            echo "Restore it to tsconfig.json's include - see docs/testing/type-inference-gates.md"
+            exit 1
+          fi
           errs=$(npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/" || true)
           if [ -n "$errs" ]; then
             echo "$errs"
