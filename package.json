@@ -17,7 +17,7 @@
     "dependencies": {
         "@inertiajs/vue3": "^3.3.1",
         "@laravel/echo-vue": "^2.3.7",
-        "@tolki/ts": "^0.2.0",
+        "@tolki/ts": "^1.0.1",
         "@tolki/types": "^1.4.0",
         "laravel-echo": "^2.3.7",
         "pusher-js": "^8.5.0",
