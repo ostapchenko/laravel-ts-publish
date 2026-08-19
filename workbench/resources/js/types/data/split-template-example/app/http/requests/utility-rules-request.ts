@@ -51,6 +51,9 @@ export interface UtilityRulesRequest {
     priority_level: 1 | 2 | 3;
     legacy_code: '1' | '2' | '3';
     padded_numeric_code: '007' | '2.50';
+    digit_grade?: 1 | 2 | 3;
+    decimal_tier?: 1.5 | 2.5;
+    padded_decimal_tier?: '1.50' | '2.50';
     is_authenticated: boolean;
     role: 'user' | 'admin' | 'moderator';
     display_name?: string | null;

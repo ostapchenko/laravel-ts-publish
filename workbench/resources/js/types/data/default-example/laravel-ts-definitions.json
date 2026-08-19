@@ -3381,6 +3381,30 @@
                     "jsDocMetadata": []
                 },
                 {
+                    "fieldPath": "digit_grade",
+                    "tsType": "1 | 2 | 3",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "decimal_tier",
+                    "tsType": "1.5 | 2.5",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "padded_decimal_tier",
+                    "tsType": "'1.50' | '2.50'",
+                    "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
                     "fieldPath": "is_authenticated",
                     "tsType": "boolean",
                     "isRequired": true,

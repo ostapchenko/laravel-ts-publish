@@ -58,6 +58,9 @@ class FormRequestRulesAnalyzer
     /** Sentinel standing in for an escaped `\.` while a rule key is split on its real separators. */
     private const DOT_PLACEHOLDER = "\x00ltsp-dot\x00";
 
+    /** Rules resolveTsType() maps to `number` — shared so the in: coercion cannot drift from it. */
+    private const NUMERIC_TYPE_RULES = ['integer', 'int', 'numeric', 'decimal', 'digits', 'digits_between'];
+
     /**
      * Whether the rules could not be resolved statically.
      */
@@ -593,7 +596,7 @@ class FormRequestRulesAnalyzer
                     'email', 'url', 'active_url', 'uuid', 'ulid', 'ip', 'ipv4', 'ipv6',
                     'mac_address', 'regex', 'not_regex',
                 ], true) => 'string',
-                in_array($ruleLower, ['integer', 'int', 'numeric', 'decimal', 'digits', 'digits_between'], true) => 'number',
+                in_array($ruleLower, self::NUMERIC_TYPE_RULES, true) => 'number',
                 in_array($ruleLower, ['boolean', 'accepted', 'accepted_if', 'declined', 'declined_if'], true) => 'boolean',
                 in_array($ruleLower, ['file', 'image', 'mimes', 'mimetypes', 'extensions'], true) => 'File',
                 $ruleLower === 'array' => 'unknown[]',
@@ -635,7 +638,7 @@ class FormRequestRulesAnalyzer
      * Resolve the TypeScript union type from `in:a,b,c` params.
      *
      * ValidationRuleParser::parse() always parses string-form params as strings, so a numeric-looking
-     * value needs an explicit signal to emit unquoted — a sibling `integer`/`int`/`numeric` rule on the
+     * value needs an explicit signal to emit unquoted — a sibling rule from `NUMERIC_TYPE_RULES` on the
      * same field is that signal, matching what `Rule::in([1, 2, 3])` already emits for the same values.
      * A param only coerces when `+0` round-trips losslessly back to the same text: `validateIn()`
      * compares `(string) $value` against the literal param, so a padded/reformatted value like `'007'`
@@ -660,7 +663,7 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Whether a field's sibling rules declare it numeric (`integer`/`int`/`numeric`).
+     * Whether a field's sibling rules declare it numeric (see `NUMERIC_TYPE_RULES`).
      *
      * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
      */
@@ -675,7 +678,7 @@ class FormRequestRulesAnalyzer
             $pascalToSnake = preg_replace('/[A-Z]/', '_$0', lcfirst($rule));
             $ruleLower = strtolower(is_string($pascalToSnake) ? $pascalToSnake : $rule);
 
-            if (in_array($ruleLower, ['integer', 'int', 'numeric'], true)) {
+            if (in_array($ruleLower, self::NUMERIC_TYPE_RULES, true)) {
                 return true;
             }
         }
