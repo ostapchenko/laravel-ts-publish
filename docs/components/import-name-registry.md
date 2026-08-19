@@ -57,9 +57,14 @@ transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `Re
 `$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns` in `ModelTransformer`, `$propertyFqcns` in
 `BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`
 **one entry per occurrence, in registration order**. Callers must neither sort nor dedupe that list:
-multiplicity and order together *are* the contract. `mergePropertyFqcnMaps()` used to end in
-`array_values(array_unique(...))`; dropping that is what lets a property naming the same model twice
-resolve both occurrences to it.
+multiplicity and order together *are* the contract. `ModelTransformer` satisfies it by construction
+(`$columnFqcns[$name][] = $fqcn` and its two siblings are plain appends);
+`ResourceTransformer::mergePropertyFqcnMaps()` and
+`BroadcastEventTransformer`'s `$propertyFqcns` assignment each used to end in
+`array_values(array_unique(...))`, and dropping both is what lets a property naming the same model
+twice resolve both occurrences to it. The `array_unique` calls that remain in those two classes are
+on import-building paths — `enumPropertyFqcns()` and `buildTypeImports()` — where one entry per
+import is what you want.
 
 `aliasPropertyType()` builds one queue of aliases per type name, in FQCN source order, then walks
 the type string's occurrences left to right with `preg_replace_callback`, so occurrence N takes

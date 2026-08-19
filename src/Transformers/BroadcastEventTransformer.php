@@ -314,7 +314,7 @@ class BroadcastEventTransformer extends CoreTransformer
                 'optional' => $type->isOptional(),
             ];
 
-            $this->propertyFqcns[$propName] = array_values(array_unique($this->collectPropertyFqcns($type)));
+            $this->propertyFqcns[$propName] = $this->collectPropertyFqcns($type);
         }
 
         return $result;
