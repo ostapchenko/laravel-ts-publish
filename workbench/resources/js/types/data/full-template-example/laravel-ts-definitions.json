@@ -1281,6 +1281,66 @@
             },
             "staticMethods": []
         },
+        "Workbench\\App\\Enums\\WeekDays": {
+            "name": "WeekDays",
+            "cases": [
+                {
+                    "name": "Monday",
+                    "value": "monday",
+                    "description": ""
+                },
+                {
+                    "name": "Tuesday",
+                    "value": "tuesday",
+                    "description": ""
+                },
+                {
+                    "name": "Wednesday",
+                    "value": "wednesday",
+                    "description": ""
+                },
+                {
+                    "name": "Thursday",
+                    "value": "thursday",
+                    "description": ""
+                },
+                {
+                    "name": "Friday",
+                    "value": "friday",
+                    "description": ""
+                },
+                {
+                    "name": "Saturday",
+                    "value": "saturday",
+                    "description": ""
+                },
+                {
+                    "name": "Sunday",
+                    "value": "sunday",
+                    "description": ""
+                }
+            ],
+            "caseKinds": [
+                "'Monday'",
+                "'Tuesday'",
+                "'Wednesday'",
+                "'Thursday'",
+                "'Friday'",
+                "'Saturday'",
+                "'Sunday'"
+            ],
+            "caseTypes": [
+                "'monday'",
+                "'tuesday'",
+                "'wednesday'",
+                "'thursday'",
+                "'friday'",
+                "'saturday'",
+                "'sunday'"
+            ],
+            "methods": [],
+            "staticMethods": []
+        },
         "Workbench\\Blog\\Enums\\ArticleStatus": {
             "name": "ArticleStatus",
             "cases": [
@@ -6526,7 +6586,7 @@
                 },
                 {
                     "name": "week_days",
-                    "type": "StatusType[] | null"
+                    "type": "WeekDaysType[] | null"
                 },
                 {
                     "name": "grid_configs",
@@ -9296,22 +9356,22 @@
                 },
                 {
                     "name": "week_days",
-                    "type": "AsEnum<typeof Status>[] | null",
+                    "type": "AsEnum<typeof WeekDays>[] | null",
                     "optional": false
                 },
                 {
                     "name": "wrapped_week_days",
-                    "type": "{ week_days: AsEnum<typeof Status>[] | null }",
+                    "type": "{ week_days: AsEnum<typeof WeekDays>[] | null }",
                     "optional": false
                 },
                 {
                     "name": "week_days_when_has",
-                    "type": "AsEnum<typeof Status>[] | null",
+                    "type": "AsEnum<typeof WeekDays>[] | null",
                     "optional": true
                 },
                 {
                     "name": "week_days_when_has_default",
-                    "type": "AsEnum<typeof Status>[] | null | string",
+                    "type": "AsEnum<typeof WeekDays>[] | null | string",
                     "optional": false
                 },
                 {

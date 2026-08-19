@@ -1,6 +1,6 @@
 import { type AsEnum } from '@tolki/ts';
 
-import { Role, Status } from '../../enums';
+import { Role, Status, WeekDays } from '../../enums';
 import type { RoleType } from '../../enums';
 
 /**
@@ -16,10 +16,10 @@ export interface EnumCollectionResource
 {
     id: number;
     status_history: AsEnum<typeof Status>[];
-    week_days: AsEnum<typeof Status>[] | null;
-    wrapped_week_days: { week_days: AsEnum<typeof Status>[] | null };
-    week_days_when_has?: AsEnum<typeof Status>[] | null;
-    week_days_when_has_default: AsEnum<typeof Status>[] | null | string;
+    week_days: AsEnum<typeof WeekDays>[] | null;
+    wrapped_week_days: { week_days: AsEnum<typeof WeekDays>[] | null };
+    week_days_when_has?: AsEnum<typeof WeekDays>[] | null;
+    week_days_when_has_default: AsEnum<typeof WeekDays>[] | null | string;
     status_history_when_appended?: AsEnum<typeof Status>[];
     members_via_var?: AsEnum<typeof Role>[];
     member_role_snapshot?: ({ role: RoleType | null })[];

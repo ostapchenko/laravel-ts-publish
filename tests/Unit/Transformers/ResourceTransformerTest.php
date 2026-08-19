@@ -2022,31 +2022,31 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
             ->and($data->properties['status_history']['optional'])->toBeFalse();
     });
 
-    // Matches the model precedent at workbench team.ts: week_days: AsEnum<typeof Status>[] | null.
-    test('AsEnumCollection cast rewrites to AsEnum<typeof Status>[] | null', function () {
+    // Matches the model precedent at workbench team.ts: week_days: AsEnum<typeof WeekDays>[] | null.
+    test('AsEnumCollection cast rewrites to AsEnum<typeof WeekDays>[] | null', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
-        expect($data->properties['week_days']['type'])->toBe('AsEnum<typeof Status>[] | null')
+        expect($data->properties['week_days']['type'])->toBe('AsEnum<typeof WeekDays>[] | null')
             ->and($data->properties['week_days']['optional'])->toBeFalse();
     });
 
-    test('EnumResource::collection() inside an inline array keeps AsEnum<typeof Status>[]', function () {
+    test('EnumResource::collection() inside an inline array keeps AsEnum<typeof WeekDays>[]', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
         expect($data->properties['wrapped_week_days']['type'])
-            ->toBe('{ week_days: AsEnum<typeof Status>[] | null }');
+            ->toBe('{ week_days: AsEnum<typeof WeekDays>[] | null }');
     });
 
     // whenHas() never analyzes its value argument for a type, but IS checked for EnumResource
     // shape, so the wrapped first-class-callable value still gets the AsEnum rewrite — this is
     // the real reported bug pattern: $this->whenHas('kinds', EnumResource::collection(...)).
-    test('first-class callable inside whenHas() rewrites to AsEnum<typeof Status>[] | null', function () {
+    test('first-class callable inside whenHas() rewrites to AsEnum<typeof WeekDays>[] | null', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
-        expect($data->properties['week_days_when_has']['type'])->toBe('AsEnum<typeof Status>[] | null')
+        expect($data->properties['week_days_when_has']['type'])->toBe('AsEnum<typeof WeekDays>[] | null')
             ->and($data->properties['week_days_when_has']['optional'])->toBeTrue();
     });
 
@@ -2066,7 +2066,7 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
         expect($data->properties['week_days_when_has_default']['type'])
-            ->toBe('AsEnum<typeof Status>[] | null | string')
+            ->toBe('AsEnum<typeof WeekDays>[] | null | string')
             ->and($data->properties['week_days_when_has_default']['optional'])->toBeFalse();
     });
 

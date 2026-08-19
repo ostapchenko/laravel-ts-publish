@@ -288,6 +288,6 @@ test('renders an enum-collection column with its [] suffix in the resource varia
     $content = $writer->write($transformer);
 
     expect($content)
-        ->toContain('week_days: AsEnum<typeof Status>[] | null;')
-        ->not->toContain('week_days: AsEnum<typeof Status> | null;');
+        ->toContain('week_days: AsEnum<typeof WeekDays>[] | null;')
+        ->not->toContain('week_days: AsEnum<typeof WeekDays> | null;');
 });

@@ -1024,7 +1024,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             deleted_at: string | null;
-            week_days: workbench.app.enums.StatusType[] | null;
+            week_days: workbench.app.enums.WeekDaysType[] | null;
             grid_configs: { label: string; config: Record<string, unknown> }[] | null;
             grid_preset: { name: string; locked?: boolean } | null;
             // Mutators
@@ -1559,6 +1559,24 @@ declare global {
             Draft: 'Draft',
         }
         export type VisibilityType = 'Public' | 'Private' | 'Protected' | 'Internal' | 'Draft';
+
+        /**
+         * Plain backed enum for Team::week_days — no #[TsEnum] family attributes and no
+         * ArchTech\Enums traits. This fixture exercises AsEnumCollection casting, not
+         * enum-feature generation (Status and Season already cover that).
+         */
+        export interface WeekDays
+        {
+            Monday: 'monday',
+            Tuesday: 'tuesday',
+            Wednesday: 'wednesday',
+            Thursday: 'thursday',
+            Friday: 'friday',
+            Saturday: 'saturday',
+            Sunday: 'sunday',
+        }
+        export type WeekDaysType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+        export type WeekDaysKind = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
     }
     export namespace workbench.blog.enums {
         export interface ArticleStatus
@@ -2145,10 +2163,10 @@ declare global {
         export interface EnumCollectionResource {
             id: number;
             status_history: workbench.app.enums.StatusType[];
-            week_days: workbench.app.enums.StatusType[] | null;
-            wrapped_week_days: { week_days: workbench.app.enums.StatusType[] | null };
-            week_days_when_has?: workbench.app.enums.StatusType[] | null;
-            week_days_when_has_default: workbench.app.enums.StatusType[] | null | string;
+            week_days: workbench.app.enums.WeekDaysType[] | null;
+            wrapped_week_days: { week_days: workbench.app.enums.WeekDaysType[] | null };
+            week_days_when_has?: workbench.app.enums.WeekDaysType[] | null;
+            week_days_when_has_default: workbench.app.enums.WeekDaysType[] | null | string;
             status_history_when_appended?: workbench.app.enums.StatusType[];
             members_via_var?: workbench.app.enums.RoleType[];
             member_role_snapshot?: ({ role: workbench.app.enums.RoleType | null })[];

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Workbench\App\Enums\Status;
+use Workbench\App\Enums\WeekDays;
 use Workbench\App\ValueObjects\GridConfigDto;
 
 /**
@@ -46,7 +47,7 @@ class Team extends Model
             'settings' => 'array',
             'grid_config' => 'array',
             'grid_preset' => 'array',
-            'week_days' => AsEnumCollection::class.':'.Status::class,
+            'week_days' => AsEnumCollection::class.':'.WeekDays::class,
             'grid_configs' => AsCollection::of(GridConfigDto::class),
         ];
     }

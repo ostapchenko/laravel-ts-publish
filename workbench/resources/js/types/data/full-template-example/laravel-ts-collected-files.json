@@ -11,6 +11,7 @@
     "app\/Enums\/Season.php",
     "app\/Enums\/Status.php",
     "app\/Enums\/Visibility.php",
+    "app\/Enums\/WeekDays.php",
     "app\/Events\/EnumBroadcastEvent.php",
     "app\/Events\/MixedTypesEvent.php",
     "app\/Events\/MultiModelEvent.php",

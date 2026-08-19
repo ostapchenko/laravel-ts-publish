@@ -13,6 +13,7 @@ use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Role;
 use Workbench\App\Enums\Status;
 use Workbench\App\Enums\Visibility;
+use Workbench\App\Enums\WeekDays;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
@@ -714,9 +715,9 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
     });
 
     test('AsEnumCollection cast stays enumFqcn-tagged, array-shaped, and nullable', function () {
-        expect($this->props['week_days']['type'])->toBe('StatusType[] | null')
+        expect($this->props['week_days']['type'])->toBe('WeekDaysType[] | null')
             ->and($this->analysis->enumResources)->toHaveKey('week_days')
-            ->and($this->analysis->enumResources['week_days'])->toBe(Status::class);
+            ->and($this->analysis->enumResources['week_days'])->toBe(WeekDays::class);
     });
 
     // analyzeInlineArray() computes its own AsEnum rewrite eagerly, so the [] survives here even
@@ -724,16 +725,16 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
     // until ResourceTransformer::rewriteEnumResourceTypes() runs.
     test('EnumResource::collection() inside an inline array keeps its [] suffix', function () {
         expect($this->props['wrapped_week_days']['type'])
-            ->toBe('{ week_days: AsEnum<typeof Status>[] | null }');
+            ->toBe('{ week_days: AsEnum<typeof WeekDays>[] | null }');
     });
 
     // whenHas() never resolves its value argument's own type — the attribute supplies type and
     // array-ness — but IS checked for EnumResource::make()/::collection() shape (isEnumResourceWrapCall()),
     // so this first-class-callable value still promotes to the 'enumFqcn' (wrapped) channel.
     test('first-class callable inside whenHas() promotes to the enumFqcn (wrapped) channel', function () {
-        expect($this->props['week_days_when_has']['type'])->toBe('StatusType[] | null')
+        expect($this->props['week_days_when_has']['type'])->toBe('WeekDaysType[] | null')
             ->and($this->analysis->enumResources)->toHaveKey('week_days_when_has')
-            ->and($this->analysis->enumResources['week_days_when_has'])->toBe(Status::class)
+            ->and($this->analysis->enumResources['week_days_when_has'])->toBe(WeekDays::class)
             ->and($this->analysis->directEnumFqcns)->not->toHaveKey('week_days_when_has');
     });
 
@@ -751,10 +752,10 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
     // demoted): the transformer's substitution-based rewrite reproduces the full union losslessly.
     test('whenHas() with an explicit default stays enumFqcn-tagged and keeps the full union', function () {
         expect($this->props['week_days_when_has_default']['type'])
-            ->toBe('StatusType[] | null | string')
+            ->toBe('WeekDaysType[] | null | string')
             ->and($this->props['week_days_when_has_default']['optional'])->toBeFalse()
             ->and($this->analysis->enumResources)->toHaveKey('week_days_when_has_default')
-            ->and($this->analysis->enumResources['week_days_when_has_default'])->toBe(Status::class)
+            ->and($this->analysis->enumResources['week_days_when_has_default'])->toBe(WeekDays::class)
             ->and($this->analysis->directEnumFqcns)->not->toHaveKey('week_days_when_has_default');
     });
 

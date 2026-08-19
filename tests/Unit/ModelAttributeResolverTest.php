@@ -513,11 +513,11 @@ describe('write-only accessor waterfall', function () {
 });
 
 describe('castable-with-arguments casts', function () {
-    test('AsEnumCollection::of(Status) resolves through the waterfall to a nullable enum array', function () {
+    test('AsEnumCollection::of(WeekDays) resolves through the waterfall to a nullable enum array', function () {
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(Team::class, 'week_days');
 
-        expect($info['type'])->toBe('StatusType[] | null');
+        expect($info['type'])->toBe('WeekDaysType[] | null');
     });
 
     test('AsCollection::of(GridConfigDto) resolves through the waterfall to a nullable shape array', function () {
