@@ -2893,6 +2893,7 @@ declare global {
             members_sorted: app.models.User[] | Record<string, app.models.User>;
             members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
             members_tail: app.models.User[] | Record<string, app.models.User>;
+            members_tail_values: app.models.User[];
             members_sliced_emails: string[] | Record<string, string>;
             members_keyed_by_id: string[] | Record<string, string>;
             members_skipped: app.models.User[];

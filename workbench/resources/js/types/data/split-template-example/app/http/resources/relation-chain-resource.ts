@@ -32,6 +32,7 @@ export interface RelationChainResource
     members_sorted: User[] | Record<string, User>;
     members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
     members_tail: User[] | Record<string, User>;
+    members_tail_values: User[];
     members_sliced_emails: string[] | Record<string, string>;
     members_keyed_by_id: string[] | Record<string, string>;
     members_skipped: User[];

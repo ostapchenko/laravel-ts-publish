@@ -113,6 +113,7 @@ class RelationChainResource extends JsonResource
                 'id' => $member->id,
             ]),
             'members_tail' => $this->members->take(-2),
+            'members_tail_values' => $this->members->take(-2)->values(),
             'members_sliced_emails' => $this->members->pluck('email')->sortBy(fn (string $email) => $email),
             'members_keyed_by_id' => $this->members->pluck('email', 'id'),
 

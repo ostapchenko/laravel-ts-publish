@@ -11531,6 +11531,11 @@
                     "optional": false
                 },
                 {
+                    "name": "members_tail_values",
+                    "type": "User[]",
+                    "optional": false
+                },
+                {
                     "name": "members_sliced_emails",
                     "type": "string[] | Record<string, string>",
                     "optional": false

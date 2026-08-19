@@ -2893,6 +2893,7 @@ declare global {
             members_sorted: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
             members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
             members_tail: workbench.app.models.User[] | Record<string, workbench.app.models.User>;
+            members_tail_values: workbench.app.models.User[];
             members_sliced_emails: string[] | Record<string, string>;
             members_keyed_by_id: string[] | Record<string, string>;
             members_skipped: workbench.app.models.User[];
