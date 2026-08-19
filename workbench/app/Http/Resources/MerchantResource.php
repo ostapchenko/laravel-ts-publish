@@ -15,6 +15,10 @@ use Workbench\App\Models\Merchant;
  * (registrar/registrars/suppliers) the three resolution orderings against a losing
  * candidate that also exists, so an inverted order would visibly fail.
  *
+ * The unpublished_guess pair covers the published-set gate: the guessed AttachmentResource and
+ * AttachmentCollection both exist but are #[TsExclude]d, so neither is ever written and the
+ * convention branches must reject them (see PublishedResourceRegistry).
+ *
  * Also reuses the staff/registrars/historyEvent relations for the ->map->only()/->except()
  * HigherOrderCollectionProxy: a to-many whenLoaded param is a bound collection and matches,
  * a singular one (historyEvent) is not and must stay unknown.
@@ -47,6 +51,11 @@ class MerchantResource extends JsonResource
             // Negative: registrars does not have a resource class, so the output is unknown
             'registrars' => $this->whenLoaded('registrars', fn ($rows) => $rows->toResourceCollection()),
             'suppliers' => $this->whenLoaded('suppliers', fn ($rows) => $rows->toResourceCollection()),
+            // Negative: AttachmentResource / AttachmentCollection exist but are #[TsExclude]d, so
+            // no .ts file is written for either. A convention guess must not name a resource this
+            // run never emits — the import would point at a module that does not exist.
+            'unpublished_guess' => $this->whenLoaded('attachment', fn ($m) => $m->toResource()),
+            'unpublished_guess_collection' => $this->whenLoaded('attachments', fn ($rows) => $rows->toResourceCollection()),
             // ->map->only(): the HigherOrderCollectionProxy on a bound to-many closure param —
             // element shape, array-wrapped, with a nullable column and an enum column.
             'staff_map_only' => $this->whenLoaded('staff', fn ($rows) => $rows->map->only(['id', 'name', 'role', 'last_login_at'])),

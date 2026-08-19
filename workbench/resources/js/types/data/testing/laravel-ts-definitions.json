@@ -4948,6 +4948,14 @@
                     "type": "Supplier[]"
                 },
                 {
+                    "name": "attachment",
+                    "type": "Attachment | null"
+                },
+                {
+                    "name": "attachments",
+                    "type": "Attachment[]"
+                },
+                {
                     "name": "owner_count",
                     "type": "number"
                 },
@@ -4980,6 +4988,14 @@
                     "type": "number"
                 },
                 {
+                    "name": "attachment_count",
+                    "type": "number"
+                },
+                {
+                    "name": "attachments_count",
+                    "type": "number"
+                },
+                {
                     "name": "owner_exists",
                     "type": "boolean"
                 },
@@ -5009,6 +5025,14 @@
                 },
                 {
                     "name": "suppliers_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "attachment_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "attachments_exists",
                     "type": "boolean"
                 }
             ]
@@ -10287,6 +10311,16 @@
                 {
                     "name": "suppliers",
                     "type": "SupplierSummaryResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "unpublished_guess",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "unpublished_guess_collection",
+                    "type": "unknown",
                     "optional": true
                 },
                 {

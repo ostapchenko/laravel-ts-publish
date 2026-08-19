@@ -732,6 +732,63 @@ excluded as unreachable anywhere else in the family.
 that don't ship the attribute. See [Version-guarded Laravel
 classes](../laravel-version-guards.md) for the full registry and when this guard can be removed.
 
+## `toResource()` convention guesses are gated on the published set
+
+`Model::toResource()` and `Collection::toResourceCollection()` reach a resource class three ways: an
+explicit `SomeResource::class` argument, a `#[UseResource]`/`#[UseResourceCollection]` attribute, or
+Laravel's naming convention (`guessResourceNames()`). Only the last one *invents* a class name, and
+`isResourceClass()` accepts whatever `class_exists()` finds — including a third-party or `#[TsExclude]`d
+resource this package never writes a file for. `ResourceTransformer` would then emit the
+`class_basename()` token plus an import built by `LaravelTsPublish::namespaceToPath()`, which is pure
+string transformation and never touches the filesystem, so the import names a module that does not exist.
+
+`PublishedResourceRegistry` holds the resource classes the current run will actually emit.
+`isPublishedResourceClass()` is `isResourceClass()` plus that membership test, and it is used at exactly
+three convention sites:
+
+| Site | Candidates it can now reject |
+| --- | --- |
+| `resolveResourceForModel()`'s candidate loop | `{Model}Resource`, then bare `{Model}` |
+| `resolveResourceCollectionForModel()`'s `{Guessed}Collection` loop | `{Model}ResourceCollection`, then `{Model}Collection` — the inline `class_exists()`/`is_a()` pair gained a third `PublishedResourceRegistry::isPublished()` conjunct |
+| `resolveResourceCollectionForModel()`'s bare-candidate loop | the `{Model}Resource` fallback |
+
+**`isResourceClass()` itself is unchanged.** Every branch that reads a class the developer wrote down
+stays ungated on purpose — an explicitly named resource is a declaration, not a guess:
+
+- the explicit-argument arms of `analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`
+- `resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
+- `collectedResourceClass()`, whose answer comes from `#[Collects]`/`$collects` or from a
+  `{X}Collection` → `{X}Resource` step rooted in a collection class its caller already accepted
+
+### The registry fails open, and `RunnerForSource` depends on it
+
+An empty registry means "no information", so `isPublished()` returns `true` for every class. That is a
+contract, not a convenience: `RunnerForSource` handles a single FQCN and never resolves a collector, so it
+never reaches `PublishedResourceRegistry::register()` and a `ts:publish --source=…` regeneration analyzes
+with the registry empty. Failing closed there would silently strip every nested resource reference out of
+the regenerated file.
+
+### Populated once, before the generate loop
+
+`Runner::generateResources()` registers the whole collected list before generating anything, not as each
+generator completes. Analysis happens *inside* the `foreach`, and a resource analyzed on the first
+iteration may legitimately reference one collected on the last, so incremental registration would make
+resolution depend on collection order. One `$collected` value feeds both the registration and the loop:
+`CoreCollector::collect()` is not memoised and re-runs `ClassMapGenerator::createMap()` per call, so a
+second call would double the class-map scan.
+
+The registry is process-static, in the shape of `DependencyRecorder` and `OutputRecorder`, because the
+collector is `resolve()`d per call rather than bound as a singleton (the service provider registers only
+`ModelAttributeResolver` and `CacheRepository`) and constructor plumbing would have to cross four hops
+from `Runner` down to the analyzer. `Tests\TestCase::setUp()` resets all three, since process-static
+state otherwise leaks across a parallel Pest run.
+
+Neither CI gate can catch a regression here — an import of an unpublished resource surfaces as TS2307,
+which `unimportable-token-gate.sh` does not count. See
+[Type inference gates](../testing/type-inference-gates.md). The coverage is instead the published-set
+tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentResource` and
+`AttachmentCollection` workbench fixtures.
+
 ## `#[PreserveKeys]`/`$preserveKeys` flip a collection's element type to `Record<string, R>`
 
 A `ResourceCollection` normally serializes as a JSON array, so a collected element type gets a `[]`

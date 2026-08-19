@@ -444,6 +444,10 @@ declare global {
          * `registrar`/`registrars`/`suppliers` pin the three resolution orderings against a losing
          * candidate that also exists, so an inverted order would visibly fail (see
          * ResourceAstAnalyzerTest.php's MerchantResource ordering describe block).
+         *
+         * `attachment`/`attachments` back the unpublished-guess pair: AttachmentResource and
+         * AttachmentCollection both exist but carry #[TsExclude], so the convention guess must be
+         * rejected on not being in the published set rather than accepted on class_exists().
          */
         export interface Merchant {
             // Columns
@@ -474,6 +478,12 @@ declare global {
             suppliers: Supplier[];
             suppliers_count: number;
             suppliers_exists: boolean;
+            attachment: Attachment | null;
+            attachment_count: number;
+            attachment_exists: boolean;
+            attachments: Attachment[];
+            attachments_count: number;
+            attachments_exists: boolean;
         }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
@@ -2490,6 +2500,10 @@ declare global {
          * (registrar/registrars/suppliers) the three resolution orderings against a losing
          * candidate that also exists, so an inverted order would visibly fail.
          *
+         * The unpublished_guess pair covers the published-set gate: the guessed AttachmentResource and
+         * AttachmentCollection both exist but are #[TsExclude]d, so neither is ever written and the
+         * convention branches must reject them (see PublishedResourceRegistry).
+         *
          * Also reuses the staff/registrars/historyEvent relations for the ->map->only()/->except()
          * HigherOrderCollectionProxy: a to-many whenLoaded param is a bound collection and matches,
          * a singular one (historyEvent) is not and must stay unknown.
@@ -2508,6 +2522,8 @@ declare global {
             registrar?: RegistrarResource;
             registrars?: unknown;
             suppliers?: SupplierSummaryResource[];
+            unpublished_guess?: unknown;
+            unpublished_guess_collection?: unknown;
             staff_map_only?: ({ id: number; name: string; role: workbench.app.enums.RoleType | null; last_login_at: string | null })[];
             registrars_map_except?: { name: string }[];
             history_event_map_only?: unknown;

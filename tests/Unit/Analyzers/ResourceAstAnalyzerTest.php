@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
@@ -17,6 +18,8 @@ use Workbench\App\Enums\Visibility;
 use Workbench\App\Enums\WeekDays;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
+use Workbench\App\Http\Resources\AttachmentCollection;
+use Workbench\App\Http\Resources\AttachmentResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BodylessTeamResource;
@@ -5415,6 +5418,43 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
         // historyEvent is a BelongsTo: $m binds to varModelBindings, not varCollectionBindings,
         // so the ->map proxy must not match — a guess here would silently mistype a real property.
         expect($this->props['history_event_map_only']['type'])->toBe('unknown');
+    });
+
+    test('an empty registry fails open, so a convention guess outside the published set still resolves', function () {
+        // RunnerForSource never calls collect(), so single-file watch-mode regeneration analyzes
+        // with an empty registry. Failing closed there would strip every nested resource.
+        expect(PublishedResourceRegistry::isEmpty())->toBeTrue();
+
+        expect($this->props['unpublished_guess']['type'])->toBe('AttachmentResource')
+            ->and($this->nested)->toHaveKey('unpublished_guess', AttachmentResource::class)
+            ->and($this->props['unpublished_guess_collection']['type'])->toBe('AttachmentResource[]')
+            ->and($this->nested)->toHaveKey('unpublished_guess_collection', AttachmentResource::class);
+    });
+
+    test('a convention-guessed resource outside the published set is not resolved', function () {
+        // Non-vacuous: every losing candidate genuinely exists — only #[TsExclude] keeps the two
+        // Attachment classes out of the published set, so class_exists() alone would accept them.
+        expect(class_exists(AttachmentResource::class))->toBeTrue()
+            ->and(class_exists(AttachmentCollection::class))->toBeTrue()
+            ->and(class_exists(UserResource::class))->toBeTrue();
+
+        PublishedResourceRegistry::register([TeamResource::class]);
+
+        $reflection = new ReflectionClass(MerchantResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze();
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props['unpublished_guess']['type'])->toBe('unknown')
+            ->and($props['unpublished_guess_collection']['type'])->toBe('unknown')
+            ->and($analysis->nestedResources)->not->toHaveKey('unpublished_guess')
+            ->and($analysis->nestedResources)->not->toHaveKey('unpublished_guess_collection')
+            // Every convention branch is gated, not just the Attachment fixture's.
+            ->and($props['owner_via_closure']['type'])->toBe('unknown')
+            // An explicitly named resource is the developer's declaration and stays ungated.
+            ->and($props['owner_explicit']['type'])->toBe('UserResource')
+            ->and($analysis->nestedResources)->toHaveKey('owner_explicit', UserResource::class);
+
+        PublishedResourceRegistry::reset();
     });
 });
 

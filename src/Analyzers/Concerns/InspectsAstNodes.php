@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Concerns;
 
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\EnumResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use PhpParser\Node\Expr;
@@ -139,6 +140,16 @@ trait InspectsAstNodes
     protected function isResourceClass(string $fqcn): bool
     {
         return class_exists($fqcn) && is_a($fqcn, JsonResource::class, true);
+    }
+
+    /**
+     * Whether a class is a resource this run will also emit a file for.
+     *
+     * A convention-guessed candidate must be one, or the import it produces points at no module.
+     */
+    protected function isPublishedResourceClass(string $fqcn): bool
+    {
+        return $this->isResourceClass($fqcn) && PublishedResourceRegistry::isPublished($fqcn);
     }
 
     /**

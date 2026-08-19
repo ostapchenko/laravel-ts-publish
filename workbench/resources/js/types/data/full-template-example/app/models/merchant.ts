@@ -1,5 +1,5 @@
 import type { DatabaseNotification } from '../../illuminate/notifications';
-import type { Activity, Registrar, Supplier, TrackingEvent, User } from '.';
+import type { Activity, Attachment, Registrar, Supplier, TrackingEvent, User } from '.';
 
 /**
  * Exercises Model::toResource()/Collection::toResourceCollection(): `owner`/`staff` resolve by
@@ -7,6 +7,10 @@ import type { Activity, Registrar, Supplier, TrackingEvent, User } from '.';
  * `registrar`/`registrars`/`suppliers` pin the three resolution orderings against a losing
  * candidate that also exists, so an inverted order would visibly fail (see
  * ResourceAstAnalyzerTest.php's MerchantResource ordering describe block).
+ *
+ * `attachment`/`attachments` back the unpublished-guess pair: AttachmentResource and
+ * AttachmentCollection both exist but carry #[TsExclude], so the convention guess must be
+ * rejected on not being in the published set rather than accepted on class_exists().
  *
  * @see Workbench\App\Models\Merchant
  */
@@ -24,6 +28,8 @@ export interface Merchant
     registrar: Registrar | null;
     registrars: Registrar[];
     suppliers: Supplier[];
+    attachment: Attachment | null;
+    attachments: Attachment[];
     // Counts
     owner_count: number;
     staff_count: number;
@@ -33,6 +39,8 @@ export interface Merchant
     registrar_count: number;
     registrars_count: number;
     suppliers_count: number;
+    attachment_count: number;
+    attachments_count: number;
     // Exists
     owner_exists: boolean;
     staff_exists: boolean;
@@ -42,4 +50,6 @@ export interface Merchant
     registrar_exists: boolean;
     registrars_exists: boolean;
     suppliers_exists: boolean;
+    attachment_exists: boolean;
+    attachments_exists: boolean;
 }

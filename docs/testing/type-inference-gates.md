@@ -202,6 +202,25 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
   adding an inference path, add a fixture for the hazardous shape too — several real defects were found
   only by constructing a fixture and regenerating, never by reading the code or running the suite.
 
+- **TS2307 (`Cannot find module`) is counted by neither gate.** `unimportable-token-gate.sh` greps only
+  TS2300/TS2304/TS2344/TS2552, and an unresolved *module* is not an existing property degrading to
+  `unknown`, so the regression gate is structurally blind to it too. That diagnostic is the signature of
+  an import of a class the package never writes a file for — the failure mode `PublishedResourceRegistry`
+  exists to prevent, documented under
+  [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set).
+
+  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **60** of
+  them, and 59 are bare aliases — `@/types/audit`, `@js/types/settings`, `@workbench/types` and friends —
+  from app-side `custom_ts_mappings` and `#[TsType]`. Those are the same escape hatches behind the TS2304
+  baseline: the consuming app declares the module, so the package cannot emit anything that resolves.
+
+  The open option is a **sub-gate scoped to relative specifiers only**. A `./`- or `../`-relative import
+  inside the generated tree resolves against files this package itself writes, so it is never an app-side
+  escape hatch. Exactly one exists today — `default-example/app/models/warehouse.ts` importing
+  `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate`, which is also two of
+  the 14 TS2304s — so the sub-gate would need either that instance fixed or a baseline of 1. Real,
+  scoped work, deliberately left as a follow-up.
+
 - **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
   is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,
   then checks whether that same `(file, scope, property)` key existed in the base snapshot. A property

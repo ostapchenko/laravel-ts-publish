@@ -10,6 +10,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
@@ -2283,7 +2284,7 @@ class ResourceAstAnalyzer
         }
 
         foreach ($this->guessResourceNames($modelFqcn) as $candidate) {
-            if ($this->isResourceClass($candidate)) {
+            if ($this->isPublishedResourceClass($candidate)) {
                 return $candidate;
             }
         }
@@ -2327,7 +2328,10 @@ class ResourceAstAnalyzer
         foreach ($candidates as $candidate) {
             $collectionCandidate = $candidate.'Collection';
 
-            if (class_exists($collectionCandidate) && is_a($collectionCandidate, ResourceCollection::class, true)) {
+            if (class_exists($collectionCandidate)
+                && is_a($collectionCandidate, ResourceCollection::class, true)
+                && PublishedResourceRegistry::isPublished($collectionCandidate)
+            ) {
                 $collectedFqcn = $this->collectedResourceClass($collectionCandidate);
 
                 return $collectedFqcn !== null
@@ -2337,7 +2341,7 @@ class ResourceAstAnalyzer
         }
 
         foreach ($candidates as $candidate) {
-            if ($this->isResourceClass($candidate)) {
+            if ($this->isPublishedResourceClass($candidate)) {
                 return ['collectionFqcn' => $candidate, 'resourceFqcn' => $candidate];
             }
         }

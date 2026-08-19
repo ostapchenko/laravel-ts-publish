@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Runners;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaSharedDataAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Collectors\BroadcastChannelsCollector;
 use AbeTwoThree\LaravelTsPublish\Collectors\BroadcastEventsCollector;
 use AbeTwoThree\LaravelTsPublish\Collectors\EnumsCollector;
@@ -135,7 +136,13 @@ class Runner extends BaseRunner
         /** @var Collection<int, ResourceGenerator> $resourceGenerators */
         $resourceGenerators = collect();
 
-        foreach ($collector->collect() as $resourceClass) {
+        // Registered up front, not as each generator completes: a resource analyzed on the first
+        // iteration may reference one collected on the last, so resolution must be order-independent.
+        $collected = $collector->collect();
+
+        PublishedResourceRegistry::register($collected);
+
+        foreach ($collected as $resourceClass) {
             /** @var class-string<ResourceGenerator> $generatorClass */
             $generatorClass = Config::string('ts-publish.resources.generator_class', ResourceGenerator::class);
 
