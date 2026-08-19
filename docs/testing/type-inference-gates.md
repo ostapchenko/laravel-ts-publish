@@ -121,6 +121,50 @@ This failure mode recurred nine times during the type-inference work, and every 
 shape: a `return` that fired before a guard. If you hit it, prefer restructuring the accept/reject decision
 into a single check over all fields rather than reordering two branches.
 
+## The `@tolki/ts` patch and `tests/types/tolki-assertions.ts`
+
+`@tolki/ts@0.2.0` ships two declaration files whose first line imports from
+`'../packages/types/src/index.ts'` — a monorepo source path that does not exist inside the published
+tarball. `dist/enums.d.ts` and `dist/routes.d.ts` both have it, and `dist/index.d.ts` is only
+`export * from './enums'; export * from './routes';`, so the package's **entire** type surface flows
+through one of the two broken imports.
+
+`skipLibCheck: true` suppresses the resulting TS2307s, and the failure is then completely silent:
+every exported type degrades to `any`. `AsEnum<typeof Status>` accepted `.totallyBogusProperty` and was
+assignable to `string`; `defineEnum`'s result was `any`, so `Status.Draft`, `.from()`, `.tryFrom()` and
+`.cases()` were all unchecked. Nothing in the suite or either gate noticed.
+
+Two fixes do **not** work:
+
+| Candidate | Outcome |
+| --- | --- |
+| `skipLibCheck: false` | Surfaces the two TS2307s but does not repair the type — still `any` |
+| `paths` mapping in `tsconfig.json` | Never consulted: TypeScript applies `paths` only to *non-relative* specifiers, and `../packages/types/src/index.ts` is relative |
+
+The repair is `patches/@tolki+ts+0.2.0.patch`, applied by `patch-package` from the `postinstall` hook.
+It rewrites both specifiers to the bare name `@tolki/types`, which is why `@tolki/types` is a **direct**
+dependency rather than only a transitive one — the bare specifier must be guaranteed to resolve.
+**Delete the patch, the `postinstall` hook and the direct dependency once a fixed `@tolki/ts` ships**;
+the real fix belongs in that package's dts emitter.
+
+`tests/types/tolki-assertions.ts` is the permanent regression guard and must stay inside `tsconfig.json`'s
+`include`. Note how it is written: an `IsAny<T>` conditional **cannot** work here. When an import fails to
+resolve, TypeScript propagates its *error type* through the conditional and suppresses the cascading
+diagnostic, so `IsAny<AsEnum<…>>` yields the error type rather than `true` and the assertion silently
+passes in exactly the broken state it is meant to catch. The guard instead uses `@ts-expect-error` on a
+deliberate constraint violation (`AsEnum<string>`, `RouteCallResult<number>`): when the types are real
+those raise TS2344 and the directive is satisfied, and when they have degraded to `any` no error occurs
+and TypeScript reports **TS2578 "Unused '@ts-expect-error' directive"** — which is emitted by the
+directive machinery and therefore survives `any`-poisoning.
+
+`unimportable-token-gate.sh` counts only TS2300/TS2304/TS2344/TS2552, so it does **not** fail on TS2578.
+CI evaluates this guard in its own step (`Gate - the @tolki/ts type surface resolves`), which fails on any
+diagnostic under `tests/types/`. Locally:
+
+```bash
+npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print nothing
+```
+
 ## Running both
 
 ```bash

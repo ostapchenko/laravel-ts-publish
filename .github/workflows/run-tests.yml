@@ -127,6 +127,16 @@ jobs:
             exit 1
           fi
 
+      - name: Gate - the @tolki/ts type surface resolves
+        run: |
+          errs=$(npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/" || true)
+          if [ -n "$errs" ]; then
+            echo "$errs"
+            echo "@tolki/ts resolved to 'any' - patches/@tolki+ts+0.2.0.patch is not applying."
+            exit 1
+          fi
+          echo "PASS - @tolki/ts types resolve"
+
       - name: Gate - no type token emitted without its import
         run: .github/scripts/unimportable-token-gate.sh 14
 
