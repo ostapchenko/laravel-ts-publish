@@ -28,7 +28,7 @@ python3 .github/scripts/unknown-regression-gate.py [BASE_REV] [HEAD_REV]
 `BASE_REV` defaults to the branch point of the type-inference work; `HEAD_REV` defaults to `HEAD`.
 
 ```
-base properties: 14128   head properties: 15476
+base properties: 16452   head properties: 21096
 PASS - no property regressed to unknown
 ```
 
@@ -39,6 +39,31 @@ Every property is keyed by `(file, enclosing interface/namespace path, property 
 without it, `Invoice.status` and `InvoiceResource.status` collide, and the nested namespaces in
 `laravel-ts-global.ts` collapse into one bucket. An earlier version of this script keyed on file and name
 only, silently conflated ~116 pairs, and could never fail.
+
+### Aliases and inline-object members
+
+Single-line `export type X = …;` aliases are parsed the same way as properties, keyed by their name —
+including a namespaced alias nested inside `declare global { namespace … { type X = …; } }`. When a
+property's or alias's value contains one or more inline `{ … }` object types, each member becomes its own
+key: `prop.member` for a single object, `prop[i].member` per arm for a union of objects. A member regressing
+to `unknown` is no longer masked by an already-`unknown` sibling in the same object.
+
+`prop[i]` is a positional index into the arms as written, not a content hash: reordering two union arms in a
+regenerated file shifts which arm sits at index `0` and can mask a regression. This is a known, accepted
+limit — not something a future change to this gate should try to fix with content-hashed arm keys.
+
+### Parser self-test
+
+```bash
+python3 .github/scripts/unknown-regression-gate.py --parsetest
+```
+
+There is no git range that exercises a member-level `FAIL` — proven across all 143 commits that have
+touched the generated tree — so this is the only guard on the alias- and member-splitting logic above. It
+checks six cases lifted from the corpus: a single-line type alias, a namespaced alias inside `declare
+global`, an inline object with one member, one with several members, a union of two inline objects, and a
+synthetic case — a member regressing to `unknown` beside a sibling that is already `unknown[]`, the exact
+shape the whole-string `FAIL` test below used to miss. Run it after any change to this script.
 
 ### Self-test
 
@@ -195,6 +220,9 @@ Run the suite first — both gates read the committed trees, so they check whate
 The `--passthru-php` flag is needed when the local `php.ini` caps memory below ~512M; paratest spawns
 workers that re-read `php.ini`, so `php -d` on the parent process does not reach them.
 
+When changing `unknown-regression-gate.py` itself, also run its
+[parser self-test](#parser-self-test): `python3 .github/scripts/unknown-regression-gate.py --parsetest`.
+
 ## What the gates do not cover
 
 - **Fixture coverage.** They read the **committed workbench corpus**, so they only see failures the
@@ -224,30 +252,6 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
   the **12** TS2304s — so the sub-gate would need either that instance fixed or a baseline of 1. (The
   gate's baseline of 14 is not the TS2304 count: it is the combined TS2300/TS2304/TS2344/TS2552 total,
   currently 0 + 12 + 0 + 2.) Real, scoped work, deliberately left as a follow-up.
-
-- **All Inertia page-props output is unguarded by `unknown-regression-gate.py`.** `PROP` is
-  `^\s*([A-Za-z_$][\w$]*)\??:\s*(.+?);\s*$` — it requires `identifier:`, a **colon**. Page props are
-  emitted as a single-line type alias, `export type NamedPageProps = Inertia.SharedData & { … };`, whose
-  separator is `=`. It never matches. Neither does `type SharedData = { … };` in `inertia-config.d.ts`.
-  Confirmed directly: `snapshot('HEAD')` returns **zero** keys for
-  `default-example/app/http/controllers/inertia-preserve-keys-controller.ts` — an entire generated file
-  the gate cannot see one property of. Both Inertia commits on this branch read `18372 == 18372` —
-  reproduce with `unknown-regression-gate.py ebf64698~1 ebf64698` and the same for `4aa22c62` — and it
-  was taken as evidence the change was safe. It was a no-op pass: those counts never included the output
-  that changed. Only the `sharedPageProps:` member inside `interface InertiaConfig` is captured, and
-  only as one whole-object string (see the next point).
-
-- **`PROP` is line-anchored, so an inline object is *one* property's type string.** Everything between
-  the first `:` and the trailing `;` on that line is a single opaque value. `WarehouseResource`'s
-  `last_checked_by_mostly` is one key whose value is a two-arm union of inline objects carrying close to
-  thirty members between them. Members can be added or removed with **zero** movement in the count and zero
-  comparison work — an entire semantic change can pass CI unobserved. Worse for the FAIL test itself,
-  which is `"unknown" not in b[k] and "unknown" in h[k]` over that whole string: `last_checked_by_mostly`
-  already contains `metadata: unknown[] | null`, so `"unknown" in b[k]` is *already* true and the key is
-  permanently excluded from the comparison. Any member inside it regressing to `unknown` is invisible.
-  The same holds for every inline object anywhere in the corpus that already carries one `unknown`.
-  Keying by `(file, scope, property)` buys nothing here, because the object's members are not properties
-  to this script — they are substrings.
 
 - **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
   is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,
