@@ -107,6 +107,7 @@ interface omits `$hidden` ones, so `K extends keyof T` failed. See
 ```bash
 .github/scripts/unimportable-token-gate.sh          # report only
 .github/scripts/unimportable-token-gate.sh 14       # fail if the count exceeds 14
+.github/scripts/unimportable-token-gate.sh 14 1     # also fail if the relative-specifier TS2307 sub-gate exceeds 1
 ```
 
 ```
@@ -116,7 +117,10 @@ TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type 
    2   Coordinate
    1   PostAttributes
    1   AddressResource
+TS2307 (cannot find module) with a relative specifier in generated tree: 1
+  ../value-objects
 PASS - no new unimportable or colliding tokens (baseline 14)
+PASS - no new relative-specifier TS2307s (baseline 1)
 ```
 
 ### The baseline
@@ -127,6 +131,30 @@ are expected and must not be "fixed".
 
 Raise the baseline only when you add a fixture that legitimately uses one of those escape hatches, and say
 so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch.
+
+### The relative-specifier sub-gate
+
+A second, optional argument gates TS2307 ("Cannot find module") diagnostics whose specifier is relative
+(`./` or `../`). Unlike a bare specifier such as `@js/types/settings`, a relative one can only resolve
+against a file *this package itself writes* — it is never the app-side `custom_ts_mappings` escape hatch
+behind the baseline above, so it gets its own count and its own baseline instead of being folded into it.
+
+```bash
+.github/scripts/unimportable-token-gate.sh 14        # unchanged: no relative-specifier check runs
+.github/scripts/unimportable-token-gate.sh 14 1      # gate the relative-specifier count too
+```
+
+The baseline is **1**, not zero, because of one live instance:
+`workbench/resources/js/types/data/default-example/app/models/warehouse.ts:11` imports
+`Coordinate` from `'../value-objects'` — the unpublished `Workbench\App\ValueObjects\Coordinate`. That
+same instance is also the negative control: invoking the script as `14 0` must fail, since the count is 1.
+
+**This baseline is not permanent.** A separate, already-planned change inlines `Coordinate`'s shape instead
+of emitting an import for it, which takes the count — and this baseline — to `0`. Do not treat `1` as a
+number to defend; treat it as the current, temporary count of one specific unfixed defect.
+
+Passing a single argument leaves this sub-gate off entirely — CI passes two arguments, but any other caller
+that still passes one behaves exactly as it did before this sub-gate existed.
 
 ### Fails closed
 
@@ -212,7 +240,7 @@ npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print not
 ```bash
 composer test -- --passthru-php="-d memory_limit=1024M"   # regenerates the trees
 python3 .github/scripts/unknown-regression-gate.py
-.github/scripts/unimportable-token-gate.sh 14
+.github/scripts/unimportable-token-gate.sh 14 1
 ```
 
 Run the suite first — both gates read the committed trees, so they check whatever the last test run wrote.
@@ -245,13 +273,15 @@ When changing `unknown-regression-gate.py` itself, also run its
   60 when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
   `warehouse-resource.ts` importing `@js/types/settings`.
 
-  The open option is a **sub-gate scoped to relative specifiers only**. A `./`- or `../`-relative import
-  inside the generated tree resolves against files this package itself writes, so it is never an app-side
-  escape hatch. Exactly one exists today — `default-example/app/models/warehouse.ts` importing
-  `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate`, which is also two of
-  the **12** TS2304s — so the sub-gate would need either that instance fixed or a baseline of 1. (The
-  gate's baseline of 14 is not the TS2304 count: it is the combined TS2300/TS2304/TS2344/TS2552 total,
-  currently 0 + 12 + 0 + 2.) Real, scoped work, deliberately left as a follow-up.
+  That gap is now partly closed by a **sub-gate scoped to relative specifiers only** — see
+  [The relative-specifier sub-gate](#the-relative-specifier-sub-gate) above. A `./`- or `../`-relative
+  import inside the generated tree resolves against files this package itself writes, so it is never an
+  app-side escape hatch. Exactly one exists today — the same `default-example/app/models/warehouse.ts`
+  import of `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate`, which is
+  also two of the **12** TS2304s — so the sub-gate carries a baseline of 1, not 0. (The gate's baseline of
+  14 is not the TS2304 count: it is the combined TS2300/TS2304/TS2344/TS2552 total, currently 0 + 12 + 0 +
+  2.) The other 58 remain uncounted: a blanket TS2307 gate is still impractical, since almost all of them
+  are the same bare-alias escape hatch behind the TS2304 baseline, not a defect.
 
 - **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
   is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,
