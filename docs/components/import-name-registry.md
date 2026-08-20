@@ -55,23 +55,33 @@ climbs only as far as needed:
 differs from its type name, then calls the transformer's `rewriteTypeReferences()` once. Each
 transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
 `$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns` in `ModelTransformer`, `$propertyFqcns` in
-`BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`
-**one entry per occurrence, in registration order**. Callers must neither sort nor dedupe that list:
-multiplicity and order together *are* the contract. `ModelTransformer` satisfies it by construction
-(`$columnFqcns[$name][] = $fqcn` and its two siblings are plain appends);
-`ResourceTransformer::mergePropertyFqcnMaps()` and
-`BroadcastEventTransformer`'s `$propertyFqcns` assignment each used to end in
-`array_values(array_unique(...))`, and dropping both is what lets a property naming the same model
-twice resolve both occurrences to it. The `array_unique` calls that remain in those two classes are
-on import-building paths — `enumPropertyFqcns()` and `buildTypeImports()` — where one entry per
-import is what you want.
+`BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`.
+Callers must neither sort nor dedupe that list: multiplicity and order together *are* the contract.
+`ModelTransformer` and `BroadcastEventTransformer` supply **one entry per occurrence, in registration
+order**, exactly: `ModelTransformer` by construction (`$columnFqcns[$name][] = $fqcn` and its two
+siblings are plain appends), `BroadcastEventTransformer` by dropping the `array_values(array_unique(...))`
+its `$propertyFqcns` assignment used to end in.
+
+`ResourceTransformer::mergePropertyFqcnMaps()` promises less. It concatenates seven per-property maps
+group by group, so a property registered in more than one of them carries every map's entries in
+sequence — a **superset-in-order, prefix-aligned** queue, not an exact per-occurrence one. Dropping
+its own `array_unique(...)` call is what lets a property naming the same model twice resolve both
+occurrences to it; a property a *second* map also registers carries that map's entries too, past the
+real occurrence count, and the third clamp below is what keeps that surplus harmless.
+`resolveMultiClassAccessorFqcns()` guards the one specific overlap that is cheap to close at the
+source — a property `$propertyInlineModelFqcns` already covers is skipped rather than re-queued — but
+the general superset case remains the contract callers rely on, not an exception routed around it.
+
+The `array_unique` calls that remain in `ResourceTransformer` and `BroadcastEventTransformer` are on
+import-building paths — `enumPropertyFqcns()` and `buildTypeImports()` — where one entry per import
+is what you want.
 
 `aliasPropertyType()` builds one queue of aliases per type name, in FQCN source order, then walks
 the type string's occurrences left to right with `preg_replace_callback`, so occurrence N takes
 FQCN N. When the list is per-occurrence the queue is exact and every occurrence resolves to its own
 model — including the interleaved case `Crm, App, Crm`, where the repeat is *not* the trailing FQCN.
 
-Two clamps sit underneath that:
+Three clamps sit underneath that:
 
 - **One FQCN owns the name.** The queue has length 1, so every occurrence is provably it and every
   one is rewritten — the widened-container case, `User[] | Record<string, User>` from a single
@@ -80,6 +90,10 @@ Two clamps sit underneath that:
   backstop against a bare token, not the mechanism: any caller that supplies true multiplicity never
   reaches it. It cannot recover the right model — deduping `Crm, App, Crm` to `Crm, App` retypes the
   third occurrence as `App`, which is why the dedupe was removed rather than compensated for.
+- **A queue longer than the occurrence count.** `ResourceTransformer::mergePropertyFqcnMaps()`'s
+  superset case lands here: a property two of its seven merged maps both register carries every
+  map's entries, so the queue outgrows the real occurrence count. The prefix the occurrences do
+  consume is unaffected — the surplus past it is simply never read.
 
 Occurrence order *is* FQCN source order by construction, not by luck. `mergeTypeScriptInfos()`
 appends to `$types` and `$orderedClassFqcns` inside the same loop iteration and then returns

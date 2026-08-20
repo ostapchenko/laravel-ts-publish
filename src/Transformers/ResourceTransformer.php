@@ -846,7 +846,9 @@ class ResourceTransformer extends CoreTransformer
         $modelClass = $this->modelClass;
 
         foreach (array_keys($this->properties) as $propName) {
-            if (isset($this->propertyModelFqcns[$propName])) {
+            // Skip when inline analysis already owns this property's FQCNs — letting both maps populate here
+            // would double the merged queue and break its prefix alignment with real occurrences.
+            if (isset($this->propertyModelFqcns[$propName]) || isset($this->propertyInlineModelFqcns[$propName])) {
                 continue;
             }
 
@@ -951,9 +953,9 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Merge every per-property FQCN map — singular and list — into one property => FQCN list.
-     *
-     * Named apart from BroadcastEventTransformer::collectPropertyFqcns(), whose signature differs.
+     * Merge every per-property FQCN map — singular and list — into a superset-in-order, prefix-aligned
+     * FQCN queue: a property in more than one map gets each map's entries concatenated, so its length can
+     * exceed real occurrences; aliasPropertyType() consumes only the matching prefix — never dedupe it.
      *
      * @return array<string, list<class-string>>
      */

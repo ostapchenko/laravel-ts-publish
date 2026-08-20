@@ -1481,6 +1481,29 @@ describe('ResourceTransformer with union model accessor types', function () {
     });
 });
 
+describe('ResourceTransformer mergePropertyFqcnMaps() overlap guard', function () {
+    test('a property already carrying inline model FQCNs is not re-queued by the accessor pass', function () {
+        $transformer = new ResourceTransformer(WarehouseResource::class);
+
+        $bindMethod = fn (string $method) => (fn () => $this->{$method}())->call($transformer);
+
+        // Simulate a property whose per-occurrence FQCNs are already known — as inline array-literal
+        // analysis supplies — in an order that differs from the accessor's own declared union.
+        (function () {
+            unset($this->propertyModelFqcnsList['last_user_activity_by']);
+            $this->propertyInlineModelFqcns['last_user_activity_by'] = [User::class, CrmUser::class];
+        })->call($transformer);
+
+        $bindMethod('resolveMultiClassAccessorFqcns');
+
+        $merged = (fn () => $this->mergePropertyFqcnMaps())->call($transformer);
+
+        // Without the guard the accessor pass re-adds its own [CrmUser, User] ahead of the inline
+        // entries, producing a 4-entry queue for what is really 2 occurrences and misaligning the prefix.
+        expect($merged['last_user_activity_by'])->toBe([User::class, CrmUser::class]);
+    });
+});
+
 describe('ResourceTransformer inline model FQCN collision via ->only() filter', function () {
     test('model nested in ->only() inline object is aliased when it conflicts with another model', function () {
         $data = (new ResourceTransformer(ServiceDeskResource::class))->data();

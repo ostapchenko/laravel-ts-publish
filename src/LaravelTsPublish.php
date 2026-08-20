@@ -1764,8 +1764,9 @@ class LaravelTsPublish
      * A morph union's occurrence order is the order its FQCN list was built in, so same-basename FQCNs are
      * consumed in source order and the last one covers any further occurrence. No bare token survives.
      *
-     * @param  list<string>  $itemFqcns  one entry per occurrence, in source order — never deduped, since
-     *                                   multiplicity is what lets occurrence N resolve to its own FQCN
+     * @param  list<string>  $itemFqcns  FQCN per occurrence, in source order, never deduped — a caller may
+     *                                   supply more entries than real occurrences (e.g. a merged superset);
+     *                                   aliasPropertyType() consumes only the matching prefix, in order
      * @param  array<string, string>  $nameMap  FQCN => unaliased type name
      * @param  array<string, string>  $aliases  FQCN => alias, for the subset that was aliased
      */
