@@ -54,13 +54,15 @@ climbs only as far as needed:
 `applyResolvedImportNames()` records an FQCN in `$importAliases` only when its resolved local name
 differs from its type name, then calls the transformer's `rewriteTypeReferences()` once. Each
 transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
-`$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns` in `ModelTransformer`, `$propertyFqcns` in
-`BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`.
+`$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns`/`$relationFqcns` in `ModelTransformer`, `$propertyFqcns`
+in `BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`.
 Callers must neither sort nor dedupe that list: multiplicity and order together *are* the contract.
 `ModelTransformer` and `BroadcastEventTransformer` supply **one entry per occurrence, in registration
-order**, exactly: `ModelTransformer` by construction (`$columnFqcns[$name][] = $fqcn` and its two
-siblings are plain appends), `BroadcastEventTransformer` by dropping the `array_values(array_unique(...))`
-its `$propertyFqcns` assignment used to end in.
+order**, exactly: `ModelTransformer` by construction (`$columnFqcns[$name][] = $fqcn` and its three
+siblings are plain appends — `$relationFqcns[$name]` is assigned once, wholesale, from the same
+`$morphTargets`/`[$relation['related']]` list that built the relation's type string, so it is
+per-occurrence by construction too), `BroadcastEventTransformer` by dropping the
+`array_values(array_unique(...))` its `$propertyFqcns` assignment used to end in.
 
 `ResourceTransformer::mergePropertyFqcnMaps()` promises less. It concatenates seven per-property maps
 group by group, so a property registered in more than one of them carries every map's entries in
@@ -110,10 +112,7 @@ including `a longer registered name is not shadowed by a shorter one that prefix
 
 **Invariant: no bare colliding token survives `aliasPropertyType()`.** Every name that reaches a
 queue is rewritten at every occurrence, because the cursor clamps to the queue's last entry rather
-than running off the end. The invariant is scoped to this helper on purpose:
-`ModelTransformer::rewriteTypeReferences()` aliases a *morph relation* union through its own
-`$relationAliases` walk, which has no such clamp — when `isset($nameToAliases[$bare][$idx])` fails
-it leaves the member bare. That channel is a known gap, not part of this invariant.
+than running off the end.
 The invariant is what
 [the unimportable-token gate](../testing/type-inference-gates.md) depends on — a bare `User` left
 in a file that imports only `User as ModelsUser` and `User as CrmUser` is a `TS2304`. The

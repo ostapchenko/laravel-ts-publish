@@ -14,6 +14,7 @@ use Workbench\App\ValueObjects\ArrayableData;
 use Workbench\App\ValueObjects\Money;
 use Workbench\App\ValueObjects\StringableLabel;
 use Workbench\App\ValueObjects\TreeNode;
+use Workbench\Crm\Models\User as CrmUser;
 
 class Image extends Model
 {
@@ -45,6 +46,12 @@ class Image extends Model
 
     /** Polymorphic parent (Product, Post, User, etc.) */
     public function imageable(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    /** @return MorphTo<CrmUser|User, $this> */
+    public function reviewable(): MorphTo
     {
         return $this->morphTo();
     }

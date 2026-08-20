@@ -404,6 +404,9 @@ declare global {
             imageable: Post | Product | User | workbench.crm.models.User;
             imageable_count: number;
             imageable_exists: boolean;
+            reviewable: workbench.crm.models.User | User | null;
+            reviewable_count: number;
+            reviewable_exists: boolean;
         }
         export interface Kpi {
             // Columns
@@ -2373,6 +2376,7 @@ declare global {
             positive_int_accessor: number;
             numeric_string_accessor: string;
             imageable: workbench.app.models.Post | workbench.app.models.Product | workbench.app.models.User | workbench.crm.models.User;
+            reviewable: workbench.crm.models.User | workbench.app.models.User | null;
         }
         /** Exercises a morphTo relation exposed through a resource: the emitted union needs every parent imported. */
         export interface ImageMorphResource {

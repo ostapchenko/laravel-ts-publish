@@ -4803,11 +4803,23 @@
                     "type": "Post | Product | WorkbenchUser | CrmUser"
                 },
                 {
+                    "name": "reviewable",
+                    "type": "CrmUser | WorkbenchUser | null"
+                },
+                {
                     "name": "imageable_count",
                     "type": "number"
                 },
                 {
+                    "name": "reviewable_count",
+                    "type": "number"
+                },
+                {
                     "name": "imageable_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "reviewable_exists",
                     "type": "boolean"
                 }
             ]
@@ -9999,6 +10011,11 @@
                 {
                     "name": "imageable",
                     "type": "Post | Product | WorkbenchUser | CrmUser",
+                    "optional": false
+                },
+                {
+                    "name": "reviewable",
+                    "type": "CrmUser | WorkbenchUser | null",
                     "optional": false
                 }
             ]

@@ -386,6 +386,9 @@ declare global {
             imageable: Post | Product | User | crm.models.User;
             imageable_count: number;
             imageable_exists: boolean;
+            reviewable: crm.models.User | User | null;
+            reviewable_count: number;
+            reviewable_exists: boolean;
         }
         export interface Kpi {
             // Columns
@@ -2373,6 +2376,7 @@ declare global {
             positive_int_accessor: number;
             numeric_string_accessor: string;
             imageable: app.models.Post | app.models.Product | app.models.User | crm.models.User;
+            reviewable: crm.models.User | app.models.User | null;
         }
         /** Exercises a morphTo relation exposed through a resource: the emitted union needs every parent imported. */
         export interface ImageMorphResource {

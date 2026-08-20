@@ -108,6 +108,9 @@ class ModelTransformer extends CoreTransformer
     /** @var array<string, list<string>> append_name => list of FQCNs (enum or model) referenced by that append */
     protected array $appendsFqcns = [];
 
+    /** @var array<string, list<string>> relation_name => target FQCNs, one per occurrence, in type-string order */
+    protected array $relationFqcns = [];
+
     /** @var array<string, list<string>> */
     public protected(set) array $customImports = [];
 
@@ -429,6 +432,9 @@ class ModelTransformer extends CoreTransformer
             $relatedBasename = class_basename($relation['related']);
             $containsMany = str_contains(strtolower($relation['type']), 'many');
 
+            // Default for a non-morph relation; the morph branch below overrides it either way.
+            $relationTargetFqcns = [$relation['related']];
+
             if ($isMorphTo) {
                 /** @var ModelAttributeResolver $resolver */
                 $resolver = resolve(ModelAttributeResolver::class);
@@ -450,6 +456,7 @@ class ModelTransformer extends CoreTransformer
 
                 if ($morphTargets !== []) {
                     $relationType = implode(' | ', array_map(class_basename(...), $morphTargets));
+                    $relationTargetFqcns = $morphTargets;
 
                     foreach ($morphTargets as $targetFqcn) {
                         $targetBasename = class_basename($targetFqcn);
@@ -458,6 +465,7 @@ class ModelTransformer extends CoreTransformer
                     }
                 } else {
                     $relationType = 'unknown';
+                    $relationTargetFqcns = [];
                 }
             } elseif ($containsMany) {
                 $relationType = $relatedBasename.'[]';
@@ -480,6 +488,7 @@ class ModelTransformer extends CoreTransformer
             }
 
             $this->relations[$relationName] = ['type' => $relationType, 'description' => $description];
+            $this->relationFqcns[$relationName] = $relationTargetFqcns;
 
             if (! $isMorphTo) {
                 $this->modelFqcnMap[$relation['related']] = $relatedBasename;
@@ -595,64 +604,6 @@ class ModelTransformer extends CoreTransformer
      */
     protected function rewriteTypeReferences(): void
     {
-        /** @var array<string, string> $fqcnToAlias */
-        $fqcnToAlias = [];
-
-        foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $this->modelFqcnMap[$fqcn] ?? null;
-
-            if ($originalName === null || $originalName === $alias) {
-                continue;
-            }
-
-            $fqcnToAlias[$fqcn] = $alias;
-        }
-
-        // Two FQCNs can share a basename (App\User & Crm\User), so a morph union is rewritten
-        // member by member, consuming that basename's aliases in order.
-        $case = Config::string('ts-publish.models.relationship_case');
-        if ($fqcnToAlias !== []) {
-            /** @var array<string, array<string, list<string>>> $relationAliases relation_key => [basename => [alias, ...]] */
-            $relationAliases = [];
-
-            foreach ($fqcnToAlias as $fqcn => $alias) {
-                $originalName = $this->modelFqcnMap[$fqcn];
-
-                foreach ($this->modelFqcnRelations[$fqcn] ?? [] as $relationMethod) {
-                    $relationKey = LaravelTsPublish::keyCase($relationMethod, $case);
-                    $relationAliases[$relationKey][$originalName][] = $alias;
-                }
-            }
-
-            foreach ($relationAliases as $relationKey => $nameToAliases) {
-                if (! isset($this->relations[$relationKey])) {
-                    continue;
-                }
-
-                $type = $this->relations[$relationKey]['type'];
-                $members = array_map(trim(...), explode('|', $type));
-
-                /** @var array<string, int> $consumed tracks how many aliases have been used per basename */
-                $consumed = [];
-
-                foreach ($members as $i => $member) {
-                    $bare = str_ends_with($member, '[]') ? substr($member, 0, -2) : $member;
-
-                    if (isset($nameToAliases[$bare])) {
-                        $idx = $consumed[$bare] ?? 0;
-
-                        if (isset($nameToAliases[$bare][$idx])) {
-                            $suffix = str_ends_with($member, '[]') ? '[]' : '';
-                            $members[$i] = $nameToAliases[$bare][$idx].$suffix;
-                            $consumed[$bare] = $idx + 1;
-                        }
-                    }
-                }
-
-                $this->relations[$relationKey]['type'] = implode(' | ', $members);
-            }
-        }
-
         $nameMap = $this->enumFqcnMap + $this->modelFqcnMap;
 
         foreach ($this->columns as $key => $entry) {
@@ -670,6 +621,12 @@ class ModelTransformer extends CoreTransformer
         foreach ($this->appends as $key => $entry) {
             $this->appends[$key]['type'] = LaravelTsPublish::aliasPropertyType(
                 $entry['type'], $this->appendsFqcns[$key] ?? [], $nameMap, $this->importAliases,
+            );
+        }
+
+        foreach ($this->relations as $key => $entry) {
+            $this->relations[$key]['type'] = LaravelTsPublish::aliasPropertyType(
+                $entry['type'], $this->relationFqcns[$key] ?? [], $nameMap, $this->importAliases,
             );
         }
     }

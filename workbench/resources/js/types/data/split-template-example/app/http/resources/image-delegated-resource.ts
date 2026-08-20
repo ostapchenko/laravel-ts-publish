@@ -47,4 +47,5 @@ export interface ImageDelegatedResource
     positive_int_accessor: number;
     numeric_string_accessor: string;
     imageable: Post | Product | ModelsUser | CrmUser;
+    reviewable: CrmUser | ModelsUser | null;
 }

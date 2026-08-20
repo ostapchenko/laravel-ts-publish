@@ -158,6 +158,12 @@ test('globals content resolves aliased types to namespace-qualified names', func
         ->toContain('imageable: Post | Product | User | crm.models.User')
         ->not->toContain('imageable: Post | Product | crm.models.User | crm.models.User');
 
+    // reviewable's docblock generic is Crm-first (CrmUser|User), the opposite of imageable's
+    // reverse-map order, so the qualified arm must lead: proves per-occurrence order survives.
+    expect($content)
+        ->toContain('reviewable: crm.models.User | User | null')
+        ->not->toContain('reviewable: User | crm.models.User | null');
+
     // probe_nested.first is an inline array member reading a multi-FQCN accessor (CrmUser|User): both
     // arms must keep their own namespace, not collapse to the same 'app.models.User' and lose the CRM arm.
     expect($content)
