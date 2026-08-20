@@ -969,6 +969,21 @@ fell back to its shorter-than-occurrence-count clamp and mistyped the missing oc
 `syncAnalysisMaps()` case. `inlineEnumFqcns`/`inlineEnumResourceFqcns` stay deduped: they feed
 import lists, not a per-occurrence queue, so one entry per import is correct there.
 
+**A single inline array member's own multi-FQCN accessor now contributes its own arms too.** The three
+fixes above only cover *merging* an already-populated queue across branches or inheritance. A member whose
+own value is a multi-FQCN accessor (`Attribute<CrmUser|User, never>`) never populated that queue at all:
+`resolveModelAttributeTypeInfo()` discarded `classFqcns`, so `analyzeThisProperty()` had nothing to attach
+as `embeddedModelFqcns`, and separately `analyzeInlineArray()` built the array literal's own
+`embeddedModelFqcns` from the self-keyed, deduplicated `$analysis->modelFqcns` map rather than
+`$analysis->inlineModelFqcns`, which would have collapsed any remaining multiplicity anyway. Both are
+fixed: `resolveModelAttributeTypeInfo()` now carries `classFqcns` through, `analyzeThisProperty()` attaches
+it as `embeddedModelFqcns` whenever there is more than one, and `analyzeInlineArray()` walks
+`$analysis->properties` in declaration order, preferring each member's `inlineModelFqcns` entry over
+`modelFqcns`. `WarehouseResource::$probe_nested` (`['first' => $this->last_user_activity_by, 'second' =>
+$this->manager]`) pins the fix: `first` keeps its `CrmUser`/`ModelsUser` arms aliased apart instead of
+rendering `User | User` and losing the CRM arm entirely in `laravel-ts-global.ts`, where it used to
+collapse to `app.models.User | app.models.User`.
+
 `analyzeReturnArray()`'s child-overrides-parent `unset()` now clears all three inline maps for the
 overridden key, not just the five non-inline maps it always cleared. Without that, a
 `...parent::toArray()` spread's stale inline-model entries for a key the child then overrides

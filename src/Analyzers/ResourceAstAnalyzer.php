@@ -2754,6 +2754,12 @@ class ResourceAstAnalyzer
                 $result['directEnumFqcn'] = $info['enumFqcn'];
             }
 
+            // A single-FQCN accessor is unambiguous and already reaches its import through the
+            // top-level fallback; only a genuine union needs its per-occurrence FQCNs carried out.
+            if (count($info['classFqcns']) > 1) {
+                $result['embeddedModelFqcns'] = $info['classFqcns'];
+            }
+
             return $result;
         }
 
@@ -4127,10 +4133,22 @@ class ResourceAstAnalyzer
         $spreadModelFqcns = array_column(array_filter($spreadArms, fn (array $arm): bool => $arm['isModel']), 'fqcn');
         $spreadResourceFqcns = array_column(array_filter($spreadArms, fn (array $arm): bool => ! $arm['isModel']), 'fqcn');
 
-        $embeddedModelFqcns = array_values(array_unique([
-            ...array_values($analysis->modelFqcns),
-            ...$spreadModelFqcns,
-        ]));
+        // Walk members in declaration order and keep every occurrence: the self-keyed $analysis->modelFqcns
+        // map collapses repeated FQCNs onto one key, dropping a multi-FQCN accessor member's own arms.
+        /** @var list<class-string> $embeddedModelFqcns */
+        $embeddedModelFqcns = [];
+
+        foreach ($analysis->properties as $property) {
+            $memberName = $property['name'];
+
+            if (isset($analysis->inlineModelFqcns[$memberName])) {
+                array_push($embeddedModelFqcns, ...$analysis->inlineModelFqcns[$memberName]);
+            } elseif (isset($analysis->modelFqcns[$memberName])) {
+                $embeddedModelFqcns[] = $analysis->modelFqcns[$memberName];
+            }
+        }
+
+        array_push($embeddedModelFqcns, ...$spreadModelFqcns);
 
         if ($embeddedEnumFqcns !== []) {
             $result['embeddedEnumFqcns'] = $embeddedEnumFqcns;

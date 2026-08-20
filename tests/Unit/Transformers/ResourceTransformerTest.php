@@ -2306,4 +2306,16 @@ describe('ResourceTransformer inline model FQCN multiplicity through analyzer me
             ->and($data->properties['regional_hub_leads']['type'])
             ->toBe('{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null');
     });
+
+    // WarehouseResource::probe_nested = ['first' => $this->last_user_activity_by, 'second' => $this->manager].
+    // first is itself a multi-FQCN accessor (CrmUser|User); its two arms plus second's single arm must
+    // each alias to their own FQCN, not collapse to one bare 'User' repeated three times.
+    test('an inline array member keeps both arms of a multi-FQCN accessor aliased apart', function () {
+        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
+
+        $data = (new ResourceTransformer(WarehouseResource::class))->data();
+
+        expect($data->properties['probe_nested']['type'])
+            ->toBe('{ first: CrmUser | ModelsUser | null; second: ModelsUser | null }');
+    });
 });

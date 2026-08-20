@@ -44,6 +44,10 @@ class WarehouseResource extends RoutableResource
             // old leftmost-occurrence heuristic left bare and unimportable — and the repeat is NOT the last
             // FQCN, so only a per-occurrence FQCN list resolves it. Deduping the list aliases it App.
             'regional_hub_contacts' => $this->regional_hub?->only(['primaryContact', 'manager', 'secondaryContact']),
+            // Inline array literal referencing a multi-FQCN accessor (Crm\User|User) plus a single-FQCN
+            // relation: proves an inline object member keeps its own per-occurrence FQCNs rather than
+            // losing them to the array literal's self-keyed, deduplicated model FQCN map.
+            'probe_nested' => ['first' => $this->last_user_activity_by, 'second' => $this->manager],
         ];
     }
 }

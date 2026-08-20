@@ -143,6 +143,7 @@ use Workbench\Blog\Models\Article;
 use Workbench\Blog\Models\Reaction;
 use Workbench\Crm\Http\Resources\DealResource;
 use Workbench\Crm\Models\Deal;
+use Workbench\Crm\Models\User as CrmUser;
 use Workbench\Shipping\Http\Resources\ShipmentResource;
 use Workbench\Shipping\Http\Resources\TrackingEventResource;
 use Workbench\Shipping\Models\Shipment;
@@ -5238,6 +5239,18 @@ test('relation only() still resolves a named accessor and a named relation, unli
     };
 
     expect($analyzer->expose()['type'])->toBe('{ name: string; initials: string; posts: Post[] }');
+});
+
+test('an inline array member keeps its own per-occurrence FQCNs from a multi-FQCN accessor', function () {
+    // probe_nested = ['first' => $this->last_user_activity_by, 'second' => $this->manager]. first is a
+    // multi-FQCN accessor (CrmUser|User), so its two classFqcns plus second's single one must all
+    // survive in occurrence order — not collapse through the array literal's self-keyed model map.
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(WarehouseResource::class), Warehouse::class,
+    )->analyze();
+
+    expect($analysis->inlineModelFqcns)->toHaveKey('probe_nested')
+        ->and($analysis->inlineModelFqcns['probe_nested'])->toBe([CrmUser::class, User::class, User::class]);
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {

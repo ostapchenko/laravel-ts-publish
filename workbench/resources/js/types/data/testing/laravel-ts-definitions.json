@@ -13540,6 +13540,11 @@
                     "name": "regional_hub_contacts",
                     "type": "{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null",
                     "optional": false
+                },
+                {
+                    "name": "probe_nested",
+                    "type": "{ first: CrmUser | WorkbenchUser | null; second: WorkbenchUser | null }",
+                    "optional": false
                 }
             ]
         },

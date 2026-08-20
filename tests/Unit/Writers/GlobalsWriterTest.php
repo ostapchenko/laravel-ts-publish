@@ -157,6 +157,13 @@ test('globals content resolves aliased types to namespace-qualified names', func
     expect($content)
         ->toContain('imageable: Post | Product | User | crm.models.User')
         ->not->toContain('imageable: Post | Product | crm.models.User | crm.models.User');
+
+    // probe_nested.first is an inline array member reading a multi-FQCN accessor (CrmUser|User): both
+    // arms must keep their own namespace, not collapse to the same 'app.models.User' and lose the CRM arm.
+    expect($content)
+        ->toContain('first: crm.models.User | app.models.User | null')
+        ->toContain('second: app.models.User | null')
+        ->not->toContain('first: app.models.User | app.models.User | null');
 });
 
 test('globals resources section emits export type for flat collections', function () {
