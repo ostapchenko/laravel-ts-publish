@@ -10,6 +10,8 @@ use Workbench\App\Http\Resources\AddressMixinResource;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\Admin\Store as AdminStoreResource;
 use Workbench\App\Http\Resources\ApiPostResource;
+use Workbench\App\Http\Resources\BodylessOrderResource;
+use Workbench\App\Http\Resources\BodylessTeamResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ChildSharedResource;
 use Workbench\App\Http\Resources\CommentResource;
@@ -613,6 +615,31 @@ describe('ResourceTransformer with OrderResource', function () {
         $data = (new ResourceTransformer(OrderResource::class))->data();
 
         expect($data->properties['items']['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceTransformer with a body-less subclass', function () {
+    test('inherits the parent @mixin when the subclass declares no docblock of its own', function () {
+        $data = (new ResourceTransformer(BodylessOrderResource::class))->data();
+
+        expect($data->modelClass)->toBe(Order::class);
+    });
+
+    test('the inherited toArray() shape carries real column types instead of unknown', function () {
+        $data = (new ResourceTransformer(BodylessOrderResource::class))->data();
+
+        expect($data->properties['id']['type'])->toBe('number')
+            ->and($data->properties['total']['type'])->toBe('number')
+            ->and($data->properties['paid_at']['type'])->toBe('string | null')
+            ->and(array_column($data->properties, 'type'))->not->toContain('unknown');
+    });
+
+    test('a body-less subclass with its own @mixin generates the ancestor shape, not an empty interface', function () {
+        $data = (new ResourceTransformer(BodylessTeamResource::class))->data();
+
+        expect($data->modelClass)->toBe(Team::class)
+            ->and($data->properties['name']['type'])->toBe('string')
+            ->and($data->properties['members']['type'])->toBe('TeamMemberResource[]');
     });
 });
 
@@ -1368,12 +1395,14 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->toHaveKey('last_user_activity_by_typed_short');
 
         // Warehouse::lastUserActivityBy is Attribute<CrmUser|User|null, never>; both share basename 'User'.
+        // mergeTypeScriptInfos() appends to $types and $orderedClassFqcns in one pass, so arm N is FQCN N:
+        // the CRM arm is declared first and must alias first.
         expect($data->properties['last_user_activity_by']['type'])
-            ->toBe('WorkbenchUser | CrmUser | null');
+            ->toBe('CrmUser | WorkbenchUser | null');
         expect($data->properties['last_user_activity_by_typed']['type'])
-            ->toBe('WorkbenchUser | CrmUser | null');
+            ->toBe('CrmUser | WorkbenchUser | null');
         expect($data->properties['last_user_activity_by_typed_short']['type'])
-            ->toBe('WorkbenchUser | CrmUser | null');
+            ->toBe('CrmUser | WorkbenchUser | null');
     });
 
     test('accessor returning a union of two different models generates import aliases', function () {
@@ -1398,12 +1427,14 @@ describe('ResourceTransformer with union model accessor types', function () {
 
         $type = $data->properties['last_user_activity_by_mostly']['type'];
 
-        // Workbench\Crm\Models\User has email, company, status, created_at, updated_at — no id or name —
-        // so each model contributes its own inline object to the union.
+        // Each model contributes its own inline object to the union, and Model::except() returns database
+        // columns only: no accessors (initials, is_premium) and no relations (images, posts, …).
         expect($type)
             ->not->toBe('unknown')
-            ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null; images: Image[] }')
-            ->toContain('{ email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: Profile | null; posts: Post[]; comments: Comment[]; orders: Order[]; addresses: Address[]; teams: Team[]; ownedTeams: Team[]; images: Image[]; notifications: DatabaseNotification[] }')
+            ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null }')
+            ->toContain('{ email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null }')
+            ->not->toContain('images: Image[]')
+            ->not->toContain('initials: string')
             ->toEndWith('| null');
     });
 
@@ -2001,15 +2032,15 @@ describe('ResourceTransformer with RelationChainResource — EnumResource::make(
             ->toBe('AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>');
     });
 
-    // Same non-rebuildable shape nested inside an inline array: analyzeInlineArray() still
-    // rebuilds rather than substitutes, so it must still demote here and keep the raw union —
-    // proving isRebuildableEnumShape()'s one remaining call site actually still fires end-to-end.
-    test('wrapped_filtered keeps its raw, un-rewritten union inside the inline array', function () {
+    // Same keyed-Record shape nested inside an inline array: analyzeInlineArray() substitutes the
+    // bare RoleType token in place too, so the nested union AsEnum-wraps both arms end-to-end,
+    // exactly like member_role_resources_filtered above.
+    test('wrapped_filtered AsEnum-wraps both arms of its union inside the inline array', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(RelationChainResource::class))->data();
 
         expect($data->properties['wrapped_filtered']['type'])
-            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
+            ->toBe('{ roles: AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>> }');
     });
 });
 

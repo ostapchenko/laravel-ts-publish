@@ -59,8 +59,8 @@ is template-dependent, so the correctness argument below is scoped to
   `.../full-template-example/app/http/resources/order-item-resource.ts` — byte-identical to the
   one in the `split-template-example` tree — spans all of those too, and describes a value with
   mutators and relations on it that `Model::except()` does not return at runtime. That is the
-  same inaccuracy the old inline expansion had (see the end of this section); under `model-full`
-  the Omit reference inherits it rather than fixing it. It still compiles — `Omit<T, K>` does not
+  inaccuracy the inline expansion used to share (see the end of this section, where it is now
+  fixed); under `model-full` the Omit reference still carries it. It still compiles — `Omit<T, K>` does not
   constrain `K` — and it is still a superset of the truth rather than a wrong-typed property, but
   it is not the tight match the split template gives.
 
@@ -81,12 +81,10 @@ so a get-only accessor can never surface even once it has been accessed. **At ru
 a loaded relation and both get-only accessors (`excerpt`, `readingTime`) touched beforehand; the
 result was identical to an untouched instance, and neither the relation nor either accessor
 appeared. Under `model-split`, the bare-model `Omit<Model, keys>` this analyzer emits matches that
-ground truth exactly. The *old* inline expansion's `except()` branch — which unions `$attrNames` (columns +
-mutators) with `$relationNames` and subtracts the excluded keys — is the one that was
-inaccurate: it shows relations and mutators `Model::except()` never actually returns at
-runtime. That mismatch predates this feature and is unrelated to `only()`/`except()` no longer
-being re-derived inline; it isn't fixed here (out of scope), but is worth knowing if you're
-relying on the shape of an `except()`-filtered relation for a key that isn't a column.
+ground truth exactly. The *old* inline expansion's `except()` branch — which unioned every
+attribute name (columns **and** accessors) with every relation name and subtracted the excluded
+keys — was the one that disagreed: it showed relations and accessors `Model::except()` never
+actually returns at runtime. That is fixed; see **Relations half fixed too** below.
 
 **Mutator half fixed in a later pass:** `buildModelDelegatedAnalysis()`'s own property set — used
 by whole-model delegation and `return $this->except([...])`, not the relation-filter inline path
@@ -97,24 +95,42 @@ model. A real database column is never dropped by this check even when its own r
 `unknown`, matching `transformColumns()`, which always keeps a column.
 
 The skip is gated on `$excludeHidden` — true for the implicit paths, false only for `only()` — for
-the same reason `HasAttributes::except()`/`only()` themselves diverge: `except()` (`:2146`) iterates
+the same reason `HasAttributes::except()`/`only()` themselves diverge: `except()` iterates
 `getAttributes()`, which a write-only mutator was never added to, so it truly cannot appear;
-`only()` (`:2129`) instead calls `getAttribute($key)` per named key, which *does* return the key
+`only()` instead calls `getAttribute($key)` per named key, which *does* return the key
 (as `null`, absent a getter to transform a stored value) even for a write-only mutator. So
 `return $this->only(['search_index'])` keeps `search_index: unknown` — `unknown` because nothing
 here infers a type from a *setter*, and that already admits the `null` `getAttribute()` would
 return. `OrderOnlyResource`'s fixture pins this against `search_index` directly.
 
-The relations half of the inaccuracy above is untouched — `Model::except()` never returns a
-relation either, and that stays out of scope. `resolveFilteredRelationType()`'s except branch
-(`$this->relation->except([...])`) now applies the same `isOmittedMutator()` rule as
-`buildModelDelegatedAnalysis()`: only a write-only mutator with no getter and no docblock `Get`
-generic drops out, so a mutator that *has* a getter but resolves to an untypeable `unknown`
-survives as `key: unknown`, matching the whole-model path. The two `except()` paths now agree.
-A side effect on the sibling include branch (`$this->relation->only([...])`) follows from the
-same shared gate: an explicitly-named getter-backed accessor that resolves to `unknown` now also
-survives instead of vanishing from the inline shape — runtime-faithful, since `Model::only()`
-resolves through `getAttribute()`, which does return that key.
+**Relations half fixed too:** `resolveFilteredRelationType()`'s except branch
+(`$this->relation->except([...])`) no longer unions relation names into its key list at all. It
+intersects the related model's attribute list with `ModelAttributeResolver::databaseColumnNames()`
+and subtracts the excluded keys, so the emitted shape is database columns only — the same set
+`HasAttributes::except()` produces by iterating `getAttributes()`. Accessors drop out with the
+relations, since `mergeAttributeFromAttributeCasts()` never merges a get-only `Attribute` back into
+`$attributes` in the first place. `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` pins the full
+result for `Image` against the columns `create_images_table` declares, not against prior output.
+
+One user-visible consequence: naming a relation or an accessor in the exclusion list is now a no-op.
+The key list is built by subtracting the named keys from a set that has *already* been intersected
+with `databaseColumnNames()`, so a name that is not a column was never in the set to subtract from
+and its removal changes nothing. This follows from the mechanism rather than from a fixture — no
+workbench resource names a non-column key in an `except()` list, and `WarehouseResource` stopped
+doing so when its `only()` counterpart was reworked for same-basename aliasing.
+
+The relation-emitting arm of that loop stays reachable, because the include branch still needs it:
+`$this->relation->only(['posts'])` names a relation key directly, and `HasAttributes::only()`
+calls `getAttribute($key)` per named key, which resolves accessors and relations alike.
+So the two branches now diverge *by design*, for exactly the reason spelled out above — the same
+divergence Eloquent itself has — rather than by oversight. `ResourceAstAnalyzerTest.php` pins the
+include branch's accessor-and-relation resolution alongside the except branch's column list.
+
+`isOmittedMutator()` still guards that loop, but with the except branch restricted to columns it is
+in practice the include branch's gate: a named write-only mutator with no getter and no docblock
+`Get` generic has no shape to emit, while a getter-backed accessor that resolves to `unknown`
+survives as `key: unknown` — runtime-faithful, since `Model::only()` resolves through
+`getAttribute()`, which does return that key.
 
 ### `exclude_hidden` on the top-level resource, not just relation filters
 
@@ -135,7 +151,8 @@ go through `getArrayableItems()`, which strips it.
   method, then subtracts the named keys; a hidden column that was never named to be *kept* falls
   out with the rest.
 - **`$this->relation->except([...])`** — `resolveFilteredRelationType()`'s except branch builds its
-  key list from every attribute and relation name on the related model.
+  key list from every database column on the related model (never an accessor or a relation name),
+  so a hidden column the caller never named falls out with the rest.
 
 **Explicit — `exclude_hidden` leaves it alone:**
 
@@ -190,17 +207,87 @@ non-empty) but only the first is importable, so every `classFqcns` entry must pa
 `is_a($fqcn, Model::class, true)` check or the whole result is rejected — accepting the enum
 half while dropping an unimportable class token would still leak a compile error.
 
+### `directEnumFqcn` carries two entry kinds
+
+The `directEnumFqcn` channel and `ResourceTransformer::$directEnumProperties` map share one array
+carrying two structurally different entry kinds: property-name keys pointing to direct-access enum
+FQCNs (from ternary/union branches), and self-keyed FQCN entries (from embedded enums in inline
+relation filters). All three consumers live inside `ResourceTransformer::rewriteEnumResourceTypes()`:
+the `$isMixed` check is key-sensitive, testing whether a property name is a key in the map, while
+the other two — both import-garbage-collection loops — compare values only and work correctly for
+both entry kinds. `substituteEnumResourceType()` never reads this map at all.
+
+### The tolki `AsEnum` wrap substitutes a token; it never rebuilds the type
+
+An `EnumResource::make()`-wrapped property reaches the `enumResources` channel carrying the
+analyzer's own type string, in which the enum appears as its bare TS type name (`RoleType` —
+`TypeScriptTypeInfo::$enumTypes[0]`, i.e. the `#[TsEnum]` name or the class basename, suffixed
+`Type`). With `enums.use_tolki_package` on, **both** rewrite paths turn that into
+`AsEnum<typeof Role>` by *substituting the bare token in place*:
+`ResourceTransformer::substituteEnumResourceType()` for a top-level property, and
+`ResourceAstAnalyzer::substituteEnumType()` for one nested inside an inline array literal.
+Both use the same word-boundary pattern — the lookbehind excludes `.` so a namespace-qualified
+`foo.RoleType` is left alone, the lookahead stops `RoleType` matching the prefix of
+`RoleTypeExtra`.
+
+Substitution matters because the analyzer's type is often richer than `X`/`X[]`, and the corpus
+pins two such shapes:
+
+| Fixture | Analyzer type | After substitution |
+| --- | --- | --- |
+| `RelationChainResource::$member_role_resources_filtered` — a key-clearing chain, `filter()->map(fn (…) => EnumResource::make(…))` | `RoleType[] \| Record<string, RoleType>` | `AsEnum<typeof Role>[] \| Record<string, AsEnum<typeof Role>>` |
+| `EnumCollectionResource::$week_days_when_has_default` — a conditional with an explicit default, `whenHas('week_days', EnumResource::collection(...), 'none')` | `WeekDaysType[] \| null \| string` | `AsEnum<typeof WeekDays>[] \| null \| string` |
+
+The second is the one that shows substitution wrapping *some* arms and leaving others alone: the
+`string` arm the explicit default contributes names no enum, so it survives untouched while the
+element type is wrapped. `ResourceAstAnalyzerTest.php` pins the analyzer half ("whenHas() with an
+explicit default stays enumFqcn-tagged and keeps the full union") and `ResourceTransformerTest.php`
+the transformer half ("whenHas() with an explicit default keeps the full union, AsEnum-wrapped").
+
+Rebuilding the type from the FQCN — which is what both paths
+used to do — could express only `X`, `X[]`, `X | null`, `X[] | null`, so every richer shape had
+to be demoted out of the `enumResources` channel by a guard (`isRebuildableEnumShape()`) and
+left un-wrapped. That guard is gone: substitution reproduces any shape losslessly, wrapping
+every arm that names the enum and leaving the rest of the union untouched.
+`RelationChainResource::$member_role_resources_filtered` (top level) and `$wrapped_filtered`
+(inline array) pin the two paths against the identical PHP shape — they must never disagree.
+
 ### Multi-model accessor unions are untouched
 
 The other branch of `analyzeRelationFilter()` — an accessor typed as a union of two or more
 Eloquent models, e.g. `Attribute<CrmUser|User, never>` — is left on the pre-existing inline
-expansion entirely. Each union member's `Pick`/`Omit` reference would need its own
-alias-correct import (two models can share a basename across namespaces, as `CrmUser`/`User`
-do in the workbench fixtures), and the FQCN-dispatch channel `analyzeRelationFilter()` already
-has (`embeddedModelFqcns`, self-keyed by FQCN) does not carry the per-property association
-needed to alias-rewrite each member's reference correctly. Extending Pick/Omit to this branch
-is possible but requires new per-property import plumbing — tracked as follow-up work, not
-part of this feature.
+expansion entirely. Nothing *rejects* a union: `relationFilterModelReference()` is only called
+below the `$modelFqcn === null` guard, and that guard is precisely what diverts a multi-model
+receiver into the accessor-union loop. The `Pick`/`Omit` builder is unreachable from that
+branch rather than declined by it.
+
+Staying inline costs real fidelity, so this is a gap rather than a preference. The inline path
+re-derives each column's type and loses the `#[TsCasts]` refinements a model reference keeps by
+construction: `WarehouseResource::$last_user_activity_by_mostly` emits `options: unknown[] | null`
+and `settings: unknown[] | null` where the `User` model interface declares
+`Record<string, unknown> | null` and a full `{ theme; notifications; locale }` object shape.
+
+What blocks the fix is **not** import plumbing — an earlier version of this section said it was,
+and that was never accurate. `embeddedModelFqcns` is accumulated per property name by
+`analyzeRelationFilter()`'s caller, and `LaravelTsPublish::aliasPropertyType()` already rewrites
+each same-basename occurrence within a single property. The real obstacles are three:
+
+- **`Omit<Model, …>` is template-dependent; the inline expansion is not.** Under the `model-full`
+  template the bare model interface also carries mutators, relations, counts and exists, so a
+  reference re-widens exactly what the runtime-faithful `except()` expansion narrowed to database
+  columns. A model declaring `$appends` has the same problem under every template.
+- **The test pinning "columns only" would stop testing it.** `ResourceTransformerTest` asserts
+  `not->toContain('images: Image[]')` against the emitted type *string*. `Omit<User, 'id' | 'name'>`
+  names no members, so that assertion passes vacuously while the type genuinely spans them — the
+  guarantee would retire silently instead of failing.
+- **The union loop dedupes by rendered type.** `relationFilterModelReference()` renders
+  `class_basename()`, so two models sharing a basename collapse to one string and the dedupe drops
+  the second arm — together with the FQCN push that would have registered its import.
+
+`only()` is a separate case with nothing to gain: `Pick<A, K> | Pick<B, K>` is type-identical to
+the inline object the union loop already emits. Only `except()` would benefit, and only once the
+template-dependence is resolved. Tracked with a full fix shape in the analyzer-followups plan's
+Out of Scope section.
 
 ## Variable bindings
 
@@ -309,6 +396,112 @@ goes through the same `$visitedSpreadMethods` guard described above, so it degra
 analysis on re-entry rather than recursing until memory runs out. See `BareMethodReturnResource` in
 the workbench and the corresponding test in `ResourceAstAnalyzerTest` for the transitive case
 (`toArray()` → `data()` → `nested()`).
+
+### A `new self($x)->method()` receiver resolves the same way
+
+`analyzeSelfReturningResourceMethodCall()` handles `new self($x)->method()`, `self::make($x)->method()`
+and chains of both. When `methodPreservesReceiverType()` says the method hands the same instance back —
+a native `static`/`self`/the resource class, or a docblock-only `@return $this` — the receiver's own
+resolved result is returned unchanged. When it says otherwise, the expression has stopped being the
+resource, and the method's *body* is resolved through `analyzeThisMethodSpread()` instead of degrading
+to `unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
+`buildInlineObjectType()` — the same helper `analyzeInlineArray()` assembles its `{ … }` arm with.
+
+Three tiers are possible here and only the last is correct. Do not "improve" this to the receiver type:
+
+| Emitted type | Verdict |
+| --- | --- |
+| `FluentSelfResource` — the receiver type | **Wrong.** The instance is only ever `$this` inside the method and never reaches the payload, so this promises keys the response does not contain. |
+| `unknown` | The safe floor. Honest, but it tells the frontend nothing. |
+| `{ id: number }` — the method body | **Correct.** `FluentSelfResource::summary(): array` returns `['id' => $this->id]`, so `{"id": 123}` is what the response actually carries. |
+
+An empty analysis returns `null` rather than emitting a bare `{}`, because `{}` asserts the payload has
+no keys — a stronger and more often wrong claim than `unknown`.
+
+Recursion needs no new guard. `analyzeThisMethodSpread()`'s existing `$visitedSpreadMethods` entry
+covers this entry point exactly as it covers a `...$this->method()` spread, and the same `finally`
+already restores `$localVarBindings`/`$resolvingLocalVars`/`$varModelBindings`.
+
+### Scope boundary: a foreign resource class receiver still degrades to `unknown`
+
+`analyzeThisMethodSpread()` is hard-bound to `$this->resourceReflection` — it looks the method up with
+`$this->resourceReflection->hasMethod()` and `->getMethod()` — so it can only resolve methods declared
+on (or inherited by) the class the analyzer was constructed for. For `new self($x)` the receiver class
+*is* that class, which is what makes reusing it sound.
+
+`SomeOtherResource::make($x)->summary()` would need a second analyzer instance built on that other
+class, which this does not do. So the hook guards on receiver identity — `$resourceFqcn !==
+$this->resourceReflection->getName()` returns `null` — and the property keeps the `unknown` floor.
+Without that guard the analyzer would resolve *its own* same-named method and emit a shape belonging
+to a different class.
+
+`FluentSelfResource::foreign_summary` pins that boundary in the workbench: it calls
+`new CategoryResource($this->parent)->summary()`, and `CategoryResource::summary()` deliberately
+returns a different shape (`['slug' => $this->slug]`) from `FluentSelfResource::summary()`'s
+`['id' => $this->id]`, so a regression that dropped the guard would emit `{ id: number }` there and
+fail the test. Widening this to foreign receivers is therefore a deliberate change, not an accident.
+
+## Inline-array spreads become intersection arms
+
+An inline array literal that spreads a named type alongside its own keys —
+`[...UserResource::make($m)->resolve($request), 'profile' => new ProfileResource($m->profile)]` —
+emits an intersection rather than flattening the spread's keys inline. `analyzeInlineArray()`
+collects the arms via `collectInlineArraySpreadArms()` and builds each one with
+`buildSpreadArmTypes()`. Two arm kinds are recognised, both handled identically once collected:
+
+- **A resource arm** — a spread whose value resolves to a *bare* named resource (not an array or
+  collection of one). The guard is that the result carries a `resourceFqcn` *and* its emitted type
+  is exactly that resource's basename, so `UserResource[]` never becomes an arm.
+- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model, resolved by
+  `spreadModelToArrayFqcn()` against `$varModelBindings`, falling back to
+  `$closureRelationModelClass` for an untyped closure param. `$this->toArray()` is excluded by name:
+  it is the resource's own method and `isKnownArraySpreadShape()` already flattens it.
+
+Model detection is deliberately **local to the collector**. `analyzeValueExpression()` still types a
+bare `$member->toArray()` as `unknown[]` everywhere else, because giving it a `modelFqcn` generally
+would change every non-spread `toArray()` call in the corpus.
+
+### The `Omit<>` subtraction rule
+
+Each arm is `Omit<>`'d against every key a *later* arm or an explicit sibling key will overwrite.
+This is not cosmetic: PHP's `[...$a, ...$b, 'k' => $v]` lets the later assignment win, and
+TypeScript's `&` does not — it intersects both, collapsing a colliding key to `never` when the two
+types disagree. Subtracting the overridden keys from the earlier arm is what makes the emitted type
+mean what the PHP means.
+
+The subtraction is **unconditional**: an explicit key is Omitted whether or not the arm actually
+declares it. `Omit<T, K>` does not require `K extends keyof T`, so this is well-typed either way,
+and it lets `buildSpreadArmTypes()` work from `class_basename()` alone — a later arm's own shape
+never has to be resolved, only its name, for `keyof`. `NestedResourceSpreadResource` pins both
+sides of that: `members_double_spread` Omits `'note'` from `UserResource`, which has no `note` key,
+and `members_model_spread` Omits `'flag'` from `User`, which has no `flag` column.
+
+Arm order is source order, because the subtraction reads every arm *after* the current index. The
+two kinds are tracked together for that reason, and split only when the imports are dispatched:
+resource arms travel `embeddedResourceFqcns`, model arms `embeddedModelFqcns`, or the emitted token
+would be looked up in the wrong channel and never resolve to an import.
+
+### What a model arm's bare `{Model}` does not say
+
+A model arm emits the bare `{Model}` interface, which is the honest floor rather than an exact
+match for `toArray()`'s runtime output. `Model::toArray()` is
+`array_merge($this->attributesToArray(), $this->relationsToArray())`, so line the two halves up:
+
+- **`attributesToArray()` — matches.** It is columns plus `getArrayableAppends()`, and bare
+  `{Model}` is generated from exactly those two channels: `model-split.blade.php` renders
+  `$data->columns` *and* `$data->appends` into the `export interface {{ $data->modelName }}` body.
+  `Address` proves it — `protected $appends = ['full_address']`, and the generated `Address`
+  interface ends with `full_address: string | null;`. **There is no `$appends` gap.**
+  `{Model}Mutators` holds `$data->mutators`, which is the accessors a model did *not* append.
+- **`relationsToArray()` — the real gap.** Bare `{Model}` omits it, so a relation loaded on
+  `$member` before the spread is in the JSON payload but not in the type. Unknowable statically;
+  the same trade-off `Omit<Model, keys>` already makes for relation filters. Under `model-split`
+  relations live in `{Model}Relations`, which the arm does not reference.
+
+One gap runs the other way: `$hidden` columns are stripped at runtime (`attributesToArray()` goes
+through `getArrayableItems()`) but stay in bare `{Model}` unless `exclude_hidden` is set — see the
+existing `publishedColumnNames()` coupling. So the arm is a superset on the hidden axis and a subset
+on the relations axis.
 
 ## `whenNotNull()`/`whenNull()` read `($value, $default)`, not a callback
 
@@ -597,6 +790,72 @@ excluded as unreachable anywhere else in the family.
 that don't ship the attribute. See [Version-guarded Laravel
 classes](../laravel-version-guards.md) for the full registry and when this guard can be removed.
 
+## `toResource()` convention guesses are gated on the published set
+
+`Model::toResource()` and `Collection::toResourceCollection()` reach a resource class three ways: an
+explicit `SomeResource::class` argument, a `#[UseResource]`/`#[UseResourceCollection]` attribute, or
+Laravel's naming convention (`guessResourceNames()`). Only the last one *invents* a class name, and
+`isResourceClass()` accepts whatever `class_exists()` finds — including a third-party or `#[TsExclude]`d
+resource this package never writes a file for. `ResourceTransformer` would then emit the
+`class_basename()` token plus an import built by `LaravelTsPublish::namespaceToPath()`, which is pure
+string transformation and never touches the filesystem, so the import names a module that does not exist.
+
+`PublishedResourceRegistry` holds the resource classes the current run will actually emit.
+`isPublishedResourceClass()` is `isResourceClass()` plus that membership test, and it is used at exactly
+three convention sites:
+
+| Site | Candidates it can now reject |
+| --- | --- |
+| `resolveResourceForModel()`'s candidate loop | `{Model}Resource`, then bare `{Model}` |
+| `resolveResourceCollectionForModel()`'s `{Guessed}Collection` loop | `{Model}ResourceCollection`, then `{Model}Collection` — the inline `class_exists()`/`is_a()` pair gained a third `PublishedResourceRegistry::isPublished()` conjunct |
+| `resolveResourceCollectionForModel()`'s bare-candidate loop | the `{Model}Resource` fallback |
+
+**`isResourceClass()` itself is unchanged.** Every branch that reads a class the developer wrote down
+stays ungated on purpose — an explicitly named resource is a declaration, not a guess:
+
+- the explicit-argument arms of `analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`
+- `resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
+- `collectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the `$collects`
+  property default
+
+`collectedResourceClass()`'s **third** branch is the exception to that rule, and a known gap rather
+than a declaration. The `{X}Collection` → `{X}Resource` naming-convention step *invents* a name — the
+exact property this section opens by attributing to convention branches alone — and is **not** gated on
+`PublishedResourceRegistry`. Being rooted in a collection class the caller already accepted says
+nothing about whether the guessed *element* resource is one this run will emit, so it can still name a
+third-party or `#[TsExclude]`d class and produce the TS2307 this section exists to prevent. Gating it
+is a recorded follow-up; it is called out here so the ungated set is not misread as three deliberate
+declarations.
+
+### The registry fails open, and `RunnerForSource` depends on it
+
+An empty registry means "no information", so `isPublished()` returns `true` for every class. That is a
+contract, not a convenience: `RunnerForSource` handles a single FQCN and never resolves a collector, so it
+never reaches `PublishedResourceRegistry::register()` and a `ts:publish --source=…` regeneration analyzes
+with the registry empty. Failing closed there would silently strip every nested resource reference out of
+the regenerated file.
+
+### Populated once, before the generate loop
+
+`Runner::generateResources()` registers the whole collected list before generating anything, not as each
+generator completes. Analysis happens *inside* the `foreach`, and a resource analyzed on the first
+iteration may legitimately reference one collected on the last, so incremental registration would make
+resolution depend on collection order. One `$collected` value feeds both the registration and the loop:
+`CoreCollector::collect()` is not memoised and re-runs `ClassMapGenerator::createMap()` per call, so a
+second call would double the class-map scan.
+
+The registry is process-static, in the shape of `DependencyRecorder` and `OutputRecorder`, because the
+collector is `resolve()`d per call rather than bound as a singleton (the service provider registers only
+`ModelAttributeResolver` and `CacheRepository`) and constructor plumbing would have to cross four hops
+from `Runner` down to the analyzer. `Tests\TestCase::setUp()` resets all three, since process-static
+state otherwise leaks across a parallel Pest run.
+
+Neither CI gate can catch a regression here — an import of an unpublished resource surfaces as TS2307,
+which `unimportable-token-gate.sh` does not count. See
+[Type inference gates](../testing/type-inference-gates.md). The coverage is instead the published-set
+tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentResource` and
+`AttachmentCollection` workbench fixtures.
+
 ## `#[PreserveKeys]`/`$preserveKeys` flip a collection's element type to `Record<string, R>`
 
 A `ResourceCollection` normally serializes as a JSON array, so a collected element type gets a `[]`
@@ -653,3 +912,100 @@ non-paginated, named and anonymous — and preserve-keys only changes two of the
   via `wrapCollectionElementType()` when the collection preserves keys. Fixtures pin this: a
   key-preserving named collection, paginated or not, produces identical output before and after this
   change.
+
+## `mergeReturnBranches()` carries every `syncAnalysisMaps()` channel, plus two flat scalars
+
+A resource with multiple direct `return [...]` branches (`if`/`elseif`/`else`, loop bodies, guard
+clauses) is analyzed per-branch, then unioned by `mergeReturnBranches()`. It carries the same ten
+channels `syncAnalysisMaps()` does — `properties`, `enumResources`, `nestedResources`,
+`directEnumFqcns`, `modelFqcns`, `customImports`, `multiEnumResourceFqcns`, and the three inline
+maps (`inlineEnumFqcns`, `inlineModelFqcns`, `inlineEnumResourceFqcns`) — unioning each inline map
+per property key, exactly like `syncAnalysisMaps()`. Missing this union silently drops a property's
+only enum/model reference when that reference sits inside an inline array literal in one branch,
+emitting a type token with no import.
+
+It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `syncAnalysisMaps()` never
+touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule, and the
+argument has to cover **both** callers. `analyzeAllReturnBranches()` builds its branches with
+`analyzeReturnArray()`; `resolveArrayOrClosureToProperties()` — the `merge()`/`mergeWhen()` path, which
+merges a multi-return closure's branches — builds its own with `extractPropertiesFromArray()`. Neither
+builder ever sets either field, so every branch reaching this method already has both null. Only
+`buildCollectionDelegatedAnalysis()` sets them, and it returns directly without going through branch
+merging.
+
+## Resource inheritance: a subclass with no `toArray()` of its own
+
+`analyze()` looks up `toArray` in the **subclass's own file only**. It reads
+`$this->resourceReflection->getFileName()`, parses that source, and finds the method with a
+`NodeFinder` search for a `ClassMethod` whose `name` is `toArray`. Reflection is never consulted for
+the lookup, so a method the subclass merely *inherits* is invisible to it — declaring no
+`toArray()` used to mean falling straight to model or collection delegation, which produced an empty
+interface whenever no model resolved either.
+
+### The ancestor walk and its `properties !== []` termination
+
+When that search finds no `ClassMethod` — or one with a `null` body — `analyze()` now calls
+`analyzeParentToArray()` first, and returns its result **only if `properties !== []`**:
+
+- `analyzeParentToArray()` returns `null` when there is no parent, or the parent is not a
+  `JsonResource`.
+- When the parent *is* `JsonResource` itself it returns `buildModelDelegatedAnalysis()` — the
+  bottom of the chain, not an inherited shape.
+- Otherwise it builds `new self($parentClass, $this->modelClass)` and calls `analyze()` on it. The
+  multi-level walk and its termination therefore come for free through that recursion: each level
+  repeats the own-file lookup and only stops at the nearest ancestor that really declares a body.
+
+The `properties !== []` guard is what keeps the pre-existing behaviour intact. An ancestor chain
+where **nobody** declares a `toArray()` yields an empty analysis at every level, so `analyze()` falls
+through to `isResourceCollection()` → `buildCollectionDelegatedAnalysis()`, or to
+`buildModelDelegatedAnalysis() ?? new ResourceAnalysis`, exactly as before. `ChildSharedResource`
+pins this: `BaseSharedResource` declares no `toArray()` either and the name resolves no model, so it
+still generates `export interface ChildSharedResource extends SharedInterface {}`.
+
+The same guard is why the walk running *before* the `isResourceCollection()` check is safe.
+`Illuminate\Http\Resources\Json\ResourceCollection` does declare a `toArray()`, but both of its
+returns are `$this->collection->map->…->all()` — neither an array literal nor a `$this` receiver the
+analyzer can read — so the recursion yields no properties and body-less collections such as
+`PostCollection` and `PreserveKeysCollection` still reach `buildCollectionDelegatedAnalysis()`.
+
+### An inherited shape needs an inherited model
+
+`ResourceTransformer::resolveModelClass()` used to read the docblock of the resource itself only. A
+body-less child with no docblock of its own resolved no model, and the inherited analysis degraded
+every column to `unknown` — so the walk is only half a feature without a matching docblock walk.
+`modelFromDocblock()` now reads the `@mixin`/`@extends` tags off any one `ReflectionClass`, and
+`modelFromAncestorDocblock()` climbs the parent chain calling it until one resolves. Precedence:
+
+1. `#[TsResource(model:)]`
+2. the resource's own `@mixin` / `@extends`
+3. **the nearest ancestor's `@mixin` / `@extends`**
+4. a typed `$resource` property
+5. the `App\Http\Resources\{Name}Resource` → `App\Models\{Name}` naming convention
+6. `#[UseResource]` on a collected model
+
+Step 3 is the only new one; everything else keeps its previous relative order. `BodylessOrderResource`
+pins it — it declares neither a body nor a `@mixin`, and `Workbench\App\Models\BodylessOrder` does not
+exist, so its `number`/`AsEnum<…>` columns can only come from `OrderResource`'s own `@mixin Order`.
+`BodylessTeamResource` carries its own `@mixin Team` and so pins the analyzer walk alone.
+
+**The docblock walk is not scoped to the body-less case.** The body-less resource is what motivated
+it, but `resolveModelClass()` runs `modelFromAncestorDocblock()` unconditionally once step 2 fails,
+so *any* resource lacking its own `@mixin`/`@extends` — body or no body — now resolves an ancestor's
+before falling through to the `$resource` property and the naming convention. That is arguably the
+right scope, since an ancestor's `@mixin` describes the same model either way, and it moved nothing
+in the generated trees; but read the precedence list above as the whole rule, not as a body-less
+special case.
+
+### The explicit `parent::toArray($request)` forms are unchanged
+
+Writing the call out by hand remains fully supported and is still the idiomatic form. Both spellings
+route through the same `analyzeParentToArray()`:
+
+- `...parent::toArray($request)` spread inside an array literal — `analyzeReturnArray()` matches the
+  unpacked item with `isParentToArrayCall()`, then merges the parent analysis in through
+  `syncAnalysisMaps()`. `ApiPostResource` pins this one.
+- a bare `return parent::toArray($request);` — the non-array fallback in `analyze()` matches the
+  `Return_` expression with `isParentToArrayCall()`. `PreserveKeysTeamResource` pins this one.
+
+Because both classes declare a `toArray()`, the own-file lookup succeeds and the new walk is never
+reached for them.

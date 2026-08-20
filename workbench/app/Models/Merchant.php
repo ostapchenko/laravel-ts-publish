@@ -15,6 +15,10 @@ use Illuminate\Notifications\DatabaseNotification;
  * `registrar`/`registrars`/`suppliers` pin the three resolution orderings against a losing
  * candidate that also exists, so an inverted order would visibly fail (see
  * ResourceAstAnalyzerTest.php's MerchantResource ordering describe block).
+ *
+ * `attachment`/`attachments` back the unpublished-guess pair: AttachmentResource and
+ * AttachmentCollection both exist but carry #[TsExclude], so the convention guess must be
+ * rejected on not being in the published set rather than accepted on class_exists().
  */
 class Merchant extends Model
 {
@@ -56,5 +60,15 @@ class Merchant extends Model
     public function suppliers(): HasMany
     {
         return $this->hasMany(Supplier::class);
+    }
+
+    public function attachment(): BelongsTo
+    {
+        return $this->belongsTo(Attachment::class);
+    }
+
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(Attachment::class);
     }
 }

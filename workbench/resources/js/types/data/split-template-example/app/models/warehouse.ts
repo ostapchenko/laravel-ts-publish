@@ -47,6 +47,8 @@ export interface WarehouseMutators
     menu_config: MenuSettingsType | null;
     last_user_activity_by: CrmUser | ManagerUser | null;
     last_checked_by: Image | ManagerUser | null;
+    /** The regional hub this warehouse rolls up to. */
+    regional_hub: Warehouse | null;
     last_user_activity_by_typed: CrmUser | ManagerUser | null;
     last_user_activity_by_typed_short: CrmUser | ManagerUser | null;
     review_priority: EnumsStatusType | PriorityType | null;

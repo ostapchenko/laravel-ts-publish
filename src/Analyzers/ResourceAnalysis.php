@@ -32,7 +32,7 @@ class ResourceAnalysis
      * @param  ClassMapType  $enumResources  property name => enum FQCN (via EnumResource::make)
      * @param  ClassMapType  $nestedResources  property name => resource FQCN
      * @param  ImportMapType  $customImports  import path => list of type names
-     * @param  ClassMapType  $directEnumFqcns  property name => enum FQCN (via direct $this->prop access)
+     * @param  ClassMapType  $directEnumFqcns  property name => FQCN for direct access; FQCN => FQCN for embedded enums
      * @param  ClassMapType  $modelFqcns  property name => model FQCN (from bare whenLoaded)
      * @param  InlineEnumFqcnsMap  $inlineEnumFqcns  property name => list of enum FQCNs embedded in inline object type strings
      * @param  InlineModelFqcnsMap  $inlineModelFqcns  property name => list of model FQCNs embedded in inline object type strings

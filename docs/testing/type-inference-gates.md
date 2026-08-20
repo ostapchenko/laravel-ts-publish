@@ -121,6 +121,67 @@ This failure mode recurred nine times during the type-inference work, and every 
 shape: a `return` that fired before a guard. If you hit it, prefer restructuring the accept/reject decision
 into a single check over all fields rather than reordering two branches.
 
+## The `@tolki/ts` patch and `tests/types/tolki-assertions.ts`
+
+`@tolki/ts` ships two declaration files whose first line imports from
+`'../packages/types/src/index.ts'` — a monorepo source path that does not exist inside the published
+tarball. `dist/enums.d.ts` and `dist/routes.d.ts` both have it, and `dist/index.d.ts` is only
+`export * from './enums'; export * from './routes';`, so the package's **entire** type surface flows
+through one of the two broken imports.
+
+**Versions known to carry the defect: `0.2.0` and `1.0.1`.** The `1.0.1` major bump did not fix it, and
+the two `dist` files are byte-identical between the two releases — so the patch regenerated against
+`1.0.1` is identical to the original `0.2.0` one. Before assuming a newer release is fixed, check the
+**pristine tarball**, never `node_modules`:
+
+```bash
+npm pack @tolki/ts@<version> && tar xzf tolki-ts-<version>.tgz && head -1 package/dist/enums.d.ts
+```
+
+Reading `node_modules` after any install is misleading: `postinstall` has already run `patch-package`, so
+a successfully patched file is indistinguishable from a genuine upstream fix.
+
+`skipLibCheck: true` suppresses the resulting TS2307s, and the failure is then completely silent:
+every exported type degrades to `any`. `AsEnum<typeof Status>` accepted `.totallyBogusProperty` and was
+assignable to `string`; `defineEnum`'s result was `any`, so `Status.Draft`, `.from()`, `.tryFrom()` and
+`.cases()` were all unchecked. Nothing in the suite or either gate noticed.
+
+Two fixes do **not** work:
+
+| Candidate | Outcome |
+| --- | --- |
+| `skipLibCheck: false` | Surfaces the two TS2307s but does not repair the type — still `any` |
+| `paths` mapping in `tsconfig.json` | Never consulted: TypeScript applies `paths` only to *non-relative* specifiers, and `../packages/types/src/index.ts` is relative |
+
+The repair is `patches/@tolki+ts+1.0.1.patch`, applied by `patch-package` from the `postinstall` hook.
+It rewrites both specifiers to the bare name `@tolki/types`, which is why `@tolki/types` is a **direct**
+dependency rather than only a transitive one — the bare specifier must be guaranteed to resolve.
+**Delete the patch, the `postinstall` hook and the direct dependency once a fixed `@tolki/ts` ships**;
+the real fix belongs in that package's dts emitter.
+
+The patch filename encodes the version it was generated against. When `@tolki/ts` is upgraded,
+`patch-package` warns of a version mismatch on install and keeps applying the old patch as long as its
+context lines still match. Regenerate with `npx patch-package @tolki/ts` and delete the stale file, so
+the filename never misstates what is actually installed.
+
+`tests/types/tolki-assertions.ts` is the permanent regression guard and must stay inside `tsconfig.json`'s
+`include`. Note how it is written: an `IsAny<T>` conditional **cannot** work here. When an import fails to
+resolve, TypeScript propagates its *error type* through the conditional and suppresses the cascading
+diagnostic, so `IsAny<AsEnum<…>>` yields the error type rather than `true` and the assertion silently
+passes in exactly the broken state it is meant to catch. The guard instead uses `@ts-expect-error` on a
+deliberate constraint violation (`AsEnum<string>`, `RouteCallResult<number>`): when the types are real
+those raise TS2344 and the directive is satisfied, and when they have degraded to `any` no error occurs
+and TypeScript reports **TS2578 "Unused '@ts-expect-error' directive"** — which is emitted by the
+directive machinery and therefore survives `any`-poisoning.
+
+`unimportable-token-gate.sh` counts only TS2300/TS2304/TS2344/TS2552, so it does **not** fail on TS2578.
+CI evaluates this guard in its own step (`Gate - the @tolki/ts type surface resolves`), which fails on any
+diagnostic under `tests/types/`. Locally:
+
+```bash
+npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print nothing
+```
+
 ## Running both
 
 ```bash
@@ -140,6 +201,53 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
   fixtures actually produce. A defect reachable only by a shape no fixture exercises passes both. When
   adding an inference path, add a fixture for the hazardous shape too — several real defects were found
   only by constructing a fixture and regenerating, never by reading the code or running the suite.
+
+- **TS2307 (`Cannot find module`) is counted by neither gate.** `unimportable-token-gate.sh` greps only
+  TS2300/TS2304/TS2344/TS2552, and an unresolved *module* is not an existing property degrading to
+  `unknown`, so the regression gate is structurally blind to it too. That diagnostic is the signature of
+  an import of a class the package never writes a file for — the failure mode `PublishedResourceRegistry`
+  exists to prevent, documented under
+  [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set).
+
+  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **59** of
+  them, and 58 are bare aliases — `@/types/audit`, `@js/types/settings`, `@workbench/types` and friends —
+  from app-side `custom_ts_mappings` and `#[TsType]`. Those are the same escape hatches behind the TS2304
+  baseline: the consuming app declares the module, so the package cannot emit anything that resolves.
+  Re-measure before quoting these; the count moves whenever a fixture's imports change. It dropped from
+  60 when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
+  `warehouse-resource.ts` importing `@js/types/settings`.
+
+  The open option is a **sub-gate scoped to relative specifiers only**. A `./`- or `../`-relative import
+  inside the generated tree resolves against files this package itself writes, so it is never an app-side
+  escape hatch. Exactly one exists today — `default-example/app/models/warehouse.ts` importing
+  `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate`, which is also two of
+  the **12** TS2304s — so the sub-gate would need either that instance fixed or a baseline of 1. (The
+  gate's baseline of 14 is not the TS2304 count: it is the combined TS2300/TS2304/TS2344/TS2552 total,
+  currently 0 + 12 + 0 + 2.) Real, scoped work, deliberately left as a follow-up.
+
+- **All Inertia page-props output is unguarded by `unknown-regression-gate.py`.** `PROP` is
+  `^\s*([A-Za-z_$][\w$]*)\??:\s*(.+?);\s*$` — it requires `identifier:`, a **colon**. Page props are
+  emitted as a single-line type alias, `export type NamedPageProps = Inertia.SharedData & { … };`, whose
+  separator is `=`. It never matches. Neither does `type SharedData = { … };` in `inertia-config.d.ts`.
+  Confirmed directly: `snapshot('HEAD')` returns **zero** keys for
+  `default-example/app/http/controllers/inertia-preserve-keys-controller.ts` — an entire generated file
+  the gate cannot see one property of. Both Inertia commits on this branch read `18372 == 18372` —
+  reproduce with `unknown-regression-gate.py ebf64698~1 ebf64698` and the same for `4aa22c62` — and it
+  was taken as evidence the change was safe. It was a no-op pass: those counts never included the output
+  that changed. Only the `sharedPageProps:` member inside `interface InertiaConfig` is captured, and
+  only as one whole-object string (see the next point).
+
+- **`PROP` is line-anchored, so an inline object is *one* property's type string.** Everything between
+  the first `:` and the trailing `;` on that line is a single opaque value. `WarehouseResource`'s
+  `last_checked_by_mostly` is one key whose value is a two-arm union of inline objects carrying close to
+  thirty members between them. Members can be added or removed with **zero** movement in the count and zero
+  comparison work — an entire semantic change can pass CI unobserved. Worse for the FAIL test itself,
+  which is `"unknown" not in b[k] and "unknown" in h[k]` over that whole string: `last_checked_by_mostly`
+  already contains `metadata: unknown[] | null`, so `"unknown" in b[k]` is *already* true and the key is
+  permanently excluded from the comparison. Any member inside it regressing to `unknown` is invisible.
+  The same holds for every inline object anywhere in the corpus that already carries one `unknown`.
+  Keying by `(file, scope, property)` buys nothing here, because the object's members are not properties
+  to this script — they are substrings.
 
 - **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
   is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,

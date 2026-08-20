@@ -113,7 +113,12 @@ class ResourceTransformer extends CoreTransformer
     /** @var array<string, class-string> property name => enum FQCN (from direct enum access) */
     protected array $propertyEnumFqcns = [];
 
-    /** @var array<string, class-string> property name => enum FQCN for properties that have a direct-access branch in a ternary/union alongside an EnumResource branch */
+    /**
+     * Enum FQCNs reachable without an EnumResource wrap, in two entry kinds sharing one map.
+     *
+     * @var array<string, class-string> property name => FQCN for a ternary/union direct-access branch;
+     *                                  FQCN => FQCN for an embedded enum from dispatchFqcnResults()
+     */
     protected array $directEnumProperties = [];
 
     /** @var array<string, list<class-string>> property name => ordered list of enum FQCNs for ternary/union where ALL non-null branches are EnumResource calls with different FQCNs */
@@ -215,7 +220,8 @@ class ResourceTransformer extends CoreTransformer
     /**
      * Resolve the backing model class.
      *
-     * Precedence: #[TsResource(model:)], @mixin/@extends, typed $resource, naming convention, #[UseResource].
+     * Precedence: #[TsResource(model:)], own @mixin/@extends, inherited @mixin/@extends, typed
+     * $resource, naming convention, #[UseResource].
      */
     protected function resolveModelClass(): self
     {
@@ -231,23 +237,20 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        // The "* " lookbehind keeps prose mentions of the tags mid-description from matching.
-        $docComment = $this->reflectionResource->getDocComment();
-        if ($docComment !== false) {
-            $resolved = null;
-            if (preg_match('/(?<=\* )@mixin\s+([\w\\\\]+)/', $docComment, $matches)) {
-                $resolved = $this->resolveDocblockType($matches[1], $this->reflectionResource);
-            }
+        $ownModel = $this->modelFromDocblock($this->reflectionResource);
 
-            if (preg_match('/(?<=\* )@extends\s+([\w\\\\]+)<([\w\\\\]+)>/', $docComment, $matches)) {
-                $resolved = $this->resolveDocblockType($matches[2], $this->reflectionResource);
-            }
+        if ($ownModel !== null) {
+            $this->modelClass = $ownModel;
 
-            if ($resolved !== null && class_exists($resolved) && is_a($resolved, Model::class, true)) {
-                $this->modelClass = $resolved;
+            return $this;
+        }
 
-                return $this;
-            }
+        $inheritedModel = $this->modelFromAncestorDocblock();
+
+        if ($inheritedModel !== null) {
+            $this->modelClass = $inheritedModel;
+
+            return $this;
         }
 
         $wrappedClass = $this->resolveClassOnProperty($this->reflectionResource);
@@ -274,6 +277,65 @@ class ResourceTransformer extends CoreTransformer
         }
 
         return $this;
+    }
+
+    /**
+     * Read the model named by one class's own @mixin or @extends docblock tag.
+     *
+     * @template T of object
+     *
+     * @param  ReflectionClass<T>  $resource
+     * @return class-string<Model>|null
+     */
+    protected function modelFromDocblock(ReflectionClass $resource): ?string
+    {
+        $docComment = $resource->getDocComment();
+
+        if ($docComment === false) {
+            return null;
+        }
+
+        $resolved = null;
+
+        // The "* " lookbehind keeps prose mentions of the tags mid-description from matching.
+        if (preg_match('/(?<=\* )@mixin\s+([\w\\\\]+)/', $docComment, $matches)) {
+            $resolved = $this->resolveDocblockType($matches[1], $resource);
+        }
+
+        if (preg_match('/(?<=\* )@extends\s+([\w\\\\]+)<([\w\\\\]+)>/', $docComment, $matches)) {
+            $resolved = $this->resolveDocblockType($matches[2], $resource);
+        }
+
+        if ($resolved === null || ! class_exists($resolved) || ! is_a($resolved, Model::class, true)) {
+            return null;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Find the nearest ancestor whose own docblock names a model.
+     *
+     * A body-less subclass inherits its parent's toArray() shape, so it has to inherit the
+     * parent's model too or every column degrades to unknown.
+     *
+     * @return class-string<Model>|null
+     */
+    protected function modelFromAncestorDocblock(): ?string
+    {
+        $parent = $this->reflectionResource->getParentClass();
+
+        while ($parent !== false) {
+            $model = $this->modelFromDocblock($parent);
+
+            if ($model !== null) {
+                return $model;
+            }
+
+            $parent = $parent->getParentClass();
+        }
+
+        return null;
     }
 
     /**
@@ -873,28 +935,18 @@ class ResourceTransformer extends CoreTransformer
     protected function rewriteTypeReferences(): void
     {
         $nameMap = $this->enumFqcnMap + $this->resourceFqcnMap + $this->modelFqcnMap;
-        $propertyFqcns = $this->mergePropertyFqcnMaps();
 
-        foreach ($this->importAliases as $fqcn => $alias) {
-            $originalName = $nameMap[$fqcn] ?? null;
-
-            if ($originalName === null || $originalName === $alias) {
-                continue; // @codeCoverageIgnore
+        foreach ($this->mergePropertyFqcnMaps() as $propName => $propFqcns) {
+            if (! isset($this->properties[$propName])) {
+                continue;
             }
 
-            foreach ($propertyFqcns as $propName => $propFqcns) {
-                if (! in_array($fqcn, $propFqcns, true) || ! isset($this->properties[$propName])) {
-                    continue;
-                }
-
-                $this->properties[$propName]['type'] = LaravelTsPublish::aliasTypeName(
-                    $this->properties[$propName]['type'],
-                    $originalName,
-                    $alias,
-                    $propFqcns,
-                    $nameMap,
-                );
-            }
+            $this->properties[$propName]['type'] = LaravelTsPublish::aliasPropertyType(
+                $this->properties[$propName]['type'],
+                $propFqcns,
+                $nameMap,
+                $this->importAliases,
+            );
         }
     }
 
@@ -927,17 +979,13 @@ class ResourceTransformer extends CoreTransformer
             }
         }
 
-        return array_map(
-            fn (array $propFqcns): array => array_values(array_unique($propFqcns)),
-            $merged,
-        );
+        return $merged;
     }
 
     /**
-     * Build a map of per-file enum const aliases → namespace-qualified type names.
-     *
-     * Kept per-transformer rather than merged: two resources can use the same unaliased
-     * const name for enums in different namespaces.
+     * Build a map of per-file enum const aliases to namespace-qualified type names, walking
+     * enumPropertyFqcns() so an inline-only EnumResource FQCN qualifies too, not just top-level
+     * and multi ones — otherwise its bare AsEnum<typeof X> leaks into declare global {}.
      *
      * @return array<string, string> constAlias => 'namespace.TypeName'
      */
@@ -945,8 +993,7 @@ class ResourceTransformer extends CoreTransformer
     {
         $map = [];
 
-        foreach ($this->enumResourceProperties as $info) {
-            $fqcn = $info['fqcn'];
+        foreach ($this->enumPropertyFqcns() as $fqcn) {
             $constAlias = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn] ?? null;
 
             // rewriteEnumResourceTypes() may have cleared enumFqcnMap; enumConstMap is never cleared.
@@ -960,22 +1007,6 @@ class ResourceTransformer extends CoreTransformer
             $ns = str_replace('/', '.', LaravelTsPublish::namespaceToPath($fqcn));
 
             $map[$constAlias] = $ns.'.'.$typeName;
-        }
-
-        foreach ($this->multiEnumResourceProperties as $fqcns) {
-            foreach ($fqcns as $fqcn) {
-                $constAlias = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn] ?? null;
-                $originalConstName = $this->enumConstMap[$fqcn] ?? null;
-
-                if ($constAlias === null || $originalConstName === null) {
-                    continue; // @codeCoverageIgnore
-                }
-
-                $typeName = $originalConstName.'Type';
-                $ns = str_replace('/', '.', LaravelTsPublish::namespaceToPath($fqcn));
-
-                $map[$constAlias] = $ns.'.'.$typeName;
-            }
         }
 
         return $map;

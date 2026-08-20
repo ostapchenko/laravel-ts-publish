@@ -310,6 +310,33 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($padded->tsType)->toBe("'007' | '2.50'");
         });
 
+        it('a sibling digits rule makes a string-form in: emit unquoted numeric literals', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $grade = collect($nodes)->firstWhere('fieldPath', 'digit_grade');
+            expect($grade->tsType)->toBe('1 | 2 | 3');
+        });
+
+        it('a sibling decimal rule makes a string-form in: emit unquoted numeric literals', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $tier = collect($nodes)->firstWhere('fieldPath', 'decimal_tier');
+            expect($tier->tsType)->toBe('1.5 | 2.5');
+        });
+
+        // Guard, not a discriminator: this also passes with fieldIsNumeric() reverted to integer/int/numeric,
+        // where `decimal` stops counting and the params stay quoted for the other reason. The two tests above
+        // are what pin the widened list. This pins that padding survives whichever list is in force.
+        it('a padded decimal in: param stays quoted whichever rules count as numeric', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $padded = collect($nodes)->firstWhere('fieldPath', 'padded_decimal_tier');
+            expect($padded->tsType)->toBe("'1.50' | '2.50'");
+        });
+
         it('maps Rule::string() fluent object to string type', function () {
             $nodes = (new FormRequestRulesAnalyzer)->analyze(RuleClassRequest::class);
             $node = collect($nodes)->firstWhere('fieldPath', 'title');

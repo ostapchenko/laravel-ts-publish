@@ -19,6 +19,27 @@ parameterless `'in'`, …) in the order it was written. Because `In` is resolved
 position-independent pass, `['string', 'in:a,b']` and `['in:a,b', 'string']` both type as
 `'a' | 'b'` — an earlier `string`/`integer` rule can never shadow the literal union.
 
+## One constant drives both the `number` mapping and the `in:` coercion trigger
+
+`ValidationRuleParser::parse()` always parses string-form `in:a,b,c` params as strings, so
+`resolveInFromParams()` needs an explicit signal before it emits an unquoted numeric literal instead
+of a quoted string one. That signal is `hasNumericTypeSibling()`, called once *inside*
+`resolveInFromParams()` — so both of its call sites, the position-independent `'in'` short-circuit
+and the `'in'` arm of `resolveTsType()`'s declaration-ordered match, get it — and it now shares a single
+`NUMERIC_TYPE_RULES` constant with the match's own `'number'` arm: `integer`, `int`, `numeric`,
+`decimal`, `digits`, `digits_between`. The two used to drift — `hasNumericTypeSibling()` recognized
+only the first three, so `['digits:1', 'in:1,2,3']` typed `number` from its own rule but still
+quoted its `in:` literals as `'1' | '2' | '3'`. One list now backs both checks, so a rule cannot be
+numeric to one and not the other.
+
+Coercion itself stays conservative even on a numeric field: `resolveInFromParams()` only rewrites a
+param when `$v === (string) ($v + 0)` round-trips losslessly back to identical text, because
+`validateIn()` compares `(string) $value` against the literal param string, not a normalized number.
+`'2.50'` fails that round-trip (`(string) (2.50 + 0)` is `'2.5'`), so `['decimal:2', 'in:1.50,2.50']`
+still emits `'1.50' | '2.50'` — quoted — even though `decimal` is now in `NUMERIC_TYPE_RULES`.
+Emitting the unquoted `2.5` would describe a value Laravel's own validator rejects for that field, so
+this guard is not a simplification opportunity.
+
 ## Trie collapse: dot-paths compose into their ancestor
 
 `normalizeRules()` hands the raw rules to `buildRuleTrie()`, which splits every rule key on `.`

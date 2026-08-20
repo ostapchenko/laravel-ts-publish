@@ -1759,29 +1759,47 @@ class LaravelTsPublish
     }
 
     /**
-     * Replace a bare type name with its import alias inside one item's type string.
+     * Alias every bare type-name occurrence in one item's type string, walking occurrences left to right.
      *
-     * Unlimited unless a second FQCN on the item resolves to the same name — a widened container repeats its
-     * element, so one pass must take both; a same-basename union has one occurrence per FQCN and leaves the rest.
+     * A morph union's occurrence order is the order its FQCN list was built in, so same-basename FQCNs are
+     * consumed in source order and the last one covers any further occurrence. No bare token survives.
      *
-     * @param  list<string>  $itemFqcns  every FQCN registered against the item being rewritten; deduped
-     *                                   here, since a repeated FQCN would read as a name collision and
-     *                                   silently restore the single-replacement behaviour
+     * @param  list<string>  $itemFqcns  one entry per occurrence, in source order — never deduped, since
+     *                                   multiplicity is what lets occurrence N resolve to its own FQCN
      * @param  array<string, string>  $nameMap  FQCN => unaliased type name
+     * @param  array<string, string>  $aliases  FQCN => alias, for the subset that was aliased
      */
-    public function aliasTypeName(string $type, string $originalName, string $alias, array $itemFqcns, array $nameMap): string
+    public function aliasPropertyType(string $type, array $itemFqcns, array $nameMap, array $aliases): string
     {
-        $sharing = 0;
+        /** @var array<string, non-empty-list<string>> $queues */
+        $queues = [];
 
-        foreach (array_unique($itemFqcns) as $itemFqcn) {
-            if (($nameMap[$itemFqcn] ?? null) === $originalName) {
-                $sharing++;
+        foreach ($itemFqcns as $fqcn) {
+            $name = $nameMap[$fqcn] ?? null;
+
+            if ($name !== null) {
+                $queues[$name][] = $aliases[$fqcn] ?? $name;
             }
         }
 
-        $pattern = '/(?<![A-Za-z0-9_$])'.preg_quote($originalName, '/').'(?![A-Za-z0-9_$])/';
+        if ($queues === []) {
+            return $type;
+        }
 
-        return preg_replace($pattern, $alias, $type, $sharing > 1 ? 1 : -1) ?? $type;
+        $names = array_keys($queues);
+        usort($names, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+        $names = array_map(static fn (string $name): string => preg_quote($name, '/'), $names);
+
+        $pattern = '/(?<![A-Za-z0-9_$.])(?:'.implode('|', $names).')(?![A-Za-z0-9_$])/';
+        $cursors = [];
+
+        return preg_replace_callback($pattern, static function (array $match) use ($queues, &$cursors): string {
+            $name = $match[0];
+            $cursor = $cursors[$name] ?? 0;
+            $cursors[$name] = min($cursor + 1, count($queues[$name]) - 1);
+
+            return $queues[$name][$cursor];
+        }, $type) ?? $type;
     }
 
     /**

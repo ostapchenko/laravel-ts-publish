@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Tests;
 
+use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
+use AbeTwoThree\LaravelTsPublish\Cache\OutputRecorder;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublishServiceProvider;
 use AbeTwoThree\LaravelTsPublish\RelationMap;
 use AbeTwoThree\LaravelTsPublish\TypeScriptMap;
@@ -51,6 +54,12 @@ class TestCase extends Orchestra
         // Reset the RelationMap static cache for the same reason.
         $prop = (new ReflectionClass(RelationMap::class))->getProperty('map');
         $prop->setValue(null, null);
+
+        // Same reason again for the process-static side-channel registries: a populated
+        // PublishedResourceRegistry would gate resolution in unrelated tests.
+        DependencyRecorder::reset();
+        OutputRecorder::reset();
+        PublishedResourceRegistry::reset();
 
         Factory::guessFactoryNamesUsing(
             fn (string $modelName) => 'AbeTwoThree\\LaravelTsPublish\\Database\\Factories\\'.class_basename($modelName).'Factory'

@@ -89,7 +89,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Find props of the form `'key' => new SomeResource($paginatedVar)`.
+     * Find props of the form `'key' => new SomeResource($paginatedVar)` or `new SomeResource(Model::paginate())`.
      *
      * @return array<string, class-string<object>> prop key => resource FQCN
      */
@@ -107,7 +107,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Find props of the form `'key' => SomeResource::collection($paginatedVar)`.
+     * Find props of the form `'key' => SomeResource::collection($paginatedVar)` or `::collection(Model::paginate())`.
      *
      * @return array<string, class-string> prop key => resource FQCN
      */
@@ -240,13 +240,16 @@ class ControllerPaginatorAnalyzer
 
             $arg = $newNode->args[0];
 
-            if (! $arg instanceof Node\Arg || ! $arg->value instanceof Variable || ! is_string($arg->value->name)) {
+            if (! $arg instanceof Node\Arg) {
                 continue;
             }
 
-            $varName = $arg->value->name;
+            $isPaginated = ($arg->value instanceof Variable
+                    && is_string($arg->value->name)
+                    && isset($varModelMap[$arg->value->name]))
+                || $this->resolveInlinePaginatorModel($arg->value) !== null;
 
-            if (! isset($varModelMap[$varName])) {
+            if (! $isPaginated) {
                 continue;
             }
 
@@ -267,6 +270,7 @@ class ControllerPaginatorAnalyzer
      * Find variables assigned from a paginator call chain rooted at an Eloquent Model static call.
      *
      * Only direct chains resolve; indirection (`$q = Post::query(); $q->paginate()`) falls back to `<unknown>`.
+     * A paginator called inline as an argument has no assignment at all — resolveInlinePaginatorModel() handles it.
      *
      * @return array<string, class-string> variable name => model FQCN
      */
@@ -313,9 +317,28 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
+     * Resolve the model behind a paginator call written inline as an argument, with no intermediate
+     * variable — `new C(Team::query()->paginate(10))` rather than `$teams = …; new C($teams)`.
+     *
+     * @return class-string<Model>|null
+     */
+    private function resolveInlinePaginatorModel(Expr $expr): ?string
+    {
+        if (! $expr instanceof MethodCall || ! $expr->name instanceof Identifier) {
+            return null;
+        }
+
+        if (! in_array($expr->name->toString(), self::PAGINATOR_METHODS, true)) {
+            return null;
+        }
+
+        return $this->resolveModelFromChain($expr->var);
+    }
+
+    /**
      * Walk a method call chain back to its root StaticCall and return its Eloquent Model FQCN.
      *
-     * @return class-string|null
+     * @return class-string<Model>|null
      */
     private function resolveModelFromChain(Expr $node): ?string
     {
@@ -481,11 +504,14 @@ class ControllerPaginatorAnalyzer
             $propKey = $item->key->value;
 
             $isPaginated = false;
+
             if ($item->value->args !== [] && $item->value->args[0] instanceof Node\Arg) {
                 $firstArg = $item->value->args[0]->value;
-                if ($firstArg instanceof Variable && is_string($firstArg->name) && isset($varModelMap[$firstArg->name])) {
-                    $isPaginated = true;
-                }
+
+                $isPaginated = ($firstArg instanceof Variable
+                        && is_string($firstArg->name)
+                        && isset($varModelMap[$firstArg->name]))
+                    || $this->resolveInlinePaginatorModel($firstArg) !== null;
             }
 
             if ($isPaginated) {

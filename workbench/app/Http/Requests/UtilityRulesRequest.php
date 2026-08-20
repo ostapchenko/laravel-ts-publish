@@ -154,6 +154,12 @@ class UtilityRulesRequest extends FormRequest
             // an unquoted, renormalized literal would describe a value the validator actually rejects.
             'padded_numeric_code' => ['required', 'numeric', 'in:007,2.50'],
 
+            // digits/decimal are numeric to resolveTsType() but were not numeric to the in: coercion.
+            'digit_grade' => ['digits:1', 'in:1,2,3'],
+            'decimal_tier' => ['decimal:1', 'in:1.5,2.5'],
+            // Still quoted: '2.50' does not round-trip through (string)($v + 0), so Laravel would reject 2.5.
+            'padded_decimal_tier' => ['decimal:2', 'in:1.50,2.50'],
+
             // Helper fields referenced by other rules above
             'is_authenticated' => ['required', 'boolean'],
             'role' => ['required', 'string', 'in:user,admin,moderator'],

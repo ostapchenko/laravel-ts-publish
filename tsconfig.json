@@ -36,6 +36,7 @@
     },
     "include": [
         "workbench/resources/js/types/data/default-example/**/*.ts",
-        "workbench/resources/js/types/data/default-example/**/*.d.ts"
+        "workbench/resources/js/types/data/default-example/**/*.d.ts",
+        "tests/types/**/*.ts"
     ]
 }

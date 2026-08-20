@@ -73,9 +73,10 @@ class RelationChainResource extends JsonResource
                 ->map(fn ($member) => EnumResource::make($member->role)),
 
             // Same filter()+map() shape, nested inside an inline array literal this time.
-            // analyzeInlineArray() rebuilds its own AsEnum types rather than substituting, so
-            // isRebuildableEnumShape() must still demote this non-rebuildable Record-arm shape
-            // here too — proving that guard still fires, not just that it still exists.
+            // analyzeInlineArray() substitutes the bare RoleType token in place rather than
+            // rebuilding the type, so the keyed Record arm survives the wrap here exactly as it
+            // does at the top level above: { roles: AsEnum<typeof Role>[] | Record<string,
+            // AsEnum<typeof Role>> }. The two properties must never disagree — identical PHP.
             'wrapped_filtered' => [
                 'roles' => $this->members->filter(fn ($member) => $member->id > 1)
                     ->map(fn ($member) => EnumResource::make($member->role)),

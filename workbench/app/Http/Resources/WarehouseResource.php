@@ -37,7 +37,13 @@ class WarehouseResource extends RoutableResource
             'last_user_activity_by_typed_short' => $this->last_user_activity_by_typed_short,
             'last_user_activity_by_partial' => $this->last_user_activity_by?->only('id', 'name'),
             'last_user_activity_by_mostly' => $this->last_user_activity_by?->except(['id', 'name']),
-            'last_checked_by_mostly' => $this->last_checked_by?->except(['created_at', 'updated_at', 'imageable']),
+            'last_checked_by_mostly' => $this->last_checked_by?->except(['created_at', 'updated_at']),
+            // Three relations, two distinct User FQCNs, deliberately interleaved: primaryContact and
+            // secondaryContact are Crm\Models\User, manager is App\Models\User, so the occurrence order is
+            // Crm, App, Crm. The bare name occurs once more than the property has distinct FQCNs — which the
+            // old leftmost-occurrence heuristic left bare and unimportable — and the repeat is NOT the last
+            // FQCN, so only a per-occurrence FQCN list resolves it. Deduping the list aliases it App.
+            'regional_hub_contacts' => $this->regional_hub?->only(['primaryContact', 'manager', 'secondaryContact']),
         ];
     }
 }

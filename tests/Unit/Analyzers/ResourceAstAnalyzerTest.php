@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
 use Workbench\Accounting\Models\Payment;
 use Workbench\App\Enums\OrderStatus;
+use Workbench\App\Enums\PaymentMethod;
 use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Role;
 use Workbench\App\Enums\Status;
@@ -16,11 +18,15 @@ use Workbench\App\Enums\Visibility;
 use Workbench\App\Enums\WeekDays;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
+use Workbench\App\Http\Resources\AttachmentCollection;
+use Workbench\App\Http\Resources\AttachmentResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BareMethodReturnResource;
+use Workbench\App\Http\Resources\BodylessTeamResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
 use Workbench\App\Http\Resources\CaseSpreadResource;
 use Workbench\App\Http\Resources\CategoryResource;
+use Workbench\App\Http\Resources\ChildSharedResource;
 use Workbench\App\Http\Resources\ClassConstantResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureParamShadowResource;
@@ -582,6 +588,41 @@ describe('ResourceAstAnalyzer with TeamResource', function () {
     });
 });
 
+describe('ResourceAstAnalyzer with a body-less subclass', function () {
+    test('a resource with no toArray() of its own inherits the nearest ancestor that has one', function () {
+        $analysis = (new ResourceAstAnalyzer(
+            new ReflectionClass(BodylessTeamResource::class),
+            Team::class,
+        ))->analyze();
+
+        // `created_at` pins the shape as the ancestor's toArray(), not the model-delegated column set,
+        // which yields `id`/`name` too and would leave this test vacuous.
+        expect(array_column($analysis->properties, 'name'))->toContain('id', 'name')
+            ->not->toContain('created_at');
+    });
+
+    test('the inherited shape carries the ancestor nested resources, not just scalar columns', function () {
+        $analysis = (new ResourceAstAnalyzer(
+            new ReflectionClass(BodylessTeamResource::class),
+            Team::class,
+        ))->analyze();
+
+        $members = collect($analysis->properties)->firstWhere('name', 'members');
+
+        expect($members['type'])->toBe('TeamMemberResource[]')
+            ->and($analysis->nestedResources)->toHaveKey('owner');
+    });
+
+    // Outcome guard only: with no model passed the inherited analysis is already empty, so returning it or
+    // falling through both give []. The `properties !== []` conjunct is pinned by the body-less *collection*
+    // fixtures that need the fall-through to reach buildCollectionDelegatedAnalysis(); dropping it fails 9.
+    test('an ancestor chain with no toArray() anywhere stays empty rather than borrowing a shape', function () {
+        $analysis = (new ResourceAstAnalyzer(new ReflectionClass(ChildSharedResource::class)))->analyze();
+
+        expect($analysis->properties)->toBe([]);
+    });
+});
+
 describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collection chains)', function () {
     beforeEach(function () {
         $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(RelationChainResource::class), Team::class))
@@ -651,12 +692,12 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->analysis->directEnumFqcns)->not->toHaveKey('member_role_resources_filtered');
     });
 
-    // Same non-rebuildable shape, nested inside an inline array this time: analyzeInlineArray()
-    // still rebuilds its own AsEnum types rather than substituting, so isRebuildableEnumShape()
-    // must still demote here — the raw union survives instead of collapsing to a bare AsEnum.
-    test('filter() before an EnumResource::make() map body demotes inside an inline array', function () {
+    // Same keyed-Record shape, nested inside an inline array this time: analyzeInlineArray()
+    // substitutes the bare RoleType token in place, so both union arms come out AsEnum-wrapped —
+    // matching member_role_resources_filtered above, whose PHP shape is identical.
+    test('an EnumResource-wrapped enum inside an inline array literal is substituted, not rebuilt', function () {
         expect($this->props['wrapped_filtered']['type'])
-            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
+            ->toBe('{ roles: AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>> }');
     });
 
     // A string ('strtoupper') or array ([$this, 'method']) callable has no closure body to analyze.
@@ -1021,12 +1062,24 @@ describe('ResourceAstAnalyzer with FluentSelfResource', function () {
             ->and($prop['optional'])->toBeTrue();
     });
 
-    test('a chained method declaring a non-self return type does not preserve the resource type', function () {
+    test('a chained method with a non-self return type resolves its body instead of degrading to unknown', function () {
         $reflection = new ReflectionClass(FluentSelfResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'parent_summary');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('{ id: number }')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a non-self-returning method on a foreign resource class stays at the unknown floor', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'foreign_summary');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('unknown')
@@ -3353,6 +3406,11 @@ describe('ResourceAstAnalyzer with ControlFlowReturnResource (union multiple ret
             ->and($props->firstWhere('name', 'total')['type'])->toBe('number')
             ->and($props->firstWhere('name', 'status')['type'])->toBe('OrderStatusType');
     });
+
+    test('mergeReturnBranches carries an enum referenced only inside an inline array literal', function () {
+        expect($this->analysis->inlineEnumResourceFqcns)->toHaveKey('inline_enum_branch')
+            ->and($this->analysis->inlineEnumResourceFqcns['inline_enum_branch'])->toContain(PaymentMethod::class);
+    });
 });
 
 describe('ResourceAstAnalyzer with LoopReturnResource (collectDirectReturns loop)', function () {
@@ -5146,7 +5204,9 @@ test('a relation except() drops hidden columns from the derived key list', funct
         ->and($type)->toContain('email: string');
 });
 
-test('relation except() keeps a getter-backed mutator whose type is unknown', function () {
+test('relation except() expands to database columns only, matching Model::except() at runtime', function () {
+    // HasAttributes::except() iterates getAttributes(): it never reads $this->relations, and
+    // mergeAttributeFromAttributeCasts() refuses to merge a get-only Attribute back into $attributes.
     $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
     {
         /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: array<string, list<string>>} */
@@ -5156,7 +5216,28 @@ test('relation except() keeps a getter-backed mutator whose type is unknown', fu
         }
     };
 
-    expect($analyzer->expose()['type'])->toContain('no_docblock_accessor: unknown');
+    // Every column create_images_table declares, in migration order, minus the two excluded keys.
+    $expected = '{ id: number; imageable_type: string; imageable_id: number; url: string; '
+        .'alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; '
+        .'width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null }';
+
+    expect($analyzer->expose()['type'])->toBe($expected);
+});
+
+test('relation only() still resolves a named accessor and a named relation, unlike except()', function () {
+    // HasAttributes::only() calls getAttribute() per named key, so both do come back at runtime. The
+    // columns-only change touched the $include === false branch only, so this cannot fail from it: it is a
+    // standing guard that the include branch keeps resolving accessors and relations, not proof of that fix.
+    $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
+    {
+        /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: array<string, list<string>>} */
+        public function expose(): array
+        {
+            return $this->resolveFilteredRelationType(User::class, ['name', 'initials', 'posts'], true);
+        }
+    };
+
+    expect($analyzer->expose()['type'])->toBe('{ name: string; initials: string; posts: Post[] }');
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {
@@ -5364,6 +5445,43 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
         // so the ->map proxy must not match — a guess here would silently mistype a real property.
         expect($this->props['history_event_map_only']['type'])->toBe('unknown');
     });
+
+    test('an empty registry fails open, so a convention guess outside the published set still resolves', function () {
+        // RunnerForSource never calls collect(), so single-file watch-mode regeneration analyzes
+        // with an empty registry. Failing closed there would strip every nested resource.
+        expect(PublishedResourceRegistry::isEmpty())->toBeTrue();
+
+        expect($this->props['unpublished_guess']['type'])->toBe('AttachmentResource')
+            ->and($this->nested)->toHaveKey('unpublished_guess', AttachmentResource::class)
+            ->and($this->props['unpublished_guess_collection']['type'])->toBe('AttachmentResource[]')
+            ->and($this->nested)->toHaveKey('unpublished_guess_collection', AttachmentResource::class);
+    });
+
+    test('a convention-guessed resource outside the published set is not resolved', function () {
+        // Non-vacuous: every losing candidate genuinely exists — only #[TsExclude] keeps the two
+        // Attachment classes out of the published set, so class_exists() alone would accept them.
+        expect(class_exists(AttachmentResource::class))->toBeTrue()
+            ->and(class_exists(AttachmentCollection::class))->toBeTrue()
+            ->and(class_exists(UserResource::class))->toBeTrue();
+
+        PublishedResourceRegistry::register([TeamResource::class]);
+
+        $reflection = new ReflectionClass(MerchantResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze();
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props['unpublished_guess']['type'])->toBe('unknown')
+            ->and($props['unpublished_guess_collection']['type'])->toBe('unknown')
+            ->and($analysis->nestedResources)->not->toHaveKey('unpublished_guess')
+            ->and($analysis->nestedResources)->not->toHaveKey('unpublished_guess_collection')
+            // Every convention branch is gated, not just the Attachment fixture's.
+            ->and($props['owner_via_closure']['type'])->toBe('unknown')
+            // An explicitly named resource is the developer's declaration and stays ungated.
+            ->and($props['owner_explicit']['type'])->toBe('UserResource')
+            ->and($analysis->nestedResources)->toHaveKey('owner_explicit', UserResource::class);
+
+        PublishedResourceRegistry::reset();
+    });
 });
 
 describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-resource inside a nested array)', function () {
@@ -5388,9 +5506,12 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->and($this->props['members_bare']['optional'])->toBeTrue();
     });
 
-    test('spread of a Model->toArray() (not a resource) keeps today\'s behaviour: the spread contributes nothing', function () {
-        expect($this->props['members_model_spread']['type'])->toBe('{ flag: boolean }[]')
-            ->and($this->props['members_model_spread']['optional'])->toBeTrue();
+    test('a spread of a bound model\'s toArray() intersects the model with the literal\'s own keys', function () {
+        // 'flag' is not a User column, but the arm is Omit<>'d anyway — the same unconditional
+        // subtraction members_double_spread pins for 'note' against UserResource.
+        expect($this->props['members_model_spread']['type'])->toBe("(Omit<User, 'flag'> & { flag: boolean })[]")
+            ->and($this->props['members_model_spread']['optional'])->toBeTrue()
+            ->and(array_values($this->analysis->modelFqcns))->toContain(User::class);
     });
 
     test('two resource spreads plus a sibling key intersect in order, each Omit<>\'d against what later overrides it', function () {

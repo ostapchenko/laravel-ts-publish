@@ -6,10 +6,13 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\ControllerPaginatorAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\ControllerWithCompact;
 use Workbench\App\Http\Controllers\InertiaCollectionsController;
 use Workbench\App\Http\Controllers\InertiaNamedCollectionsController;
+use Workbench\App\Http\Controllers\InertiaPreserveKeysController;
 use Workbench\App\Http\Controllers\InertiaSingleResourceController;
 use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
+use Workbench\App\Http\Resources\PreserveKeysCollection;
+use Workbench\App\Http\Resources\PreserveKeysTeamResource;
 use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Post;
 
@@ -125,6 +128,12 @@ test('analyzePaginatedResourceProps returns empty for non-existent controller', 
     expect($analyzer->analyzePaginatedResourceProps())->toBeEmpty();
 });
 
+test('analyzePaginatedResourceProps detects a paginator called inline as the constructor argument', function () {
+    $analyzer = new ControllerPaginatorAnalyzer(InertiaPreserveKeysController::class, 'inlinePaginated');
+
+    expect($analyzer->analyzePaginatedResourceProps())->toBe(['teams' => PreserveKeysCollection::class]);
+});
+
 // ─── analyzePaginatedStaticCollectionProps() ───────────────────────
 
 test('analyzePaginatedStaticCollectionProps returns resource FQCN for paginated Resource::collection($var)', function () {
@@ -159,4 +168,10 @@ test('analyzePaginatedStaticCollectionProps returns empty for non-existent contr
     $analyzer = new ControllerPaginatorAnalyzer('NonExistent\\Controller', 'index');
 
     expect($analyzer->analyzePaginatedStaticCollectionProps())->toBeEmpty();
+});
+
+test('analyzePaginatedStaticCollectionProps detects a paginator called inline as the collection argument', function () {
+    $analyzer = new ControllerPaginatorAnalyzer(InertiaPreserveKeysController::class, 'anonymousInlinePaginated');
+
+    expect($analyzer->analyzePaginatedStaticCollectionProps())->toBe(['teams' => PreserveKeysTeamResource::class]);
 });

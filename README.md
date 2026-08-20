@@ -9,42 +9,42 @@
 
 <p align="center"><img src="./assets/laravel-typescript-publish-logo-short.svg" width="50%" alt="Laravel TypeScript Publisher Logo"></p>
 
-This is an extremely flexible package that allows you to transform Laravel PHP models, enums, API resources, routes, broadcast events, and other cast classes into TypeScript declaration types.
+Transform Laravel models, enums, API resources, routes, broadcast events, and custom cast classes into TypeScript declaration types.
 
-Enums & routes are treated as functional objects. Enums come with support for PHP-like enum functions and the inclusion of your custom methods in your enums.
+Enums and routes become functional objects. Enums support PHP-like enum functions and can include your own methods.
 
-Every Laravel application is different, and this package aims to provide the tools to tailor TypeScript types to your specific needs while providing powerful backend & frontend tooling to keep your frontend types in sync with your backend PHP code.
+Every Laravel app is different, so what the package infers is yours to override, and the backend and frontend tooling keeps your frontend types in sync with your PHP as it changes.
 
 For examples of the generated TypeScript output, see [these output examples](workbench/resources/js/types/data/default-example).
 
-## Also By Me
+## Also by me
 
 - [Laravel Iconify API & Icon Rendering](https://github.com/abetwothree/laravel-iconify-api)
 - [Tolki JS NPM packages](https://github.com/abetwothree/tolki)
 
-## Table of Contents
+## Table of contents
 
 - 📦 [Installation](#installation)
 - 🚀 [Usage](#usage)
 - 🏷️ [Enums](#enums)
 - 🗃️ [Models](#models)
-- 📡 [API Resources](#api-resources)
+- 📡 [API resources](#api-resources)
 - 🚗 [Routes](#routes)
-- 📝 [Form Requests](#form-requests)
-- 📡 [Broadcast Channels](#broadcast-channels)
-- 🎤 [Broadcast Events](#broadcast-events)
+- 📝 [Form requests](#form-requests)
+- 📡 [Broadcast channels](#broadcast-channels)
+- 🎤 [Broadcast events](#broadcast-events)
 - 🌉 [Inertia](#inertia)
-- 🔑 [Vite Env](#vite-env)
-- 🧬 [Extending Interfaces](#extending-interfaces-with-tsextends--configs)
-- ❌ [Excluding Content](#excluding-with-tsexclude)
-- 🔤 [Casing Configurations](#casing-configurations)
-- 🌐 [Enum API Resource](#json-enum-http-api-resource)
-- 📂 [Modular Publishing](#modular-publishing)
-- 🔧 [Customizing the Pipeline](#extending--customizing-the-pipeline)
-- ⚡ [Pre-Command Hook](#pre-command-hook)
-- 💾 [Cache Generation](#cache-generation)
-- 📤 [Output Options](#output-options)
-- ⚙️ [Configuration Reference](#configuration-reference)
+- 🔑 [Vite env](#vite-env)
+- 🧬 [Extending interfaces](#extending-interfaces-with-tsextends--configs)
+- ❌ [Excluding content](#excluding-with-tsexclude)
+- 🔤 [Casing configurations](#casing-configurations)
+- 🌐 [Enum API resource](#json-enum-http-api-resource)
+- 📂 [Modular publishing](#modular-publishing)
+- 🔧 [Customizing the pipeline](#extending--customizing-the-pipeline)
+- ⚡ [Pre-command hook](#pre-command-hook)
+- 💾 [Cache generation](#cache-generation)
+- 📤 [Output options](#output-options)
+- ⚙️ [Configuration reference](#configuration-reference)
 
 ## Installation
 
@@ -72,7 +72,7 @@ php artisan vendor:publish --tag="laravel-ts-publish-views"
 
 ## Usage
 
-### Publishing Types
+### Publishing types
 
 You can publish your TypeScript declaration types using the `ts:publish` Artisan command:
 
@@ -80,19 +80,19 @@ You can publish your TypeScript declaration types using the `ts:publish` Artisan
 php artisan ts:publish
 ```
 
-On first run, this package will intelligently cache files to make reruns significantly faster. You can break cache with the `--fresh` option. See [Cache Generation](#cache-generation) for more details.
+The first run caches its work, so reruns only regenerate what changed. Use `--fresh` to rebuild everything. See [Cache generation](#cache-generation).
 
 ```bash
 php artisan ts:publish --fresh
 ```
 
-By default, the generated TypeScript declaration types will be saved to the `resources/js/types/data/` directory and follow default configuration settings.
+By default, generated types are written to `resources/js/types/data/`.
 
-Additionally, by default, the package will look for content in the standard Laravel directories like `app/Models`, `app/Enums`, and `app/Http/Resources`. You can customize these settings in the published configuration file.
+The package scans the standard Laravel directories (`app/Models`, `app/Enums`, `app/Http/Resources`). Change any of that in the published config file.
 
 For a full installation and setup guide, see the [Installation & Setup](https://tolki.abe.dev/ts/) documentation.
 
-#### Preview Mode
+#### Preview mode
 
 You can preview the generated TypeScript output in the console without writing any files by using `--preview=true`:
 
@@ -101,11 +101,11 @@ php artisan ts:publish --preview=true
 ```
 
 > [!WARNING]
-> The `=true` is required. `--preview` is declared with a default value (`{--preview=false}`), so a bare `--preview` flag is parsed as unset rather than `true` — the command will write real files instead of only previewing them.
+> The `=true` is required. `--preview` is declared with a default value (`{--preview=false}`), so a bare `--preview` flag parses as unset rather than `true`, and the command writes real files instead of previewing them.
 
-This is useful for debugging or reviewing what will be generated before committing to file output.
+Useful for debugging, or for reviewing what will be generated before it hits disk.
 
-#### Single-File Republishing
+#### Single-file republishing
 
 You can republish a single enum, model, or resource instead of the entire set by using the `--source` option with a fully-qualified class name or file path:
 
@@ -115,9 +115,9 @@ php artisan ts:publish --source="app/Enums/Status.php"
 php artisan ts:publish --source="App\Http\Resources\UserResource"
 ```
 
-This is significantly faster than a full publish on large projects and is used automatically by the [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html) to republish only the file that changed during development.
+On a large project this is much faster than a full publish. The [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html) uses it automatically during development to republish only the file that changed.
 
-#### Automatic Publishing After Migrations
+#### Automatic publishing after migrations
 
 By default, this package will automatically re-publish your TypeScript declaration types after running migrations. This ensures your TypeScript types stay in sync with your database schema changes.
 
@@ -133,9 +133,9 @@ You can disable this behavior in the config file or via environment variable:
 TS_PUBLISH_RUN_AFTER_MIGRATE=false
 ```
 
-#### Filtering Models, Enums & Resources
+#### Filtering models, enums & resources
 
-You can fully customize which content is included or excluded, and add additional directories to search in. By default, all content in standard Laravel directories like `app/Models`, `app/Enums`, `app/Http/Resources` are included.
+Choose what to include or exclude, and add directories to search. By default everything in `app/Models`, `app/Enums`, and `app/Http/Resources` is included.
 
 ```php
 // config/ts-publish.php
@@ -164,11 +164,11 @@ Similar options are available for other content types like enums, events, resour
 > [!TIP]
 > Include and exclude settings accept both fully-qualified class names and directory paths. When a directory is provided, all matching classes within it will be discovered automatically.
 
-#### Conditional Publishing
+#### Conditional publishing
 
 You can choose to publish only enums, only models, or only resources, either through configuration or command flags.
 
-##### Via Configuration
+##### Via configuration
 
 Disable enum, model, or resource publishing entirely in the config file:
 
@@ -182,7 +182,7 @@ Disable enum, model, or resource publishing entirely in the config file:
 
 Setting any to `false` will skip that type on every run, including automatic post-migration publishing.
 
-##### Via Command Flags
+##### Via command flags
 
 Use one of the `--only-*` flags to limit a single run to a specific type: `--only-enums`, `--only-models`, `--only-resources`, `--only-routes`, `--only-form-requests`, `--only-broadcast-channels`, or `--only-broadcast-events`.
 
@@ -192,23 +192,23 @@ php artisan ts:publish --only-models
 php artisan ts:publish --only-resources
 ```
 
-These flags cannot be combined — passing any two together will return an error.
+The flags cannot be combined. Passing two returns an error.
 
-There's also `--only-functional`, which publishes only type-erasure-safe output (enums, routes, form requests, broadcast channels/events) while skipping models and resources — this is what the [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html) appends on `vite build`, since interfaces are erased at compile time anyway. It overrides the other `--only-*` flags if combined with them.
+There's also `--only-functional`, which publishes only type-erasure-safe output (enums, routes, form requests, broadcast channels/events) while skipping models and resources. The [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html) appends it on `vite build`, since interfaces are erased at compile time anyway. Combined with another `--only-*` flag, it wins.
 
-##### Config & Flag Conflicts
+##### Config & flag conflicts
 
 When a command flag requests a type that is disabled in config (e.g. `--only-enums` while `enums.enabled` is `false`), the command will prompt you to confirm whether to override the config setting. In non-interactive environments (CI, queued jobs, post-migration hooks), the config value is respected and the command exits gracefully.
 
 If all types end up disabled (all config values are `false` and no override flag is given), the command prints a warning and exits with a success status.
 
-#### Verbosity Levels
+#### Verbosity levels
 
 The `ts:publish` command supports three verbosity levels using the standard Artisan verbosity flags:
 
 | Flag | Output |
 |------|--------|
-| `--quiet` / `-q` | No output at all — only the exit code indicates success or failure. Ideal for automated tooling like the [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html). |
+| `--quiet` / `-q` | Nothing but the exit code. Suits automated tooling like the [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html). |
 | *(default)* | A compact summary showing the output directory, file counts, and any extra files generated (barrels, globals, JSON). |
 | `--verbose` / `-v` | Detailed tables listing every generated file with per-file metadata (cases, methods, columns, mutators, relations). |
 
@@ -223,11 +223,11 @@ php artisan ts:publish -v
 php artisan ts:publish --quiet
 ```
 
-In quiet mode, files are still generated normally — only console output is suppressed. The [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html) passes `--quiet` by default since it only needs the exit code.
+Quiet mode still writes every file; it suppresses console output only. The [Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html) passes it by default because it only needs the exit code.
 
 ## Enums
 
-PHP enums are transformed into functional TypeScript objects — not just a union of values, but PHP-like behavior (`.from()`, `.tryFrom()`, `.cases()`) powered by [`@tolki/ts`](https://tolki.abe.dev/ts/), plus any of your own enum methods and static methods can be included in the output.
+PHP enums become functional TypeScript objects rather than a bare union of values, with PHP-like behavior (`.from()`, `.tryFrom()`, `.cases()`) powered by [`@tolki/ts`](https://tolki.abe.dev/ts/). Your own enum methods and static methods can come along too.
 
 ```php
 enum Status: string
@@ -262,14 +262,14 @@ Key capabilities:
 - **`defineEnum()` from `@tolki/ts`** — wraps the enum so you can call `.from()`, `.tryFrom()`, and `.cases()` on it just like PHP's `BackedEnum`.
 - **PHPDoc-aware** — class, case, and method doc blocks are carried over as JSDoc comments automatically.
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by models and resources.
-- **`#[TsExclude]`** — exclude an entire enum or specific methods from the output. See [Excluding with TsExclude](#excluding-with-tsexclude).
-- **`EnumResource`** — an HTTP JSON resource for returning flattened, instance-specific enum data from your API routes. See [JSON Enum HTTP API Resource](#json-enum-http-api-resource).
+- **`#[TsExclude]`** — exclude an entire enum or specific methods from the output. See [Excluding with `#[TsExclude]`](#excluding-with-tsexclude).
+- **`EnumResource`** — an HTTP JSON resource for returning flattened, instance-specific enum data from your API routes. See [JSON enum HTTP API resource](#json-enum-http-api-resource).
 
 For every attribute option, the metadata/`@tolki/ts` integration, the Vite plugin, and the full behavior of auto-including methods, see the full [Enums documentation](https://tolki.abe.dev/ts/enums.html).
 
 ## Models
 
-Laravel Eloquent models are converted into TypeScript interfaces for their properties, mutators, and relations — split into focused interfaces by default so a page only needs to import the parts of a model it actually uses.
+Eloquent models become TypeScript interfaces for their properties, mutators, and relations. They are split into separate interfaces by default, so a page imports only the parts it uses.
 
 ```php
 class User extends Model
@@ -303,25 +303,25 @@ Key capabilities:
 
 - **Split or full templates** — `models.template` controls whether properties/mutators/relations are generated as separate interfaces (default) or combined into one `model-full` interface.
 - **Smart nullable relations** — singular relations (`HasOne`, `BelongsTo`, `MorphOne`, ...) are automatically typed with `| null` based on the relation type and foreign key nullability, with a config to override the strategy per relation type.
-- **Annotate instead of configuring** — `@property` / `@property-read` tags, `@phpstan-type` aliases, `Attribute<>` generics, `@return MorphTo<A|B, $this>`, `AsEnumCollection::of()` / `AsCollection::of()`, and an `Arrayable` DTO's own typed properties all sharpen a column's type with no `#[TsCasts]` needed — and PHPStan/Larastan check the same annotations. See [Typing attributes without `#[TsCasts]`](https://tolki.abe.dev/ts/models.html#typing-attributes-without-tscasts).
+- **Annotate instead of configuring** — `@property` / `@property-read` tags, `@phpstan-type` aliases, `Attribute<>` generics, `@return MorphTo<A|B, $this>`, `AsEnumCollection::of()` / `AsCollection::of()`, and an `Arrayable` DTO's own typed properties all sharpen a column's type with no `#[TsCasts]` needed, and PHPStan/Larastan read the same annotations. See [Typing attributes without `#[TsCasts]`](https://tolki.abe.dev/ts/models.html#typing-attributes-without-tscasts).
 - **PHPDoc-aware** — class, column, mutator, and relation doc blocks are carried over as JSDoc comments automatically.
-- **`#[TsCasts]` / `#[TsType]`** — For more advanced TypeScript types for columns, mutators, relations, or an entire custom cast class, including custom types imported from your own files.
-- **`$hidden` and write-only accessors** — hidden attributes publish by default (`models.exclude_hidden` opts out, for model *and* resource interfaces alike — a resource's `except()`/whole-model delegation loses the column too, though `only(['password'])` still keeps one named explicitly); a write-only `Attribute::make(set:)` resolves from its `@return Attribute<Get, Set>` generic, then a same-named column, then is omitted rather than emitted as `unknown`.
+- **`#[TsCasts]` / `#[TsType]`** — for more advanced TypeScript types for columns, mutators, relations, or an entire custom cast class, including custom types imported from your own files.
+- **`$hidden` and write-only accessors** — hidden attributes publish by default. `models.exclude_hidden` opts out for model *and* resource interfaces alike, so a resource's `except()` or whole-model delegation loses the column too, though `only(['password'])` still keeps one you name explicitly. A write-only `Attribute::make(set:)` resolves from its `@return Attribute<Get, Set>` generic, then from a same-named column, and failing both is omitted rather than emitted as `unknown`.
 - **`#[TsExclude]`** — exclude an entire model, or a specific accessor/relation, from the output.
 - **Laravel 13 model attributes** — `#[Table]`, `#[Hidden]`, `#[Visible]`, `#[Appends]`, and `#[Connection]` are honoured automatically, no configuration needed. See [Laravel 13 Model Attributes](https://tolki.abe.dev/ts/models.html#laravel-13-model-attributes) for the full attribute-by-attribute table.
 - **Enum-typed columns** also generate a matching `{Model}Resource` interface using `AsEnum<>`, for when you've resolved a raw enum column to a full enum instance (e.g. via `Status.from(user.status)`).
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and resources.
 
 > [!TIP]
-> Still seeing `unknown` in the output? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) is a symptom-first index of the docblock tag that fixes each case — all of them read by PHPStan/Larastan too.
+> Still seeing `unknown` in the output? The [annotation checklist](https://tolki.abe.dev/ts/models.html#annotation-checklist) indexes each case by symptom and names the docblock tag that fixes it. PHPStan and Larastan read all of them too.
 >
-> If you still continue to see `unknown`, open an issue with code samples of your PHP code and the generated TypeScript output so we can investigate.
+> If it still comes out `unknown`, open an issue with the PHP and the generated TypeScript so we can look.
 
-For the full template comparison, nullable relation strategies, every attribute option, the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
+For the template comparison, nullable relation strategies, every attribute option, and the complete type-mapping reference, see the full [Models documentation](https://tolki.abe.dev/ts/models.html).
 
-## API Resources
+## API resources
 
-This package generates TypeScript interfaces from your Laravel [API Resources](https://laravel.com/docs/eloquent-resources) (`JsonResource` classes) by statically analyzing the `toArray()` method — no need to hand-maintain a separate type for what your API already returns.
+This package reads a `JsonResource`'s `toArray()` method statically and generates the interface from it, so you don't hand-maintain a second type for what your API already returns. See Laravel's [API Resources](https://laravel.com/docs/eloquent-resources).
 
 ```php
 /** @mixin User */
@@ -359,16 +359,20 @@ Key capabilities:
 - **Nested & collection resources** — `SomeResource::make()` / `::collection()` (or `new SomeResource(...)`) resolve to imported resource types, including self-references; a collection carrying `#[PreserveKeys]` or `$preserveKeys = true` emits `Record<string, R>` instead of `R[]`.
 - **`merge()` / `mergeWhen()` / `mergeUnless()`, parent `toArray()` spreads, trait method spreads, and a bare `return $this->method()` (resolved transitively, the same as its `...$this->method()` spread form)** — all contribute properties, with types resolved from PHPDoc `@return array{...}` shapes or `#[TsCasts]`.
 - **`EnumResource::make()`** — exposes an enum-cast property as `AsEnum<typeof Enum>` with automatic imports.
-- **`#[TsResource]` / `#[TsCasts]` / `#[TsExclude]`** — override the interface name/model/description, override or add property types, or exclude a resource entirely. See [Excluding with TsExclude](#excluding-with-tsexclude).
+- **`#[TsResource]` / `#[TsCasts]` / `#[TsExclude]`** — override the interface name/model/description, override or add property types, or exclude a resource entirely. See [Excluding with `#[TsExclude]`](#excluding-with-tsexclude).
 - **Smart nullable relations** — the same nullability-detection strategy used by [models](#models), with config to override the strategy per relation type.
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums and models.
-- **Relation `only()` / `except()`** — `$this->relation->only([...])` now references the generated model type via `Pick<Model, 'a' | 'b'>` (and `Omit<Model, ...>` for `except()`) whenever every filtered key is a real database column, keeping the model's `#[TsCasts]`/`@property` refinements instead of losing them to a re-derived inline shape.
+- **Relation `only()` / `except()`** — `$this->relation->only([...])` / `->except([...])` references the related model's generated interface as `Pick<Model, 'a' | 'b'>` / `Omit<Model, ...>`, keeping its `#[TsCasts]` and `@property` refinements, whenever the relation resolves to a single model **and** every filtered key is a real database column. Anything else expands inline, where `except()` yields **database columns only** — see [Relation Filters](https://tolki.abe.dev/ts/api-resources.html#relation-filters).
+- **Resource inheritance** — a resource that extends another resource and declares no `toArray()` of its own inherits the parent's shape and its backing model, walking up to the nearest ancestor that declares each. The explicit `...parent::toArray($request)` spread and bare `return parent::toArray($request);` forms are unchanged and still idiomatic — see [Inheriting a Parent `toArray()`](https://tolki.abe.dev/ts/api-resources.html#inheriting-a-parent-toarray).
+- **Model `toArray()` spreads** — `[...$user->toArray(), 'flag' => true]` types as `Omit<User, 'flag'> & { flag: boolean }` instead of collapsing to `unknown[]`, the `Omit<>` keeping PHP's later-key-wins from collapsing the collision to `never`. The arm references `{Model}` rather than re-deriving its shape, so a relation loaded before the spread is missing from the type and `$hidden` columns stay in it unless `models.exclude_hidden` is on — see [Model `toArray()` Spread](https://tolki.abe.dev/ts/api-resources.html#model-toarray-spread).
+- **`toResource()` / `toResourceCollection()`** — both resolve through an explicit `SomeResource::class` argument, a `#[UseResource]` / `#[UseResourceCollection]` attribute, or Laravel's naming convention. Only the naming-convention guess is gated on this package actually emitting that resource, so an unpublished guess falls back to `unknown` instead of importing a file that never gets written — see [`toResource()` and `toResourceCollection()`](https://tolki.abe.dev/ts/api-resources.html#toresource-and-toresourcecollection).
+- **Same-basename class aliasing** — when two classes in different namespaces share a class name (`App\Models\User` and `Crm\Models\User`), every occurrence of that name inside a single property's type now resolves to its own aliased import, in source order — see [Classes Sharing a Name Across Namespaces](https://tolki.abe.dev/ts/api-resources.html#classes-sharing-a-name-across-namespaces).
 
 For every supported `toArray()` pattern, the full attribute reference, and nullable-relation strategies, see the full [API Resources documentation](https://tolki.abe.dev/ts/api-resources.html).
 
 ## Routes
 
-This package publishes a lightweight, functional route helper for every controller action in your app, with all the URL-building, parameter-binding, query-string, and form-spoofing logic tucked away inside a single `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) instead of being generated inline for every route. It's made to be spec-compliant with [Laravel Wayfinder](https://github.com/laravel/wayfinder) and will work with Inertia JS the same way.
+Every controller action gets a functional route helper. The URL-building, parameter-binding, query-string, and form-spoofing logic lives in one `defineRoute()` factory from [`@tolki/ts`](https://tolki.abe.dev/ts/) rather than being generated inline for every route. The helpers are built to be spec-compliant with [Laravel Wayfinder](https://github.com/laravel/wayfinder) and work with Inertia the same way.
 
 ```typescript
 // resources/js/types/data/app/http/controllers/post-controller.ts (generated)
@@ -394,7 +398,7 @@ PostController.update(post);                   // pass the Post model instance d
 
 Key capabilities:
 
-- **Structural typing** — model and enum route bindings are fully typed without ever importing the PHP model or enum class into the route file.
+- **Structural typing** — model and enum route bindings are typed without importing the PHP model or enum class into the route file.
 - **Multiple calling conventions** — named object, positional arguments, an array of positional arguments, or a bare model/scalar for single-parameter routes.
 - **Query strings** — extra keys become query parameters automatically, with a `_query` escape hatch and a `mergeQuery` option for updating the current page's query string.
 - **`.form()` helper** — builds `{ action, method }` for HTML forms, including Laravel's `_method` spoofing for `PUT`/`PATCH`/`DELETE`, and mapping `HEAD` to a plain GET form action (HTML forms can't submit `HEAD`).
@@ -405,9 +409,9 @@ Key capabilities:
 
 For every calling convention, model/enum binding rule, query-string behavior, route defaults, form-spoofing detail, and the Inertia/FormRequest typing helpers, see the full [Routing documentation](https://tolki.abe.dev/ts/routing.html).
 
-## Form Requests
+## Form requests
 
-Laravel Form Request `rules()` methods are statically analyzed and converted into a TypeScript interface describing the request payload — no need to hand-maintain a separate type for what your validation rules already define.
+A Form Request's `rules()` method is analyzed statically and becomes a TypeScript interface for the request payload, so you don't hand-maintain a second type for what your validation rules already define.
 
 ```php
 class StorePostRequest extends FormRequest
@@ -434,20 +438,21 @@ import type { StorePostRequest } from '@js/types/data/form-requests';
 Key capabilities:
 
 - **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type. `required_array_keys:a,b`, `in_array_keys:a,b`, `array:a,b`, and `array_keys:a,b` name an array's keys without a full nested shape, resolving to a keyed object (`config: { timezone?: unknown }`) instead of `unknown[]`.
+- **Numeric `in:` literals** — a string-form `in:1,2,3` emits an unquoted `1 | 2 | 3` when a sibling rule declares the field numeric. The same list of rules now drives both that decision and the `number` mapping, so `decimal`, `digits`, and `digits_between` count alongside `integer`/`int`/`numeric` (`['digits:1', 'in:1,2,3']` → `1 | 2 | 3`). Coercion still only happens when the literal round-trips losslessly: `['decimal:2', 'in:1.50,2.50']` stays `'1.50' | '2.50'`, because Laravel's own `validateIn()` compares the raw string and would reject `2.5`.
 - **Nested/wildcard composition** — `parent.*.child` and `parent.child` dot-notation rules compose recursively into their nearest undotted ancestor (`tags.*` → `tags: string[]`, `order.items.*.sku` → `order?: { items?: { sku: string }[] }`) instead of surviving as separate flat, quoted keys. Declaring the parent's own rules (e.g. `'order' => ['required', 'array']`) makes the composed key required instead of optional.
 - **Presence & nullability** — `required`/`sometimes` control whether a field is optional (`?`), `nullable` adds `| null`, and `missing`/`prohibited` fields are excluded from the interface entirely.
 - **`#[TsCasts]`** — override or add field types on the request class itself, the same attribute used by models and resources.
-- **`#[TsExtends]`** — extend shared interfaces, the same mechanism used by models and resources. See [Extending Interfaces](#extending-interfaces-with-tsextends--configs).
+- **`#[TsExtends]`** — extend shared interfaces, the same mechanism used by models and resources. See [Extending interfaces](#extending-interfaces-with-tsextends--configs).
 - **Dynamic fallback** — requests whose `rules()` can't be resolved without real HTTP context (e.g. reading `$this->user()->id` directly) fall back to `Record<string, unknown>` instead of failing the publish.
 - **Route integration** — a controller action type-hinted to a `FormRequest` automatically gets its route export wrapped with `annotateRequestPayload<T>()`. See [Form Request Payload Types](https://tolki.abe.dev/ts/routing.html#form-request-payload-types).
-- **`#[TsExclude]`** — exclude an entire request class from the output. See [Excluding with TsExclude](#excluding-with-tsexclude).
+- **`#[TsExclude]`** — exclude an entire request class from the output. See [Excluding with `#[TsExclude]`](#excluding-with-tsexclude).
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums, models, and resources.
 
 For the full rule-to-type mapping, every JSDoc metadata annotation, and all attribute options, see the full [Form Requests documentation](https://tolki.abe.dev/ts/form-requests.html).
 
-## Broadcast Channels
+## Broadcast channels
 
-Every channel name registered in `routes/channels.php` is compiled into a single `broadcast-channels.ts` file — a `BroadcastChannel` template-literal type union, plus a `BroadcastChannels` const with a nested accessor function for every dynamic segment, so you never hand-type a `{placeholder}` channel string on the frontend.
+Every channel name in `routes/channels.php` compiles into one `broadcast-channels.ts` file: a `BroadcastChannel` template-literal union, plus a `BroadcastChannels` const with a nested accessor for every dynamic segment. You never hand-type a `{placeholder}` channel string on the frontend.
 
 ```php
 // routes/channels.php
@@ -474,9 +479,9 @@ Key capabilities:
 
 For the dot-notation tree algorithm, parameter typing, and quoted-key handling, see the full [Broadcast Channels documentation](https://tolki.abe.dev/ts/broadcast-channels.html).
 
-## Broadcast Events
+## Broadcast events
 
-Every `ShouldBroadcast` / `ShouldBroadcastNow` event class gets its own TypeScript interface — generated from its `broadcastWith()` return shape, or its public constructor properties when there's no `broadcastWith()` — plus a combined `broadcast-events.ts` index with a `BroadcastEvent` union type and a flat `BroadcastEvents` const of every Echo event name.
+Every `ShouldBroadcast` and `ShouldBroadcastNow` event gets its own interface, built from its `broadcastWith()` return shape or, when there is none, its public constructor properties. A combined `broadcast-events.ts` index adds a `BroadcastEvent` union and a flat `BroadcastEvents` const of every Echo event name.
 
 ```php
 class OrderShipped implements ShouldBroadcast
@@ -509,7 +514,7 @@ Key capabilities:
 - **Model & enum-aware** — a property typed as an Eloquent model resolves to `Partial<Model>`, and a PHP enum property resolves to the enum's `{Name}Type` alias, both with automatic imports.
 - **`broadcastAs()` support** — a custom Echo event name from `broadcastAs()` is used as-is; otherwise the Echo name defaults to Laravel's `.Fully.Qualified.ClassName` convention.
 - **`#[TsCasts]` / `#[TsExtends]`** — override property types or extend shared interfaces, the same attributes used by models, resources, and form requests.
-- **`#[TsExclude]`** — exclude an entire event class from the output. See [Excluding with TsExclude](#excluding-with-tsexclude).
+- **`#[TsExclude]`** — exclude an entire event class from the output. See [Excluding with `#[TsExclude]`](#excluding-with-tsexclude).
 - **Echo module augmentation** — optionally generates an `echo-broadcast-events.d.ts` file that augments `@laravel/echo`'s (or `@laravel/echo-vue`/`-react`/`-svelte`'s, auto-detected) `Events` interface for fully-typed `Echo.private(...).listen()` calls.
 - **Filtering** — the same `included` / `excluded` / `additional_directories` config pattern used by enums, models, and form requests.
 
@@ -517,7 +522,7 @@ For the full property-resolution rules, import-conflict aliasing, and Echo augme
 
 ## Inertia
 
-When `inertia.enabled` is on, this package analyzes your `HandleInertiaRequests` middleware's `share()` method and generates `inertia-config.d.ts` — a module augmentation for `@inertiajs/core` plus a global `Inertia.SharedData` type, so every Inertia page automatically has fully-typed shared props with no manual typing.
+With `inertia.enabled` on, the package reads your `HandleInertiaRequests` middleware's `share()` method and writes `inertia-config.d.ts`: a module augmentation for `@inertiajs/core` plus a global `Inertia.SharedData` type. Every Inertia page gets typed shared props with no manual typing.
 
 ```php
 class HandleInertiaRequests extends Middleware
@@ -553,12 +558,13 @@ Key capabilities:
 - **`errorValueType`** — automatically added to the augmentation when the middleware's `$withAllErrors` property is `true`, matching Inertia's validation error bag shape.
 - **Route-linked page props** — a related but separate piece: a controller action's `Inertia::render()` call gets its own page-prop type that intersects with `Inertia.SharedData`, threaded into that route's generated file automatically. See [Inertia Integration](https://tolki.abe.dev/ts/routing.html#inertia-integration) in the Routing docs.
 - **Preserve-keys resource collections** — a paginated `Inertia::render()` prop backed by a `#[PreserveKeys]`/`$preserveKeys` resource collection types its `data` member as `Record<string, T>`, matching Laravel's key-preserving JSON shape instead of the default array.
+- **Inline paginators** — a paginator called directly inside the render array (`'teams' => new TeamCollection(Team::query()->paginate(10))`) is typed as a paginator, with no intermediate variable needed. `paginate()`, `simplePaginate()`, and `cursorPaginate()` are all recognised, in both the `new SomeCollection(...)` and `SomeResource::collection(...)` forms — see [Paginating Inline in the Render Call](https://tolki.abe.dev/ts/inertia.html#paginating-inline-in-the-render-call).
 
 For the full middleware discovery rules, the type-override priority order, and the generated file anatomy, see the full [Inertia documentation](https://tolki.abe.dev/ts/inertia.html).
 
-## Vite Env
+## Vite env
 
-When `vite_env.enabled` is on, this package reads the `VITE_`-prefixed variables from your `.env` (or `.env.example`) file and generates a `vite-env.d.ts` declaration file that augments Vite's `ImportMetaEnv` interface — so `import.meta.env.VITE_APP_NAME` is fully typed without hand-maintaining a separate declaration file.
+When `vite_env.enabled` is on, this package reads the `VITE_`-prefixed variables from your `.env` (or `.env.example`) file and generates a `vite-env.d.ts` that augments Vite's `ImportMetaEnv` interface, so `import.meta.env.VITE_APP_NAME` is typed without a hand-maintained declaration file.
 
 ```env
 VITE_APP_NAME=MyApp
@@ -587,9 +593,9 @@ Key capabilities:
 
 For the exact variable-parsing rules and source-file resolution order, see the full [Vite Env documentation](https://tolki.abe.dev/ts/vite-env.html).
 
-## Extending Interfaces with `#[TsExtends]` & Configs
+## Extending interfaces with `#[TsExtends]` & configs
 
-Sometimes a generated interface needs to extend a hand-written TypeScript interface — for properties this package can't infer, or to share common fields across many models, resources, form requests, or broadcast events without duplication. The `#[TsExtends]` attribute (repeatable, and inherited from parent classes and traits) and the matching `ts_extends.*` config arrays both add to the generated interface's `extends` clause.
+Sometimes a generated interface needs to extend a hand-written one, either for properties this package can't infer or to share common fields across many classes without duplication. The `#[TsExtends]` attribute (repeatable, and inherited from parent classes and traits) and the matching `ts_extends.*` config arrays both add to the generated interface's `extends` clause.
 
 ```php
 use AbeTwoThree\LaravelTsPublish\Attributes\TsExtends;
@@ -624,7 +630,7 @@ For the full attribute reference, the trait/parent-class inheritance rules, and 
 
 ## Excluding with `#[TsExclude]`
 
-The `#[TsExclude]` attribute excludes a specific enum, model, resource, form request, broadcast event, or controller — or one of their individual methods/accessors/relations/actions — from the TypeScript output. It's especially useful alongside `enums.auto_include_methods` / `enums.auto_include_static_methods`, letting you opt a single method back out of an otherwise-automatic inclusion.
+`#[TsExclude]` keeps a whole class out of the TypeScript output, or just one of its methods, accessors, relations, or actions. It works on enums, models, resources, form requests, broadcast events, and controllers. It's especially useful alongside `enums.auto_include_methods` / `enums.auto_include_static_methods`, letting you opt a single method back out of an otherwise-automatic inclusion.
 
 ```php
 use AbeTwoThree\LaravelTsPublish\Attributes\TsExclude;
@@ -639,20 +645,20 @@ class User extends Model
 }
 ```
 
-The `secretToken` accessor above is entirely omitted from the generated `User` interface — everything else on the model still publishes normally.
+The `secretToken` accessor above never reaches the generated `User` interface. Everything else on the model still publishes.
 
 Key capabilities:
 
 - **Works everywhere** — enum classes/methods, model classes/accessors/relations, resource classes, form request classes, broadcast event classes, and controller classes/actions.
 - **Always wins** — even when `#[TsEnumMethod]`, `#[TsEnumStaticMethod]`, or an auto-include config would otherwise include something, `#[TsExclude]` takes priority.
 - **Class-level exclusion removes the class from collection entirely** — it won't appear in any generated output, index, or barrel file.
-- **Method/accessor/relation/action-level exclusion** only removes that one member — everything else on the class still publishes normally.
+- **Member-level exclusion** — removes that one method, accessor, relation, or action. Everything else on the class still publishes.
 
 For the full target reference and a worked example for every supported type, see the full [Excluding Content documentation](https://tolki.abe.dev/ts/excluding-content.html).
 
-## Casing Configurations
+## Casing configurations
 
-This package provides three independent config options to control the casing of generated property and method names — `models.relationship_case` for model relationship names, `enums.method_case` for enum method names, and `routes.method_casing` for route action names. All three accept `'snake'`, `'camel'`, or `'pascal'`.
+Three independent config options control the casing of generated names: `models.relationship_case` for model relations, `enums.method_case` for enum methods, and `routes.method_casing` for route actions. All three accept `'snake'`, `'camel'`, or `'pascal'`.
 
 ```php
 // config/ts-publish.php
@@ -677,9 +683,9 @@ Key capabilities:
 
 For the full casing tables and worked examples for all three settings, see the full [Casing Configurations documentation](https://tolki.abe.dev/ts/casing-configuration.html).
 
-## JSON Enum HTTP API Resource
+## JSON enum HTTP API resource
 
-This package ships with `EnumResource` — a Laravel [JSON resource](https://laravel.com/docs/eloquent-resources.html) that transforms any PHP enum case into a flat, API-friendly array, running it through the same transformer pipeline used for TypeScript publishing so every `#[TsEnumMethod]` / `#[TsEnumStaticMethod]` you've configured is automatically included in the response.
+`EnumResource` is a Laravel [JSON resource](https://laravel.com/docs/eloquent-resources.html) that turns any PHP enum case into a flat, API-friendly array. It runs through the same transformer pipeline as `ts:publish`, so every `#[TsEnumMethod]` and `#[TsEnumStaticMethod]` you configured appears in the response.
 
 ```php
 use AbeTwoThree\LaravelTsPublish\EnumResource;
@@ -702,15 +708,15 @@ Key capabilities:
 
 - **Same pipeline as `ts:publish`** — only `#[TsEnumMethod]` / `#[TsEnumStaticMethod]` methods (or all public methods when auto-include is on) are included, using the same `enums.method_case` casing.
 - **Works standalone or embedded** — instantiate directly (`new EnumResource($enum)`) for a top-level API response, or use `EnumResource::make()` inside another resource's `toArray()` to embed a rich enum object. See [Enum Properties with EnumResource](https://tolki.abe.dev/ts/api-resources.html#enum-properties-with-enumresource).
-- **`AsEnum<T, V?>` from `@tolki/ts`** — the TypeScript type companion that matches this exact response shape, letting you fully type an API response that used `EnumResource`.
+- **`AsEnum<T, V?>` from `@tolki/ts`** — the TypeScript type companion that matches this exact response shape, so you can type an API response that used `EnumResource`.
 - **Auto-generated `{Model}Resource` interfaces** — any model with enum-cast columns automatically gets a companion set of interfaces using `AsEnum<>`, so you don't have to hand-compose `Omit` + `AsEnum` yourself.
 - **Unit enum support** — enums without a backed type still work; `value` mirrors the case `name` and `backed` is `false`.
 
 For the full response shape, unit enum behavior, and the auto-generated model resource interfaces, see the full [Enum API Resource documentation](https://tolki.abe.dev/ts/enum-api-resource.html).
 
-## Modular Publishing
+## Modular publishing
 
-Generated TypeScript files are always organized into namespace-derived directory trees that mirror your PHP namespace structure — there is no flat-output mode or config toggle to opt out of. This keeps output tidy for modular/domain-driven applications (e.g. [InterNACHI/modular](https://github.com/InterNACHI/modular)), while a single-namespace app (just `App\Models`, `App\Enums`, etc.) simply produces one `app/` directory tree.
+Generated files always mirror your PHP namespace structure as a directory tree. There is no flat-output mode and no toggle to opt out. Modular and domain-driven apps (for example [InterNACHI/modular](https://github.com/InterNACHI/modular)) stay tidy, and a single-namespace app produces one `app/` tree.
 
 ```text
 resources/js/types/data/
@@ -745,9 +751,9 @@ Key capabilities:
 
 For the full kebab-casing algorithm, the relative-import-path rules, and the barrel file format, see the full [Modular Publishing documentation](https://tolki.abe.dev/ts/modular-publishing.html).
 
-## Extending & Customizing the Pipeline
+## Extending & customizing the pipeline
 
-Every feature in this package runs through a **Collector → Generator → Transformer → Writer → Template** pipeline (or a subset of those stages — not every feature uses all five), and each stage is swappable per-feature via the config file. Extend the built-in class, override the matching config key, and the rest of the pipeline keeps working as-is.
+Every feature in this package runs through a **Collector → Generator → Transformer → Writer → Template** pipeline, though not every feature uses all five stages. Each stage is swappable per feature through the config file. Extend the built-in class, override the matching config key, and the rest of the pipeline keeps working as-is.
 
 ```php
 // config/ts-publish.php
@@ -766,9 +772,9 @@ Key capabilities:
 
 For the full per-feature pipeline-stage reference, every abstract base class's method contract, and the cache rehydration mechanics, see the full [Customizing the Pipeline documentation](https://tolki.abe.dev/ts/customizing-the-pipeline.html).
 
-## Pre-Command Hook
+## Pre-command hook
 
-Register a closure with `LaravelTsPublish::callCommandUsing()` to run custom logic right before `ts:publish` executes — dynamically configuring directories, swapping pipeline classes, or reacting to feature flags. The closure only runs when the command actually runs, not at service provider boot time, so it never adds overhead to a normal request.
+Register a closure with `LaravelTsPublish::callCommandUsing()` to run logic right before `ts:publish` executes, whether that is building directory lists, swapping pipeline classes, or reacting to feature flags. The closure only runs when the command actually runs, not at service provider boot time, so it never adds overhead to a normal request.
 
 ```php
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish;
@@ -793,7 +799,7 @@ Key capabilities:
 
 For worked examples (modular package integration, conditional pipeline swaps, feature-flag-driven publishing), the exact invocation timing, and how to safely reset the hook between tests, see the full [Pre-Command Hook documentation](https://tolki.abe.dev/ts/pre-command-hook.html).
 
-## Cache Generation
+## Cache generation
 
 After the first full publish, `ts:publish` can skip re-generating classes whose source files (and everything they depend on) haven't changed. The cache is busted automatically whenever the package version or your output-affecting config changes, and a class is only served from cache if every file it previously wrote still exists on disk.
 
@@ -818,7 +824,7 @@ Key capabilities:
 
 For the full fingerprinting algorithm, the dependency-recording rules, the `ProvidesCacheSignature` extension point for custom generators, and both storage backends' internals, see the full [Cache Generation documentation](https://tolki.abe.dev/ts/generating-cache.html).
 
-## Output Options
+## Output options
 
 This package provides several output formats that can be enabled independently:
 
@@ -857,11 +863,11 @@ When `json.enabled` is enabled, a `laravel-ts-definitions.json` file is written 
 ],
 ```
 
-The file has one top-level object per feature — `models`, `enums`, `resources`, `formRequests`, `broadcastEvents` — and **every one of those objects is keyed by the fully-qualified class name** of the PHP class it was generated from (e.g. `"Workbench\\App\\Models\\User"`), not by its short class name. Each entry also carries a `name` field with the short type name that used to be the map's key. Keying by FQCN is deliberate: two classes that share a basename in different namespaces (`App\Models\User` and `Crm\Models\User`, for instance) are common in larger apps, and a short-name key would silently overwrite one with the other. If you parse this file, key your lookups by FQCN and read `name` for display purposes — **this is a breaking change** for anything written against an older bare-name-keyed version of this file.
+The file has one top-level object per feature (`models`, `enums`, `resources`, `formRequests`, `broadcastEvents`), and **every one of them is keyed by fully-qualified class name** (`"Workbench\\App\\Models\\User"`), not by short class name. Each entry carries a `name` field holding the short name that used to be the key. Keying by FQCN is deliberate: two classes sharing a basename across namespaces (`App\Models\User` and `Crm\Models\User`) are common in larger apps, and a short-name key silently overwrites one with the other. Key your lookups by FQCN and read `name` for display. **This is a breaking change** for anything written against the older bare-name-keyed file.
 
 The JSON output from `watcher.enabled` is designed to work with build tools and file watchers (like the [@tolki/ts Vite plugin](https://tolki.abe.dev/ts/vite-plugin.html)) that need to know which PHP source files were collected so they can trigger a re-publish when those files change.
 
-## Configuration Reference
+## Configuration reference
 
 Every configuration option lives in `config/ts-publish.php`, organized by feature (`models.*`, `enums.*`, `routes.*`, `cache.*`, and so on). Publish the config file to customize any of it:
 
@@ -879,7 +885,7 @@ Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed re
 
 Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
 
-## Security Vulnerabilities
+## Security vulnerabilities
 
 Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
 

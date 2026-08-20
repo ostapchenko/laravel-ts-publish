@@ -49,6 +49,79 @@ climbs only as far as needed:
   groups with different type names, from processing groups in type-name order rather than
   registration order.
 
+## Rewriting aliased type references
+
+`applyResolvedImportNames()` records an FQCN in `$importAliases` only when its resolved local name
+differs from its type name, then calls the transformer's `rewriteTypeReferences()` once. Each
+transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
+`$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns` in `ModelTransformer`, `$propertyFqcns` in
+`BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`
+**one entry per occurrence, in registration order**. Callers must neither sort nor dedupe that list:
+multiplicity and order together *are* the contract. `ModelTransformer` satisfies it by construction
+(`$columnFqcns[$name][] = $fqcn` and its two siblings are plain appends);
+`ResourceTransformer::mergePropertyFqcnMaps()` and
+`BroadcastEventTransformer`'s `$propertyFqcns` assignment each used to end in
+`array_values(array_unique(...))`, and dropping both is what lets a property naming the same model
+twice resolve both occurrences to it. The `array_unique` calls that remain in those two classes are
+on import-building paths — `enumPropertyFqcns()` and `buildTypeImports()` — where one entry per
+import is what you want.
+
+**One upstream producer still dedupes, and the transformers cannot undo it.**
+`ResourceAstAnalyzer` `array_unique`s `inlineModelFqcns` per property key in *both* of its merge
+paths: `syncAnalysisMaps()`, which folds a parent/trait/merge sub-analysis into the running maps, and
+`mergeReturnBranches()`, which unions multiple `return [...]` branches. `ResourceTransformer` copies
+that map straight into `$propertyInlineModelFqcns`, one of the four list maps
+`mergePropertyFqcnMaps()` concatenates. So for a **merged or inherited** resource, the list reaching
+`aliasPropertyType()` is already deduped and the per-occurrence contract holds only up to the
+analyzer, not through it — a property whose inline shape names the same model twice across branches
+falls back to the queue-shorter-than-occurrences clamp above. A resource whose property is analyzed on
+the single-branch path is unaffected. This is the same defect the two transformer `array_unique`s had,
+one layer further upstream, and is a standing follow-up rather than something the caller can fix.
+
+`aliasPropertyType()` builds one queue of aliases per type name, in FQCN source order, then walks
+the type string's occurrences left to right with `preg_replace_callback`, so occurrence N takes
+FQCN N. When the list is per-occurrence the queue is exact and every occurrence resolves to its own
+model — including the interleaved case `Crm, App, Crm`, where the repeat is *not* the trailing FQCN.
+
+Two clamps sit underneath that:
+
+- **One FQCN owns the name.** The queue has length 1, so every occurrence is provably it and every
+  one is rewritten — the widened-container case, `User[] | Record<string, User>` from a single
+  `App\Models\User`.
+- **A queue shorter than the occurrence count.** The last FQCN covers the overflow. This is a
+  backstop against a bare token, not the mechanism: any caller that supplies true multiplicity never
+  reaches it. It cannot recover the right model — deduping `Crm, App, Crm` to `Crm, App` retypes the
+  third occurrence as `App`, which is why the dedupe was removed rather than compensated for.
+
+Occurrence order *is* FQCN source order by construction, not by luck. `mergeTypeScriptInfos()`
+appends to `$types` and `$orderedClassFqcns` inside the same loop iteration and then returns
+`implode(' | ', $types)` alongside `classFqcns => $orderedClassFqcns`, so arm N of a plain class
+union is FQCN N. `ModelAttributeResolver::buildMorphUnionInfo()` does the same for a morph union:
+its type is `implode(' | ', array_map(class_basename(...), $targets))` and its `morphFqcns` is
+`$targets`.
+
+A shorter name that prefixes a longer one (`User` against `UserProfile`) cannot claim its match, but
+the *mechanism* is the trailing `(?![A-Za-z0-9_$])`, not the alternation order: `User` matches, the
+lookahead sees `P` and fails, and PCRE backtracks into the longer alternative. The `usort` that orders
+the alternation longest-first is harmless defensive code — deleting it leaves the whole suite green,
+including `a longer registered name is not shadowed by a shorter one that prefixes it`.
+
+**Invariant: no bare colliding token survives `aliasPropertyType()`.** Every name that reaches a
+queue is rewritten at every occurrence, because the cursor clamps to the queue's last entry rather
+than running off the end. The invariant is scoped to this helper on purpose:
+`ModelTransformer::rewriteTypeReferences()` aliases a *morph relation* union through its own
+`$relationAliases` walk, which has no such clamp — when `isset($nameToAliases[$bare][$idx])` fails
+it leaves the member bare. That channel is a known gap, not part of this invariant.
+The invariant is what
+[the unimportable-token gate](../testing/type-inference-gates.md) depends on — a bare `User` left
+in a file that imports only `User as ModelsUser` and `User as CrmUser` is a `TS2304`. The
+predecessor, `aliasTypeName()`, rewrote either every occurrence or exactly one per aliased FQCN,
+which held only while a basename occurred exactly as often as it had *distinct* FQCNs.
+`WarehouseResource::regional_hub_contacts` — `primaryContact`, `manager`, `secondaryContact` named
+in one `only()`, resolving to `Crm\Models\User`, `App\Models\User`, `Crm\Models\User` — pins both
+halves: the old heuristic left the third occurrence bare, and a deduped list retypes it as the app
+user.
+
 ## Consumers
 
 Each transformer's `resolveImportConflicts()` builds the registry (or registries) that fit its

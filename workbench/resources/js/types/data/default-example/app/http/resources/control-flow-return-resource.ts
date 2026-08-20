@@ -1,3 +1,6 @@
+import { type AsEnum } from '@tolki/ts';
+
+import { PaymentMethod } from '../../enums';
 import type { OrderStatusType } from '../../enums';
 
 /**
@@ -10,6 +13,7 @@ export interface ControlFlowReturnResource
 {
     id: number;
     archived?: boolean;
+    inline_enum_branch?: { method: AsEnum<typeof PaymentMethod> | null };
     draft?: boolean;
     total?: number;
     status?: OrderStatusType;

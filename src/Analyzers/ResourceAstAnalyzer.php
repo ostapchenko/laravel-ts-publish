@@ -10,6 +10,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
@@ -228,6 +229,13 @@ class ResourceAstAnalyzer
         });
 
         if (! $toArrayMethod instanceof ClassMethod || $toArrayMethod->stmts === null) {
+            $inherited = $this->analyzeParentToArray();
+
+            // An empty result means no ancestor declared a toArray() either, so keep delegating.
+            if ($inherited !== null && $inherited->properties !== []) {
+                return $inherited;
+            }
+
             if ($this->isResourceCollection()) {
                 return $this->buildCollectionDelegatedAnalysis();
             }
@@ -1730,8 +1738,8 @@ class ResourceAstAnalyzer
     /**
      * Resolve a fluent method chained onto a receiver that itself resolves to a resource — e.g.
      * `new self($x)->foo()`, `SomeResource::make($x)->foo()`, or a chain of such calls. The
-     * receiver's own resolved result is returned unchanged when the method preserves it; any other
-     * declared return type (or an unreflectable receiver) yields null so the caller degrades normally.
+     * receiver's own resolved result is returned unchanged when the method preserves it; otherwise
+     * the method's own body is resolved, and an unreflectable receiver yields null to degrade.
      *
      * @return ValueExpressionResult|null
      */
@@ -1759,8 +1767,21 @@ class ResourceAstAnalyzer
 
         $method = new ReflectionMethod($resourceFqcn, $methodName);
 
+        // Not self-returning: the expression is the method's payload, not the resource. Resolving it
+        // needs the receiver's own analyzer, so only the analyzer's own class is in scope — a foreign
+        // resource class returns null and keeps the `unknown` floor rather than claiming its keys.
         if (! $this->methodPreservesReceiverType($method, $resourceFqcn)) {
-            return null;
+            if ($resourceFqcn !== $this->resourceReflection->getName()) {
+                return null;
+            }
+
+            $analysis = $this->analyzeThisMethodSpread($methodName);
+
+            if ($analysis === null || $analysis->properties === []) {
+                return null;
+            }
+
+            return ['type' => $this->buildInlineObjectType($analysis), 'optional' => false];
         }
 
         if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null')) {
@@ -2263,7 +2284,7 @@ class ResourceAstAnalyzer
         }
 
         foreach ($this->guessResourceNames($modelFqcn) as $candidate) {
-            if ($this->isResourceClass($candidate)) {
+            if ($this->isPublishedResourceClass($candidate)) {
                 return $candidate;
             }
         }
@@ -2307,7 +2328,10 @@ class ResourceAstAnalyzer
         foreach ($candidates as $candidate) {
             $collectionCandidate = $candidate.'Collection';
 
-            if (class_exists($collectionCandidate) && is_a($collectionCandidate, ResourceCollection::class, true)) {
+            if (class_exists($collectionCandidate)
+                && is_a($collectionCandidate, ResourceCollection::class, true)
+                && PublishedResourceRegistry::isPublished($collectionCandidate)
+            ) {
                 $collectedFqcn = $this->collectedResourceClass($collectionCandidate);
 
                 return $collectedFqcn !== null
@@ -2317,7 +2341,7 @@ class ResourceAstAnalyzer
         }
 
         foreach ($candidates as $candidate) {
-            if ($this->isResourceClass($candidate)) {
+            if ($this->isPublishedResourceClass($candidate)) {
                 return ['collectionFqcn' => $candidate, 'resourceFqcn' => $candidate];
             }
         }
@@ -4016,61 +4040,46 @@ class ResourceAstAnalyzer
             return ['type' => 'never[]', 'optional' => false];
         }
 
-        // A spread whose value resolves to a bare named resource (not an array/collection of one)
-        // intersects that resource with the literal's own explicit keys.
-        $spreadResourceFqcns = $this->collectInlineArraySpreadResources($array);
+        // A spread whose value resolves to a bare named resource (not an array/collection of one),
+        // or to a bound model's toArray(), intersects that type with the literal's own explicit keys.
+        $spreadArms = $this->collectInlineArraySpreadArms($array);
+        $spreadFqcns = array_column($spreadArms, 'fqcn');
 
-        if ($analysis->properties === [] && $spreadResourceFqcns === []) {
+        if ($analysis->properties === [] && $spreadArms === []) {
             return ['type' => 'Record<string, unknown>', 'optional' => false];
         }
 
         $useTolki = Config::boolean('ts-publish.enums.use_tolki_package');
 
-        // A property whose analyzer type isn't a rebuildable X/X[] shape (e.g. a keyed Record arm
-        // from a non-sequential map chain) can't survive the still-rebuild-based AsEnum rewrite
-        // below — demote it to the direct-enum channel first so the raw type survives untouched.
-        $enumResources = $analysis->enumResources;
-        $directEnumFqcns = $analysis->directEnumFqcns;
-        $propTypesByName = array_column($analysis->properties, 'type', 'name');
+        // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
+        // top-level enum resource transformer. Substituting the bare token in place keeps every
+        // other union arm — a keyed `Record<...>` arm, an extra default arm — intact.
+        if ($useTolki) {
+            foreach ($analysis->properties as &$prop) {
+                if (! isset($analysis->enumResources[$prop['name']])) {
+                    continue;
+                }
 
-        foreach ($enumResources as $propName => $fqcn) {
-            if (! $this->isRebuildableEnumShape($propTypesByName[$propName] ?? '')) {
-                $directEnumFqcns[$propName] = $fqcn;
-                unset($enumResources[$propName]);
-            }
-        }
-
-        $parts = array_map(function (array $prop) use ($enumResources, $useTolki): string {
-            $key = LaravelTsPublish::validJsObjectKey($prop['name']);
-
-            $type = $prop['type'];
-
-            // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
-            // top-level enum resource transformer. A collection keeps its `[]` suffix.
-            if ($useTolki && isset($enumResources[$prop['name']])) {
-                $fqcn = $enumResources[$prop['name']];
+                $fqcn = $analysis->enumResources[$prop['name']];
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
                 $constName = $tsInfo['enums'][0] ?? class_basename($fqcn);
-                $nullable = str_contains($type, 'null');
-                $isCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
-                $type = 'AsEnum<typeof '.$constName.'>'.($isCollection ? '[]' : '').($nullable ? ' | null' : '');
+                $bareTypeName = $tsInfo['enumTypes'][0] ?? class_basename($fqcn).'Type';
+                $prop['type'] = $this->substituteEnumType($prop['type'], $bareTypeName, 'AsEnum<typeof '.$constName.'>');
             }
 
-            return $prop['optional']
-                ? "{$key}?: {$type}"
-                : "{$key}: {$type}";
-        }, $analysis->properties);
+            unset($prop);
+        }
 
         // Each spread resource intersects with the remaining explicit keys, minus whichever of its
         // own keys a later spread arm or an explicit key also sets — PHP's `[...a, ...b, 'k' => v]`
         // lets the later assignment win, `&` does not, so the earlier arm needs Omit<>'d.
         $spreadArmTypes = array_values(array_unique(
-            $this->buildSpreadArmTypes($spreadResourceFqcns, array_column($analysis->properties, 'name')),
+            $this->buildSpreadArmTypes($spreadFqcns, array_column($analysis->properties, 'name')),
         ));
         $type = match (true) {
-            $spreadResourceFqcns === [] => '{ '.implode('; ', $parts).' }',
-            $parts === [] => implode(' & ', $spreadArmTypes),
-            default => implode(' & ', [...$spreadArmTypes, '{ '.implode('; ', $parts).' }']),
+            $spreadArms === [] => $this->buildInlineObjectType($analysis),
+            $analysis->properties === [] => implode(' & ', $spreadArmTypes),
+            default => implode(' & ', [...$spreadArmTypes, $this->buildInlineObjectType($analysis)]),
         };
 
         $result = ['type' => $type, 'optional' => false];
@@ -4084,12 +4093,12 @@ class ResourceAstAnalyzer
                  : array_merge(...array_values($analysis->inlineEnumFqcns));
 
             $embeddedEnumFqcns = array_values(array_unique([
-                ...array_values($directEnumFqcns),
+                ...array_values($analysis->directEnumFqcns),
                 // Propagate any deeply-nested direct enum FQCNs from sub-inline-arrays.
                 ...$nestedInlineEnumFqcns,
             ]));
 
-            $enumResourceFqcns = array_values($enumResources);
+            $enumResourceFqcns = array_values($analysis->enumResources);
             // Propagate any deeply-nested enum resource FQCNs from sub-inline-arrays.
             foreach ($analysis->inlineEnumResourceFqcns as $nestedFqcns) {
                 foreach ($nestedFqcns as $fqcn) {
@@ -4108,9 +4117,15 @@ class ResourceAstAnalyzer
             $embeddedEnumResourceFqcns = [];
         }
 
-        $embeddedModelFqcns = array_values(array_unique(
-            array_values($analysis->modelFqcns),
-        ));
+        // Each spread arm's import travels the channel matching its kind, or the emitted `Model &`
+        // token would be looked up among the resources and never resolve to an import.
+        $spreadModelFqcns = array_column(array_filter($spreadArms, fn (array $arm): bool => $arm['isModel']), 'fqcn');
+        $spreadResourceFqcns = array_column(array_filter($spreadArms, fn (array $arm): bool => ! $arm['isModel']), 'fqcn');
+
+        $embeddedModelFqcns = array_values(array_unique([
+            ...array_values($analysis->modelFqcns),
+            ...$spreadModelFqcns,
+        ]));
 
         if ($embeddedEnumFqcns !== []) {
             $result['embeddedEnumFqcns'] = $embeddedEnumFqcns;
@@ -4143,48 +4158,98 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Collect the resource FQCNs of every spread in an inline array whose value resolves to a
-     * bare named resource, in source order — the arms an intersection type is built from.
+     * Flatten an analysis's properties into an inline TypeScript object literal type.
      *
-     * @return list<class-string>
+     * Any enum-token substitution has to be applied to the properties before this is called.
      */
-    private function collectInlineArraySpreadResources(Array_ $array): array
+    private function buildInlineObjectType(ResourceAnalysis $analysis): string
     {
-        /** @var list<class-string> $spreadResourceFqcns */
-        $spreadResourceFqcns = [];
+        if ($analysis->properties === []) {
+            return 'Record<string, unknown>';
+        }
+
+        $parts = array_map(function (array $prop): string {
+            $key = LaravelTsPublish::validJsObjectKey($prop['name']);
+
+            return $prop['optional'] ? "{$key}?: {$prop['type']}" : "{$key}: {$prop['type']}";
+        }, $analysis->properties);
+
+        return '{ '.implode('; ', $parts).' }';
+    }
+
+    /**
+     * Collect every spread in an inline array resolving to a bare named resource or to a bound
+     * model's toArray(), in source order — the arms an intersection type is built from.
+     *
+     * @return list<array{fqcn: class-string, isModel: bool}>
+     */
+    private function collectInlineArraySpreadArms(Array_ $array): array
+    {
+        /** @var list<array{fqcn: class-string, isModel: bool}> $spreadArms */
+        $spreadArms = [];
 
         foreach ($array->items as $item) {
             if ($item->key !== null || ! $item->unpack || $this->isKnownArraySpreadShape($item->value)) {
                 continue;
             }
 
+            $modelFqcn = $this->spreadModelToArrayFqcn($item->value);
+
+            if ($modelFqcn !== null) {
+                $spreadArms[] = ['fqcn' => $modelFqcn, 'isModel' => true];
+
+                continue;
+            }
+
             $spreadResult = $this->analyzeValueExpression($item->value);
 
             if (isset($spreadResult['resourceFqcn']) && $spreadResult['type'] === class_basename($spreadResult['resourceFqcn'])) {
-                $spreadResourceFqcns[] = $spreadResult['resourceFqcn'];
+                $spreadArms[] = ['fqcn' => $spreadResult['resourceFqcn'], 'isModel' => false];
             }
         }
 
-        return $spreadResourceFqcns;
+        return $spreadArms;
+    }
+
+    /**
+     * Resolve `$var->toArray()`, where `$var` is a closure-bound model, to that model's FQCN.
+     *
+     * `$this->toArray()` is the resource's own method and is handled elsewhere, so it is excluded
+     * by name — `$this` parses as a `Variable` too, which would otherwise match incidentally.
+     *
+     * @return class-string<Model>|null
+     */
+    private function spreadModelToArrayFqcn(Expr $expr): ?string
+    {
+        if (! $expr instanceof MethodCall
+            || ! $expr->name instanceof Identifier
+            || $expr->name->toString() !== 'toArray'
+            || ! $expr->var instanceof Variable
+            || ! is_string($expr->var->name)
+            || $expr->var->name === 'this') {
+            return null;
+        }
+
+        return $this->varModelBindings[$expr->var->name] ?? $this->closureRelationModelClass;
     }
 
     /**
      * Build each spread's intersection arm, `Omit<>`'d against every key a later arm or an
      * explicit key will overwrite at runtime. `Omit<T, K>` doesn't require `K extends keyof T`,
-     * so a later resource's own shape never has to be resolved — only its name, for `keyof`.
+     * so a later arm's own shape never has to be resolved — only its name, for `keyof`.
      *
-     * @param  list<class-string>  $spreadResourceFqcns
+     * @param  list<class-string>  $spreadFqcns
      * @param  list<string>  $explicitKeyNames
      * @return list<string>
      */
-    private function buildSpreadArmTypes(array $spreadResourceFqcns, array $explicitKeyNames): array
+    private function buildSpreadArmTypes(array $spreadFqcns, array $explicitKeyNames): array
     {
         $explicitKeyLiterals = array_map(fn (string $key): string => "'{$key}'", $explicitKeyNames);
 
-        return array_map(function (int $index) use ($spreadResourceFqcns, $explicitKeyLiterals): string {
+        return array_map(function (int $index) use ($spreadFqcns, $explicitKeyLiterals): string {
             $laterArmNames = array_values(array_unique(array_map(
                 fn (string $fqcn): string => class_basename($fqcn),
-                array_slice($spreadResourceFqcns, $index + 1),
+                array_slice($spreadFqcns, $index + 1),
             )));
 
             $excluded = [
@@ -4192,10 +4257,10 @@ class ResourceAstAnalyzer
                 ...array_map(fn (string $name): string => "keyof {$name}", $laterArmNames),
             ];
 
-            $armName = class_basename($spreadResourceFqcns[$index]);
+            $armName = class_basename($spreadFqcns[$index]);
 
             return $excluded === [] ? $armName : 'Omit<'.$armName.', '.implode(' | ', $excluded).'>';
-        }, array_keys($spreadResourceFqcns));
+        }, array_keys($spreadFqcns));
     }
 
     /**
@@ -4671,23 +4736,16 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Whether $type is a shape analyzeInlineArray()'s own AsEnum rebuild can reproduce losslessly:
-     * a single non-null top-level union member, itself a bare identifier or that identifier
-     * array-suffixed, with at most an outer `| null`. A keyed `Record<...>` arm, an extra default
-     * arm, or any other union fails this check, so the raw type is kept unrewritten instead.
+     * Replace a bare enum type-name token with its AsEnum wrap, preserving every other union arm.
      *
-     * ResourceTransformer::rewriteEnumResourceTypes() no longer needs this guard for its own,
-     * top-level rewrite: that rewrite is substitution-based and reproduces any shape losslessly.
+     * Mirrors ResourceTransformer::substituteEnumResourceType(): the lookbehind's `.` keeps a
+     * namespace-qualified `foo.RoleType` unmatched, the lookahead keeps `RoleTypeExtra` unmatched.
      */
-    private function isRebuildableEnumShape(string $type): bool
+    private function substituteEnumType(string $typeStr, string $bareTypeName, string $asEnumType): string
     {
-        $nonNullMembers = array_values(array_filter(
-            LaravelTsPublish::splitTopLevelUnion($type),
-            fn (string $member): bool => $member !== 'null',
-        ));
+        $pattern = '/(?<![A-Za-z0-9_$.])'.preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
 
-        return count($nonNullMembers) === 1
-            && preg_match('/^[A-Za-z_]\w*(\[\])?$/', $nonNullMembers[0]) === 1;
+        return preg_replace($pattern, $asEnumType, $typeStr) ?? $typeStr;
     }
 
     /**
@@ -4968,7 +5026,8 @@ class ResourceAstAnalyzer
 
     /**
      * Merge ResourceAnalysis objects from different return branches: a property missing from any
-     * branch becomes optional, and differing types across branches are unioned.
+     * branch becomes optional, every map channel (including the three inline FQCN maps) unions per
+     * key, and the flatTypeAlias/flatTypeAliasFqcn scalars keep the first non-null branch value.
      *
      * @param  list<ResourceAnalysis>  $analyses
      */
@@ -4986,6 +5045,14 @@ class ResourceAstAnalyzer
         $customImports = [];
         /** @var MultiEnumFqcnsMap $multiEnumResourceFqcns */
         $multiEnumResourceFqcns = [];
+        /** @var InlineEnumFqcnsMap $inlineEnumFqcns */
+        $inlineEnumFqcns = [];
+        /** @var InlineModelFqcnsMap $inlineModelFqcns */
+        $inlineModelFqcns = [];
+        /** @var InlineEnumFqcnsMap $inlineEnumResourceFqcns */
+        $inlineEnumResourceFqcns = [];
+        $flatTypeAlias = null;
+        $flatTypeAliasFqcn = null;
 
         foreach ($analyses as $analysis) {
             foreach ($analysis->properties as $prop) {
@@ -4997,6 +5064,8 @@ class ResourceAstAnalyzer
             $directEnumFqcns = [...$directEnumFqcns, ...$analysis->directEnumFqcns];
             $modelFqcns = [...$modelFqcns, ...$analysis->modelFqcns];
             $multiEnumResourceFqcns = [...$multiEnumResourceFqcns, ...$analysis->multiEnumResourceFqcns];
+            $flatTypeAlias ??= $analysis->flatTypeAlias;
+            $flatTypeAliasFqcn ??= $analysis->flatTypeAliasFqcn;
 
             foreach ($analysis->customImports as $path => $names) { // @codeCoverageIgnoreStart
                 $customImports[$path] = array_values(array_unique([
@@ -5004,6 +5073,24 @@ class ResourceAstAnalyzer
                     ...$names,
                 ]));
             } // @codeCoverageIgnoreEnd
+
+            foreach ($analysis->inlineEnumFqcns as $propName => $fqcns) {
+                $inlineEnumFqcns[$propName] = array_values(array_unique(
+                    [...($inlineEnumFqcns[$propName] ?? []), ...$fqcns]
+                ));
+            }
+
+            foreach ($analysis->inlineModelFqcns as $propName => $fqcns) {
+                $inlineModelFqcns[$propName] = array_values(array_unique(
+                    [...($inlineModelFqcns[$propName] ?? []), ...$fqcns]
+                ));
+            }
+
+            foreach ($analysis->inlineEnumResourceFqcns as $propName => $fqcns) {
+                $inlineEnumResourceFqcns[$propName] = array_values(array_unique(
+                    [...($inlineEnumResourceFqcns[$propName] ?? []), ...$fqcns]
+                ));
+            }
         }
 
         /** @var list<array{name: string, type: string, optional: bool, description: string}> */
@@ -5043,7 +5130,12 @@ class ResourceAstAnalyzer
             customImports: $customImports,
             directEnumFqcns: $directEnumFqcns,
             modelFqcns: $modelFqcns,
+            inlineEnumFqcns: $inlineEnumFqcns,
+            inlineModelFqcns: $inlineModelFqcns,
             multiEnumResourceFqcns: $multiEnumResourceFqcns,
+            inlineEnumResourceFqcns: $inlineEnumResourceFqcns,
+            flatTypeAlias: $flatTypeAlias,
+            flatTypeAliasFqcn: $flatTypeAliasFqcn,
         );
     }
 

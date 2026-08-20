@@ -426,6 +426,10 @@ declare global {
          * `registrar`/`registrars`/`suppliers` pin the three resolution orderings against a losing
          * candidate that also exists, so an inverted order would visibly fail (see
          * ResourceAstAnalyzerTest.php's MerchantResource ordering describe block).
+         *
+         * `attachment`/`attachments` back the unpublished-guess pair: AttachmentResource and
+         * AttachmentCollection both exist but carry #[TsExclude], so the convention guess must be
+         * rejected on not being in the published set rather than accepted on class_exists().
          */
         export interface Merchant {
             // Columns
@@ -456,6 +460,12 @@ declare global {
             suppliers: Supplier[];
             suppliers_count: number;
             suppliers_exists: boolean;
+            attachment: Attachment | null;
+            attachment_count: number;
+            attachment_exists: boolean;
+            attachments: Attachment[];
+            attachments_count: number;
+            attachments_exists: boolean;
         }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
@@ -1162,6 +1172,8 @@ declare global {
             menu_config: MenuSettingsType | null;
             last_user_activity_by: crm.models.User | User | null;
             last_checked_by: Image | User | null;
+            /** The regional hub this warehouse rolls up to. */
+            regional_hub: Warehouse | null;
             last_user_activity_by_typed: crm.models.User | User | null;
             last_user_activity_by_typed_short: crm.models.User | User | null;
             review_priority: app.enums.StatusType | app.enums.PriorityType | null;
@@ -1772,6 +1784,38 @@ declare global {
         /** Parent resource that uses SharedExtendsInterface — tests BFS dedup when child also uses the same trait. */
         export interface BaseSharedResource extends SharedInterface {
         }
+        /**
+         * Declares neither a toArray() nor a @mixin — pins parent-docblock model inheritance: the model
+         * has to come from OrderResource's own `@mixin Order`, since the naming convention would look for
+         * a Workbench\App\Models\BodylessOrder that does not exist. Without it every column is unknown.
+         */
+        export interface BodylessOrderResource {
+            id: number;
+            status: app.enums.OrderStatusType;
+            total: number;
+            currency: app.enums.CurrencyType;
+            items?: app.models.OrderItem[];
+            items_count?: number;
+            total_avg?: number;
+            paid_at?: string | null;
+            shipped_at?: string | null;
+            delivered_at?: string | null;
+        }
+        /**
+         * Declares no toArray() of its own — pins that the analyzer walks up to the nearest ancestor
+         * that does, rather than emitting an empty interface. Carries its own @mixin.
+         */
+        export interface BodylessTeamResource {
+            id: number;
+            name: string;
+            slug: string;
+            description?: string | null;
+            is_active: boolean;
+            owner?: UserResource;
+            members?: TeamMemberResource[];
+            members_count?: number;
+            settings?: Record<string, unknown> | null;
+        }
         /** Exercises comparison and boolean operator expressions. */
         export interface BooleanExprResource {
             is_recent: boolean;
@@ -2068,6 +2112,7 @@ declare global {
         export interface ControlFlowReturnResource {
             id: number;
             archived?: boolean;
+            inline_enum_branch?: { method: app.enums.PaymentMethodType | null };
             draft?: boolean;
             total?: number;
             status?: app.enums.OrderStatusType;
@@ -2213,7 +2258,8 @@ declare global {
             parent_fluent_make?: FluentSelfResource;
             parent_fluent_chain?: FluentSelfResource;
             parent_fluent_docblock?: FluentSelfResource;
-            parent_summary?: unknown;
+            parent_summary?: { id: number };
+            foreign_summary?: unknown;
             parent_fluent_nullable?: FluentSelfResource | null;
         }
         /** Resource using FQCN @mixin — tests resolveModelClass FQCN branch. */
@@ -2456,6 +2502,10 @@ declare global {
          * (registrar/registrars/suppliers) the three resolution orderings against a losing
          * candidate that also exists, so an inverted order would visibly fail.
          *
+         * The unpublished_guess pair covers the published-set gate: the guessed AttachmentResource and
+         * AttachmentCollection both exist but are #[TsExclude]d, so neither is ever written and the
+         * convention branches must reject them (see PublishedResourceRegistry).
+         *
          * Also reuses the staff/registrars/historyEvent relations for the ->map->only()/->except()
          * HigherOrderCollectionProxy: a to-many whenLoaded param is a bound collection and matches,
          * a singular one (historyEvent) is not and must stay unknown.
@@ -2474,6 +2524,8 @@ declare global {
             registrar?: RegistrarResource;
             registrars?: unknown;
             suppliers?: SupplierSummaryResource[];
+            unpublished_guess?: unknown;
+            unpublished_guess_collection?: unknown;
             staff_map_only?: ({ id: number; name: string; role: app.enums.RoleType | null; last_login_at: string | null })[];
             registrars_map_except?: { name: string }[];
             history_event_map_only?: unknown;
@@ -2524,7 +2576,7 @@ declare global {
             id: number;
             members_with_profile?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             members_bare?: UserResource[];
-            members_model_spread?: { flag: boolean }[];
+            members_model_spread?: (Omit<app.models.User, 'flag'> & { flag: boolean })[];
             members_double_spread?: (Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[];
             members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             owner_map_untyped?: unknown;
@@ -3384,12 +3436,13 @@ declare global {
             manager: app.models.User | null;
             primary_contact: crm.models.User | null;
             secondary_contact: crm.models.User | null;
-            last_user_activity_by: app.models.User | crm.models.User | null;
-            last_user_activity_by_typed: app.models.User | crm.models.User | null;
-            last_user_activity_by_typed_short: app.models.User | crm.models.User | null;
+            last_user_activity_by: crm.models.User | app.models.User | null;
+            last_user_activity_by_typed: crm.models.User | app.models.User | null;
+            last_user_activity_by_typed_short: crm.models.User | app.models.User | null;
             last_user_activity_by_partial: { id: number; name: string } | null;
-            last_user_activity_by_mostly: { email: string; company: string | null; status: crm.enums.StatusType; created_at: string | null; updated_at: string | null; images: app.models.Image[] } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: app.models.Profile | null; posts: app.models.Post[]; comments: app.models.Comment[]; orders: app.models.Order[]; addresses: Address[]; teams: app.models.Team[]; ownedTeams: app.models.Team[]; images: app.models.Image[]; notifications: illuminate.notifications.DatabaseNotification[] } | null;
-            last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null; size_for_humans: string; is_landscape: boolean; aspect_ratio: string | null; extension: string | null; size: number; flexible_id: string | number | null; optional_label: string | null; status_from_docblock: app.enums.StatusType | null; uploader_from_docblock: app.models.User | null; config_from_docblock: MenuSettingsType; data_from_docblock: { title: string; weight: number | null }; uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>; uploaders_from_docblock_int: app.models.User[]; uploaders_from_docblock_string: Record<string, app.models.User>; tree_from_docblock: { label: string; child: unknown[] }; price_from_docblock: { amount: number; currency: string }; label_from_docblock: string; no_docblock_accessor: unknown; wrong_format_docblock: string | null; positive_int_accessor: number; numeric_string_accessor: string } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: app.models.Profile | null; posts: app.models.Post[]; comments: app.models.Comment[]; orders: app.models.Order[]; addresses: Address[]; teams: app.models.Team[]; ownedTeams: app.models.Team[]; images: app.models.Image[]; notifications: illuminate.notifications.DatabaseNotification[] } | null;
+            last_user_activity_by_mostly: { email: string; company: string | null; status: crm.enums.StatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
+            last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
+            regional_hub_contacts: { primaryContact: crm.models.User | null; manager: app.models.User | null; secondaryContact: crm.models.User | null } | null;
         }
     }
     export namespace app.http.resources.admin {
@@ -3751,6 +3804,9 @@ declare global {
             priority_level: 1 | 2 | 3;
             legacy_code: '1' | '2' | '3';
             padded_numeric_code: '007' | '2.50';
+            digit_grade?: 1 | 2 | 3;
+            decimal_tier?: 1.5 | 2.5;
+            padded_decimal_tier?: '1.50' | '2.50';
             is_authenticated: boolean;
             role: 'user' | 'admin' | 'moderator';
             display_name?: string | null;
