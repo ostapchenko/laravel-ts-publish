@@ -2754,8 +2754,8 @@ class ResourceAstAnalyzer
                 $result['directEnumFqcn'] = $info['enumFqcn'];
             }
 
-            // A single-FQCN accessor is unambiguous and already reaches its import through the
-            // top-level fallback; only a genuine union needs its per-occurrence FQCNs carried out.
+            // A single-FQCN accessor needs no per-occurrence disambiguation; only a genuine union
+            // needs its FQCNs threaded out here for aliasPropertyType() to consume per occurrence.
             if (count($info['classFqcns']) > 1) {
                 $result['embeddedModelFqcns'] = $info['classFqcns'];
             }
