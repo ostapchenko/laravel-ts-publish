@@ -486,6 +486,15 @@ two kinds are tracked together for that reason, and split only when the imports 
 resource arms travel `embeddedResourceFqcns`, model arms `embeddedModelFqcns`, or the emitted token
 would be looked up in the wrong channel and never resolve to an import.
 
+That guarantee holds today only because `collectInlineArraySpreadArms()` appends to one list as it
+walks `$array->items`, never splitting model and resource arms into separate lists that get
+concatenated afterward — a plausible-looking refactor that would silently regroup arms by kind and
+subtract against the wrong later arm. `members_model_then_resource_spread` and
+`members_resource_then_model_spread` on `NestedResourceSpreadResource` pin this directly: each
+spreads model and resource arms in alternating order (`M, R, M` and its mirror `R, M, R`), the
+minimum shape where a by-kind grouping in *either* direction reorders both fixtures rather than
+coincidentally matching one of them.
+
 ### What a model arm's bare `{Model}` does not say
 
 A model arm emits the bare `{Model}` interface, which is the honest floor rather than an exact

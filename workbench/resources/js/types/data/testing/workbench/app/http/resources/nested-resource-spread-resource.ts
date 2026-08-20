@@ -22,4 +22,6 @@ export interface NestedResourceSpreadResource
     members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
     owner_map_untyped?: unknown;
     members_colliding_spread?: (Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[];
+    members_model_then_resource_spread?: (Omit<User, 'flag' | keyof UserResource | keyof User> & Omit<UserResource, 'flag' | keyof User> & Omit<User, 'flag'> & { flag: boolean })[];
+    members_resource_then_model_spread?: (Omit<UserResource, 'flag' | keyof User | keyof UserResource> & Omit<User, 'flag' | keyof UserResource> & Omit<UserResource, 'flag'> & { flag: boolean })[];
 }

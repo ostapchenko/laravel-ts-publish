@@ -10540,6 +10540,16 @@
                     "name": "members_colliding_spread",
                     "type": "(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]",
                     "optional": true
+                },
+                {
+                    "name": "members_model_then_resource_spread",
+                    "type": "(Omit<User, 'flag' | keyof UserResource | keyof User> & Omit<UserResource, 'flag' | keyof User> & Omit<User, 'flag'> & { flag: boolean })[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_resource_then_model_spread",
+                    "type": "(Omit<UserResource, 'flag' | keyof User | keyof UserResource> & Omit<User, 'flag' | keyof UserResource> & Omit<UserResource, 'flag'> & { flag: boolean })[]",
+                    "optional": true
                 }
             ]
         },

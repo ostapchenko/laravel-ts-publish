@@ -110,6 +110,29 @@ class NestedResourceSpreadResource extends JsonResource
                     ...TeamMemberResource::make($member)->resolve($request),
                 ]
             )),
+
+            // Mirror-image pair: the combined arm list must stay in SOURCE order across kinds, not
+            // grouped model-arms-first or resource-arms-first, or the Omit<>'d array_slice() in
+            // buildSpreadArmTypes() would subtract the wrong later-arm keys. A model/resource/model
+            // (and its resource/model/resource mirror) is the minimum shape where any single by-kind
+            // grouping — either direction — reorders both, so a coincidental match can't hide the bug.
+            'members_model_then_resource_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
+                fn (User $member) => [
+                    ...$member->toArray(),
+                    ...UserResource::make($member)->resolve($request),
+                    ...$member->toArray(),
+                    'flag' => true,
+                ]
+            )),
+
+            'members_resource_then_model_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
+                fn (User $member) => [
+                    ...UserResource::make($member)->resolve($request),
+                    ...$member->toArray(),
+                    ...UserResource::make($member)->resolve($request),
+                    'flag' => true,
+                ]
+            )),
         ];
     }
 }

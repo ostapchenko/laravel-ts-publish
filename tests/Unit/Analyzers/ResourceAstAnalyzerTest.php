@@ -5546,4 +5546,22 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->toBe('(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]')
             ->and($this->props['members_colliding_spread']['optional'])->toBeTrue();
     });
+
+    test('a model arm, a resource arm, then a model arm again stays in source order across kinds', function () {
+        // Mirror pair with members_resource_then_model_spread below. Both fail if arm collection
+        // is ever grouped by kind instead of source order — a single-kind fixture can't show that.
+        expect($this->props['members_model_then_resource_spread']['type'])->toBe(
+            "(Omit<User, 'flag' | keyof UserResource | keyof User> & ".
+            "Omit<UserResource, 'flag' | keyof User> & ".
+            "Omit<User, 'flag'> & { flag: boolean })[]"
+        )->and($this->props['members_model_then_resource_spread']['optional'])->toBeTrue();
+    });
+
+    test('the mirror order — resource, model, resource — also stays in source order across kinds', function () {
+        expect($this->props['members_resource_then_model_spread']['type'])->toBe(
+            "(Omit<UserResource, 'flag' | keyof User | keyof UserResource> & ".
+            "Omit<User, 'flag' | keyof UserResource> & ".
+            "Omit<UserResource, 'flag'> & { flag: boolean })[]"
+        )->and($this->props['members_resource_then_model_spread']['optional'])->toBeTrue();
+    });
 });
