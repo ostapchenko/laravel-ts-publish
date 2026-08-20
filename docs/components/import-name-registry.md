@@ -66,18 +66,6 @@ twice resolve both occurrences to it. The `array_unique` calls that remain in th
 on import-building paths — `enumPropertyFqcns()` and `buildTypeImports()` — where one entry per
 import is what you want.
 
-**One upstream producer still dedupes, and the transformers cannot undo it.**
-`ResourceAstAnalyzer` `array_unique`s `inlineModelFqcns` per property key in *both* of its merge
-paths: `syncAnalysisMaps()`, which folds a parent/trait/merge sub-analysis into the running maps, and
-`mergeReturnBranches()`, which unions multiple `return [...]` branches. `ResourceTransformer` copies
-that map straight into `$propertyInlineModelFqcns`, one of the four list maps
-`mergePropertyFqcnMaps()` concatenates. So for a **merged or inherited** resource, the list reaching
-`aliasPropertyType()` is already deduped and the per-occurrence contract holds only up to the
-analyzer, not through it — a property whose inline shape names the same model twice across branches
-falls back to the queue-shorter-than-occurrences clamp above. A resource whose property is analyzed on
-the single-branch path is unaffected. This is the same defect the two transformer `array_unique`s had,
-one layer further upstream, and is a standing follow-up rather than something the caller can fix.
-
 `aliasPropertyType()` builds one queue of aliases per type name, in FQCN source order, then walks
 the type string's occurrences left to right with `preg_replace_callback`, so occurrence N takes
 FQCN N. When the list is per-occurrence the queue is exact and every occurrence resolves to its own

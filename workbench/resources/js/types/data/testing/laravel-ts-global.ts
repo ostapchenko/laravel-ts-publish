@@ -1831,6 +1831,14 @@ declare global {
             user_bio?: string | null;
         }
         /**
+         * Regression fixture: mergeReturnBranches() unions inlineModelFqcns per property key across branches.
+         * Deduping that union collapses Warehouse::regionalHub()'s real per-occurrence multiplicity, so once
+         * the branch types combine into one union string, an occurrence past the deduped queue's end mistypes.
+         */
+        export interface BranchedInlineFqcnResource {
+            regional_hub_contacts: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null } | null | { manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null; primaryContact: workbench.crm.models.User | null } | null;
+        }
+        /**
          * A spread whose call-site casing differs from the declared method. PHP method calls are
          * case-insensitive, so this is valid, runnable code the analyzer must still resolve.
          */
@@ -1866,6 +1874,20 @@ declare global {
             parent_when_resource_self?: CategoryResource;
             children_with_default: workbench.app.models.Category[];
             posts_with_default: PostResource[];
+        }
+        /**
+         * Regression fixture, two-sided:
+         *
+         * - regional_hub_contacts overrides the spread-in parent property with a different occurrence order,
+         * exercising the analyzeReturnArray() unset() that must clear a parent's stale inline FQCNs before
+         * the override's own occurrences are pushed — otherwise the parent's queue leaks into the override.
+         * - regional_hub_leads is spread straight through from the parent with no override, exercising
+         * syncAnalysisMaps()'s dedupe of the merged queue on its own, independent of the unset.
+         */
+        export interface ChildInlineFqcnResource {
+            id: number;
+            regional_hub_contacts: { manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null; primaryContact: workbench.crm.models.User | null } | null;
+            regional_hub_leads: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
         }
         /**
          * Child resource that uses SharedExtendsInterface AND extends a parent that also uses it.
@@ -2368,6 +2390,16 @@ declare global {
             size_bytes: number;
             width?: number;
             height?: number;
+        }
+        /**
+         * Base class for ChildInlineFqcnResource. Both regional_hub_* properties carry Warehouse::regionalHub()'s
+         * per-occurrence FQCN multiplicity (Crm, App, Crm) so a child spreading this analysis in through
+         * syncAnalysisMaps() can lose it if that merge dedupes.
+         */
+        export interface InheritedInlineFqcnResource {
+            id: number;
+            regional_hub_contacts: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
+            regional_hub_leads: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
         }
         /**
          * Exercises analyzeInlineArray embeddedModelFqcns and embeddedResourceFqcns

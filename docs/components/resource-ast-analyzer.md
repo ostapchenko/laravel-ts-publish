@@ -952,6 +952,21 @@ per property key, exactly like `syncAnalysisMaps()`. Missing this union silently
 only enum/model reference when that reference sits inside an inline array literal in one branch,
 emitting a type token with no import.
 
+**`inlineModelFqcns` unions per occurrence; the two enum inline maps still dedupe.** Both merge
+paths used to `array_unique` all three inline maps, which lost real multiplicity whenever a merged
+or branched property named the same model twice — `aliasPropertyType()`'s per-occurrence queue then
+fell back to its shorter-than-occurrence-count clamp and mistyped the missing occurrence.
+`BranchedInlineFqcnResource` pins the branch-merge case; `ChildInlineFqcnResource` pins the
+`syncAnalysisMaps()` case. `inlineEnumFqcns`/`inlineEnumResourceFqcns` stay deduped: they feed
+import lists, not a per-occurrence queue, so one entry per import is correct there.
+
+`analyzeReturnArray()`'s child-overrides-parent `unset()` now clears all three inline maps for the
+overridden key, not just the five non-inline maps it always cleared. Without that, a
+`...parent::toArray()` spread's stale inline-model entries for a key the child then overrides
+survive into the child's own push, so the child's occurrences consume the parent's leftover queue
+instead of their own — `ChildInlineFqcnResource`'s `regional_hub_contacts` pins this; its
+`regional_hub_leads`, spread through with no override, pins the dedupe removal on its own.
+
 It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `syncAnalysisMaps()` never
 touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule, and the
 argument has to cover **both** callers. `analyzeAllReturnBranches()` builds its branches with

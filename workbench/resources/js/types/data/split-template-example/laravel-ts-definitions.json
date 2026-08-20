@@ -8271,6 +8271,16 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\BranchedInlineFqcnResource": {
+            "name": "BranchedInlineFqcnResource",
+            "properties": [
+                {
+                    "name": "regional_hub_contacts",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null } | null | { manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\CaseSpreadResource": {
             "name": "CaseSpreadResource",
             "properties": [
@@ -8402,6 +8412,26 @@
                 {
                     "name": "posts_with_default",
                     "type": "PostResource[]",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\ChildInlineFqcnResource": {
+            "name": "ChildInlineFqcnResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_contacts",
+                    "type": "{ manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_leads",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null",
                     "optional": false
                 }
             ]
@@ -10035,6 +10065,26 @@
                     "name": "height",
                     "type": "number",
                     "optional": true
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\InheritedInlineFqcnResource": {
+            "name": "InheritedInlineFqcnResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_contacts",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_leads",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null",
+                    "optional": false
                 }
             ]
         },

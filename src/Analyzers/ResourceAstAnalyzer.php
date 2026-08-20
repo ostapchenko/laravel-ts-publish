@@ -554,7 +554,11 @@ class ResourceAstAnalyzer
             $result = $this->analyzeValueExpression($item->value);
 
             // When a child key overrides a parent spread key, clear stale parent tracking
-            unset($enumResources[$keyName], $nestedResources[$keyName], $directEnumFqcns[$keyName], $modelFqcns[$keyName], $multiEnumResourceFqcns[$keyName]);
+            unset(
+                $enumResources[$keyName], $nestedResources[$keyName], $directEnumFqcns[$keyName],
+                $modelFqcns[$keyName], $multiEnumResourceFqcns[$keyName], $inlineEnumFqcns[$keyName],
+                $inlineModelFqcns[$keyName], $inlineEnumResourceFqcns[$keyName],
+            );
 
             $properties[] = [
                 'name' => $keyName,
@@ -599,6 +603,9 @@ class ResourceAstAnalyzer
     /**
      * Merge a ResourceAnalysis result into the running accumulator arrays.
      *
+     * inlineModelFqcns unions per occurrence; the enum inline maps dedupe, since only the model
+     * queue feeds per-occurrence alias resolution.
+     *
      * @param  ResourcePropertyInfoList  $properties
      * @param  ClassMapType  $enumResources
      * @param  ClassMapType  $nestedResources
@@ -641,9 +648,7 @@ class ResourceAstAnalyzer
         }
 
         foreach ($source->inlineModelFqcns as $propName => $fqcns) {
-            $inlineModelFqcns[$propName] = array_values(array_unique(
-                [...($inlineModelFqcns[$propName] ?? []), ...$fqcns]
-            ));
+            $inlineModelFqcns[$propName] = [...($inlineModelFqcns[$propName] ?? []), ...$fqcns];
         }
 
         foreach ($source->inlineEnumResourceFqcns as $propName => $fqcns) {
@@ -5036,8 +5041,8 @@ class ResourceAstAnalyzer
 
     /**
      * Merge ResourceAnalysis objects from different return branches: a property missing from any
-     * branch becomes optional, every map channel (including the three inline FQCN maps) unions per
-     * key, and the flatTypeAlias/flatTypeAliasFqcn scalars keep the first non-null branch value.
+     * branch becomes optional, every map channel unions per key — inlineModelFqcns per occurrence,
+     * the enum maps deduped — and flatTypeAlias/flatTypeAliasFqcn keep the first non-null branch value.
      *
      * @param  list<ResourceAnalysis>  $analyses
      */
@@ -5091,9 +5096,7 @@ class ResourceAstAnalyzer
             }
 
             foreach ($analysis->inlineModelFqcns as $propName => $fqcns) {
-                $inlineModelFqcns[$propName] = array_values(array_unique(
-                    [...($inlineModelFqcns[$propName] ?? []), ...$fqcns]
-                ));
+                $inlineModelFqcns[$propName] = [...($inlineModelFqcns[$propName] ?? []), ...$fqcns];
             }
 
             foreach ($analysis->inlineEnumResourceFqcns as $propName => $fqcns) {

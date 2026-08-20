@@ -12,7 +12,9 @@ use Workbench\App\Http\Resources\Admin\Store as AdminStoreResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BodylessOrderResource;
 use Workbench\App\Http\Resources\BodylessTeamResource;
+use Workbench\App\Http\Resources\BranchedInlineFqcnResource;
 use Workbench\App\Http\Resources\CategoryResource;
+use Workbench\App\Http\Resources\ChildInlineFqcnResource;
 use Workbench\App\Http\Resources\ChildSharedResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
@@ -23,6 +25,7 @@ use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\FqcnMixinResource;
 use Workbench\App\Http\Resources\ImageDelegatedResource;
 use Workbench\App\Http\Resources\ImageMorphResource;
+use Workbench\App\Http\Resources\InheritedInlineFqcnResource;
 use Workbench\App\Http\Resources\KpiResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
@@ -2241,5 +2244,43 @@ describe('ResourceTransformer import alias resolution for same basename and same
 
         preg_match_all('/as (\w+)/', implode(' ', $allImports), $matches);
         expect($matches[1])->toBe(array_unique($matches[1]));
+    });
+});
+
+describe('ResourceTransformer inline model FQCN multiplicity through analyzer merges', function () {
+    // Warehouse::regionalHub() has two distinct User FQCNs occurrence-ordered by relation name.
+    // mergeReturnBranches() unions each branch's inlineModelFqcns per key; deduping that union loses
+    // branch 2's repeat once the two branch types join into one union string.
+    test('mergeReturnBranches() keeps every branch occurrence aliased to its own FQCN', function () {
+        $data = (new ResourceTransformer(BranchedInlineFqcnResource::class))->data();
+
+        expect($data->properties['regional_hub_contacts']['type'])->toBe(
+            '{ primaryContact: CrmUser | null; manager: WorkbenchUser | null } | null'
+            .' | { manager: WorkbenchUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null'
+        );
+    });
+
+    // Analyzed directly (not spread), a property's own occurrences are pushed raw with no merge
+    // involved, so this is unaffected by both fixes — a control the two ChildInlineFqcnResource cases
+    // below are compared against.
+    test('InheritedInlineFqcnResource resolves both properties correctly analyzed on its own', function () {
+        $data = (new ResourceTransformer(InheritedInlineFqcnResource::class))->data();
+
+        expect($data->properties['regional_hub_contacts']['type'])
+            ->toBe('{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null')
+            ->and($data->properties['regional_hub_leads']['type'])
+            ->toBe('{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null');
+    });
+
+    // Two-sided: regional_hub_contacts overrides the parent's spread-in property, exercising the
+    // child-overrides-parent unset(); regional_hub_leads passes through unmodified, exercising
+    // syncAnalysisMaps()'s dedupe on its own. Both fixes must land — either alone still fails.
+    test('ChildInlineFqcnResource resolves an overridden and a pass-through property correctly', function () {
+        $data = (new ResourceTransformer(ChildInlineFqcnResource::class))->data();
+
+        expect($data->properties['regional_hub_contacts']['type'])
+            ->toBe('{ manager: WorkbenchUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null')
+            ->and($data->properties['regional_hub_leads']['type'])
+            ->toBe('{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null');
     });
 });
