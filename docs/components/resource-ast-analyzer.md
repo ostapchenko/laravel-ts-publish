@@ -452,10 +452,12 @@ collects the arms via `collectInlineArraySpreadArms()` and builds each one with
 - **A resource arm** — a spread whose value resolves to a *bare* named resource (not an array or
   collection of one). The guard is that the result carries a `resourceFqcn` *and* its emitted type
   is exactly that resource's basename, so `UserResource[]` never becomes an arm.
-- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model, resolved by
-  `spreadModelToArrayFqcn()` against `$varModelBindings`, falling back to
-  `$closureRelationModelClass` for an untyped closure param. `$this->toArray()` is excluded by name:
-  it is the resource's own method and `isKnownArraySpreadShape()` already flattens it.
+- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model. `spreadModelToArrayFqcn()`
+  checks `$varModelBindings` first, then returns `null` when `$var` is instead bound in
+  `$varCollectionBindings` — a to-many `whenLoaded` param holding the whole collection, not one
+  model (`members_collection_spread` pins this) — and only then falls back to
+  `$closureRelationModelClass`, for an untyped closure param. `$this->toArray()` is excluded by
+  name: it is the resource's own method and `isKnownArraySpreadShape()` already flattens it.
 
 Model detection is deliberately **local to the collector**. `analyzeValueExpression()` still types a
 bare `$member->toArray()` as `unknown[]` everywhere else, because giving it a `modelFqcn` generally

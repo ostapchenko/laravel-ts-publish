@@ -5514,6 +5514,14 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->and(array_values($this->analysis->modelFqcns))->toContain(User::class);
     });
 
+    test('a to-many whenLoaded param\'s own toArray() spread does not resolve to the element model', function () {
+        // $members is bound in varCollectionBindings (a list), not varModelBindings (one model) —
+        // spreadModelToArrayFqcn() must not fall back to closureRelationModelClass for it.
+        expect($this->props['members_collection_spread']['type'])->toBe('{ flag: boolean }')
+            ->and($this->props['members_collection_spread']['optional'])->toBeTrue()
+            ->and($this->analysis->inlineModelFqcns)->not->toHaveKey('members_collection_spread');
+    });
+
     test('two resource spreads plus a sibling key intersect in order, each Omit<>\'d against what later overrides it', function () {
         // 'note' is explicit and wins over both arms; ProfileResource (spread 2nd) wins its own
         // keys over UserResource (spread 1st) — so UserResource's arm excludes both.

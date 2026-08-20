@@ -4230,7 +4230,17 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        return $this->varModelBindings[$expr->var->name] ?? $this->closureRelationModelClass;
+        if (isset($this->varModelBindings[$expr->var->name])) {
+            return $this->varModelBindings[$expr->var->name];
+        }
+
+        // A to-many whenLoaded param holds the whole collection, not one element — its toArray()
+        // is a list of member arrays, never a single model's shape.
+        if (isset($this->varCollectionBindings[$expr->var->name])) {
+            return null;
+        }
+
+        return $this->closureRelationModelClass;
     }
 
     /**

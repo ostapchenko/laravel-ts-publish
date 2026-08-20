@@ -63,6 +63,12 @@ class NestedResourceSpreadResource extends JsonResource
                 fn (User $member) => [...$member->toArray(), 'flag' => true]
             )),
 
+            // Direct spread of the whenLoaded closure param itself, not a ->map() element. $members
+            // is a to-many param — bound in varCollectionBindings, not varModelBindings — so
+            // spreadModelToArrayFqcn() must not fall back to closureRelationModelClass here: this is
+            // a list of member arrays, not one User.
+            'members_collection_spread' => $this->whenLoaded('members', fn ($members) => [...$members->toArray(), 'flag' => true]),
+
             // Two resource spreads plus a sibling key — intersect each in order.
             'members_double_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
                 fn (User $member) => [
