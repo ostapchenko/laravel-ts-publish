@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
+use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Models\Comment;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\User;
@@ -115,4 +117,24 @@ test('Model::only() resolves accessors and relations explicitly requested by nam
     expect($result)->toHaveKeys(['id', 'excerpt', 'author'])
         ->and($result['excerpt'])->toBeString()
         ->and($result['author'])->toBeInstanceOf(User::class);
+});
+
+test('the emitted Pick<> key set matches Model::except() at runtime, member for member', function () {
+    // Unwritable against Omit<Post, 'created_at' | 'updated_at'>: its key list names the excluded
+    // columns, not the emitted members, so there is nothing here to diff against except() ground truth
+    // without separately re-deriving Post's full column set. Pick<>'s key list IS the member set.
+    $post = createPersistedPost();
+    $expected = array_keys($post->except(['created_at', 'updated_at']));
+    sort($expected);
+
+    $analysis = (new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class))->analyze();
+    $type = collect($analysis->properties)->firstWhere('name', 'post_extended')['type'];
+
+    preg_match_all("/'([a-zA-Z0-9_]+)'/", (string) $type, $matches);
+    $emittedKeys = $matches[1];
+    sort($emittedKeys);
+
+    expect($type)->toStartWith('Pick<Post, ')
+        ->and($type)->toEndWith('| null')
+        ->and($emittedKeys)->toBe($expected);
 });

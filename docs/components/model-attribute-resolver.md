@@ -305,9 +305,10 @@ degrading to `unknown` whenever the model doesn't happen to import the same clas
 `databaseColumnNames()` is the raw schema listing (every real column, `$hidden` included).
 `publishedColumnNames()` is the subset that actually reaches the emitted model interface — the
 list a caller must use when naming keys against that interface, e.g. `ResourceAstAnalyzer`
-deciding whether `$this->relation->only(['a', 'b'])` can reference `Pick<Model, 'a' | 'b'>`
-instead of expanding inline (see [ResourceAstAnalyzer § When a Pick/Omit reference is
-emitted](resource-ast-analyzer.md#when-a-pickomit-reference-is-emitted)).
+deciding whether `$this->relation->only(['a', 'b'])` can reference `Pick<Model, 'a' | 'b'>`, or
+`$this->relation->except([...])` can reference `Pick<Model, complement>`, instead of expanding
+inline (see [ResourceAstAnalyzer § When a Pick reference is
+emitted](resource-ast-analyzer.md#when-a-pick-reference-is-emitted)).
 
 Which of the two a call site wants turns on the question it is asking. `publishedColumnNames()`
 answers "may I name this key against the generated interface?", so it must track what
@@ -328,6 +329,9 @@ same method to decide whether to skip a `$hidden` attribute when building the in
 
 Both call sites must agree, because `Pick<Model, K>` constrains `K extends keyof Model` — TypeScript
 error TS2344 fires if `publishedColumnNames()` ever names a key `transformColumns()` didn't emit.
+`relationFilterModelReference()` binds this for both `only()`'s verbatim keys and `except()`'s
+complement: the complement is computed by subtracting from `publishedColumnNames()` itself, so it
+can never contain a key the gate above it didn't already clear.
 `excludeHiddenAttributes()` is the single source of truth both sites read, and it is deliberately
 **not** cached alongside `resolveContext()`'s per-FQCN model context: that cache holds data that's
 inherent to the model (its columns, casts, hidden-array membership) and is safe to memoize for the

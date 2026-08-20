@@ -700,12 +700,22 @@ describe('ResourceTransformer imports', function () {
     test('CommentResource has enum imports from inline relation filter (post_extended)', function () {
         $data = (new ResourceTransformer(CommentResource::class))->data();
 
-        // post_extended = $this->post?->except(['created_at', 'updated_at']) now references the Post
-        // model interface via Omit<> instead of an inline enum-casted shape. VisibilityType/PriorityType
-        // were only ever needed by the old inline shape and are gone from this resource's own imports —
-        // Post's own generated file carries them now. StatusType survives because resolvable_status
-        // (unrelated) still annotates a closure return type as Status directly.
-        expect($data->properties['post_extended']['type'])->toBe("Omit<Post, 'created_at' | 'updated_at'> | null");
+        // post_extended = $this->post?->except(['created_at', 'updated_at']) now references the Post model
+        // interface via Pick<> of the surviving columns instead of an inline enum-casted shape. Post's own
+        // generated file carries VisibilityType/PriorityType now; StatusType survives via resolvable_status.
+        $postExtendedType = (string) $data->properties['post_extended']['type'];
+
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $postExtendedType, $postExtendedMatches);
+        $postExtendedKeys = $postExtendedMatches[1];
+        sort($postExtendedKeys);
+
+        expect($postExtendedType)->toStartWith('Pick<Post, ')
+            ->and($postExtendedType)->toEndWith('> | null')
+            ->and($postExtendedKeys)->toBe([
+                'category', 'category_id', 'content', 'deleted_at', 'featured_image_url', 'id', 'is_pinned',
+                'metadata', 'options', 'priority', 'published_at', 'rating', 'reading_time_minutes', 'status',
+                'title', 'user_id', 'visibility', 'word_count',
+            ]);
         expect($data->typeImports)->toHaveKey('../../models');
         expect($data->typeImports['../../models'])->toContain('Post');
         expect($data->typeImports)->toHaveKey('../../enums');
@@ -1680,25 +1690,29 @@ describe('ResourceTransformer with InvoiceResource', function () {
         $data = (new ResourceTransformer(InvoiceResource::class))->data();
 
         // Both latest_payment_only and latest_payment_excluded (the latest_payment accessor returns
-        // ?Payment) now reference the Payment model interface via Pick<>/Omit<> instead of an inline
-        // shape — Payment's own generated file carries PaymentStatus/PaymentMethod/Currency internally,
-        // so this resource no longer needs to import those enums itself.
+        // ?Payment) reference the Payment model interface via Pick<> — Payment's own generated file
+        // carries PaymentStatus/PaymentMethod/Currency internally, so this resource imports neither.
         expect($data->properties['latest_payment_only']['type'])->toBe(
             "Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
         );
-        expect($data->properties['latest_payment_excluded']['type'])->toBe(
-            "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
-        );
+
+        $excludedType = (string) $data->properties['latest_payment_excluded']['type'];
+
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $excludedType, $excludedMatches);
+        $excludedKeys = $excludedMatches[1];
+        sort($excludedKeys);
+
+        expect($excludedType)->toStartWith('Pick<Payment, ')
+            ->and($excludedType)->toEndWith('> | null')
+            ->and($excludedKeys)->toBe(['created_at', 'id', 'updated_at']);
     });
 
     test('has model imports from accessor model filter (latest_payment_excluded)', function () {
         $data = (new ResourceTransformer(InvoiceResource::class))->data();
 
         // The old inline expansion of latest_payment_excluded embedded the Invoice FQCN (via its
-        // 'invoice' relation property); Omit<Payment, ...> only needs Payment itself, so Invoice is no
-        // longer imported here — that relation lives in Payment's own generated file now (and,
-        // separately, was never something Model::except() actually returned at runtime — see
-        // tests/Feature/ModelOnlyExceptSemanticsTest.php).
+        // 'invoice' relation property); Pick<Payment, ...> only needs Payment itself — that relation
+        // lives in Payment's own generated file now. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
         expect($data->typeImports)->toHaveKey('../../models');
         expect($data->typeImports['../../models'])->toContain('Payment');
     });

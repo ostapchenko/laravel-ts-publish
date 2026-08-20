@@ -17,7 +17,7 @@ export interface CommentResource
     post_new?: PostResource;
     post_direct: PostResource;
     post_limited: Pick<Post, 'id' | 'title'>;
-    post_extended: Omit<Post, 'created_at' | 'updated_at'> | null;
+    post_extended: Pick<Post, 'id' | 'title' | 'content' | 'user_id' | 'status' | 'published_at' | 'metadata' | 'rating' | 'category' | 'options' | 'deleted_at' | 'category_id' | 'visibility' | 'priority' | 'word_count' | 'reading_time_minutes' | 'featured_image_url' | 'is_pinned'> | null;
     post_excerpt_only: { id: number; excerpt: string | null };
     post_title?: string;
     post_content?: string | null;

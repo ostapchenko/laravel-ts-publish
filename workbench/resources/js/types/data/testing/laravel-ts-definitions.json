@@ -7679,7 +7679,7 @@
                 },
                 {
                     "name": "latest_payment_excluded",
-                    "type": "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
+                    "type": "Pick<Payment, 'id' | 'created_at' | 'updated_at'> | null",
                     "optional": false
                 }
             ]
@@ -8722,7 +8722,7 @@
                 },
                 {
                     "name": "post_extended",
-                    "type": "Omit<Post, 'created_at' | 'updated_at'> | null",
+                    "type": "Pick<Post, 'id' | 'title' | 'content' | 'user_id' | 'status' | 'published_at' | 'metadata' | 'rating' | 'category' | 'options' | 'deleted_at' | 'category_id' | 'visibility' | 'priority' | 'word_count' | 'reading_time_minutes' | 'featured_image_url' | 'is_pinned'> | null",
                     "optional": false
                 },
                 {
@@ -10963,7 +10963,7 @@
                 },
                 {
                     "name": "order_extended",
-                    "type": "Omit<Order, 'created_at' | 'updated_at'>",
+                    "type": "Pick<Order, 'id' | 'ulid' | 'user_id' | 'status' | 'payment_method' | 'currency' | 'subtotal' | 'tax' | 'discount' | 'total' | 'shipping_address' | 'billing_address' | 'notes' | 'placed_at' | 'paid_at' | 'shipped_at' | 'delivered_at' | 'cancelled_at' | 'ip_address' | 'user_agent' | 'deleted_at'>",
                     "optional": false
                 }
             ]

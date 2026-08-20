@@ -3950,10 +3950,10 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Build a Pick<Model, …>/Omit<Model, …> reference when every filter key is a declared model column.
+     * Build a Pick<Model, …> reference when every filter key is a declared model column.
      *
-     * Both wrappers target the bare model interface unconditionally — except() iterates only $this->getAttributes(),
-     * and mergeAttributeFromAttributeCasts() refuses get-only casts, so neither relations nor accessors can surface.
+     * Targets the bare model interface: except() iterates only $this->getAttributes(), so relations and
+     * accessors never surface. Picks the complement, not Omit<>, to stay independent of the active template.
      *
      * @param  class-string<Model>  $modelFqcn
      * @param  list<string>  $keys
@@ -3973,10 +3973,15 @@ class ResourceAstAnalyzer
             }
         }
 
-        $quoted = implode(' | ', array_map(fn (string $k): string => "'".$k."'", $keys));
-        $wrapper = $include ? 'Pick' : 'Omit';
+        $picked = $include ? $keys : array_values(array_diff($columns, $keys));
 
-        return $wrapper.'<'.class_basename($modelFqcn).', '.$quoted.'>';
+        if ($picked === []) {
+            return 'Pick<'.class_basename($modelFqcn).', never>';
+        }
+
+        $quoted = implode(' | ', array_map(fn (string $k): string => "'".$k."'", $picked));
+
+        return 'Pick<'.class_basename($modelFqcn).', '.$quoted.'>';
     }
 
     /**

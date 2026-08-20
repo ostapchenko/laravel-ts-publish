@@ -28,5 +28,5 @@ export interface InvoiceResource
     payments_count?: number;
     notes?: string | null;
     latest_payment_only: Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
-    latest_payment_excluded: Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
+    latest_payment_excluded: Pick<Payment, 'id' | 'created_at' | 'updated_at'> | null;
 }

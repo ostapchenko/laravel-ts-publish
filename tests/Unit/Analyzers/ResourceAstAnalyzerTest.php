@@ -1125,20 +1125,24 @@ describe('ResourceAstAnalyzer with InvoiceResource', function () {
         );
     });
 
-    test('latest_payment_excluded references the Payment model via Omit', function () {
+    test('latest_payment_excluded references the Payment model via Pick of the complement', function () {
         // Every except() key is also a plain Payment column, so this references the model interface too.
-        // Omit<Payment, ...> targets the bare (columns-only) Payment interface, matching Eloquent's actual
-        // Model::except() runtime behavior — it never returns dueNotice (a mutator) or invoice (a
-        // relation) regardless of the excluded keys, see tests/Feature/ModelOnlyExceptSemanticsTest.php.
+        // Pick<> of the surviving columns matches Model::except()'s real runtime shape — it never
+        // returns dueNotice (a mutator) or invoice, see tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'latest_payment_excluded');
+        $type = (string) $prop['type'];
 
-        expect($prop['type'])->toBe(
-            "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
-        );
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $type, $matches);
+        $keys = $matches[1];
+        sort($keys);
+
+        expect($type)->toStartWith('Pick<Payment, ')
+            ->and($type)->toEndWith('> | null')
+            ->and($keys)->toBe(['created_at', 'id', 'updated_at']);
     });
 
     test('Pick/Omit accessor model filters register the Payment modelFqcn for import', function () {
@@ -1270,20 +1274,28 @@ describe('ResourceAstAnalyzer with OrderItemResource', function () {
         expect($orderLimited['type'])->toBe("Pick<Order, 'id' | 'total'> | null");
     });
 
-    test('order_extended except() with all-column keys references the Order model via Omit', function () {
+    test('order_extended except() with all-column keys references the Order model via Pick of the complement', function () {
         // order_extended = $this->order->except('created_at', 'updated_at') — both excluded keys are plain
-        // Order columns, so the emitted type omits them from the (columns-only) Order model interface.
-        // Order also has mutators (item_count, sorted_items, ...) and relations (user, items), but
-        // Model::except() never returns those at runtime regardless — see
-        // tests/Feature/ModelOnlyExceptSemanticsTest.php — so Omit<Order, ...> matches ground truth, and
-        // the old inline expansion (which used to include them) was the inaccurate one.
+        // Order columns; Pick<> of the surviving columns matches ground truth exactly (Order also has
+        // mutators and relations that except() never returns) — see tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
         $orderExtended = collect($analysis->properties)->firstWhere('name', 'order_extended');
+        $type = (string) $orderExtended['type'];
 
-        expect($orderExtended['type'])->toBe("Omit<Order, 'created_at' | 'updated_at'>");
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $type, $matches);
+        $keys = $matches[1];
+        sort($keys);
+
+        expect($type)->toStartWith('Pick<Order, ')
+            ->and($type)->toEndWith('>')
+            ->and($keys)->toBe([
+                'billing_address', 'cancelled_at', 'currency', 'deleted_at', 'delivered_at', 'discount',
+                'id', 'ip_address', 'notes', 'paid_at', 'payment_method', 'placed_at', 'shipped_at',
+                'shipping_address', 'status', 'subtotal', 'tax', 'total', 'ulid', 'user_agent', 'user_id',
+            ]);
     });
 
     test('Pick/Omit relation filters register the Order modelFqcn for import', function () {
@@ -1310,18 +1322,16 @@ describe('relation filters reference the emitted model interface', function () {
         expect($props['post_limited']['type'])->toBe("Pick<Post, 'id' | 'title'>");
     });
 
-    test('except() on a nullsafe belongsTo with all-column keys emits Omit of the model, nullable', function () {
+    test('except() on a nullsafe belongsTo with all-column keys emits Pick of the complement, nullable', function () {
         // CommentResource: post_extended = $this->post?->except(['created_at', 'updated_at']). Post has
-        // mutators (title_display, excerpt, ...) and relations (author, comments, ...) beyond its columns,
-        // but Omit<Post, ...> targets the (columns-only) Post interface unconditionally — that matches
-        // Eloquent's actual Model::except() runtime behavior, which never returns a mutator or relation
-        // regardless of the excluded keys. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
+        // mutators and relations beyond its columns; Pick<Post, ...> of the surviving columns matches
+        // Model::except()'s real runtime shape. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 
-        expect($props['post_extended']['type'])->toStartWith('Omit<Post, ')
-            ->and($props['post_extended']['type'])->toContain("'created_at'")
-            ->and($props['post_extended']['type'])->toContain("'updated_at'")
+        expect($props['post_extended']['type'])->toStartWith('Pick<Post, ')
+            ->and($props['post_extended']['type'])->not->toContain("'created_at'")
+            ->and($props['post_extended']['type'])->not->toContain("'updated_at'")
             ->and($props['post_extended']['type'])->toEndWith('| null');
     });
 
@@ -1340,7 +1350,7 @@ describe('relation filters reference the emitted model interface', function () {
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(OrderItemResource::class), OrderItem::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 
-        expect($props['order_extended']['type'])->toMatch("/^Omit<Order, '[a-z_]+'( \| '[a-z_]+')*>$/");
+        expect($props['order_extended']['type'])->toMatch("/^Pick<Order, '[a-z_]+'( \| '[a-z_]+')*>$/");
     });
 
     test('hasMany relation with all-column only() keys emits Pick with the [] suffix', function () {

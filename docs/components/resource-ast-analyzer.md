@@ -17,12 +17,14 @@ multi-model accessor union such as `Attribute<ModelA|ModelB, never>`), the analy
 object shape — the model interface already carries `#[TsCasts]` overrides and `@property`
 docblock refinements that a from-scratch recompute loses.
 
-### When a Pick/Omit reference is emitted
+### When a Pick reference is emitted
 
-`relationFilterModelReference()` builds `Pick<Model, 'a' | 'b'>` (for `only()`) or
-`Omit<Model, 'a' | 'b'>` (for `except()`) — `[]`-suffixed for many-relations, `| null`-suffixed
-for nullsafe calls — whenever **every filter key is a column the model interface actually
-declares**, per `ModelAttributeResolver::publishedColumnNames()`.
+`relationFilterModelReference()` builds `Pick<Model, 'a' | 'b'>` — `[]`-suffixed for
+many-relations, `| null`-suffixed for nullsafe calls — whenever **every filter key is a column
+the model interface actually declares**, per `ModelAttributeResolver::publishedColumnNames()`.
+For `only()` the picked keys are the caller's own list, verbatim. For `except()` they are the
+**complement**: `publishedColumnNames()` minus the named keys, in schema order — so the emitted
+type always names what the property actually contains, not what it excludes.
 
 That gate has to match the *emitted* interface, not just the schema. The raw schema listing
 (`databaseColumnNames()`) is a superset only when `ts-publish.models.exclude_hidden` is enabled:
@@ -35,55 +37,53 @@ runtime). The setting defaults to `false`, so by default hidden columns are publ
 `publishedColumnNames()` includes them like any other column — see
 [ModelAttributeResolver § `publishedColumnNames()` and the `exclude_hidden`
 coupling](model-attribute-resolver.md#publishedcolumnnames-and-the-exclude_hidden-coupling).
-`Omit<T, K>` does not constrain `K`, so it would compile either way; the same gate is
-applied to both for one rule rather than two. A key that is an accessor, mutator, or relation
-name falls back to the inline expansion unchanged —
-`only()` can legitimately request those (Eloquent's `Model::only()` resolves through
-`getAttribute()`, which reaches accessors and relations too), but the analyzer only optimizes
-the plain-column case and leaves everything else to the existing inline path.
+The `keyof` constraint binds both branches identically now: `except()`'s complement is computed
+by subtracting the named keys from that same already-gated column list, so every picked key is a
+`keyof Model` member by construction, the same guarantee `only()`'s verbatim list gets from the
+gate above it. A key that is an accessor, mutator, or relation name falls back to the inline
+expansion unchanged — `only()` can legitimately request those (Eloquent's `Model::only()`
+resolves through `getAttribute()`, which reaches accessors and relations too), but the analyzer
+only optimizes the plain-column case and leaves everything else to the existing inline path.
 
-Both wrappers name the model's **own** interface (`Omit<Order, ...>`, `Pick<Order, ...>`) —
-never `{Model}All`, never a mutators/relations interface — and they do so unconditionally, with
-the same text emitted regardless of which model template is configured. What that name *means*
-is template-dependent, so the correctness argument below is scoped to
-`ts-publish.models.template`:
+The reference names the model's **own** interface (`Pick<Order, ...>`) — never `{Model}All`,
+never a mutators/relations interface — and it is **template-independent by construction**: the
+picked key set comes only from `publishedColumnNames()`, so the text is identical whether
+`ts-publish.models.template` is `model-split` (the package default, where the bare `{Model}`
+already carries columns only) or `model-full` (one interface per model carrying everything —
+`workbench/resources/js/types/data/full-template-example/app/models/order.ts`'s `Order` also has
+`item_count`, `formatted_total`, `user`, `items`, `items_count`, `user_exists`, … on top of the
+same columns). Naming the *excluded* keys instead — `Omit<Order, 'created_at' | 'updated_at'>`,
+the shape this analyzer used to emit — would have inherited whatever `keyof Order` is under the
+active template, re-widening back to those 46 members under `model-full` even though
+`Model::except()` never returns any of them. Naming the *surviving* keys explicitly cannot
+re-widen, regardless of how many other members the base interface carries. The regenerated
+fixtures confirm this directly: the `order_extended`/`post_extended`/`latest_payment_excluded`
+properties are byte-identical text across the `default-example`, `full-template-example`, and
+`split-template-example` trees.
 
-- **Under `model-split`** (the package default) `{Model}` is columns only; mutators, relations,
-  counts, and exists live in `{Model}Mutators`/`{Model}Relations`, which only `{Model}All`
-  unions back together. `Omit<Model, keys>` is therefore a columns-minus-keys type, which is
-  exactly the argument that follows.
-- **Under `model-full`** there is one interface per model carrying all of it. In
-  `workbench/resources/js/types/data/full-template-example/app/models/order.ts`, `Order` holds
-  the columns *and* `item_count`, `formatted_total`, `user`, `items`, `items_count`,
-  `user_exists`, … So the `Omit<Order, 'created_at' | 'updated_at'>` in
-  `.../full-template-example/app/http/resources/order-item-resource.ts` — byte-identical to the
-  one in the `split-template-example` tree — spans all of those too, and describes a value with
-  mutators and relations on it that `Model::except()` does not return at runtime. That is the
-  inaccuracy the inline expansion used to share (see the end of this section, where it is now
-  fixed); under `model-full` the Omit reference still carries it. It still compiles — `Omit<T, K>` does not
-  constrain `K` — and it is still a superset of the truth rather than a wrong-typed property, but
-  it is not the tight match the split template gives.
+This is also why the reference is a `Pick<>` of survivors rather than an `Omit<>` of the excluded
+keys, independent of the template argument above: `Omit<T, K>` does not constrain `K`, so it
+compiles regardless of what `T` actually has, and its member set is not derivable from the type
+string alone — reading it off requires already knowing `T`'s full member list elsewhere.
+`Pick<T, K>`'s member set *is* `K`, so recomputing `K` as the complement reproduces
+`Model::except()`'s real key set directly and leaves it legible without cross-referencing
+anything else — a property the ground-truth test described just below depends on.
 
-`Pick<>` is unaffected by the template: its keys are gated on `publishedColumnNames()`, so they
-are columns either way and the picked type is the same under both.
-
-The `model-split` argument itself initially looked unsafe for `Omit<>` specifically — the bare
-`{Model}`'s `keyof` doesn't span mutators or relations, which would make `Omit<Model, keys>`
-narrower than the *old* inline expansion for a model with any mutator or relation. That
-comparison is the wrong baseline, though:
-`Illuminate\Database\Eloquent\Concerns\HasAttributes::except()` iterates
-only `$this->getAttributes()` (the raw attribute array) — it never reads `$this->relations` at
-all, and `mergeAttributeFromAttributeCasts()` explicitly refuses to merge a get-only `Attribute`
-cast's value back into `$attributes` (`if ($attribute->get && ! $attribute->set) { return; }`),
-so a get-only accessor can never surface even once it has been accessed. **At runtime,
+`Illuminate\Database\Eloquent\Concerns\HasAttributes::except()` iterates only
+`$this->getAttributes()` (the raw attribute array) — it never reads `$this->relations` at all, and
+`mergeAttributeFromAttributeCasts()` explicitly refuses to merge a get-only `Attribute` cast's
+value back into `$attributes` (`if ($attribute->get && ! $attribute->set) { return; }`), so a
+get-only accessor can never surface even once it has been accessed. **At runtime,
 `Model::except()` only ever returns database columns** — verified empirically in
-`tests/Feature/ModelOnlyExceptSemanticsTest.php` against a real, DB-fetched `Post` instance with
-a loaded relation and both get-only accessors (`excerpt`, `readingTime`) touched beforehand; the
+`tests/Feature/ModelOnlyExceptSemanticsTest.php` against a real, DB-fetched `Post` instance with a
+loaded relation and both get-only accessors (`excerpt`, `readingTime`) touched beforehand; the
 result was identical to an untouched instance, and neither the relation nor either accessor
-appeared. Under `model-split`, the bare-model `Omit<Model, keys>` this analyzer emits matches that
-ground truth exactly. The *old* inline expansion's `except()` branch — which unioned every
-attribute name (columns **and** accessors) with every relation name and subtracted the excluded
-keys — was the one that disagreed: it showed relations and accessors `Model::except()` never
+appeared. That same file also parses the `Pick<>` reference's key list back out of a live analyzer
+run and diffs it, member for member, against `$post->except([...])`'s real output — a check
+`Omit<>`'s type string could never support, since its excluded-key list is not the emitted member
+set. The *old* inline expansion's `except()` branch — which unioned every attribute name (columns
+**and** accessors) with every relation name and subtracted the excluded keys — was the one that
+disagreed with this ground truth: it showed relations and accessors `Model::except()` never
 actually returns at runtime. That is fixed; see **Relations half fixed too** below.
 
 **Mutator half fixed in a later pass:** `buildModelDelegatedAnalysis()`'s own property set — used
@@ -258,7 +258,7 @@ The other branch of `analyzeRelationFilter()` — an accessor typed as a union o
 Eloquent models, e.g. `Attribute<CrmUser|User, never>` — is left on the pre-existing inline
 expansion entirely. Nothing *rejects* a union: `relationFilterModelReference()` is only called
 below the `$modelFqcn === null` guard, and that guard is precisely what diverts a multi-model
-receiver into the accessor-union loop. The `Pick`/`Omit` builder is unreachable from that
+receiver into the accessor-union loop. The `Pick` builder is unreachable from that
 branch rather than declined by it.
 
 Staying inline costs real fidelity, so this is a gap rather than a preference. The inline path
@@ -272,10 +272,15 @@ and that was never accurate. `embeddedModelFqcns` is accumulated per property na
 `analyzeRelationFilter()`'s caller, and `LaravelTsPublish::aliasPropertyType()` already rewrites
 each same-basename occurrence within a single property. The real obstacles are three:
 
-- **`Omit<Model, …>` is template-dependent; the inline expansion is not.** Under the `model-full`
-  template the bare model interface also carries mutators, relations, counts and exists, so a
-  reference re-widens exactly what the runtime-faithful `except()` expansion narrowed to database
-  columns. A model declaring `$appends` has the same problem under every template.
+- **Resolved for the single-model path, still open here.** The single-model reference used to emit
+  `Omit<Model, …>`, which was template-dependent for exactly the reason this bullet used to give:
+  under `model-full` the bare model interface also carries mutators, relations, counts and exists,
+  so the reference re-widened what `except()` narrowed to columns. It now emits `Pick<Model, …>`
+  of the complement instead — template-independent by construction, and immune to `$appends` too,
+  since its key universe is `publishedColumnNames()` (schema columns) rather than `keyof Model` —
+  see [When a Pick reference is emitted](#when-a-pick-reference-is-emitted) above. That removes
+  this obstacle for the single-model path; extending the same reference into the union loop below
+  is Task 12 in the analyzer-backlog plan, and is still blocked by the next two bullets.
 - **The test pinning "columns only" would stop testing it.** `ResourceTransformerTest` asserts
   `not->toContain('images: Image[]')` against the emitted type *string*. `Omit<User, 'id' | 'name'>`
   names no members, so that assertion passes vacuously while the type genuinely spans them — the
@@ -285,9 +290,9 @@ each same-basename occurrence within a single property. The real obstacles are t
   the second arm — together with the FQCN push that would have registered its import.
 
 `only()` is a separate case with nothing to gain: `Pick<A, K> | Pick<B, K>` is type-identical to
-the inline object the union loop already emits. Only `except()` would benefit, and only once the
-template-dependence is resolved. Tracked with a full fix shape in the analyzer-followups plan's
-Out of Scope section.
+the inline object the union loop already emits. `except()` is the one that would benefit, and its
+template-dependence blocker is now resolved (see above) — the remaining test-vacuity and dedupe
+obstacles are Task 12 in `docs/superpowers/plans/2026-08-20-analyzer-backlog.md`.
 
 ## Variable bindings
 
@@ -509,7 +514,7 @@ match for `toArray()`'s runtime output. `Model::toArray()` is
   `{Model}Mutators` holds `$data->mutators`, which is the accessors a model did *not* append.
 - **`relationsToArray()` — the real gap.** Bare `{Model}` omits it, so a relation loaded on
   `$member` before the spread is in the JSON payload but not in the type. Unknowable statically;
-  the same trade-off `Omit<Model, keys>` already makes for relation filters. Under `model-split`
+  the same trade-off `Pick<Model, columns>` already makes for relation filters. Under `model-split`
   relations live in `{Model}Relations`, which the arm does not reference.
 
 One gap runs the other way: `$hidden` columns are stripped at runtime (`attributesToArray()` goes
