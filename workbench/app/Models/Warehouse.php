@@ -108,6 +108,12 @@ class Warehouse extends Model
         });
     }
 
+    /** @return Attribute<Image|User|null, never> */
+    protected function lastCheckedBy(): Attribute
+    {
+        return Attribute::get(fn (): Image|User|null => null);
+    }
+
     protected function lastUserActivityByTyped(): Attribute
     {
         return Attribute::get(function (): CrmUser|User|null {

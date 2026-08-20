@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
+use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
 use Workbench\Accounting\Models\Payment;
@@ -12,12 +13,15 @@ use Workbench\App\Enums\Priority;
 use Workbench\App\Enums\Role;
 use Workbench\App\Enums\Status;
 use Workbench\App\Enums\Visibility;
+use Workbench\App\Enums\WeekDays;
 use Workbench\App\Http\Resources\AddressResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
+use Workbench\App\Http\Resources\CaseSpreadResource;
 use Workbench\App\Http\Resources\CategoryResource;
+use Workbench\App\Http\Resources\ClassConstantResource;
 use Workbench\App\Http\Resources\ClosureControlFlowResource;
 use Workbench\App\Http\Resources\ClosureParamShadowResource;
 use Workbench\App\Http\Resources\ClosureUnionMetadataResource;
@@ -36,8 +40,11 @@ use Workbench\App\Http\Resources\DelegatingResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
 use Workbench\App\Http\Resources\EmptyResource;
 use Workbench\App\Http\Resources\EmptyWithMixinResource;
+use Workbench\App\Http\Resources\EnumCollectionResource;
 use Workbench\App\Http\Resources\EnumNullFirstResource;
+use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\ExtendedAddressResource;
+use Workbench\App\Http\Resources\FluentSelfResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
 use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
@@ -47,15 +54,18 @@ use Workbench\App\Http\Resources\LocalVarRecursionResource;
 use Workbench\App\Http\Resources\LocalVarResource;
 use Workbench\App\Http\Resources\LocalVarSpreadResource;
 use Workbench\App\Http\Resources\LoopReturnResource;
+use Workbench\App\Http\Resources\MapRelationFilterResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypePositiveInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
 use Workbench\App\Http\Resources\MediaTypeUnknownResource;
+use Workbench\App\Http\Resources\MerchantResource;
 use Workbench\App\Http\Resources\MergeClosureResource;
 use Workbench\App\Http\Resources\MergeMultiBranchClosureResource;
 use Workbench\App\Http\Resources\MiscCollection;
 use Workbench\App\Http\Resources\ModelWrappedPropResource;
 use Workbench\App\Http\Resources\MutuallyRecursiveSpreadResource;
+use Workbench\App\Http\Resources\NestedResourceSpreadResource;
 use Workbench\App\Http\Resources\NonArrayReturnResource;
 use Workbench\App\Http\Resources\NonThisReceiverSpreadResource;
 use Workbench\App\Http\Resources\OrderClosureResource;
@@ -75,8 +85,11 @@ use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\PreserveKeysCollection;
 use Workbench\App\Http\Resources\PreserveKeysPropertyCollection;
 use Workbench\App\Http\Resources\ProductResource;
+use Workbench\App\Http\Resources\ProfileResource;
 use Workbench\App\Http\Resources\QuirkyResource;
 use Workbench\App\Http\Resources\ReflectedMethodChannelResource;
+use Workbench\App\Http\Resources\Registrar as BareRegistrarResource;
+use Workbench\App\Http\Resources\RegistrarResource;
 use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\ShadowedClosureParamResource;
@@ -85,11 +98,14 @@ use Workbench\App\Http\Resources\SpreadWithClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardDoubleClosureReturnResource;
 use Workbench\App\Http\Resources\StaticCallResource;
+use Workbench\App\Http\Resources\SupplierResource;
+use Workbench\App\Http\Resources\SupplierSummaryResource;
 use Workbench\App\Http\Resources\TagResource;
 use Workbench\App\Http\Resources\TeamMemberResource;
 use Workbench\App\Http\Resources\TeamResource;
 use Workbench\App\Http\Resources\TernaryResource;
 use Workbench\App\Http\Resources\ToArrayCastsResource;
+use Workbench\App\Http\Resources\TrackingEventResource as AppTrackingEventResource;
 use Workbench\App\Http\Resources\TraitSpreadCoverageResource;
 use Workbench\App\Http\Resources\UnitEnumResource;
 use Workbench\App\Http\Resources\UserCollection;
@@ -101,6 +117,8 @@ use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Address;
 use Workbench\App\Models\Category;
 use Workbench\App\Models\Comment;
+use Workbench\App\Models\Image;
+use Workbench\App\Models\Merchant;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\Post;
@@ -592,6 +610,15 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->analysis->inlineModelFqcns['member_profiles'])->toContain(User::class);
     });
 
+    test('->map->only() reached directly off the relation resolves the HigherOrderCollectionProxy', function () {
+        // arrayWrapType() parenthesizes on any '|', including one nested inside the braces — same
+        // as member_profiles above, not a defect specific to this proxy.
+        expect($this->props['member_map_only']['type'])->toBe('({ id: number; role: RoleType | null })[]')
+            ->and($this->props['member_map_only']['optional'])->toBeFalse()
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_map_only')
+            ->and($this->analysis->inlineEnumFqcns['member_map_only'])->toContain(Role::class);
+    });
+
     test('pluck() after the relation root resolves to the column type, array-wrapped', function () {
         expect($this->props['member_emails']['type'])->toBe('string[]')
             ->and($this->props['member_emails']['optional'])->toBeFalse();
@@ -603,14 +630,33 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
             ->and($this->props['member_roles']['optional'])->toBeFalse();
     });
 
-    // A map() body that is entirely EnumResource::make() must carry 'directEnumFqcn', not 'enumFqcn':
-    // ResourceTransformer::rewriteEnumResourceTypes() rewrites 'enumFqcn' keys to a bare AsEnum<...>.
-    test('map() body that is entirely EnumResource::make() stays an array and is not enumFqcn-tagged', function () {
+    // Must stay 'enumFqcn'-tagged (not demoted): the transformer's AsEnum rewrite needs that
+    // channel to render the wrapped-object array as AsEnum<typeof Role>[], not plain RoleType[].
+    test('map() body that is entirely EnumResource::make() stays an array and is enumFqcn-tagged', function () {
         expect($this->props['member_role_resources']['type'])->toBe('RoleType[]')
             ->and($this->props['member_role_resources']['optional'])->toBeFalse()
-            ->and($this->analysis->directEnumFqcns)->toHaveKey('member_role_resources')
-            ->and($this->analysis->directEnumFqcns['member_role_resources'])->toBe(Role::class)
-            ->and($this->analysis->enumResources)->not->toHaveKey('member_role_resources');
+            ->and($this->analysis->enumResources)->toHaveKey('member_role_resources')
+            ->and($this->analysis->enumResources['member_role_resources'])->toBe(Role::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('member_role_resources');
+    });
+
+    // filter() clears sequential keys, so the map body ends up keyedObjectArm()-wrapped. That shape
+    // stays 'enumFqcn'-tagged (not demoted): the transformer's substitution-based rewrite reproduces
+    // it losslessly, AsEnum-wrapping both the array arm and the keyed Record arm.
+    test('filter() before an EnumResource::make() map body stays enumFqcn-tagged', function () {
+        expect($this->props['member_role_resources_filtered']['type'])
+            ->toBe('RoleType[] | Record<string, RoleType>')
+            ->and($this->analysis->enumResources)->toHaveKey('member_role_resources_filtered')
+            ->and($this->analysis->enumResources['member_role_resources_filtered'])->toBe(Role::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('member_role_resources_filtered');
+    });
+
+    // Same non-rebuildable shape, nested inside an inline array this time: analyzeInlineArray()
+    // still rebuilds its own AsEnum types rather than substituting, so isRebuildableEnumShape()
+    // must still demote here — the raw union survives instead of collapsing to a bare AsEnum.
+    test('filter() before an EnumResource::make() map body demotes inside an inline array', function () {
+        expect($this->props['wrapped_filtered']['type'])
+            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
     });
 
     // A string ('strtoupper') or array ([$this, 'method']) callable has no closure body to analyze.
@@ -651,6 +697,83 @@ describe('ResourceAstAnalyzer with RelationChainResource (relation-rooted collec
     test('values() at the end of a key-preserving chain restores the plain array type', function () {
         expect($this->props['members_skipped']['type'])->toBe('User[]')
             ->and($this->analysis->modelFqcns['members_skipped'])->toBe(User::class);
+    });
+});
+
+describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collection() shapes)', function () {
+    beforeEach(function () {
+        $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(EnumCollectionResource::class), Team::class))
+            ->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('accessor-backed list<Enum> stays enumFqcn-tagged and array-shaped', function () {
+        expect($this->props['status_history']['type'])->toBe('StatusType[]')
+            ->and($this->analysis->enumResources)->toHaveKey('status_history')
+            ->and($this->analysis->enumResources['status_history'])->toBe(Status::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('status_history');
+    });
+
+    test('AsEnumCollection cast stays enumFqcn-tagged, array-shaped, and nullable', function () {
+        expect($this->props['week_days']['type'])->toBe('WeekDaysType[] | null')
+            ->and($this->analysis->enumResources)->toHaveKey('week_days')
+            ->and($this->analysis->enumResources['week_days'])->toBe(WeekDays::class);
+    });
+
+    // analyzeInlineArray() computes its own AsEnum rewrite eagerly, so the [] survives here even
+    // though the top-level properties above stay as their bare, un-rewritten element-array type
+    // until ResourceTransformer::rewriteEnumResourceTypes() runs.
+    test('EnumResource::collection() inside an inline array keeps its [] suffix', function () {
+        expect($this->props['wrapped_week_days']['type'])
+            ->toBe('{ week_days: AsEnum<typeof WeekDays>[] | null }');
+    });
+
+    // whenHas() never resolves its value argument's own type — the attribute supplies type and
+    // array-ness — but IS checked for EnumResource::make()/::collection() shape (isEnumResourceWrapCall()),
+    // so this first-class-callable value still promotes to the 'enumFqcn' (wrapped) channel.
+    test('first-class callable inside whenHas() promotes to the enumFqcn (wrapped) channel', function () {
+        expect($this->props['week_days_when_has']['type'])->toBe('WeekDaysType[] | null')
+            ->and($this->analysis->enumResources)->toHaveKey('week_days_when_has')
+            ->and($this->analysis->enumResources['week_days_when_has'])->toBe(WeekDays::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('week_days_when_has');
+    });
+
+    // whenAppended() applies the identical check, for an ordinary (non-FCC) EnumResource::collection()
+    // value — whenAppended() never forwards the attribute value to a Closure, so only this eagerly-
+    // evaluated form is realistically reachable there.
+    test('EnumResource::collection() value inside whenAppended() promotes to the enumFqcn channel', function () {
+        expect($this->props['status_history_when_appended']['type'])->toBe('StatusType[]')
+            ->and($this->analysis->enumResources)->toHaveKey('status_history_when_appended')
+            ->and($this->analysis->enumResources['status_history_when_appended'])->toBe(Status::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('status_history_when_appended');
+    });
+
+    // An explicit default arm unions in a 'string' type. The 'enumFqcn' channel stays live (not
+    // demoted): the transformer's substitution-based rewrite reproduces the full union losslessly.
+    test('whenHas() with an explicit default stays enumFqcn-tagged and keeps the full union', function () {
+        expect($this->props['week_days_when_has_default']['type'])
+            ->toBe('WeekDaysType[] | null | string')
+            ->and($this->props['week_days_when_has_default']['optional'])->toBeFalse()
+            ->and($this->analysis->enumResources)->toHaveKey('week_days_when_has_default')
+            ->and($this->analysis->enumResources['week_days_when_has_default'])->toBe(WeekDays::class)
+            ->and($this->analysis->directEnumFqcns)->not->toHaveKey('week_days_when_has_default');
+    });
+
+    // $variable->map() (not $this->relation->map()) with a body entirely EnumResource::make(...)
+    // must stay array-shaped and enumFqcn-tagged, the same contract as the relation-chain case.
+    test('local variable ->map() with an EnumResource::make() body stays array-shaped and enumFqcn-tagged', function () {
+        expect($this->props['members_via_var']['type'])->toBe('RoleType[]')
+            ->and($this->analysis->enumResources)->toHaveKey('members_via_var')
+            ->and($this->analysis->enumResources['members_via_var'])->toBe(Role::class);
+    });
+
+    // A bare (unwrapped) enum read nested inside an inline array registers in inlineEnumFqcns,
+    // a channel distinct from enumResources/directEnumFqcns that ResourceTransformer reads
+    // separately (see propertyInlineEnumFqcns in rewriteEnumResourceTypes()'s import-GC).
+    test('a bare enum read nested inside an inline array registers in inlineEnumFqcns', function () {
+        expect($this->props['member_role_snapshot']['type'])->toBe('({ role: RoleType | null })[]')
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_role_snapshot')
+            ->and($this->analysis->inlineEnumFqcns['member_role_snapshot'])->toContain(Role::class);
     });
 });
 
@@ -845,6 +968,80 @@ describe('ResourceAstAnalyzer with CategoryResource', function () {
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('CategoryResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceAstAnalyzer with FluentSelfResource', function () {
+    test('new self($x)->fluentMethod() with a native : static return type preserves the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('self::make($x)->fluentMethod() preserves the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_make');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a two-call fluent chain composes and still preserves the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_chain');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a fluent method with no native return type falls back to the @return $this docblock', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_docblock');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a chained method declaring a non-self return type does not preserve the resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_summary');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('unknown')
+            ->and($prop['optional'])->toBeTrue();
+    });
+
+    test('a chained method declaring ?static appends | null to the preserved resource type', function () {
+        $reflection = new ReflectionClass(FluentSelfResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Category::class);
+        $analysis = $analyzer->analyze();
+
+        $prop = collect($analysis->properties)->firstWhere('name', 'parent_fluent_nullable');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('FluentSelfResource | null')
             ->and($prop['optional'])->toBeTrue();
     });
 });
@@ -1112,6 +1309,18 @@ describe('relation filters reference the emitted model interface', function () {
             ->not->toContain('Pick<')
             ->not->toContain('Omit<')
             ->toBe('{ id: number; excerpt: string | null }');
+    });
+});
+
+describe('ResourceAstAnalyzer with MapRelationFilterResource (relation-filter vs. ->map proxy guard order)', function () {
+    test('$this->map->only([...]) resolves through the relation-filter guard, not the ->map proxy', function () {
+        // Team::map() is a real BelongsTo named literally 'map'. Both guards in
+        // analyzeValueExpression() structurally match $this->map->only([...]); only the
+        // relation-filter guard running first keeps this a Pick<User, ...> instead of unknown.
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(MapRelationFilterResource::class), Team::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['map']['type'])->toBe("Pick<User, 'id' | 'name'>");
     });
 });
 
@@ -1479,6 +1688,13 @@ describe('ResourceAstAnalyzer with QuirkyResource', function () {
             ->and($fccEnum['optional'])->toBeFalse();
     });
 
+    test('resolves EnumResource::collection first-class callable as unknown', function () {
+        $fccEnumCollection = collect($this->analysis->properties)->firstWhere('name', 'fcc_enum_collection');
+
+        expect($fccEnumCollection['type'])->toBe('unknown')
+            ->and($fccEnumCollection['optional'])->toBeFalse();
+    });
+
     test('resolves nonexistent model attribute as unknown', function () {
         $fakeField = collect($this->analysis->properties)->firstWhere('name', 'fake_field');
 
@@ -1655,6 +1871,19 @@ describe('ResourceAstAnalyzer with mutually recursive spread methods', function 
 
         expect($props)->toHaveKey('name')
             ->and($props['name']['type'])->toBe('string');
+    });
+});
+
+describe('ResourceAstAnalyzer with a case-mismatched spread call site', function () {
+    it('resolves a spread method whose call-site casing differs from its declaration', function () {
+        $reflection = new ReflectionClass(CaseSpreadResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, Post::class);
+        $analysis = $analyzer->analyze();
+
+        $props = collect($analysis->properties)->keyBy('name');
+
+        expect($props['id']['type'])->toBe('number')
+            ->and($props['case_title']['type'])->toBe('string');
     });
 });
 
@@ -3876,6 +4105,15 @@ describe('ResourceAstAnalyzer with ConditionalParamArrayResource — issue #38 c
             ->and($prop['type'])->toBe('null | string')
             ->and($prop['optional'])->toBeFalse();
     });
+
+    // flagged_notes_present: top-level null stripped, element-level null kept, no default → optional
+    test('whenNotNull() on a nested-nullable union strips only the top-level null arm', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'flagged_notes_present');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('(string | null)[]')
+            ->and($prop['optional'])->toBeTrue();
+    });
 });
 
 describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue #38 full closure params', function () {
@@ -3893,9 +4131,9 @@ describe('ResourceAstAnalyzer with ConditionalParamFullClosureResource — issue
             ->and($prop['optional'])->toBeTrue();
     });
 
-    // Policy pin: whenNotNull's default isn't a callback, so this closure param is unbound and its own
-    // EnumResource::make($status) resolves to 'unknown' — the value arm's type stands alone rather than
-    // being unioned with it, and the explicit second argument still makes the key required.
+    // Policy pin: the default closure declares a required $status param, so value($default) invoking it
+    // with zero args would throw — the arity rule excludes the default arm as unreachable before body
+    // analysis runs, leaving the value arm's own type standing, correct by evidence, still required.
     test('full closure param → EnumResource::make keeps its type, still required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'status_resource');
 
@@ -3917,12 +4155,33 @@ describe('ResourceAstAnalyzer with ConditionalParamPrimitiveResource — whenNot
         $this->analysis = (new ResourceAstAnalyzer($reflection, Order::class))->analyze();
     });
 
-    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) — $notes is NOT bound to the value (there is
-    // no callback form); the default arm is analyzed on its own, and strlen()'s return type resolves via PHP
-    // reflection regardless of its argument. Value (string, from notes) unions with default (number),
-    // required — not the old buggy `number`-alone, optional reading.
-    test('whenNotNull() default arm resolves independently of the value — string | number, required', function () {
+    // whenNotNull($this->notes, fn ($notes) => strlen($notes)) declares a required $notes param, but Laravel
+    // invokes every conditional default via value($default) with zero arguments — an ArgumentCountError at
+    // runtime. The analyzer excludes this arm as unreachable, leaving the value arm (string) standing alone.
+    test('whenNotNull() default arm requiring a parameter is unreachable — string alone, required', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('string')
+            ->and($prop['optional'])->toBeFalse();
+    });
+
+    // whenNotNull($this->notes, fn ($notes = '') => strlen($notes)) — the default closure's parameter has
+    // its own default, so value($default) invoking it with zero args still runs cleanly. Its arm must still
+    // union in: string (from notes) | number (from strlen), required.
+    test('whenNotNull() default arm with an optional parameter still invokes cleanly — string | number, required', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length_or_default');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('string | number')
+            ->and($prop['optional'])->toBeFalse();
+    });
+
+    // whenNotNull($this->notes, fn (...$args) => 1) — a variadic-only parameter accepts zero or more
+    // arguments, so value($default) invoking it with zero args still runs cleanly. Its arm must still
+    // union in: string (from notes) | number (from the literal), required.
+    test('whenNotNull() default arm with a variadic parameter still invokes cleanly — string | number, required', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'notes_length_variadic_default');
 
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('string | number')
@@ -4116,6 +4375,31 @@ describe('ResourceAstAnalyzer with ConditionalDefaultsResource — unless/whenAp
 
         expect($props['transform_with_default']['type'])->toBe('boolean | number')
             ->and($props['transform_with_default']['optional'])->toBeFalse();
+    });
+
+    // transform()'s default is invoked via the global transform() helper's $default($value) — one
+    // argument — unlike the rest of the family's zero-argument value($default). A one-parameter closure
+    // default therefore runs cleanly and must union in, not be treated as unreachable.
+    it('unions a one-parameter transform() default instead of excluding it as unreachable', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['transform_with_one_param_default']['type'])->toBe('boolean | number')
+            ->and($props['transform_with_one_param_default']['optional'])->toBeFalse();
+    });
+
+    // unless/transform were absent from $conditionalMethods, the list a nested resource constructor
+    // consults, so wrapping one in either emitted a required property instead of optional. StaticCall
+    // (::make()) and New_ (new Resource()) take separate detection paths, so both need coverage.
+    it('marks a nested resource constructor wrapping unless/transform as optional', function () {
+        $analyzer = new ResourceAstAnalyzer(new ReflectionClass(ConditionalDefaultsResource::class), Address::class);
+        $props = collect($analyzer->analyze()->properties)->keyBy('name');
+
+        expect($props['unless_user_resource']['type'])->toBe('UserResource')
+            ->and($props['unless_user_resource']['optional'])->toBeTrue();
+
+        expect($props['transform_user_resource']['type'])->toBe('UserResource')
+            ->and($props['transform_user_resource']['optional'])->toBeTrue();
     });
 
     // mergeUnless mirrors mergeWhen: array/closure argument at index 1, always optional. If the dispatch
@@ -4862,6 +5146,19 @@ test('a relation except() drops hidden columns from the derived key list', funct
         ->and($type)->toContain('email: string');
 });
 
+test('relation except() keeps a getter-backed mutator whose type is unknown', function () {
+    $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
+    {
+        /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: array<string, list<string>>} */
+        public function expose(): array
+        {
+            return $this->resolveFilteredRelationType(Image::class, ['created_at', 'updated_at'], false);
+        }
+    };
+
+    expect($analyzer->expose()['type'])->toContain('no_docblock_accessor: unknown');
+});
+
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {
     $analysis = new ResourceAstAnalyzer(
         new ReflectionClass(CoalesceChannelResource::class), Order::class,
@@ -4885,4 +5182,239 @@ test('a reflected $this->method() return dispatches its enum and model FQCNs', f
         ->and($analysis->directEnumFqcns)->toContain(Status::class)
         ->and($props['fallback_owner']['type'])->toBe('User')
         ->and($analysis->modelFqcns)->toContain(User::class);
+});
+
+test('SomeClass::CONSTANT resolves the constant value without regressing Foo::class or enum cases', function () {
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(ClassConstantResource::class), Order::class,
+    )->analyze();
+    $props = collect($analysis->properties)->keyBy('name');
+
+    $nestedChannelsShape = '{ in_app: { status_updates: boolean; comments: boolean }; '
+        .'digest: { status_updates: boolean; comments: boolean } }';
+
+    expect($props['owner_minimum_channels']['type'])->toBe($nestedChannelsShape)
+        ->and($props['max_retries']['type'])->toBe('number')
+        ->and($props['schema_version']['type'])->toBe('number')
+        // parent::CONSTANT, resolved from AbstractVersionedResource via getParentClass().
+        ->and($props['base_version']['type'])->toBe('number')
+        // A constant whose own initializer is another class's enum case.
+        ->and($props['default_status']['type'])->toBe('StatusType')
+        ->and($analysis->directEnumFqcns)->toContain(Status::class)
+        // The left arm ($this->totally_unmapped_field) is unresolvable, so the constant on the
+        // right — the same kind eaglesys's default_subscription_channels falls back to — wins.
+        ->and($props['fallback_channels']['type'])->toBe($nestedChannelsShape)
+        // A plain list where every element agrees resolves to an element array.
+        ->and($props['channel_tags']['type'])->toBe('string[]')
+        // A list whose elements don't agree resolves to a union element array.
+        ->and($props['mixed_tags']['type'])->toBe('(string | number)[]')
+        // A list nested inside a keyed constant resolves the same way a top-level one does,
+        // rather than the Record<string, unknown> a keyless item would otherwise misreport.
+        ->and($props['nested_tags']['type'])->toBe('{ primary: string[]; secondary: string[] }')
+        // Negative case: an undefined-constant reference degrades to unknown at read time
+        // instead of throwing and aborting the whole generation run.
+        ->and($props['broken_channels']['type'])->toBe('unknown')
+        // Negative case: one element past MAX_CONSTANT_ARRAY_ELEMENTS.
+        ->and($props['over_element_limit']['type'])->toBe('unknown')
+        // Negative case: one level past MAX_CONSTANT_ARRAY_DEPTH.
+        ->and($props['over_depth_limit']['type'])->toBe('unknown')
+        // An enum case nested inside a keyed constant — the FQCN must survive embedding.
+        ->and($props['status_map']['type'])->toBe('{ status: OrderStatusType }')
+        ->and($analysis->directEnumFqcns)->toContain(OrderStatus::class)
+        // An enum case nested inside a list constant — same requirement, list shape.
+        ->and($props['status_list']['type'])->toBe('OrderStatusType[]')
+        // All-int, non-sequential keys: every member is dropped, not a regression.
+        ->and($props['all_int_keys']['type'])->toBe('Record<string, unknown>')
+        // A mixed string/int-keyed constant: the int-keyed member is silently dropped.
+        ->and($props['mixed_keys']['type'])->toBe('{ a: number }')
+        // New behaviour: `Foo::class` now types as a plain string instead of unknown. The four
+        // risky call sites never reach this branch — they resolve their ClassConstFetch argument
+        // directly, without going through analyzeValueExpression() — so this is new behaviour, not a guard.
+        ->and($props['resource_marker']['type'])->toBe('string')
+        // Unaffected: an enum case reached through EnumResource::make() — a separate,
+        // pre-existing path (resolveEnumFromPropertyArg()) this feature does not touch.
+        ->and($props['status_marker']['type'])->toContain('Status')
+        ->and($analysis->enumResources)->toHaveKey('status_marker', Status::class);
+});
+
+describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceCollection())', function () {
+    beforeEach(function () {
+        $reflection = new ReflectionClass(MerchantResource::class);
+        $this->analysis = (new ResourceAstAnalyzer($reflection, Merchant::class))->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+        $this->nested = $this->analysis->nestedResources;
+    });
+
+    test('whenLoaded closure toResource() resolves the related model by naming convention', function () {
+        expect($this->props['owner_via_closure']['type'])->toBe('UserResource')
+            ->and($this->props['owner_via_closure']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('owner_via_closure', UserResource::class);
+    });
+
+    test('whenLoaded closure toResource(SomeResource::class) honours the explicit argument', function () {
+        expect($this->props['owner_explicit']['type'])->toBe('UserResource')
+            ->and($this->props['owner_explicit']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('owner_explicit', UserResource::class);
+    });
+
+    test('toResource(SomeResource::SOME_CONSTANT) — a non-::class constant — degrades to unknown, not a wrong resource', function () {
+        expect($this->props['owner_variant_constant']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('owner_variant_constant');
+    });
+
+    test('$this->relation->toResource() resolves directly, without a whenLoaded wrapper', function () {
+        expect($this->props['owner_direct']['type'])->toBe('UserResource')
+            ->and($this->props['owner_direct']['optional'])->toBeFalse()
+            ->and($this->nested)->toHaveKey('owner_direct', UserResource::class);
+    });
+
+    test('whenLoaded closure toResourceCollection() resolves the element model by convention', function () {
+        expect($this->props['staff_via_closure']['type'])->toBe('UserResource[]')
+            ->and($this->props['staff_via_closure']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('staff_via_closure', UserResource::class);
+    });
+
+    test('whenLoaded closure toResourceCollection(SomeResource::class) honours the explicit argument', function () {
+        expect($this->props['staff_explicit']['type'])->toBe('UserResource[]')
+            ->and($this->props['staff_explicit']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('staff_explicit', UserResource::class);
+    });
+
+    test('toResource() prefers the #[UseResource] attribute over the naming convention', function () {
+        // Non-vacuous: Workbench\App\Http\Resources\TrackingEventResource is the naming-convention
+        // candidate for the related model and genuinely exists — an inverted order would resolve
+        // to it instead of EventLogResource, so this assertion can actually discriminate.
+        expect(class_exists(AppTrackingEventResource::class))->toBeTrue();
+
+        expect($this->props['history_event']['type'])->toBe('EventLogResource')
+            ->and($this->props['history_event']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('history_event', EventLogResource::class);
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\UseResource'),
+        'UseResource attribute requires Laravel 12.29+',
+    );
+
+    test('toResource() degrades to unknown when the related model has no matching resource class', function () {
+        // Guards the fixture itself: if either candidate ever gets created, this test would need
+        // a different negative case rather than silently passing for the wrong reason.
+        expect(class_exists('Workbench\App\Http\Resources\ActivityResource'))->toBeFalse()
+            ->and(class_exists('Workbench\App\Http\Resources\Activity'))->toBeFalse();
+
+        expect($this->props['filing']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('filing');
+    });
+
+    test('toResource() degrades to unknown when the related model is not under a \Models\ namespace', function () {
+        // Guards the fixture itself: DatabaseNotification must stay outside \Models\ for this to
+        // exercise guessResourceName()'s bail-to-[] branch rather than the no-candidate-exists one.
+        expect(str_contains(DatabaseNotification::class, '\Models\\'))->toBeFalse();
+
+        expect($this->props['alert']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('alert');
+    });
+
+    test('toResource() prefers the Resource-suffixed naming candidate over the bare one', function () {
+        // Non-vacuous: Workbench\App\Http\Resources\Registrar (bare) also exists — an inverted
+        // candidate order would resolve to it instead of RegistrarResource.
+        expect(class_exists(BareRegistrarResource::class))->toBeTrue();
+
+        expect($this->props['registrar']['type'])->toBe('RegistrarResource')
+            ->and($this->props['registrar']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('registrar', RegistrarResource::class);
+    });
+
+    test('toResourceCollection() prefers the guessed {X}Collection class over the bare resource', function () {
+        // Non-vacuous: SupplierResource (the bare fallback) also exists and collects a DIFFERENT
+        // element than SupplierCollection does, so the two possible orderings are distinguishable.
+        expect(class_exists(SupplierResource::class))->toBeTrue();
+
+        expect($this->props['suppliers']['type'])->toBe('SupplierSummaryResource[]')
+            ->and($this->props['suppliers']['optional'])->toBeTrue()
+            ->and($this->nested)->toHaveKey('suppliers', SupplierSummaryResource::class);
+    });
+
+    test('toResourceCollection() degrades to unknown when #[UseResourceCollection]\'s element is undeterminable, without falling through', function () {
+        // RegistrarResource exists and would be the WRONG fallback element type if the matched
+        // #[UseResourceCollection] attribute fell through instead of stopping hard.
+        expect(class_exists(RegistrarResource::class))->toBeTrue();
+
+        expect($this->props['registrars']['type'])->toBe('unknown')
+            ->and($this->nested)->not->toHaveKey('registrars');
+    })->skip(
+        ! class_exists('Illuminate\Database\Eloquent\Attributes\UseResourceCollection'),
+        'UseResourceCollection attribute requires Laravel 12.29+',
+    );
+
+    test('whenLoaded closure ->map->only() resolves the HigherOrderCollectionProxy per element', function () {
+        // arrayWrapType() parenthesizes on any '|', including one nested inside the braces.
+        expect($this->props['staff_map_only']['type'])
+            ->toBe('({ id: number; name: string; role: RoleType | null; last_login_at: string | null })[]')
+            ->and($this->props['staff_map_only']['optional'])->toBeTrue()
+            ->and($this->analysis->inlineEnumFqcns)->toHaveKey('staff_map_only')
+            ->and($this->analysis->inlineEnumFqcns['staff_map_only'])->toContain(Role::class);
+    });
+
+    test('whenLoaded closure ->map->except() resolves the complement per element', function () {
+        expect($this->props['registrars_map_except']['type'])->toBe('{ name: string }[]')
+            ->and($this->props['registrars_map_except']['optional'])->toBeTrue();
+    });
+
+    test('->map->only() on a singular relation param stays unknown, not the element shape', function () {
+        // historyEvent is a BelongsTo: $m binds to varModelBindings, not varCollectionBindings,
+        // so the ->map proxy must not match — a guess here would silently mistype a real property.
+        expect($this->props['history_event_map_only']['type'])->toBe('unknown');
+    });
+});
+
+describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-resource inside a nested array)', function () {
+    beforeEach(function () {
+        $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(NestedResourceSpreadResource::class), Team::class))
+            ->analyze();
+        $this->props = collect($this->analysis->properties)->keyBy('name');
+    });
+
+    test('spread of a resolved resource plus a sibling key intersects, minus the overridden key, inside a mapped multi-statement closure', function () {
+        // 'profile' is a real UserResource key too (Profile | null) — PHP's spread lets the
+        // explicit 'profile' win, so the resource arm must Omit<> it, not intersect it.
+        expect($this->props['members_with_profile']['type'])
+            ->toBe("(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]")
+            ->and($this->props['members_with_profile']['optional'])->toBeTrue()
+            ->and(array_values($this->analysis->nestedResources))->toContain(UserResource::class)
+            ->and(array_values($this->analysis->nestedResources))->toContain(ProfileResource::class);
+    });
+
+    test('spread alone with no sibling keys collapses to just the resource type', function () {
+        expect($this->props['members_bare']['type'])->toBe('UserResource[]')
+            ->and($this->props['members_bare']['optional'])->toBeTrue();
+    });
+
+    test('spread of a Model->toArray() (not a resource) keeps today\'s behaviour: the spread contributes nothing', function () {
+        expect($this->props['members_model_spread']['type'])->toBe('{ flag: boolean }[]')
+            ->and($this->props['members_model_spread']['optional'])->toBeTrue();
+    });
+
+    test('two resource spreads plus a sibling key intersect in order, each Omit<>\'d against what later overrides it', function () {
+        // 'note' is explicit and wins over both arms; ProfileResource (spread 2nd) wins its own
+        // keys over UserResource (spread 1st) — so UserResource's arm excludes both.
+        expect($this->props['members_double_spread']['type'])
+            ->toBe("(Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[]")
+            ->and($this->props['members_double_spread']['optional'])->toBeTrue();
+    });
+
+    test('an untyped map() closure param falls back to the receiver\'s own relation binding', function () {
+        expect($this->props['members_with_profile_untyped']['type'])
+            ->toBe("(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]")
+            ->and($this->props['members_with_profile_untyped']['optional'])->toBeTrue();
+    });
+
+    test('an untyped map() closure param on a receiver bound to a singular relation stays unknown', function () {
+        expect($this->props['owner_map_untyped']['type'])->toBe('unknown');
+    });
+
+    test('two spread arms colliding on real (non-id) keys: the earlier arm Omits the later arm\'s keyof, by construction', function () {
+        // No explicit keys here — isolates the between-arms subtraction from the explicit-key one.
+        expect($this->props['members_colliding_spread']['type'])
+            ->toBe('(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]')
+            ->and($this->props['members_colliding_spread']['optional'])->toBeTrue();
+    });
 });

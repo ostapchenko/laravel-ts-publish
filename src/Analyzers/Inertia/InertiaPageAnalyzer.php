@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
+use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
@@ -31,6 +32,8 @@ use Throwable;
  */
 class InertiaPageAnalyzer
 {
+    use ChecksPreserveKeys;
+
     /**
      * Create the analyzer with Ranger's response collector and an optional table analyzer override.
      */
@@ -416,7 +419,11 @@ class InertiaPageAnalyzer
                 $singularFqcn = $this->resolveSingularResourceFqcn($resourceFqcn);
                 $singularBase = $singularFqcn !== null ? (new ReflectionClass($singularFqcn))->getShortName() : 'unknown';
 
-                $typeString = (string) preg_replace($pattern, $propKey.': JsonResourcePaginator<'.$singularBase.'>', $typeString);
+                $paginator = $this->collectionPreservesKeys($reflection)
+                    ? "Omit<JsonResourcePaginator<{$singularBase}>, 'data'> & { data: Record<string, {$singularBase}> }"
+                    : 'JsonResourcePaginator<'.$singularBase.'>';
+
+                $typeString = (string) preg_replace($pattern, $propKey.': '.$paginator, $typeString);
 
                 $externalImports['@tolki/types'][] = 'JsonResourcePaginator';
 
@@ -460,11 +467,17 @@ class InertiaPageAnalyzer
 
             DependencyRecorder::recordClass($resourceFqcn);
 
-            $baseName = (new ReflectionClass($resourceFqcn))->getShortName();
+            $reflection = new ReflectionClass($resourceFqcn);
+            $baseName = $reflection->getShortName();
+
+            // Resource::collection() inherits the singular resource's preserve-keys state.
+            $paginator = $this->collectionPreservesKeys($reflection)
+                ? "Omit<JsonResourcePaginator<{$baseName}>, 'data'> & { data: Record<string, {$baseName}> }"
+                : 'JsonResourcePaginator<'.$baseName.'>';
 
             // Paginated props are absent from paginatorModelMap, so rewritePaginatorGenerics left `<unknown>`.
             $pattern = '/\b'.preg_quote($propKey, '/').': AnonymousResourceCollection<unknown>/';
-            $typeString = (string) preg_replace($pattern, $propKey.': JsonResourcePaginator<'.$baseName.'>', $typeString);
+            $typeString = (string) preg_replace($pattern, $propKey.': '.$paginator, $typeString);
 
             $externalImports['@tolki/types'][] = 'JsonResourcePaginator';
 

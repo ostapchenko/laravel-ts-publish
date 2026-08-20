@@ -434,9 +434,10 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Synthesize pseudo-children for a leaf array's `required_array_keys`/`in_array_keys`/`array:` keys,
-     * so they compose into a typed object instead of staying `unknown[]`. Each key's own required-ness
-     * came from `resolveSyntheticArrayKeys()`; a real declared child with the same name wins the merge.
+     * Synthesize pseudo-children for a leaf array's `required_array_keys`/`in_array_keys`/`array:`/
+     * `array_keys:` keys, so they compose into a typed object instead of staying `unknown[]`. Each
+     * key's own required-ness came from `resolveSyntheticArrayKeys()`; a real declared child with
+     * the same name wins the merge.
      *
      * @param  array<string, bool>  $keys  key name => whether the declaring rule requires it
      * @return array<string, FormRequestRuleTrieNode>
@@ -535,13 +536,15 @@ class FormRequestRulesAnalyzer
             }
         }
 
-        foreach ($rules as [$rule]) {
+        foreach ($rules as [$rule, $params]) {
             if ($rule instanceof In) {
                 return $this->resolveInType($rule);
             }
 
-            if (is_string($rule) && strtolower($rule) === 'in') {
-                // Handled via In object above; string form should already be parsed
+            // String-form `in:a,b,c` gets the same position-independent priority as the In object,
+            // so an earlier `string`/`integer` rule cannot shadow the literal union.
+            if (is_string($rule) && strtolower($rule) === 'in' && $params !== []) {
+                return $this->resolveInFromParams($params, $rules);
             }
         }
 
@@ -559,6 +562,13 @@ class FormRequestRulesAnalyzer
             }
 
             if ($rule instanceof ArrayRule || $rule instanceof Contains || $rule instanceof DoesntContain) {
+                return 'unknown[]';
+            }
+
+            // Illuminate\Validation\Rules\ArrayKeys only exists from Laravel 13.24; guard before instanceof.
+            $arrayKeysClass = 'Illuminate\Validation\Rules\ArrayKeys';
+
+            if (class_exists($arrayKeysClass) && $rule instanceof $arrayKeysClass) {
                 return 'unknown[]';
             }
 
@@ -588,7 +598,8 @@ class FormRequestRulesAnalyzer
                 in_array($ruleLower, ['file', 'image', 'mimes', 'mimetypes', 'extensions'], true) => 'File',
                 $ruleLower === 'array' => 'unknown[]',
                 $ruleLower === 'list' => 'unknown[]',
-                $ruleLower === 'in' => $this->resolveInFromParams($params),
+                $ruleLower === 'array_keys' => 'unknown[]',
+                $ruleLower === 'in' => $this->resolveInFromParams($params, $rules),
                 default => null,
             };
 
@@ -623,16 +634,53 @@ class FormRequestRulesAnalyzer
     /**
      * Resolve the TypeScript union type from `in:a,b,c` params.
      *
+     * ValidationRuleParser::parse() always parses string-form params as strings, so a numeric-looking
+     * value needs an explicit signal to emit unquoted — a sibling `integer`/`int`/`numeric` rule on the
+     * same field is that signal, matching what `Rule::in([1, 2, 3])` already emits for the same values.
+     * A param only coerces when `+0` round-trips losslessly back to the same text: `validateIn()`
+     * compares `(string) $value` against the literal param, so a padded/reformatted value like `'007'`
+     * or `'2.50'` must stay a quoted string — emitting `7`/`2.5` would describe a value Laravel itself
+     * rejects for that field.
+     *
      * @param  list<mixed>  $params
+     * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
      */
-    protected function resolveInFromParams(array $params): string
+    protected function resolveInFromParams(array $params, array $rules = []): string
     {
+        $numeric = $this->hasNumericTypeSibling($rules);
+
         $literals = array_map(
-            fn (mixed $v): string => LaravelTsPublish::toJsLiteral($v),
+            fn (mixed $v): string => LaravelTsPublish::toJsLiteral(
+                $numeric && is_string($v) && is_numeric($v) && $v === (string) ($v + 0) ? $v + 0 : $v,
+            ),
             array_filter($params, fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
         return $literals !== [] ? implode(' | ', $literals) : 'string';
+    }
+
+    /**
+     * Whether a field's sibling rules declare it numeric (`integer`/`int`/`numeric`).
+     *
+     * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
+     */
+    protected function hasNumericTypeSibling(array $rules): bool
+    {
+        foreach ($rules as [$rule]) {
+            if (! is_string($rule)) {
+                continue;
+            }
+
+            // ValidationRuleParser::parse() returns PascalCase names (alpha_dash → AlphaDash); undo that.
+            $pascalToSnake = preg_replace('/[A-Z]/', '_$0', lcfirst($rule));
+            $ruleLower = strtolower(is_string($pascalToSnake) ? $pascalToSnake : $rule);
+
+            if (in_array($ruleLower, ['integer', 'int', 'numeric'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -779,9 +827,10 @@ class FormRequestRulesAnalyzer
     }
 
     /**
-     * Resolve the keys declared by `required_array_keys:a,b`, `in_array_keys:a,b`, or `array:a,b`,
-     * mapped to whether Laravel's validator guarantees that key's presence. `required_array_keys`
-     * demands every listed key; the other two never guarantee a single key, so theirs come back optional.
+     * Resolve the keys declared by `required_array_keys:a,b`, `in_array_keys:a,b`, `array:a,b`,
+     * or `array_keys:a,b`, mapped to whether Laravel's validator guarantees that key's presence.
+     * `required_array_keys` demands every listed key; the other three never guarantee a single
+     * key, so theirs come back optional.
      *
      * @param  list<array{0: mixed, 1: list<mixed>}>  $rules
      * @return array<string, bool> key name => whether the declaring rule requires it
@@ -804,7 +853,7 @@ class FormRequestRulesAnalyzer
 
             if ($ruleLower === 'required_array_keys') {
                 $requiredKeys = [...$requiredKeys, ...$keys];
-            } elseif (in_array($ruleLower, ['in_array_keys', 'array'], true)) {
+            } elseif (in_array($ruleLower, ['in_array_keys', 'array', 'array_keys'], true)) {
                 $optionalKeys = [...$optionalKeys, ...$keys];
             }
         }

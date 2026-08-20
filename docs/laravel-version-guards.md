@@ -13,14 +13,17 @@ and remove the row.
 
 | Class | Min Laravel | Guarded at | Tests skipped at | Convert when floor ≥ |
 | --- | --- | --- | --- | --- |
-| `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php` | `12.29.0` |
+| `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php`, `src/Analyzers/ResourceAstAnalyzer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php`, `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `12.29.0` |
+| `Illuminate\Database\Eloquent\Attributes\UseResourceCollection` | `12.29.0` | `src/Analyzers/ResourceAstAnalyzer.php` | none | `12.29.0` |
 | `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php`, `src/Analyzers/Inertia/InertiaPageAnalyzer.php` | none | `13.0.0` |
-| `Illuminate\Http\Resources\Attributes\PreserveKeys` | `13.0.0` | `src/Analyzers/ResourceAstAnalyzer.php` | `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `13.0.0` |
+| `Illuminate\Http\Resources\Attributes\PreserveKeys` | `13.0.0` | `src/Analyzers/Concerns/ChecksPreserveKeys.php` | `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Table` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Hidden` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Visible` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Appends` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Connection` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
+| `Illuminate\Validation\Rules\ArrayKeys` | `13.24.0` | `src/Analyzers/FormRequest/FormRequestRulesAnalyzer.php` | `tests/Unit/Analyzers/FormRequestRulesAnalyzerTest.php` | `13.24.0` |
+| `Illuminate\Database\Eloquent\Attributes\RouteKey` | `13.0.0` | `src/Transformers/RouteTransformer.php` (overridesRouteKey()) | `tests/Unit/Transformers/RouteTransformerTest.php` | `13.0.0` |
 
 The `PreserveKeys` row's guard covers only the `#[PreserveKeys]` *attribute* form, read via
 `ReflectionClass::getAttributes()` in `collectionPreservesKeys()`. Laravel's older
@@ -63,6 +66,22 @@ all six are absent at `v12.66.0` and present at `v13.0.0`, the same shape as `Co
 this finding directly — recording `Min Laravel: 13.0.0` / `Convert when floor ≥: 13.0.0` for the
 five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows above without re-deriving it.
 Task 10 used the same finding for the `PreserveKeys` row above, once its `src/` guard was added.
+Task 11 used it again for the `RouteKey` row above: `RouteKey` lives in the same
+`Illuminate\Database\Eloquent\Attributes` directory as `Table`/`Hidden`/`Visible`/`Appends`/
+`Connection`, so the directory-level absent-at-`v12.66.0`/present-at-`v13.0.0` finding covers it
+without a fresh tag search.
+
+- **`ArrayKeys`**: binary-searched across all 32 published `v13.*` tags for
+  `src/Illuminate/Validation/Rules/ArrayKeys.php`, after first confirming it 404s at both `v12.0.0`
+  and `v12.66.0` (the entire 12.x line lacks it, same shape as `Collects`). Absent through
+  `v13.23.0`, present starting `v13.24.0` (the fluent `Rule::arrayKeys()` factory in `Rule.php`
+  appears in the same tag) and at every release since. This is an exact minimum, not a range —
+  the same shape as `UseResource`.
+- **`UseResourceCollection`**: lives beside `UseResource` in the same
+  `Illuminate\Database\Eloquent\Attributes` directory, so checked directly rather than assumed:
+  `src/Illuminate/Database/Eloquent/Attributes/UseResourceCollection.php` 404s at `v12.28.0` and
+  `v12.28.1`, and is present at `v12.29.0` and `v13.0.0` — the identical cutover to `UseResource`,
+  consistent with both attributes shipping in the same PR (laravel/framework#56966).
 
 ## Scanner coverage and blind spots
 

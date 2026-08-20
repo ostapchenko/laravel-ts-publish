@@ -17,6 +17,7 @@ export interface QuirkyResource
     empty_user: UserResource;
     empty_enum: unknown;
     fcc_enum: unknown;
+    fcc_enum_collection: unknown;
     not_enum: unknown;
     uncast_enum: unknown;
     empty_new_enum: unknown;

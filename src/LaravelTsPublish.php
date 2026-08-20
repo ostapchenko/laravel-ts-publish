@@ -1940,6 +1940,47 @@ class LaravelTsPublish
     }
 
     /**
+     * Split a type string into its top-level union members.
+     *
+     * Depth-aware over braces, parens, angle brackets, and square brackets, and skips
+     * single-quoted literals whole, so a nested `|` never splits.
+     *
+     * @return list<string>
+     */
+    public function splitTopLevelUnion(string $typeStr): array
+    {
+        $members = [];
+        $current = '';
+        $depth = 0;
+        $inString = false;
+
+        foreach (str_split($typeStr) as $char) {
+            if ($char === "'") {
+                $inString = ! $inString;
+            }
+
+            if (! $inString) {
+                if (str_contains('{(<[', $char)) {
+                    $depth++;
+                } elseif (str_contains('})>]', $char)) {
+                    $depth = max(0, $depth - 1);
+                } elseif ($char === '|' && $depth === 0) {
+                    $members[] = trim($current);
+                    $current = '';
+
+                    continue;
+                }
+            }
+
+            $current .= $char;
+        }
+
+        $members[] = trim($current);
+
+        return array_values(array_filter($members, fn (string $member): bool => $member !== ''));
+    }
+
+    /**
      * Replace `AsEnum<typeof ConstAlias>` patterns with the pre-computed type alias.
      *
      * In the globals file there is no `AsEnum` import, so `AsEnum<typeof X>` and `XType` collapse to
@@ -1957,6 +1998,12 @@ class LaravelTsPublish
             $pairPattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>\s*\|\s*'
                 .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
             $typeStr = preg_replace($pairPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
+
+            // Same pair reversed: the bare alias would be re-qualified afterwards, recreating the duplicate.
+            // Only ResourceTransformer::rewriteEnumResourceTypes() emits this pair shape, always forward-ordered.
+            $reversedPattern = '/(?<![A-Za-z0-9_$.])'.preg_quote($bareTypeName, '/').'\s*\|\s*AsEnum<typeof\s+'
+                .preg_quote($constAlias, '/').'\s*>/';
+            $typeStr = preg_replace($reversedPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
 
             $singlePattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>/';
             $typeStr = preg_replace($singlePattern, $qualifiedTypeName, $typeStr) ?? $typeStr;

@@ -22,6 +22,7 @@ use ReflectionClass;
  * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
  * @phpstan-import-type AttributeInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  * @phpstan-import-type RelationInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
+ * @phpstan-import-type TypesImportMap from \AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable
  *
  * @phpstan-type ModelAttributeTypeResult = array{type: string, enumFqcn: class-string|null}
  * @phpstan-type ModelRelationTypeResult = array{type: string, modelFqcn: class-string<\Illuminate\Database\Eloquent\Model>|null, morphFqcns: list<class-string>}
@@ -215,14 +216,14 @@ trait ResolvesModelTypes
      *
      * @param  class-string  $relatedModelClass
      * @param  list<string>  $keys
-     * @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>}
+     * @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: TypesImportMap}
      */
     protected function resolveFilteredRelationType(
         string $relatedModelClass,
         array $keys,
         bool $include,
     ): array {
-        $result = ['type' => 'unknown', 'enumFqcns' => [], 'modelFqcns' => []];
+        $result = ['type' => 'unknown', 'enumFqcns' => [], 'modelFqcns' => [], 'customImports' => []];
         $resolver = resolve(ModelAttributeResolver::class);
 
         $relatedAttributes = $resolver->getAttributes($relatedModelClass);
@@ -255,6 +256,8 @@ trait ResolvesModelTypes
         $collectedEnumFqcns = [];
         /** @var list<class-string> $collectedModelFqcns */
         $collectedModelFqcns = [];
+        /** @var TypesImportMap $collectedCustomImports */
+        $collectedCustomImports = [];
 
         /** @var list<string> $resolveKeys */
         foreach ($resolveKeys as $key) {
@@ -263,12 +266,24 @@ trait ResolvesModelTypes
             if ($attr !== null) {
                 $tsInfo = $resolver->resolveAttribute($relatedModelClass, $key);
 
-                if ($tsInfo['type'] !== 'unknown') {
+                // Match buildModelDelegatedAnalysis(): only a write-only mutator with no getter is truly
+                // absent at runtime — a getter-backed attribute survives even when its type is unknown.
+                if ($tsInfo['type'] !== 'unknown' || ! $resolver->isOmittedMutator($relatedModelClass, $key)) {
                     $parts[] = $key.': '.$tsInfo['type'];
 
                     /** @var list<class-string> $enumFqcns */
                     $enumFqcns = $tsInfo['enumFqcns'];
                     array_push($collectedEnumFqcns, ...$enumFqcns);
+
+                    // Sibling of the enumFqcns collection above: an inlined attribute can itself
+                    // reference another model or a #[TsType(import:)] alias, both needed to compile.
+                    /** @var list<class-string> $classFqcns */
+                    $classFqcns = $tsInfo['classFqcns'];
+                    array_push($collectedModelFqcns, ...$classFqcns);
+
+                    foreach ($tsInfo['customImports'] as $path => $names) {
+                        $collectedCustomImports[$path] = [...($collectedCustomImports[$path] ?? []), ...$names];
+                    }
                 }
 
                 continue;
@@ -297,6 +312,7 @@ trait ResolvesModelTypes
             'type' => $inlineType,
             'enumFqcns' => $collectedEnumFqcns,
             'modelFqcns' => $collectedModelFqcns,
+            'customImports' => $collectedCustomImports,
         ];
     }
 }

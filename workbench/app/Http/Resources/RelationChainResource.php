@@ -11,7 +11,8 @@ use Workbench\App\Models\Team;
 
 /**
  * Exercises collection method chains rooted at a many-relation
- * ($this->members->take(5)->map(...)->values()).
+ * ($this->members->take(5)->map(...)->values()), plus the ->map->only()
+ * HigherOrderCollectionProxy reached directly off the relation.
  *
  * @mixin Team
  */
@@ -43,6 +44,10 @@ class RelationChainResource extends JsonResource
                 'owner' => $this->owner,
             ])->values(),
 
+            // ->map->only(): the HigherOrderCollectionProxy reached directly off the relation,
+            // with no whenLoaded closure param involved — the receiver is $this->members itself.
+            'member_map_only' => $this->members->map->only(['id', 'role']),
+
             // pluck() after the relation root → the plucked column's type, array-wrapped.
             'member_emails' => $this->members->pluck('email'),
 
@@ -51,11 +56,30 @@ class RelationChainResource extends JsonResource
             // parses as RoleType | (null[]) — genuinely wrong, not merely ugly).
             'member_roles' => $this->members->pluck('role'),
 
-            // map() body is ENTIRELY EnumResource::make(...) — no array literal wrapping —
-            // so the result carries a singular 'enumFqcn' (not 'directEnumFqcn'). Must still
-            // render as an array (RoleType[]) and must not let ResourceTransformer's
-            // tolki AsEnum rewrite collapse it back down to a singular AsEnum<typeof Role>.
+            // map() body is ENTIRELY EnumResource::make(...) — no array literal wrapping — so the
+            // result carries a singular 'enumFqcn' (not 'directEnumFqcn'), array-wrapped by the
+            // chain analyzer. ResourceTransformer's tolki rewrite must render it as a collection
+            // (AsEnum<typeof Role>[]), not collapse it to a singular AsEnum<typeof Role>: each
+            // element really is wrapped by EnumResource::make(), so the JSON is an array of
+            // flattened enum objects.
             'member_role_resources' => $this->members->take(5)->map(fn ($member) => EnumResource::make($member->role))->values(),
+
+            // filter() clears sequential keys, so the map body ends up keyedObjectArm()-wrapped:
+            // RoleType[] | Record<string, RoleType>. ResourceTransformer::rewriteEnumResourceTypes()
+            // substitutes the bare RoleType token in place of rebuilding, so both the array arm and
+            // the keyed Record arm come out AsEnum-wrapped: AsEnum<typeof Role>[] | Record<string,
+            // AsEnum<typeof Role>> — not the bare, un-rewritten RoleType this used to collapse to.
+            'member_role_resources_filtered' => $this->members->filter(fn ($member) => $member->id > 1)
+                ->map(fn ($member) => EnumResource::make($member->role)),
+
+            // Same filter()+map() shape, nested inside an inline array literal this time.
+            // analyzeInlineArray() rebuilds its own AsEnum types rather than substituting, so
+            // isRebuildableEnumShape() must still demote this non-rebuildable Record-arm shape
+            // here too — proving that guard still fires, not just that it still exists.
+            'wrapped_filtered' => [
+                'roles' => $this->members->filter(fn ($member) => $member->id > 1)
+                    ->map(fn ($member) => EnumResource::make($member->role)),
+            ],
 
             // map() argument is a string callable, not a Closure/ArrowFunction — must not be
             // treated as a closure body (which would otherwise resolve 'strtoupper' itself,
@@ -89,6 +113,7 @@ class RelationChainResource extends JsonResource
                 'id' => $member->id,
             ]),
             'members_tail' => $this->members->take(-2),
+            'members_tail_values' => $this->members->take(-2)->values(),
             'members_sliced_emails' => $this->members->pluck('email')->sortBy(fn (string $email) => $email),
             'members_keyed_by_id' => $this->members->pluck('email', 'id'),
 

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Workbench\App\Enums\Status;
+use Workbench\App\Enums\WeekDays;
 use Workbench\App\ValueObjects\GridConfigDto;
 
 /**
@@ -46,13 +47,19 @@ class Team extends Model
             'settings' => 'array',
             'grid_config' => 'array',
             'grid_preset' => 'array',
-            'week_days' => AsEnumCollection::class.':'.Status::class,
+            'week_days' => AsEnumCollection::class.':'.WeekDays::class,
             'grid_configs' => AsCollection::of(GridConfigDto::class),
         ];
     }
 
     /** The user who owns this team */
     public function owner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    /** Named literally 'map' to pin the relation-filter guard against Laravel's ->map proxy. */
+    public function map(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');
     }
@@ -78,6 +85,14 @@ class Team extends Model
     {
         return Attribute::make(
             get: fn (): int => $this->members()->count(),
+        );
+    }
+
+    /** @return Attribute<list<Status>, never> */
+    protected function statusHistory(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): array => [Status::Draft, Status::Published],
         );
     }
 }

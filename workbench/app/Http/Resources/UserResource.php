@@ -18,6 +18,9 @@ use Workbench\App\Models\User;
 #[TsResource(model: User::class)]
 class UserResource extends JsonResource
 {
+    /** Not a resource type — exercises resolveClassConstArgument()'s ::class-only guard. */
+    public const ADMIN_VARIANT = 'admin';
+
     /**
      * @return array<string, mixed>
      */

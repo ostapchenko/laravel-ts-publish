@@ -7,6 +7,7 @@ use AbeTwoThree\LaravelTsPublish\LaravelTsPublish as LaravelTsPublishService;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Workbench\App\Models\Activity;
 use Workbench\App\Models\Admin\Store;
+use Workbench\App\Models\ArrayObjectCastFixture;
 use Workbench\App\Models\Attachment;
 use Workbench\App\Models\CompositeComment;
 use Workbench\App\Models\Image;
@@ -35,10 +36,10 @@ test('resolveAttribute returns empty info for non-existent model class', functio
     expect($result)->toBe(LaravelTsPublish::emptyTypeScriptInfo());
 });
 
-test('resolveAttribute returns empty info when DB type maps to unknown', function () {
+test('resolveAttribute returns unknown for a write-only mutator with no getter', function () {
     $resolver = resolve(ModelAttributeResolver::class);
 
-    // 'search_index' on Order has type 'unknown' in the DB schema
+    // 'search_index' is a write-only mutator (no getter, no docblock Get generic), not a DB column
     $result = $resolver->resolveAttribute(Order::class, 'search_index');
 
     expect($result['type'])->toBe('unknown');
@@ -477,6 +478,14 @@ describe('@property docblock refinement', function () {
     });
 });
 
+test('an AsArrayObject cast resolves to the array-or-record union', function () {
+    $resolver = resolve(ModelAttributeResolver::class);
+
+    $result = $resolver->resolveAttribute(ArrayObjectCastFixture::class, 'owner_snapshot');
+
+    expect($result['type'])->toBe('unknown[] | Record<string, unknown> | null');
+});
+
 describe('write-only accessor waterfall', function () {
     test('a set-only mutator with a documented Get generic resolves to that type', function () {
         // Order::trackingCode has no getter closure, but its docblock still names Attribute<?string, string>.
@@ -504,11 +513,11 @@ describe('write-only accessor waterfall', function () {
 });
 
 describe('castable-with-arguments casts', function () {
-    test('AsEnumCollection::of(Status) resolves through the waterfall to a nullable enum array', function () {
+    test('AsEnumCollection::of(WeekDays) resolves through the waterfall to a nullable enum array', function () {
         $info = resolve(ModelAttributeResolver::class)
             ->resolveAttribute(Team::class, 'week_days');
 
-        expect($info['type'])->toBe('StatusType[] | null');
+        expect($info['type'])->toBe('WeekDaysType[] | null');
     });
 
     test('AsCollection::of(GridConfigDto) resolves through the waterfall to a nullable shape array', function () {

@@ -780,7 +780,7 @@ describe('ModelTransformer HasEnums enum column/mutator properties', function ()
         $data = (new ModelTransformer(Team::class))->data();
 
         expect($data->enumColumns['week_days'])
-            ->toBe(['constName' => 'Status', 'nullable' => true, 'isCollection' => true]);
+            ->toBe(['constName' => 'WeekDays', 'nullable' => true, 'isCollection' => true]);
     });
 
     test('enumColumns marks a scalar enum column as not a collection', function () {

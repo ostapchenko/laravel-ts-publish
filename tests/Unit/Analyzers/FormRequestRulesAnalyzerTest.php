@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\FormRequest\FormRequestRulesAnalyzer;
 use Illuminate\Auth\GenericUser;
 use Illuminate\Support\Facades\Auth;
+use Workbench\App\Http\Requests\ArrayKeysObjectFormRequest;
 use Workbench\App\Http\Requests\ArrayRulesRequest;
 use Workbench\App\Http\Requests\BooleanRulesRequest;
 use Workbench\App\Http\Requests\DateRulesRequest;
@@ -259,6 +260,56 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node->tsType)->toBe('string');
         });
 
+        it('string-form in outranks an earlier string rule', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $role = collect($nodes)->firstWhere('fieldPath', 'role');
+            expect($role->tsType)->toBe("'user' | 'admin' | 'moderator'");
+        });
+
+        it('string-form in under sometimes stays optional with the literal union', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $pref = collect($nodes)->firstWhere('fieldPath', 'optional_preference');
+            expect($pref->tsType)->toBe("'light' | 'dark' | 'system'");
+            expect($pref->isRequired)->toBeFalse();
+        });
+
+        // ValidationRuleParser::parse() always parses string-form params as strings, so numeric-looking
+        // params need the sibling `integer` rule as a signal to emit unquoted, matching what
+        // `Rule::in([1, 2, 3])` (the object form) already emits for the same values.
+        it('string-form in with a sibling integer rule emits unquoted numeric literals', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $priority = collect($nodes)->firstWhere('fieldPath', 'priority_level');
+            expect($priority->tsType)->toBe('1 | 2 | 3');
+        });
+
+        // Contrast: a declared `string` field's `in:1,2,3` params stay quoted string literals — the
+        // numeric trigger must not retype a field the rules explicitly say is a string.
+        it('string-form in on a declared string field keeps quoted string literals', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $legacy = collect($nodes)->firstWhere('fieldPath', 'legacy_code');
+            expect($legacy->tsType)->toBe("'1' | '2' | '3'");
+        });
+
+        // Guard: '007' -> 7 and '2.50' -> 2.5 both lose information through +0 coercion. validateIn()
+        // compares (string) $value against the literal param, so the unquoted, renormalized number would
+        // describe a value Laravel itself rejects for this field — these must stay quoted even though the
+        // field carries the numeric-trigger `numeric` rule.
+        it('keeps a padded or reformatted numeric in: param quoted instead of renormalizing it', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(UtilityRulesRequest::class);
+
+            $padded = collect($nodes)->firstWhere('fieldPath', 'padded_numeric_code');
+            expect($padded->tsType)->toBe("'007' | '2.50'");
+        });
+
         it('maps Rule::string() fluent object to string type', function () {
             $nodes = (new FormRequestRulesAnalyzer)->analyze(RuleClassRequest::class);
             $node = collect($nodes)->firstWhere('fieldPath', 'title');
@@ -301,6 +352,17 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($node)->not->toBeNull();
             expect($node->tsType)->toBe('string');
         });
+
+        it('maps Rule::arrayKeys() fluent object to unknown[] type, unlike the string form', function () {
+            $nodes = (new FormRequestRulesAnalyzer)->analyze(ArrayKeysObjectFormRequest::class);
+            $node = collect($nodes)->firstWhere('fieldPath', 'attributes_map');
+            expect($node)->not->toBeNull();
+            expect($node->tsType)->toBe('unknown[]');
+            expect($node->isRequired)->toBeTrue();
+        })->skip(
+            ! class_exists('Illuminate\Validation\Rules\ArrayKeys'),
+            'Rule::arrayKeys() requires Laravel 13.24+',
+        );
 
         it('maps Rule::numeric() fluent object to number type', function () {
             $nodes = (new FormRequestRulesAnalyzer)->analyze(RuleClassRequest::class);
@@ -466,6 +528,25 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($preferences)->not->toBeNull();
             expect($preferences->tsType)->toBe('{ theme?: unknown; locale?: unknown }');
             expect($preferences->isRequired)->toBeFalse();
+        });
+
+        it('array_keys synthesizes optional keys like array:a,b', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $map = collect($nodes)->firstWhere('fieldPath', 'attributes_map');
+            expect($map->tsType)->toBe('{ color?: unknown; size?: unknown }');
+            expect($map->isRequired)->toBeTrue();
+        });
+
+        it('degrades a parameterless array_keys to unknown[] instead of bare unknown', function () {
+            $analyzer = new FormRequestRulesAnalyzer;
+            $nodes = $analyzer->analyze(ArrayRulesRequest::class);
+
+            $malformed = collect($nodes)->firstWhere('fieldPath', 'malformed_array_keys');
+            expect($malformed)->not->toBeNull();
+            expect($malformed->tsType)->toBe('unknown[]');
+            expect($malformed->isRequired)->toBeTrue();
         });
 
         it('merges required_array_keys synthesis with a real declared child, real child winning the collision', function () {

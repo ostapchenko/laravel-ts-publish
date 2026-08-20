@@ -14,4 +14,5 @@ export interface ConditionalParamArrayResource
     notes_or_default?: string;
     user_meta?: { profile: { name: string; email: string }; verified: boolean };
     notes_when_null: null | string;
+    flagged_notes_present?: (string | null)[];
 }

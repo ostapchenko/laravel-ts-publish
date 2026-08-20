@@ -16,6 +16,7 @@ use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
 use Workbench\App\Http\Resources\EmptyResource;
 use Workbench\App\Http\Resources\EmptyWithMixinResource;
+use Workbench\App\Http\Resources\EnumCollectionResource;
 use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\FqcnMixinResource;
 use Workbench\App\Http\Resources\ImageDelegatedResource;
@@ -29,6 +30,7 @@ use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\ProductResource;
 use Workbench\App\Http\Resources\ProfileResource;
+use Workbench\App\Http\Resources\RelationChainResource;
 use Workbench\App\Http\Resources\ResourceWrappedEnumResource;
 use Workbench\App\Http\Resources\ServiceDeskResource;
 use Workbench\App\Http\Resources\TernaryResource;
@@ -46,6 +48,7 @@ use Workbench\App\Models\Order;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\Product;
 use Workbench\App\Models\Sales\Report\Report as SalesReport;
+use Workbench\App\Models\Team;
 use Workbench\App\Models\TrackingEvent;
 use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
@@ -1964,6 +1967,151 @@ describe('ResourceTransformer with ResourceWrappedEnumResource — inline array 
         expect($data->properties['priority_when_not_null_make']['type'])
             ->toBe('AsEnum<typeof Priority> | PriorityType | null')
             ->and($data->properties['priority_when_not_null_make']['optional'])->toBeFalse();
+    });
+});
+
+describe('ResourceTransformer with RelationChainResource — EnumResource::make() array-wrapped by a map() chain', function () {
+    // Regression pin for change #2: EnumResource::make() wraps each element, so the JSON is an
+    // array of flattened enum objects, not raw enum values — AsEnum<typeof Role>[] is correct;
+    // the old RoleType[] (a plain, un-rewritten type import) was wrong.
+    test('member_role_resources rewrites to AsEnum<typeof Role>[] with tolki enabled', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['member_role_resources']['type'])->toBe('AsEnum<typeof Role>[]')
+            ->and($data->properties['member_role_resources']['optional'])->toBeFalse();
+    });
+
+    test('member_role_resources stays the plain array type without tolki', function () {
+        config()->set('ts-publish.enums.use_tolki_package', false);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['member_role_resources']['type'])->toBe('RoleType[]')
+            ->and($data->properties['member_role_resources']['optional'])->toBeFalse();
+    });
+
+    // filter() clears sequential keys, so the map body's keyed Record arm can't be rebuilt by the
+    // old AsEnum rewrite. The substitution-based rewrite reproduces it losslessly instead, AsEnum-
+    // wrapping both the array arm and the keyed Record arm rather than collapsing to bare RoleType.
+    test('member_role_resources_filtered AsEnum-wraps both its array and keyed Record arms', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['member_role_resources_filtered']['type'])
+            ->toBe('AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>');
+    });
+
+    // Same non-rebuildable shape nested inside an inline array: analyzeInlineArray() still
+    // rebuilds rather than substitutes, so it must still demote here and keep the raw union —
+    // proving isRebuildableEnumShape()'s one remaining call site actually still fires end-to-end.
+    test('wrapped_filtered keeps its raw, un-rewritten union inside the inline array', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(RelationChainResource::class))->data();
+
+        expect($data->properties['wrapped_filtered']['type'])
+            ->toBe('{ roles: RoleType[] | Record<string, RoleType> }');
+    });
+});
+
+describe('ResourceTransformer with EnumCollectionResource — EnumResource::collection() shapes', function () {
+    test('accessor-backed list<Enum> rewrites to AsEnum<typeof Status>[]', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['status_history']['type'])->toBe('AsEnum<typeof Status>[]')
+            ->and($data->properties['status_history']['optional'])->toBeFalse();
+    });
+
+    // Matches the model precedent at workbench team.ts: week_days: AsEnum<typeof WeekDays>[] | null.
+    test('AsEnumCollection cast rewrites to AsEnum<typeof WeekDays>[] | null', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['week_days']['type'])->toBe('AsEnum<typeof WeekDays>[] | null')
+            ->and($data->properties['week_days']['optional'])->toBeFalse();
+    });
+
+    test('EnumResource::collection() inside an inline array keeps AsEnum<typeof WeekDays>[]', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['wrapped_week_days']['type'])
+            ->toBe('{ week_days: AsEnum<typeof WeekDays>[] | null }');
+    });
+
+    // whenHas() never analyzes its value argument for a type, but IS checked for EnumResource
+    // shape, so the wrapped first-class-callable value still gets the AsEnum rewrite — this is
+    // the real reported bug pattern: $this->whenHas('kinds', EnumResource::collection(...)).
+    test('first-class callable inside whenHas() rewrites to AsEnum<typeof WeekDays>[] | null', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['week_days_when_has']['type'])->toBe('AsEnum<typeof WeekDays>[] | null')
+            ->and($data->properties['week_days_when_has']['optional'])->toBeTrue();
+    });
+
+    test('EnumResource::collection() value inside whenAppended() rewrites to AsEnum<typeof Status>[]', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['status_history_when_appended']['type'])->toBe('AsEnum<typeof Status>[]')
+            ->and($data->properties['status_history_when_appended']['optional'])->toBeTrue();
+    });
+
+    // An explicit default arm's 'string' type can't fold into the old AsEnum rebuild. The
+    // substitution-based rewrite reproduces the full union losslessly instead: the reported bug
+    // was this property emitting the raw StatusType[] instead of the AsEnum-wrapped element type.
+    test('whenHas() with an explicit default keeps the full union, AsEnum-wrapped', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['week_days_when_has_default']['type'])
+            ->toBe('AsEnum<typeof WeekDays>[] | null | string')
+            ->and($data->properties['week_days_when_has_default']['optional'])->toBeFalse();
+    });
+
+    test('local variable ->map() with an EnumResource::make() body rewrites to AsEnum<typeof Role>[]', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['members_via_var']['type'])->toBe('AsEnum<typeof Role>[]')
+            ->and($data->properties['members_via_var']['optional'])->toBeTrue();
+    });
+
+    test('EnumResource::collection() properties generate value imports (hasEnums) when tolki enabled', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        $allValueImports = $data->valueImports !== [] ? array_merge(...array_values($data->valueImports)) : [];
+
+        expect($allValueImports)->toContain('Status')
+            ->and($allValueImports)->toContain('Role');
+    });
+
+    // Every property that reads Status goes through substitution now — none keeps the bare
+    // StatusType token — so its type import must be garbage-collected, not just its value import.
+    test('bare StatusType type import is dropped once every Status property is AsEnum-substituted', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        $statusTypeStillImported = isset($data->typeImports['../../enums'])
+            && in_array('StatusType', $data->typeImports['../../enums'], true);
+
+        expect($statusTypeStillImported)->toBeFalse();
+    });
+
+    // A bare enum read nested inside an inline array must keep its own type import: pins
+    // member_role_snapshot's RoleType survives even though members_via_var, the only other
+    // Role-typed property here, is EnumResource-wrapped rather than a direct reader.
+    test('a bare enum read nested inside an inline array keeps its own RoleType import alive', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['member_role_snapshot']['type'])
+            ->toBe('({ role: RoleType | null })[]');
+
+        expect($data->typeImports)->toHaveKey('../../enums');
+        expect($data->typeImports['../../enums'])->toContain('RoleType');
     });
 });
 

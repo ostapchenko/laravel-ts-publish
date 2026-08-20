@@ -51,6 +51,10 @@ class ConditionalParamArrayResource extends JsonResource
 
             // whenNull() with arrow fn → string fallback when value is null
             'notes_when_null' => $this->whenNull($this->notes, fn () => 'no notes'),
+
+            // whenNotNull() on a nested-nullable union: only the top-level null arm may strip —
+            // the element's own `| null` must survive.
+            'flagged_notes_present' => $this->whenNotNull($this->flagged_notes),
         ];
     }
 }

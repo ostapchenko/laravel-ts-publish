@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers;
 
+use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
@@ -20,6 +21,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Str;
+use PhpParser\BuilderFactory;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
@@ -76,6 +79,8 @@ use ReflectionClass;
 use ReflectionEnum;
 use ReflectionMethod;
 use ReflectionNamedType;
+use Throwable;
+use UnitEnum;
 
 /**
  * Analyzes a JsonResource's toArray() body to extract property names, types, and optional markers via AST.
@@ -111,10 +116,17 @@ use ReflectionNamedType;
  */
 class ResourceAstAnalyzer
 {
+    use ChecksPreserveKeys;
     use FiltersModelAttributes;
     use InspectsAstNodes;
     use ResolvesClassNames;
     use ResolvesModelTypes;
+
+    /** Total-element cap for a class constant's array before it bails to unknown; see constantArrayWithinLimits(). */
+    private const int MAX_CONSTANT_ARRAY_ELEMENTS = 200;
+
+    /** Nesting-depth cap for a class constant's array before it bails to unknown; see constantArrayWithinLimits(). */
+    private const int MAX_CONSTANT_ARRAY_DEPTH = 5;
 
     /**
      * Wrapped class from an `instanceof` guard in toArray(); fallback when resolveClassOnProperty() returns null.
@@ -149,7 +161,8 @@ class ResourceAstAnalyzer
 
     /**
      * Closure params bound to a whole relation collection rather than one element — a to-many
-     * `whenLoaded` param. Only a bare return of the param reads this; anything else resolves normally.
+     * `whenLoaded` param. Read for a bare return of the param, and as the element-model fallback
+     * for an untyped `->map()` closure param.
      *
      * @var array<string, array{type: string, modelFqcn: class-string<Model>}>
      */
@@ -692,6 +705,17 @@ class ResourceAstAnalyzer
             }
         }
 
+        // SomeClass::CONSTANT / self::CONSTANT / static::CONSTANT as a value. `Foo::class` and
+        // enum-case fetches are excluded inside the helper, so this never diverts those paths
+        // (EnumResource::make(), toResource(SomeResource::class), #[Collects]).
+        if ($expr instanceof ClassConstFetch && $expr->class instanceof Name && $expr->name instanceof Identifier) {
+            $constantResult = $this->resolveClassConstantValueExpression($expr);
+
+            if ($constantResult !== null) {
+                return $constantResult;
+            }
+        }
+
         // Arithmetic always yields a number. Also catches `(int) round(...) / 2`: PHP precedence binds the
         // cast tighter than the division, so the outer node is a BinaryOp\Div rather than a Cast.
         if ($expr instanceof BinaryOp\Plus
@@ -852,6 +876,20 @@ class ResourceAstAnalyzer
             return $this->applyConditionalDefault($this->unknownResult(), $expr, 3);
         }
 
+        // $model->toResource()/toResourceCollection() — a whenLoaded closure param bound to a
+        // model, or $this->relation accessed directly. Checked by method name alone so both
+        // receiver shapes share one resolution path; see resolveToResourceReceiverModel().
+        if ($expr instanceof MethodCall && $expr->name instanceof Identifier && $expr->name->toString() === 'toResource') {
+            return $this->analyzeToResourceCall($expr);
+        }
+
+        if ($expr instanceof MethodCall
+            && $expr->name instanceof Identifier
+            && $expr->name->toString() === 'toResourceCollection'
+        ) {
+            return $this->analyzeToResourceCollectionCall($expr);
+        }
+
         // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
         // handler, which only matches class-name receivers.
         if ($this->closureRelationModelClass !== null
@@ -871,6 +909,20 @@ class ResourceAstAnalyzer
             && $expr->var instanceof StaticCall
         ) {
             return $this->analyzeStaticCall($expr->var);
+        }
+
+        // A fluent method chained onto a resource-resolving receiver — `new self($x)->foo()`,
+        // `SomeResource::make($x)->foo()`, or a chain of such calls — keeps the receiver's type
+        // when the method's own declared return type hands the same instance back.
+        if ($expr instanceof MethodCall
+            && $expr->name instanceof Identifier
+            && ($expr->var instanceof New_ || $expr->var instanceof StaticCall || $expr->var instanceof MethodCall)
+        ) {
+            $selfReturning = $this->analyzeSelfReturningResourceMethodCall($expr);
+
+            if ($selfReturning !== null) {
+                return $selfReturning;
+            }
         }
 
         // `$this::staticMethod()` — the resource itself is the receiver.
@@ -929,6 +981,19 @@ class ResourceAstAnalyzer
             && $expr->var->var->name === 'this'
         ) {
             return $this->analyzeRelationFilter($expr);
+        }
+
+        // $var->map->only([...]) / ->except([...]) — Laravel's HigherOrderCollectionProxy on `map`:
+        // call the filter method on every element and collect the results. The PropertyFetch here is
+        // literally named 'map' (the proxy), never 'this' — disjoint from the relation guard above.
+        if (($expr instanceof MethodCall || $expr instanceof NullsafeMethodCall)
+            && $expr->name instanceof Identifier
+            && in_array($expr->name->toString(), $this->supportedAttributeFilters(), true)
+            && $expr->var instanceof PropertyFetch
+            && $expr->var->name instanceof Identifier
+            && $expr->var->name->toString() === 'map'
+        ) {
+            return $this->analyzeMapProxyFilter($expr);
         }
 
         if ($expr instanceof Array_) {
@@ -1161,8 +1226,7 @@ class ResourceAstAnalyzer
         $rightType = $rightResult['type'];
 
         // Strip `| null` from the left: with a non-null fallback, null is never the final result.
-        $leftType = trim(str_replace('| null', '', $leftType));
-        $leftType = trim(str_replace('null |', '', $leftType));
+        $leftType = $this->stripNullArm($leftType);
 
         if ($leftType === 'unknown' || $leftType === '') {
             return $this->mergeUnionChannels([$rightType], [$rightResult]);
@@ -1200,17 +1264,27 @@ class ResourceAstAnalyzer
      *
      * An explicit default always makes the property required, since Laravel then always emits the key.
      * The default's type unions in when it resolves; otherwise the value arm's own type stands alone.
+     * $defaultArgCount is how many arguments Laravel invokes the default with — 0 for the value($default)
+     * family, 1 for transform()'s $default($value) — and is forwarded to closureRequiresArguments().
      *
      * @param  ValueExpressionResult  $value
      * @return ValueExpressionResult
      */
-    protected function applyConditionalDefault(array $value, MethodCall $call, int $index): array
+    protected function applyConditionalDefault(array $value, MethodCall $call, int $index, int $defaultArgCount = 0): array
     {
         if (! $this->hasExplicitDefaultArg($call, $index)) {
             return [...$value, 'optional' => true];
         }
 
-        $default = $this->analyzeValueExpression($call->getArgs()[$index]->value);
+        $defaultExpr = $call->getArgs()[$index]->value;
+
+        // A default closure requiring more parameters than Laravel supplies it can never run, so its
+        // arm is unreachable — the value arm stands alone, still required.
+        if ($this->closureRequiresArguments($defaultExpr, $defaultArgCount)) {
+            return [...$value, 'optional' => false];
+        }
+
+        $default = $this->analyzeValueExpression($defaultExpr);
 
         // An `unknown` on either arm carries no type to union: an unresolved default leaves the value arm
         // standing, and an unresolved value arm already admits whatever the default could produce.
@@ -1261,6 +1335,11 @@ class ResourceAstAnalyzer
     /**
      * Analyze $this->whenHas('attribute') — the attribute name is the first arg string.
      *
+     * The value arg (2nd) is never evaluated for its own type: Laravel invokes it with the named
+     * attribute's own value, so the attribute is authoritative for type and array-ness. It IS
+     * checked for EnumResource::make()/::collection() shape, since that decides whether the enum
+     * channel is 'enumFqcn' (wrapped — gets the AsEnum rewrite) or 'directEnumFqcn' (read as-is).
+     *
      * @return ValueExpressionResult
      */
     protected function analyzeWhenHas(MethodCall $call): array
@@ -1274,7 +1353,8 @@ class ResourceAstAnalyzer
             $result = ['type' => $info['type'], 'optional' => false];
 
             if ($info['enumFqcn'] !== null) {
-                $result['directEnumFqcn'] = $info['enumFqcn'];
+                $wrapped = count($args) >= 2 && $this->isEnumResourceWrapCall($args[1]->value);
+                $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
             }
 
             return $this->applyConditionalDefault($result, $call, 2);
@@ -1285,7 +1365,10 @@ class ResourceAstAnalyzer
 
     /**
      * Analyze $this->whenAppended('attribute', $value, $default) — types from the named attribute,
-     * the same way whenHas() does, since the appended accessor is what surfaces.
+     * the same way whenHas() does, since the appended accessor is what surfaces. Unlike whenHas()/
+     * whenLoaded(), Laravel's whenAppended() invokes a Closure value with no arguments at all, so
+     * only a non-first-class-callable EnumResource::make()/::collection() value is realistically
+     * reachable here — still checked for consistency, since it costs nothing.
      *
      * @return ValueExpressionResult
      */
@@ -1301,10 +1384,29 @@ class ResourceAstAnalyzer
         $result = ['type' => $info['type'], 'optional' => false];
 
         if ($info['enumFqcn'] !== null) {
-            $result['directEnumFqcn'] = $info['enumFqcn'];
+            $wrapped = count($args) >= 2 && $this->isEnumResourceWrapCall($args[1]->value);
+            $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
         }
 
         return $this->applyConditionalDefault($result, $call, 2);
+    }
+
+    /**
+     * Whether a whenHas()/whenAppended() value argument is EnumResource::make()/::collection() —
+     * including the first-class-callable form — signalling the named attribute is EnumResource-
+     * wrapped rather than read directly.
+     */
+    private function isEnumResourceWrapCall(Expr $value): bool
+    {
+        if (! $value instanceof StaticCall || ! $value->name instanceof Identifier) {
+            return false;
+        }
+
+        $className = $this->resolveStaticCallClassName($value);
+
+        return $className !== null
+            && $this->isEnumResourceClass($className)
+            && in_array($value->name->toString(), ['make', 'collection'], true);
     }
 
     /**
@@ -1469,7 +1571,9 @@ class ResourceAstAnalyzer
 
             $this->closureParamExprBindings = $previousBindings;
 
-            return $this->applyConditionalDefault($inner, $call, 2);
+            // transform()'s default runs through the global transform() helper's $default($value) — one
+            // argument — unlike the rest of the family's zero-argument value($default).
+            return $this->applyConditionalDefault($inner, $call, 2, defaultArgCount: 1);
         }
 
         return [...$result, 'optional' => true]; // @codeCoverageIgnore
@@ -1561,6 +1665,13 @@ class ResourceAstAnalyzer
             return $this->analyzeEnumResourceMake($call);
         }
 
+        // EnumResource::collection($this->prop) — must precede the generic isResourceClass()
+        // checks below: EnumResource extends JsonResource, so those would match it too and
+        // yield the unsuffixed 'EnumResource[]' instead of resolving the wrapped enum.
+        if ($this->isEnumResourceClass($className) && $methodName === 'collection') {
+            return $this->analyzeEnumResourceCollection($call);
+        }
+
         // SomeCollection::make()/::collection() on a ResourceCollection subclass. Must precede the generic
         // checks below: ResourceCollection extends JsonResource, so isResourceClass() matches it too and
         // would yield the unsuffixed collection name instead of 'OrderItemResource[]'.
@@ -1614,6 +1725,93 @@ class ResourceAstAnalyzer
         }
 
         return $result;
+    }
+
+    /**
+     * Resolve a fluent method chained onto a receiver that itself resolves to a resource — e.g.
+     * `new self($x)->foo()`, `SomeResource::make($x)->foo()`, or a chain of such calls. The
+     * receiver's own resolved result is returned unchanged when the method preserves it; any other
+     * declared return type (or an unreflectable receiver) yields null so the caller degrades normally.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeSelfReturningResourceMethodCall(MethodCall $expr): ?array
+    {
+        if (! $expr->name instanceof Identifier) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $receiverResult = $this->analyzeValueExpression($expr->var);
+        $resourceFqcn = $receiverResult['resourceFqcn'] ?? null;
+
+        // A collection receiver (e.g. ::collection()) resolves to an AnonymousResourceCollection
+        // instance, not a $resourceFqcn instance — reflecting the method below would validate
+        // against the wrong receiver, so exclude it rather than misfire on e.g. ->additional().
+        if ($resourceFqcn === null || $receiverResult['type'] !== class_basename($resourceFqcn)) {
+            return null;
+        }
+
+        $methodName = $expr->name->toString();
+
+        if (! method_exists($resourceFqcn, $methodName)) {
+            return null;
+        }
+
+        $method = new ReflectionMethod($resourceFqcn, $methodName);
+
+        if (! $this->methodPreservesReceiverType($method, $resourceFqcn)) {
+            return null;
+        }
+
+        if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null')) {
+            $receiverResult['type'] .= ' | null';
+        }
+
+        return $receiverResult;
+    }
+
+    /**
+     * Whether a method's declared return type says it hands the same instance back — a native
+     * `static`, `self`, or the resource class itself; falling back to a `@return $this` docblock
+     * only when no native return type is declared at all. A union or intersection return type is
+     * rejected outright and never falls through to the docblock.
+     */
+    protected function methodPreservesReceiverType(ReflectionMethod $method, string $resourceFqcn): bool
+    {
+        $returnType = $method->getReturnType();
+
+        if ($returnType instanceof ReflectionNamedType) {
+            $name = $returnType->getName();
+
+            return $name === 'static' || $name === 'self' || $name === $resourceFqcn;
+        }
+
+        if ($returnType !== null) {
+            return false;
+        }
+
+        $docComment = $method->getDocComment();
+
+        if ($docComment === false) {
+            return false;
+        }
+
+        // extractReturnTypeFromDocblock()'s final fallback is `\S+`, so the token it returns
+        // can never carry surrounding whitespace — no trim() needed before comparing.
+        return LaravelTsPublish::extractReturnTypeFromDocblock($docComment) === '$this';
+    }
+
+    /**
+     * Whether a self-returning method's native return type also allows null (`?static`). The
+     * docblock-only `@return $this` fallback carries no nullability signal, so this only
+     * inspects a `ReflectionNamedType` — the same shape methodPreservesReceiverType() required
+     * to have already matched before this is ever called.
+     */
+    protected function methodReturnAllowsNull(ReflectionMethod $method): bool
+    {
+        $returnType = $method->getReturnType();
+
+        return $returnType instanceof ReflectionNamedType && $returnType->allowsNull();
     }
 
     /**
@@ -1674,37 +1872,539 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Whether a resource collection keeps its source keys, making the payload a JSON object rather
-     * than an array. Laravel honours the attribute and the property equally.
+     * Analyze `$model->toResource()` / `$model->toResource(SomeResource::class)`. An explicit
+     * argument wins outright; otherwise the receiver's model resolves via resolveResourceForModel().
      *
-     * @template T of object
-     *
-     * @param  ReflectionClass<T>  $reflection
+     * @return ValueExpressionResult
      */
-    protected function collectionPreservesKeys(ReflectionClass $reflection): bool
+    protected function analyzeToResourceCall(MethodCall $call): array
     {
-        $attribute = 'Illuminate\Http\Resources\Attributes\PreserveKeys';
+        $result = $this->unknownResult();
+        $args = $call->getArgs();
 
-        if (class_exists($attribute) && $reflection->getAttributes($attribute) !== []) {
-            return true;
+        if ($args !== []) {
+            $explicit = $this->resolveClassConstArgument($args[0]->value);
+
+            if ($explicit === null || ! $this->isResourceClass($explicit)) {
+                return $result;
+            }
+
+            /** @var class-string $explicit */
+            return [...$result, 'type' => class_basename($explicit), 'optional' => false, 'resourceFqcn' => $explicit];
         }
 
-        return ($reflection->getDefaultProperties()['preserveKeys'] ?? false) === true;
+        $modelFqcn = $this->resolveToResourceReceiverModel($call->var);
+        $resourceFqcn = $modelFqcn !== null ? $this->resolveResourceForModel($modelFqcn) : null;
+
+        if ($resourceFqcn === null) {
+            return $result;
+        }
+
+        return [...$result, 'type' => class_basename($resourceFqcn), 'optional' => false, 'resourceFqcn' => $resourceFqcn];
     }
 
     /**
-     * Wrap a collected element type as `Record<string, R>` when the reflected class preserves its
-     * keys, or as `R[]` otherwise — the single point every collection-typing call site shares.
+     * Analyze `$collection->toResourceCollection()` / `->toResourceCollection(SomeResource::class)`.
+     * An explicit argument wins outright; otherwise the receiver's model resolves via
+     * resolveResourceCollectionForModel().
      *
-     * @template T of object
-     *
-     * @param  ReflectionClass<T>  $reflection
+     * @return ValueExpressionResult
      */
-    protected function wrapCollectionElementType(string $elementType, ReflectionClass $reflection): string
+    protected function analyzeToResourceCollectionCall(MethodCall $call): array
     {
-        return $this->collectionPreservesKeys($reflection)
-            ? "Record<string, {$elementType}>"
-            : $elementType.'[]';
+        $result = $this->unknownResult();
+        $args = $call->getArgs();
+
+        if ($args !== []) {
+            $explicit = $this->resolveClassConstArgument($args[0]->value);
+
+            if ($explicit === null || ! $this->isResourceClass($explicit)) {
+                return $result;
+            }
+
+            /** @var class-string $explicit */
+            return [
+                ...$result,
+                'type' => $this->wrapCollectionElementType(class_basename($explicit), new ReflectionClass($explicit)),
+                'optional' => false,
+                'resourceFqcn' => $explicit,
+            ];
+        }
+
+        $modelFqcn = $this->resolveToResourceReceiverModel($call->var);
+        $resolved = $modelFqcn !== null ? $this->resolveResourceCollectionForModel($modelFqcn) : null;
+
+        if ($resolved === null) {
+            return $result;
+        }
+
+        return [
+            ...$result,
+            'type' => $this->wrapCollectionElementType(
+                class_basename($resolved['resourceFqcn']),
+                new ReflectionClass($resolved['collectionFqcn']),
+            ),
+            'optional' => false,
+            'resourceFqcn' => $resolved['resourceFqcn'],
+        ];
+    }
+
+    /**
+     * Resolve the model class backing a toResource()/toResourceCollection() receiver: a whenLoaded
+     * closure parameter (analyzeWhenLoaded()'s bindings) or `$this->relation` accessed directly.
+     *
+     * @return class-string<Model>|null
+     */
+    protected function resolveToResourceReceiverModel(Expr $receiver): ?string
+    {
+        if ($receiver instanceof Variable && is_string($receiver->name)) {
+            return $this->varModelBindings[$receiver->name]
+                ?? $this->varCollectionBindings[$receiver->name]['modelFqcn']
+                ?? $this->closureRelationModelClass;
+        }
+
+        if ($receiver instanceof PropertyFetch && $this->isThisPropertyFetch($receiver) && $receiver->name instanceof Identifier) {
+            return $this->resolveModelRelationTypeInfo($receiver->name->toString())['modelFqcn'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a `SomeClass::class` argument node to its FQCN.
+     */
+    protected function resolveClassConstArgument(Expr $expr): ?string
+    {
+        if ($expr instanceof ClassConstFetch
+            && $expr->class instanceof Name
+            && $expr->name instanceof Identifier
+            && strtolower($expr->name->toString()) === 'class'
+        ) {
+            return $expr->class->toString();
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve `SomeClass::CONSTANT` as a value expression. Reads the constant via reflection and
+     * feeds its PHP value back through analyzeConstantValue(), reusing analyzeValueExpression()'s
+     * scalar dispatch for leaves. Returns null for anything not a resolvable plain constant.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function resolveClassConstantValueExpression(ClassConstFetch $expr): ?array
+    {
+        if (! $expr->class instanceof Name || ! $expr->name instanceof Identifier) {
+            return null; // @codeCoverageIgnore
+        }
+
+        $constName = $expr->name->toString();
+
+        // `Foo::class`/`Foo::CLASS` (the keyword is case-insensitive) is a compile-time magic
+        // constant, not a real declared one — reflection can't read it. It is a string at runtime.
+        if (strtolower($constName) === 'class') {
+            return ['type' => 'string', 'optional' => false];
+        }
+
+        $className = $expr->class->toString();
+
+        // Resolve self/static/parent so a constant declared on the resource (or its parent) is
+        // readable, matching how analyzeNewResource()/analyzeStaticCall() treat those keywords.
+        if ($className === 'self' || $className === 'static') {
+            $className = $this->resourceReflection->getName();
+        } elseif ($className === 'parent') {
+            $parentReflection = $this->resourceReflection->getParentClass();
+
+            if ($parentReflection === false) {
+                return null; // @codeCoverageIgnore — every JsonResource subclass has a parent
+            }
+
+            $className = $parentReflection->getName();
+        }
+
+        if (! class_exists($className) && ! interface_exists($className) && ! enum_exists($className)) {
+            return null;
+        }
+
+        $classReflection = new ReflectionClass($className);
+
+        if (! $classReflection->hasConstant($constName)) {
+            return null;
+        }
+
+        $constantReflection = $classReflection->getReflectionConstant($constName);
+
+        // Enum cases resolve through resolveEnumFromPropertyArg()'s dedicated branch instead
+        // (EnumResource::make(Status::Active) etc.) — a bare case fetch here must not be
+        // reinterpreted as a plain constant's literal value.
+        if ($constantReflection === false || $constantReflection->isEnumCase()) {
+            return null;
+        }
+
+        try {
+            $value = $constantReflection->getValue();
+        } catch (Throwable) {
+            // The initializer can reference another undefined constant; PHP evaluates a class
+            // constant's value lazily, so that only surfaces here, not at class-load time.
+            return null;
+        }
+
+        return $this->analyzeConstantValue($value);
+    }
+
+    /**
+     * Convert a reflected constant's PHP value into a TS type, recursing into arrays. A scalar
+     * reuses analyzeValueExpression()'s existing dispatch via a synthetic AST node instead of a
+     * parallel value-to-TS mapper; a constant typed as another enum's case resolves to that enum.
+     *
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeConstantValue(mixed $value): ?array
+    {
+        if (is_array($value)) {
+            return $this->analyzeConstantArrayValue($value);
+        }
+
+        // A constant's initializer may itself be another class's enum case (`Status::Live`),
+        // which getValue() hands back as the enum instance rather than a scalar.
+        if ($value instanceof UnitEnum) {
+            $enumFqcn = $value::class;
+
+            return [
+                'type' => LaravelTsPublish::toTsType($enumFqcn)['type'],
+                'optional' => false,
+                'directEnumFqcn' => $enumFqcn,
+            ];
+        }
+
+        // Defensive: a class-constant expression can't construct an arbitrary object (`new` isn't
+        // allowed there), so only an enum instance — handled above — reaches this as non-scalar.
+        if (! is_null($value) && ! is_bool($value) && ! is_int($value) && ! is_float($value) && ! is_string($value)) {
+            return null; // @codeCoverageIgnore
+        }
+
+        return $this->analyzeValueExpression(new BuilderFactory()->val($value));
+    }
+
+    /**
+     * Convert a reflected constant's array value into a TS shape: empty stays `never[]`, a keyed
+     * array becomes an inline object, a plain list becomes an element array, and either bails to
+     * unknown when the array exceeds constantArrayWithinLimits().
+     *
+     * @param  array<array-key, mixed>  $value
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeConstantArrayValue(array $value): ?array
+    {
+        if ($value === []) {
+            return ['type' => 'never[]', 'optional' => false];
+        }
+
+        if (! $this->constantArrayWithinLimits($value)) {
+            return null;
+        }
+
+        return array_is_list($value)
+            ? $this->analyzeConstantListValue($value)
+            : $this->analyzeConstantRecordValue($value);
+    }
+
+    /**
+     * Convert a plain-list constant array into an element type: `T[]` when every element agrees,
+     * `(A | B)[]` when they don't, or null (unknown) when any element can't itself be resolved.
+     *
+     * Recurses through analyzeConstantValue() — rather than delegating the whole array back to the
+     * AST pipeline — so a list nested inside a keyed constant (analyzeConstantRecordValue()) is
+     * resolved the same way a top-level one is: analyzeReturnArray() has no key to shape a keyless
+     * item from and would otherwise silently drop every element.
+     *
+     * @param  list<mixed>  $value
+     * @return ValueExpressionResult|null
+     */
+    protected function analyzeConstantListValue(array $value): ?array
+    {
+        $types = [];
+        $embeddedEnumFqcns = [];
+
+        foreach ($value as $item) {
+            $itemResult = $this->analyzeConstantValue($item);
+
+            if ($itemResult === null || $itemResult['type'] === 'unknown') {
+                return null;
+            }
+
+            $types[] = $itemResult['type'];
+            $embeddedEnumFqcns = [...$embeddedEnumFqcns, ...$this->collectConstantEnumFqcns($itemResult)];
+        }
+
+        $types = array_values(array_unique($types));
+        $elementType = count($types) === 1 ? $types[0] : '('.implode(' | ', $types).')';
+
+        $result = ['type' => $elementType.'[]', 'optional' => false];
+
+        if ($embeddedEnumFqcns !== []) {
+            $result['embeddedEnumFqcns'] = array_values(array_unique($embeddedEnumFqcns));
+        }
+
+        return $result;
+    }
+
+    /**
+     * Convert a keyed constant array into an inline object, formatted the same way
+     * analyzeInlineArray() builds one. A member that can't itself be resolved types as `unknown`
+     * rather than failing the whole shape, matching analyzeReturnArray()'s per-property behaviour.
+     *
+     * An int-keyed member (not routed to analyzeConstantListValue(), since the array as a whole
+     * isn't a list — e.g. `[200 => 'OK', 404 => 'Not Found']`) is dropped, matching how
+     * resolveKeyName() already treats a non-string AST array key everywhere else in this class.
+     *
+     * @param  array<array-key, mixed>  $value
+     * @return ValueExpressionResult
+     */
+    protected function analyzeConstantRecordValue(array $value): array
+    {
+        $parts = [];
+        $embeddedEnumFqcns = [];
+
+        foreach ($value as $key => $item) {
+            if (! is_string($key)) {
+                continue;
+            }
+
+            $itemResult = $this->analyzeConstantValue($item) ?? $this->unknownResult();
+            $formattedKey = LaravelTsPublish::validJsObjectKey($key);
+            $parts[] = "{$formattedKey}: {$itemResult['type']}";
+            $embeddedEnumFqcns = [...$embeddedEnumFqcns, ...$this->collectConstantEnumFqcns($itemResult)];
+        }
+
+        if ($parts === []) {
+            return ['type' => 'Record<string, unknown>', 'optional' => false];
+        }
+
+        $result = ['type' => '{ '.implode('; ', $parts).' }', 'optional' => false];
+
+        if ($embeddedEnumFqcns !== []) {
+            $result['embeddedEnumFqcns'] = array_values(array_unique($embeddedEnumFqcns));
+        }
+
+        return $result;
+    }
+
+    /**
+     * Gather the enum FQCNs a resolved constant element carries — its own directEnumFqcn (a bare
+     * enum-case leaf) plus any already-embedded ones (a nested list/record containing one) — so
+     * analyzeConstantListValue()/analyzeConstantRecordValue() can propagate them to their caller via
+     * the same embeddedEnumFqcns channel analyzeInlineArray() uses to make the import land.
+     *
+     * @param  ValueExpressionResult  $itemResult
+     * @return list<class-string>
+     */
+    protected function collectConstantEnumFqcns(array $itemResult): array
+    {
+        /** @var list<class-string> $fqcns */
+        $fqcns = $itemResult['embeddedEnumFqcns'] ?? [];
+
+        if (isset($itemResult['directEnumFqcn'])) {
+            $fqcns[] = $itemResult['directEnumFqcn'];
+        }
+
+        return $fqcns;
+    }
+
+    /**
+     * Guard a class-constant array against inlining an unreadable type: too many total elements
+     * or nested too deep. Both limits are generous for realistic config-shaped constants (the
+     * eaglesys OWNER_MINIMUM_CHANNELS shape is 2 levels deep with about a dozen elements) while
+     * blocking a large external lookup table from bloating every resource that references it.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    protected function constantArrayWithinLimits(array $value): bool
+    {
+        if (count($value, COUNT_RECURSIVE) > self::MAX_CONSTANT_ARRAY_ELEMENTS) {
+            return false;
+        }
+
+        return $this->constantArrayDepth($value) <= self::MAX_CONSTANT_ARRAY_DEPTH;
+    }
+
+    /**
+     * Compute the deepest nesting level of an array, counting the array itself as depth 1.
+     *
+     * @param  array<array-key, mixed>  $value
+     */
+    protected function constantArrayDepth(array $value, int $depth = 1): int
+    {
+        $deepest = $depth;
+
+        foreach ($value as $item) {
+            if (is_array($item)) {
+                $deepest = max($deepest, $this->constantArrayDepth($item, $depth + 1));
+            }
+        }
+
+        return $deepest;
+    }
+
+    /**
+     * Reproduce Model::toResource()'s guessResource(): the #[UseResource] attribute first, then
+     * the naming-convention candidates, Resource-suffixed candidate first.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return class-string|null
+     */
+    protected function resolveResourceForModel(string $modelFqcn): ?string
+    {
+        $fromAttribute = $this->resolveUseResourceAttribute($modelFqcn);
+
+        if ($fromAttribute !== null) {
+            return $fromAttribute;
+        }
+
+        foreach ($this->guessResourceNames($modelFqcn) as $candidate) {
+            if ($this->isResourceClass($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Reproduce Collection::toResourceCollection()'s guessResourceCollection() order: the
+     * #[UseResourceCollection] attribute, then #[UseResource], then the naming convention —
+     * trying `{Guessed}Collection` classes before the bare guessed resources.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return array{collectionFqcn: class-string, resourceFqcn: class-string}|null
+     */
+    protected function resolveResourceCollectionForModel(string $modelFqcn): ?array
+    {
+        // Vendor returns `new $useResourceCollection($this)` unconditionally once the attribute
+        // names an existing class — it never falls through to #[UseResource] or the naming
+        // convention, even when the element type can't be determined here. Match that: stop hard.
+        $collectionFqcn = $this->resolveUseResourceCollectionAttribute($modelFqcn);
+
+        if ($collectionFqcn !== null) {
+            $resourceFqcn = $this->collectedResourceClass($collectionFqcn);
+
+            return $resourceFqcn !== null
+                ? ['collectionFqcn' => $collectionFqcn, 'resourceFqcn' => $resourceFqcn]
+                : null;
+        }
+
+        $resourceFqcn = $this->resolveUseResourceAttribute($modelFqcn);
+
+        if ($resourceFqcn !== null) {
+            return ['collectionFqcn' => $resourceFqcn, 'resourceFqcn' => $resourceFqcn];
+        }
+
+        $candidates = $this->guessResourceNames($modelFqcn);
+
+        // Same shape here: vendor's own loop returns `new $resourceCollection($this)` the moment
+        // `class_exists($resourceCollection)` passes for a candidate, never trying the next one.
+        foreach ($candidates as $candidate) {
+            $collectionCandidate = $candidate.'Collection';
+
+            if (class_exists($collectionCandidate) && is_a($collectionCandidate, ResourceCollection::class, true)) {
+                $collectedFqcn = $this->collectedResourceClass($collectionCandidate);
+
+                return $collectedFqcn !== null
+                    ? ['collectionFqcn' => $collectionCandidate, 'resourceFqcn' => $collectedFqcn]
+                    : null;
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($this->isResourceClass($candidate)) {
+                return ['collectionFqcn' => $candidate, 'resourceFqcn' => $candidate];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Reproduce Model::guessResourceName()'s `\Models\` to `\Http\Resources\` naming convention.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return list<class-string>
+     */
+    protected function guessResourceNames(string $modelFqcn): array
+    {
+        if (! str_contains($modelFqcn, '\\Models\\')) {
+            return [];
+        }
+
+        $basename = class_basename($modelFqcn);
+        $relativeNamespace = Str::after($modelFqcn, '\\Models\\');
+
+        $relativeNamespace = str_contains($relativeNamespace, '\\')
+            ? Str::beforeLast($relativeNamespace, '\\'.$basename)
+            : '';
+
+        $potentialResource = sprintf(
+            '%s\\Http\\Resources\\%s%s',
+            Str::before($modelFqcn, '\\Models'),
+            $relativeNamespace !== '' ? $relativeNamespace.'\\' : '',
+            $basename,
+        );
+
+        /** @var list<class-string> */
+        return [$potentialResource.'Resource', $potentialResource];
+    }
+
+    /**
+     * Read the #[UseResource] attribute directly off a model class.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return class-string|null
+     */
+    protected function resolveUseResourceAttribute(string $modelFqcn): ?string
+    {
+        $attributeFqcn = 'Illuminate\Database\Eloquent\Attributes\UseResource';
+
+        if (! class_exists($attributeFqcn) || ! class_exists($modelFqcn)) {
+            return null;
+        }
+
+        $attributes = new ReflectionClass($modelFqcn)->getAttributes($attributeFqcn);
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        $resourceFqcn = $attributes[0]->newInstance()->class;
+
+        return $this->isResourceClass($resourceFqcn) ? $resourceFqcn : null;
+    }
+
+    /**
+     * Read the #[UseResourceCollection] attribute directly off a model class.
+     *
+     * @param  class-string<Model>  $modelFqcn
+     * @return class-string|null
+     */
+    protected function resolveUseResourceCollectionAttribute(string $modelFqcn): ?string
+    {
+        $attributeFqcn = 'Illuminate\Database\Eloquent\Attributes\UseResourceCollection';
+
+        if (! class_exists($attributeFqcn) || ! class_exists($modelFqcn)) {
+            return null;
+        }
+
+        $attributes = new ReflectionClass($modelFqcn)->getAttributes($attributeFqcn);
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        $collectionFqcn = $attributes[0]->newInstance()->class;
+
+        return class_exists($collectionFqcn) && is_a($collectionFqcn, ResourceCollection::class, true)
+            ? $collectionFqcn
+            : null;
     }
 
     /**
@@ -1833,6 +2533,46 @@ class ResourceAstAnalyzer
         }
 
         return $this->resolveEnumFromPropertyArg($args[0]->value) ?? $result;
+    }
+
+    /**
+     * Analyze EnumResource::collection($this->prop) — resolve the enum class and array-wrap it.
+     *
+     * A first-class callable carries no argument at the call site to resolve the enum from — the
+     * value is supplied later by whichever conditional method invokes it — so it degrades to
+     * unknown rather than guessing, matching analyzeEnumResourceMake()'s FCC bail-out.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeEnumResourceCollection(StaticCall $call): array
+    {
+        $result = $this->unknownResult();
+
+        if ($call->isFirstClassCallable()) {
+            return $result;
+        }
+
+        $args = $call->getArgs();
+
+        if (count($args) < 1) {
+            return $result;
+        }
+
+        $enumResult = $this->resolveEnumFromPropertyArg($args[0]->value);
+
+        if ($enumResult === null) {
+            return $result;
+        }
+
+        // The resolved property may already be a collection type (an AsEnumCollection cast or a
+        // list<Enum> accessor both resolve their own '[]' already) — only wrap when it isn't.
+        $type = $enumResult['type'];
+        $alreadyCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
+
+        return [
+            ...$enumResult,
+            'type' => $alreadyCollection ? $type : $this->arrayWrapType($type),
+        ];
     }
 
     /**
@@ -2142,7 +2882,7 @@ class ResourceAstAnalyzer
 
         $finder = new NodeFinder;
         $targetMethod = $finder->findFirst($stmts, function (Node $node) use ($methodName): bool {
-            return $node instanceof ClassMethod && $node->name->toString() === $methodName;
+            return $node instanceof ClassMethod && strcasecmp($node->name->toString(), $methodName) === 0;
         });
 
         if (! $targetMethod instanceof ClassMethod || $targetMethod->stmts === null) {
@@ -3002,6 +3742,8 @@ class ResourceAstAnalyzer
             $embeddedEnumFqcns = [];
             /** @var list<class-string> $embeddedModelFqcns */
             $embeddedModelFqcns = [];
+            /** @var ImportMapType $embeddedCustomImports */
+            $embeddedCustomImports = [];
 
             foreach ($modelFqcns as $fqcn) {
                 $filterResult = $this->resolveFilteredRelationType($fqcn, $keys, $include);
@@ -3010,6 +3752,10 @@ class ResourceAstAnalyzer
                     $inlineTypes[] = $filterResult['type'];
                     array_push($embeddedEnumFqcns, ...$filterResult['enumFqcns']);
                     array_push($embeddedModelFqcns, ...$filterResult['modelFqcns']);
+
+                    foreach ($filterResult['customImports'] as $path => $names) {
+                        $embeddedCustomImports[$path] = [...($embeddedCustomImports[$path] ?? []), ...$names];
+                    }
                 }
             }
 
@@ -3028,6 +3774,7 @@ class ResourceAstAnalyzer
                 'type' => $inlineType,
                 'embeddedEnumFqcns' => array_values(array_unique($embeddedEnumFqcns)),
                 'embeddedModelFqcns' => array_values(array_unique($embeddedModelFqcns)),
+                'customImports' => $embeddedCustomImports,
             ];
         }
 
@@ -3078,7 +3825,93 @@ class ResourceAstAnalyzer
             'type' => $inlineType,
             'embeddedEnumFqcns' => $filterResult['enumFqcns'],
             'embeddedModelFqcns' => $filterResult['modelFqcns'],
+            'customImports' => $filterResult['customImports'],
         ];
+    }
+
+    /**
+     * Analyze `$var->map->only([...])` / `$var->map->except([...])` — Laravel's HigherOrderCollectionProxy
+     * on `map`, which runs the filter method against every element and collects the results.
+     *
+     * @return ValueExpressionResult
+     */
+    protected function analyzeMapProxyFilter(MethodCall|NullsafeMethodCall $call): array
+    {
+        $result = $this->unknownResult();
+
+        $methodName = $call->name instanceof Identifier ? $call->name->toString() : null;
+
+        if ($methodName === null) {
+            return $result; // @codeCoverageIgnore
+        }
+
+        /** @var PropertyFetch $mapFetch */
+        $mapFetch = $call->var;
+        $elementModel = $this->resolveMapProxyElementModel($mapFetch->var);
+
+        if ($elementModel === null) {
+            return $result;
+        }
+
+        $keys = $this->extractFilterKeys($call);
+
+        if ($keys === null || $keys === []) {
+            return $result;
+        }
+
+        $filterResult = $this->resolveFilteredRelationType($elementModel, $keys, $methodName === 'only');
+
+        if ($filterResult['type'] === 'unknown') {
+            return $result;
+        }
+
+        $inlineType = $this->arrayWrapType($filterResult['type']);
+
+        if ($call instanceof NullsafeMethodCall) {
+            $inlineType .= ' | null';
+        }
+
+        return [
+            ...$result,
+            'type' => $inlineType,
+            'embeddedEnumFqcns' => $filterResult['enumFqcns'],
+            'embeddedModelFqcns' => $filterResult['modelFqcns'],
+            'customImports' => $filterResult['customImports'],
+        ];
+    }
+
+    /**
+     * Resolve the element model behind a `->map` proxy receiver: a whenLoaded to-many closure
+     * parameter, or `$this->relation` itself. A singular relation's bound variable is not a
+     * collection and must not match, so it returns null rather than guessing a shape.
+     *
+     * The binding is never invalidated by a reassignment inside the closure (e.g.
+     * `$members = $members->flatMap(...)` before `$members->map(...)`), so a reassigned receiver
+     * still resolves against the original relation's element model — an accepted approximation.
+     *
+     * @return class-string<Model>|null
+     */
+    protected function resolveMapProxyElementModel(Expr $receiver): ?string
+    {
+        if ($receiver instanceof Variable
+            && is_string($receiver->name)
+            && isset($this->varCollectionBindings[$receiver->name])
+        ) {
+            return $this->varCollectionBindings[$receiver->name]['modelFqcn'];
+        }
+
+        if ($receiver instanceof PropertyFetch
+            && $this->isThisPropertyFetch($receiver)
+            && $receiver->name instanceof Identifier
+        ) {
+            $relationInfo = $this->resolveModelRelationTypeInfo($receiver->name->toString());
+
+            if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
+                return $relationInfo['modelFqcn'];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -3183,25 +4016,44 @@ class ResourceAstAnalyzer
             return ['type' => 'never[]', 'optional' => false];
         }
 
-        if ($analysis->properties === []) {
+        // A spread whose value resolves to a bare named resource (not an array/collection of one)
+        // intersects that resource with the literal's own explicit keys.
+        $spreadResourceFqcns = $this->collectInlineArraySpreadResources($array);
+
+        if ($analysis->properties === [] && $spreadResourceFqcns === []) {
             return ['type' => 'Record<string, unknown>', 'optional' => false];
         }
 
         $useTolki = Config::boolean('ts-publish.enums.use_tolki_package');
 
-        $parts = array_map(function (array $prop) use ($analysis, $useTolki): string {
+        // A property whose analyzer type isn't a rebuildable X/X[] shape (e.g. a keyed Record arm
+        // from a non-sequential map chain) can't survive the still-rebuild-based AsEnum rewrite
+        // below — demote it to the direct-enum channel first so the raw type survives untouched.
+        $enumResources = $analysis->enumResources;
+        $directEnumFqcns = $analysis->directEnumFqcns;
+        $propTypesByName = array_column($analysis->properties, 'type', 'name');
+
+        foreach ($enumResources as $propName => $fqcn) {
+            if (! $this->isRebuildableEnumShape($propTypesByName[$propName] ?? '')) {
+                $directEnumFqcns[$propName] = $fqcn;
+                unset($enumResources[$propName]);
+            }
+        }
+
+        $parts = array_map(function (array $prop) use ($enumResources, $useTolki): string {
             $key = LaravelTsPublish::validJsObjectKey($prop['name']);
 
             $type = $prop['type'];
 
             // Tolki on: EnumResource-wrapped properties render as `AsEnum<typeof X>`, matching the
-            // top-level enum resource transformer.
-            if ($useTolki && isset($analysis->enumResources[$prop['name']])) {
-                $fqcn = $analysis->enumResources[$prop['name']];
+            // top-level enum resource transformer. A collection keeps its `[]` suffix.
+            if ($useTolki && isset($enumResources[$prop['name']])) {
+                $fqcn = $enumResources[$prop['name']];
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
                 $constName = $tsInfo['enums'][0] ?? class_basename($fqcn);
                 $nullable = str_contains($type, 'null');
-                $type = 'AsEnum<typeof '.$constName.'>'.($nullable ? ' | null' : '');
+                $isCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
+                $type = 'AsEnum<typeof '.$constName.'>'.($isCollection ? '[]' : '').($nullable ? ' | null' : '');
             }
 
             return $prop['optional']
@@ -3209,7 +4061,19 @@ class ResourceAstAnalyzer
                 : "{$key}: {$type}";
         }, $analysis->properties);
 
-        $result = ['type' => '{ '.implode('; ', $parts).' }', 'optional' => false];
+        // Each spread resource intersects with the remaining explicit keys, minus whichever of its
+        // own keys a later spread arm or an explicit key also sets — PHP's `[...a, ...b, 'k' => v]`
+        // lets the later assignment win, `&` does not, so the earlier arm needs Omit<>'d.
+        $spreadArmTypes = array_values(array_unique(
+            $this->buildSpreadArmTypes($spreadResourceFqcns, array_column($analysis->properties, 'name')),
+        ));
+        $type = match (true) {
+            $spreadResourceFqcns === [] => '{ '.implode('; ', $parts).' }',
+            $parts === [] => implode(' & ', $spreadArmTypes),
+            default => implode(' & ', [...$spreadArmTypes, '{ '.implode('; ', $parts).' }']),
+        };
+
+        $result = ['type' => $type, 'optional' => false];
 
         // Propagate import metadata so FQCNs referenced inside the inline object reach the outer analysis.
         // With Tolki enabled, enum resources need value imports (const) rather than type imports; direct
@@ -3220,12 +4084,12 @@ class ResourceAstAnalyzer
                  : array_merge(...array_values($analysis->inlineEnumFqcns));
 
             $embeddedEnumFqcns = array_values(array_unique([
-                ...array_values($analysis->directEnumFqcns),
+                ...array_values($directEnumFqcns),
                 // Propagate any deeply-nested direct enum FQCNs from sub-inline-arrays.
                 ...$nestedInlineEnumFqcns,
             ]));
 
-            $enumResourceFqcns = array_values($analysis->enumResources);
+            $enumResourceFqcns = array_values($enumResources);
             // Propagate any deeply-nested enum resource FQCNs from sub-inline-arrays.
             foreach ($analysis->inlineEnumResourceFqcns as $nestedFqcns) {
                 foreach ($nestedFqcns as $fqcn) {
@@ -3261,10 +4125,12 @@ class ResourceAstAnalyzer
         }
 
         // Nested resources are tracked separately so they merge into resource imports, not model imports.
-        if ($analysis->nestedResources !== []) {
-            $result['embeddedResourceFqcns'] = array_values(array_unique(
-                array_values($analysis->nestedResources),
-            ));
+        // Spread resources travel the same channel so their import reaches the outer analysis too.
+        if ($analysis->nestedResources !== [] || $spreadResourceFqcns !== []) {
+            $result['embeddedResourceFqcns'] = array_values(array_unique([
+                ...array_values($analysis->nestedResources),
+                ...$spreadResourceFqcns,
+            ]));
         }
 
         // A #[TsType(import: …)] token inside the inline object is spelled in the emitted type string,
@@ -3274,6 +4140,80 @@ class ResourceAstAnalyzer
         }
 
         return $result;
+    }
+
+    /**
+     * Collect the resource FQCNs of every spread in an inline array whose value resolves to a
+     * bare named resource, in source order — the arms an intersection type is built from.
+     *
+     * @return list<class-string>
+     */
+    private function collectInlineArraySpreadResources(Array_ $array): array
+    {
+        /** @var list<class-string> $spreadResourceFqcns */
+        $spreadResourceFqcns = [];
+
+        foreach ($array->items as $item) {
+            if ($item->key !== null || ! $item->unpack || $this->isKnownArraySpreadShape($item->value)) {
+                continue;
+            }
+
+            $spreadResult = $this->analyzeValueExpression($item->value);
+
+            if (isset($spreadResult['resourceFqcn']) && $spreadResult['type'] === class_basename($spreadResult['resourceFqcn'])) {
+                $spreadResourceFqcns[] = $spreadResult['resourceFqcn'];
+            }
+        }
+
+        return $spreadResourceFqcns;
+    }
+
+    /**
+     * Build each spread's intersection arm, `Omit<>`'d against every key a later arm or an
+     * explicit key will overwrite at runtime. `Omit<T, K>` doesn't require `K extends keyof T`,
+     * so a later resource's own shape never has to be resolved — only its name, for `keyof`.
+     *
+     * @param  list<class-string>  $spreadResourceFqcns
+     * @param  list<string>  $explicitKeyNames
+     * @return list<string>
+     */
+    private function buildSpreadArmTypes(array $spreadResourceFqcns, array $explicitKeyNames): array
+    {
+        $explicitKeyLiterals = array_map(fn (string $key): string => "'{$key}'", $explicitKeyNames);
+
+        return array_map(function (int $index) use ($spreadResourceFqcns, $explicitKeyLiterals): string {
+            $laterArmNames = array_values(array_unique(array_map(
+                fn (string $fqcn): string => class_basename($fqcn),
+                array_slice($spreadResourceFqcns, $index + 1),
+            )));
+
+            $excluded = [
+                ...$explicitKeyLiterals,
+                ...array_map(fn (string $name): string => "keyof {$name}", $laterArmNames),
+            ];
+
+            $armName = class_basename($spreadResourceFqcns[$index]);
+
+            return $excluded === [] ? $armName : 'Omit<'.$armName.', '.implode(' | ', $excluded).'>';
+        }, array_keys($spreadResourceFqcns));
+    }
+
+    /**
+     * Whether a spread's value matches one of the four shapes analyzeReturnArray()'s item loop
+     * already flattens into named properties (parent::toArray(), ->only()/->except(), a bare
+     * `$this->method()`, or a bare function call) — already handled, so not a resource candidate.
+     */
+    private function isKnownArraySpreadShape(Expr $value): bool
+    {
+        if ($this->isParentToArrayCall($value)) {
+            return true;
+        }
+
+        if ($value instanceof MethodCall && $value->var instanceof Variable && $value->var->name === 'this') {
+            return true;
+        }
+
+        return $value instanceof FuncCall;
     }
 
     /**
@@ -3671,15 +4611,9 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        // A map body that is entirely `EnumResource::make(...)` returns a singular 'enumFqcn', the contract
-        // ResourceTransformer::rewriteEnumResourceTypes() reads to overwrite the property with a bare,
-        // non-array `AsEnum<typeof X>`. Array-wrapping breaks that, so re-tag it as 'directEnumFqcn':
-        // still imported, no longer eligible for the singular-type rewrite.
-        if (isset($bodyResult['enumFqcn']) && ! isset($bodyResult['directEnumFqcn'])) {
-            $bodyResult['directEnumFqcn'] = $bodyResult['enumFqcn'];
-            unset($bodyResult['enumFqcn']);
-        }
-
+        // A map body entirely `EnumResource::make(...)` carries a live 'enumFqcn' through; the
+        // transformer's substitution-based rewrite reproduces whatever shape results, including
+        // the keyed Record arm a non-sequential filter()/sortBy() introduces.
         $mapped = $this->arrayWrapType($bodyResult['type']);
 
         return [
@@ -3706,7 +4640,7 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Add the object arm that json_encode emits for a gapped or reordered collection: `X[]` → `X[] | Record<string, X>`.
+     * Add the object arm json_encode emits for a gapped or reordered collection: `X[]` → `X[] | Record<string, X>`.
      */
     private function keyedObjectArm(string $arrayType): string
     {
@@ -3714,20 +4648,46 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Suffix a type with `[]`, parenthesizing a union first: TypeScript binds `[]` tighter than `|`,
-     * so `string | null[]` parses as `string | (null[])`, not `(string | null)[]`.
+     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
+     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`.
      */
     private function arrayWrapType(string $type): string
     {
-        return str_contains($type, '|') ? '('.$type.')[]' : $type.'[]';
+        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
     }
 
     /**
-     * Drop a trailing `| null` arm from a type string — a guarded success path proves it unreachable.
+     * Drop a top-level `| null` arm from a type string — a guarded success path proves it unreachable.
+     * Nested null members (inside object shapes, generics, or array element types) are kept.
      */
     private function stripNullArm(string $type): string
     {
-        return trim(str_replace(['| null', 'null |'], '', $type)) ?: 'unknown';
+        $members = array_values(array_filter(
+            LaravelTsPublish::splitTopLevelUnion($type),
+            fn (string $member): bool => $member !== 'null',
+        ));
+
+        return $members === [] ? 'unknown' : implode(' | ', $members);
+    }
+
+    /**
+     * Whether $type is a shape analyzeInlineArray()'s own AsEnum rebuild can reproduce losslessly:
+     * a single non-null top-level union member, itself a bare identifier or that identifier
+     * array-suffixed, with at most an outer `| null`. A keyed `Record<...>` arm, an extra default
+     * arm, or any other union fails this check, so the raw type is kept unrewritten instead.
+     *
+     * ResourceTransformer::rewriteEnumResourceTypes() no longer needs this guard for its own,
+     * top-level rewrite: that rewrite is substitution-based and reproduces any shape losslessly.
+     */
+    private function isRebuildableEnumShape(string $type): bool
+    {
+        $nonNullMembers = array_values(array_filter(
+            LaravelTsPublish::splitTopLevelUnion($type),
+            fn (string $member): bool => $member !== 'null',
+        ));
+
+        return count($nonNullMembers) === 1
+            && preg_match('/^[A-Za-z_]\w*(\[\])?$/', $nonNullMembers[0]) === 1;
     }
 
     /**
@@ -4405,14 +5365,14 @@ class ResourceAstAnalyzer
 
         $firstParam = $params[0];
 
-        // Require a named class type hint (already FQCN-resolved by NameResolver)
-        if (! ($firstParam->type instanceof Name)) {
-            return null;
-        }
+        // A named class type hint (already FQCN-resolved by NameResolver) wins when present — it's
+        // the more specific signal. Otherwise fall back to the receiver's own relation binding, the
+        // same one analyzeWhenLoaded() already populated for a to-many param.
+        $paramClass = $firstParam->type instanceof Name
+            ? $firstParam->type->toString()
+            : $this->resolveMapProxyElementModel($call->var);
 
-        $paramClass = $firstParam->type->toString();
-
-        if (! class_exists($paramClass) || ! is_a($paramClass, Model::class, true)) {
+        if ($paramClass === null || ! class_exists($paramClass) || ! is_a($paramClass, Model::class, true)) {
             return null;
         }
 
@@ -4434,7 +5394,9 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        $bodyResult['type'] = $bodyResult['type'].'[]';
+        // arrayWrapType(), not a raw '[]' suffix: a union body (e.g. a mixed AsEnum/direct-enum
+        // ternary) must be parenthesized before the array suffix binds.
+        $bodyResult['type'] = $this->arrayWrapType($bodyResult['type']);
         $bodyResult['optional'] = false;
 
         return $bodyResult;

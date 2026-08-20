@@ -2200,6 +2200,55 @@ describe('rewriteAsEnumToType', function () {
 
         expect($result)->toBe('enums.StatusType | StatusTypeExtra');
     });
+
+    test('folds the reversed pair ordering', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'StatusType | AsEnum<typeof Status>',
+            ['Status' => 'app.enums.StatusType'],
+        );
+
+        expect($result)->toBe('app.enums.StatusType');
+    });
+
+    test('does not fold a reversed pair when the bare name is part of a longer identifier', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'MyStatusType | AsEnum<typeof Status>',
+            ['Status' => 'app.enums.StatusType'],
+        );
+
+        expect($result)->toBe('MyStatusType | app.enums.StatusType');
+    });
+
+    test('does not fold a reversed pair when the bare name is already namespace-qualified', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'foo.StatusType | AsEnum<typeof Status>',
+            ['Status' => 'app.enums.StatusType'],
+        );
+
+        expect($result)->toBe('foo.StatusType | app.enums.StatusType');
+    });
+});
+
+describe('splitTopLevelUnion', function () {
+    it('splits only at depth zero', function () {
+        expect($this->service->splitTopLevelUnion('{ a: string; b: number | null } | null'))
+            ->toBe(['{ a: string; b: number | null }', 'null']);
+    });
+
+    it('keeps a union inside an array element type whole', function () {
+        expect($this->service->splitTopLevelUnion('(string | null)[]'))
+            ->toBe(['(string | null)[]']);
+    });
+
+    it('keeps a union inside a generic whole', function () {
+        expect($this->service->splitTopLevelUnion('Record<string, number | null>'))
+            ->toBe(['Record<string, number | null>']);
+    });
+
+    it('splits quoted literals and ignores pipes inside them', function () {
+        expect($this->service->splitTopLevelUnion("'a|b' | 'c'"))
+            ->toBe(["'a|b'", "'c'"]);
+    });
 });
 
 /**

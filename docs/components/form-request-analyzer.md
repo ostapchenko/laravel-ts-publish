@@ -8,6 +8,17 @@ FormRequest's `rules()` array into `FormRequestRuleNode`s ready for interface ge
 composes `parent.*.child`/`parent.child` rule keys into their nearest undotted ancestor instead
 of emitting them as separate flat, quoted keys.
 
+## Rule priority: position-independent passes before declaration order
+
+`resolveTsType()` resolves a single node's rule list in fixed pass order, not declaration order:
+`File` (also catching `ImageFile`, which extends it), `AnyOf`, `Enum`, then `In` — both the object
+form (`Rule::in(...)`) and the string form (`'in:a,b,c'`) — then a pass over the other rule-object
+types (`StringRule`, `Email`, `Numeric`, …). Only after all of those fail to match does a final
+declaration-ordered loop run, matching each remaining string rule (`'string'`, `'integer'`, a bare
+parameterless `'in'`, …) in the order it was written. Because `In` is resolved in the
+position-independent pass, `['string', 'in:a,b']` and `['in:a,b', 'string']` both type as
+`'a' | 'b'` — an earlier `string`/`integer` rule can never shadow the literal union.
+
 ## Trie collapse: dot-paths compose into their ancestor
 
 `normalizeRules()` hands the raw rules to `buildRuleTrie()`, which splits every rule key on `.`
@@ -31,9 +42,9 @@ not a plain nested array — PHPStan (this project runs level 10) rejects a dire
 `composeTrieNode()` then collapses the trie bottom-up. The branches are checked in this order,
 and the order is load-bearing:
 
-1. **A node carrying `syntheticArrayKeys`** (from `required_array_keys`/`in_array_keys`/`array:`) merges
-   pseudo-children for those keys into whatever real children it already has, then re-enters the list
-   below — see [synthesized array keys](#synthesized-array-keys-required_array_keys-in_array_keys-array).
+1. **A node carrying `syntheticArrayKeys`** (from `required_array_keys`/`in_array_keys`/`array:`/`array_keys:`)
+   merges pseudo-children for those keys into whatever real children it already has, then re-enters the
+   list below — see [synthesized array keys](#synthesized-array-keys-required_array_keys-in_array_keys-array-array_keys).
 2. **A node with no children** returns its own leaf as-is — this is the existing flat behavior,
    completely unchanged for fields with no dotted continuation (`title`, `email`, `published`, …).
 3. **A node whose keys are *all* explicit numeric indices** (`allKeysAreNumeric()`) composes as a
@@ -218,9 +229,9 @@ never required" override is gone: it existed only because dotted keys used to su
 pseudo-top-level fields you could never actually supply. Now that they compose into a real
 nested property, their own `required` rule is exactly what should decide their optionality.
 
-## Synthesized array keys: `required_array_keys`, `in_array_keys`, `array:`
+## Synthesized array keys: `required_array_keys`, `in_array_keys`, `array:`, `array_keys:`
 
-Three rules describe a key set for an otherwise-untyped array, and `resolveSyntheticArrayKeys()`
+Four rules describe a key set for an otherwise-untyped array, and `resolveSyntheticArrayKeys()`
 composes all of them the same way: each declared key becomes a synthesized `unknown`-typed
 pseudo-child, so `composeTrieNode()` takes the same object-node branch as a real nested rule set.
 The rules differ only in the optionality they imply, per Laravel's own validator
@@ -231,16 +242,19 @@ The rules differ only in the optionality they imply, per Laravel's own validator
 | `required_array_keys:a,b` | *all* listed keys must be present (`array_all`) | required (`a: T`) |
 | `in_array_keys:a,b` | *at least one* listed key must be present (`array_any`) | optional (`a?: T`) |
 | `array:a,b` | restricts which keys are *allowed*; presence unenforced | optional (`a?: T`) |
+| `array_keys:a,b` | restricts which keys are allowed; requires ≥1 listed key; presence of any given key unenforced | optional (`a?: T`) |
 
 ```php
 'permissions' => ['required', 'array', 'required_array_keys:read,write'],
 'config' => ['required', 'array', 'in_array_keys:timezone'],
 'preferences' => ['nullable', 'array:theme,locale'],
+'attributes_map' => ['required', 'array_keys:color,size'],
 ```
 
 resolves to `permissions: { read: unknown; write: unknown }`, `config: { timezone?: unknown }`,
-and `preferences?: { theme?: unknown; locale?: unknown } | null` — the keys are known even though
-their individual types aren't, which is still strictly more useful than `unknown[]`.
+`preferences?: { theme?: unknown; locale?: unknown } | null`, and
+`attributes_map: { color?: unknown; size?: unknown }` — the keys are known even though their
+individual types aren't, which is still strictly more useful than `unknown[]`.
 
 **Merge, not replace.** `syntheticArrayKeyChildren()`'s output is merged into the node's real
 children with `+=`, so a field with both a synthesized key set and a real declared child (a `*` or

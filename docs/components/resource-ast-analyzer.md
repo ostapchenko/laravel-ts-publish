@@ -107,10 +107,14 @@ return. `OrderOnlyResource`'s fixture pins this against `search_index` directly.
 
 The relations half of the inaccuracy above is untouched — `Model::except()` never returns a
 relation either, and that stays out of scope. `resolveFilteredRelationType()`'s except branch
-(`$this->relation->except([...])`) still tests the blunter `$tsInfo['type'] !== 'unknown'` rather
-than `isOmittedMutator()`, so unlike `buildModelDelegatedAnalysis()` it also drops a mutator that
-*has* a getter but resolves to an untypeable `unknown` — a known, un-fixed inconsistency between
-the two `except()` paths.
+(`$this->relation->except([...])`) now applies the same `isOmittedMutator()` rule as
+`buildModelDelegatedAnalysis()`: only a write-only mutator with no getter and no docblock `Get`
+generic drops out, so a mutator that *has* a getter but resolves to an untypeable `unknown`
+survives as `key: unknown`, matching the whole-model path. The two `except()` paths now agree.
+A side effect on the sibling include branch (`$this->relation->only([...])`) follows from the
+same shared gate: an explicitly-named getter-backed accessor that resolves to `unknown` now also
+survives instead of vanishing from the inline shape — runtime-faithful, since `Model::only()`
+resolves through `getAttribute()`, which does return that key.
 
 ### `exclude_hidden` on the top-level resource, not just relation filters
 
@@ -270,7 +274,8 @@ which method names are currently on that re-entry stack; a method already on the
 (`alpha()` spreads `beta()`, `beta()` spreads `alpha()`) — degrades to an empty analysis rather than
 recursing. The entry is set right after the `hasMethod()` check and cleared in the same `finally`
 that already restores `$localVarBindings`/`$resolvingLocalVars`/`$varModelBindings`, so it clears on
-the exception path too.
+the exception path too. The NodeFinder predicate that locates the target method compares names with
+`strcasecmp()`, so call-site casing is normalized to match PHP's own case-insensitive method dispatch.
 
 Before this guard existed, a mutually recursive spread had no way to terminate: each call re-entered
 `analyzeThisMethodSpread()` for the other method, which re-entered the AST parser, until PHP's memory
@@ -326,12 +331,23 @@ type alone — instead of `string | number, required`. The fix was checked again
 
 ### Which arm each analysis path reads
 
-- **`whenNotNull()`** (`stripNull: true`) analyzes argument 0, then strips a trailing `| null` from its
+- **`whenNotNull()`** (`stripNull: true`) analyzes argument 0, then strips a top-level `| null` arm from its
   type via `stripNullArm()`: the `! is_null($value)` guard on the success arm proves that arm unreachable,
   so `whenNotNull($this->description)` emits `?string`, not `?string | null`.
 - **`whenNull()`** (`stripNull: false`) forces argument 0's contribution to the literal string `'null'`
   instead of analyzing it — the success arm always returns `null` when the guard holds, so the value's own
   type is irrelevant to what the property can be.
+
+### `stripNullArm()` only drops the top-level `null` arm
+
+`stripNullArm()` splits the type on `LaravelTsPublish::splitTopLevelUnion()`, a depth-aware splitter over
+braces, parens, angle brackets, and square brackets, and filters out a member equal to exactly `'null'`.
+Only a union member sitting at depth zero is ever removed — `(string | null)[]` and `{ a: string; b: number
+| null }` both keep their nested `| null` untouched, since neither nested `null` is a top-level member of
+the outer type. `analyzeCoalesce()` calls the same `stripNullArm()` helper to strip the left operand of
+`??`, so the two call sites can't drift out of sync. One consequence: a left operand of exactly `null`
+(`null ?? $x`) strips to `'unknown'` and falls through to the right arm, since `null ?? $x` always
+evaluates to `$x`.
 
 ### The default argument controls both `optional` and the union
 
@@ -350,7 +366,39 @@ the union are decided by the shared `applyConditionalDefault()` helper described
 [below](#every-handler-unions-the-default-arm-in-through-applyconditionaldefault), which `whenNotNull()` and
 `whenNull()` reach with `$index: 1`. The default's own type is analyzed independently via
 `analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
-wins at runtime.
+wins at runtime — unless the default is a closure requiring a parameter, none of which this pair ever
+supplies, in which case it is never analyzed at all; see below.
+
+### A default closure requiring more parameters than Laravel supplies is unreachable and never analyzed
+
+Laravel invokes *almost* every conditional default via `value($default)` with **zero** arguments (verified
+against `ConditionallyLoadsAttributes.php` in the installed Laravel 13 vendor tree): `when()` calls it
+directly, `whenNull()`/`whenNotNull()` delegate to `when()`, and `whenLoaded()`, `whenHas()`,
+`whenCounted()`, `whenAggregated()`, `whenExistsLoaded()` each call `value($default)` on their own miss
+path. `transform()` is the one exception: it delegates to the global `transform()` helper
+(`Support/helpers.php`), whose miss path calls an unfilled default as `$default($value)` — **one**
+argument, not zero. A closure or arrow function passed as the default that declares more required
+parameters than its caller actually supplies therefore throws `ArgumentCountError` at runtime instead of
+producing a value — it can never contribute to the property's type.
+
+`applyConditionalDefault($value, $call, $index, $defaultArgCount = 0)` checks this before analyzing the
+default expression at all: `InspectsAstNodes::closureRequiresArguments(Expr $expr, int $providedArgs = 0)`
+returns `true` when `$expr` is a `Closure` or `ArrowFunction` whose count of parameters lacking both a
+default value and a variadic marker exceeds `$providedArgs`. Every handler leaves `$defaultArgCount` at its
+default of `0` except `analyzeTransform()`, which passes `defaultArgCount: 1` to match the global helper's
+one-argument call. When the check trips, `applyConditionalDefault()` returns the value arm's result alone
+with `optional: false` — the same "unresolved default leaves the value arm standing" policy used elsewhere
+in this helper — without ever calling `analyzeValueExpression()` on the default's body.
+
+The check sits at `applyConditionalDefault()`, the one choke point every handler's default argument passes
+through, with the per-method argument count as an explicit parameter rather than a special case. It does
+not need to special-case the per-method `value($value, $resolved)` asymmetry described
+[below](#unlessmergeunless-delegate-whenappended-whenexistsloaded-and-transform-are-new-handlers): that
+asymmetry only affects *value*-arm closures (which receive the resolved value as an argument), and
+value-arm closures never reach `applyConditionalDefault()` — only the default argument does. A parameter
+with its own default (`fn ($notes = '') => strlen($notes)`) or a variadic parameter (`fn (...$args) => ...`)
+still invokes cleanly with zero (or `$defaultArgCount`) arguments, so closures shaped like those are not
+excluded and still union their return type in as usual.
 
 ### An empty-array default collapses instead of widening the property
 
@@ -386,13 +434,17 @@ fails to resolve **either** arm, and it has two justifications, not one:
   no-type-regressions-to-`unknown` discipline exists to prevent. Filtering the unresolvable arm out is what
   keeps a resolvable sibling arm's type surfacing at all.
 
-What the filtering never does is change `optional`. `ConditionalParamFullClosureResource::status_resource` —
-`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })` — has an
-unresolvable *default*: the closure param is unbound, so `EnumResource::make($status)` resolves to
-`unknown`. The property emits `OrderStatusType`, and stays **required**, because the explicit second
-argument means Laravel always emits the key. `ConditionalDefaultsResource::pivot_loaded_with_default`
-exercises the other direction, via `whenPivotLoaded()`'s hard-coded `unknown` value arm: `unknown`,
-also required.
+What the filtering never does is change `optional`. Before the arity rule above existed,
+`ConditionalParamFullClosureResource::status_resource` —
+`whenNotNull($this->status, function ($status) { return EnumResource::make($status); })` — demonstrated the
+unresolved-*default* direction: the closure's `$status` param was unbound, so `EnumResource::make($status)`
+resolved to `unknown`, and the property emitted `OrderStatusType`, required, because the explicit second
+argument still meant Laravel always emitted the key. That closure requires `$status`, though, so it is now
+caught earlier by [the arity rule](#a-default-closure-requiring-more-parameters-than-laravel-supplies-is-unreachable-and-never-analyzed)
+and never reaches `analyzeValueExpression()` at all — `OrderStatusType`, required, is correct by the same
+evidence but for a different reason. `ConditionalDefaultsResource::pivot_loaded_with_default` still
+exercises the unresolved-*value*-arm direction, via `whenPivotLoaded()`'s hard-coded `unknown` value arm:
+`unknown`, also required.
 
 ### A model-level `#[TsCasts]` override can mask this fix in the final output
 
@@ -487,6 +539,10 @@ generic `$this->method()` branch, which reflects a declared return type and emit
 strictly worse than the optional `unknown` an unrecognized conditional should produce, since a required
 key tells the consumer the value is always present.
 
+All five (`unless`, `whenAppended`, `whenExistsLoaded`, `transform`, `mergeUnless`) also belong to
+`InspectsAstNodes::$conditionalMethods`, the separate list consulted when one of them wraps a *nested
+resource constructor* (`Resource::make(...)`/`new Resource(...)`), so that case is optional too.
+
 ### `unless()` and `mergeUnless()` reuse `when()`/`mergeWhen()` unchanged
 
 `ConditionallyLoadsAttributes::unless($condition, $value, $default)` is
@@ -527,7 +583,12 @@ runtime can return it in place of the flag.
 value-argument handling but analyzes `$args[1]` (the callback) instead of `$args[0]`, binding the
 callback's first parameter to `$args[0]`'s `$this->prop` expression via `bindClosureParamsFromCondition()`
 the same way `analyzeWhen()` binds a value closure to its condition, then hands the result to
-`applyConditionalDefault()` with index 2, exactly like `analyzeWhen()` does.
+`applyConditionalDefault()` with index 2, exactly like `analyzeWhen()` does — except for
+`defaultArgCount: 1`: the same `transform()` helper invokes an unfilled default as `$default($value)`,
+one argument, not the `value($default)`/zero-argument call every other handler's default receives (see
+[above](#a-default-closure-requiring-more-parameters-than-laravel-supplies-is-unreachable-and-never-analyzed)).
+A one-parameter closure default is therefore reachable here and unions in, where the same shape would be
+excluded as unreachable anywhere else in the family.
 
 ## `#[Collects]` resolution is Laravel-version-guarded
 
@@ -567,3 +628,28 @@ checks `static::class` — the singular resource being called on, not a separate
 that site reflects on the resource. Every other site reflects on the `ResourceCollection` subclass
 itself, since that's what Laravel instantiates and reflects on for `make()`, `new`, and the
 collection-delegated path.
+
+### Inertia props
+
+`collectionPreservesKeys()` and `wrapCollectionElementType()` live in the
+`AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys` trait, which both this class
+and `AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer` `use`. `InertiaPageAnalyzer`
+has its own four collection-typing rewrites for `Inertia::render()` page props — paginated and
+non-paginated, named and anonymous — and preserve-keys only changes two of them:
+
+- **`rewritePaginatedResourceProps()`'s flat branch** (`$wrap === null`, e.g. `new
+  SomeFlatCollection($paginator)`) and **`rewritePaginatedStaticCollectionProps()`** (`SomeResource::collection($paginator)`)
+  both emit `JsonResourcePaginator<Singular>` by default, whose `data` member is `Singular[]` — wrong
+  for a key-preserving collection, since Laravel serializes its `data` as an object, not an array.
+  Fixed to emit `Omit<JsonResourcePaginator<Singular>, 'data'> & { data: Record<string, Singular> }`
+  when `collectionPreservesKeys()` is true, gated on the reflected collection (flat branch) or the
+  reflected resource (static-collection branch, since `Resource::collection()` inherits the singular
+  resource's own preserve-keys state — mirroring `wrapCollectionElementType()`'s own site-dependent
+  reflection target above).
+- **`rewriteResourceCollections()`** (the bare named-collection case) and **the wrapped, non-flat
+  branch of `rewritePaginatedResourceProps()`** were already correct and are unchanged: both reference
+  the collection's own generated interface — e.g. `PostCollection` — rather than re-deriving a shape,
+  and `ResourceAstAnalyzer` already emits that interface with a keyed `data: Record<string, T>` member
+  via `wrapCollectionElementType()` when the collection preserves keys. Fixtures pin this: a
+  key-preserving named collection, paginated or not, produces identical output before and after this
+  change.

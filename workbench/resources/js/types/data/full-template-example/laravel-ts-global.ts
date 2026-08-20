@@ -120,6 +120,20 @@ declare global {
             user_count: number;
             user_exists: boolean;
         }
+        /**
+         * Pins the As*ArrayObject cast family's `unknown[] | Record<string, unknown>` map entry in
+         * generated output. Reuses the property_docblock_fixtures table's unused owner_snapshot column.
+         */
+        export interface ArrayObjectCastFixture {
+            // Columns
+            id: number;
+            tags: string | null;
+            related_users: string | null;
+            meta_info: string | null;
+            owner_snapshot: unknown[] | Record<string, unknown> | null;
+            created_at: string | null;
+            updated_at: string | null;
+        }
         export interface Attachment {
             // Columns
             id: number;
@@ -135,6 +149,30 @@ declare global {
             attachable: Post;
             attachable_count: number;
             attachable_exists: boolean;
+        }
+        /** Carries only #[RouteKey] — no getRouteKeyName()/getKeyName()/$primaryKey override. */
+        export interface AttributeRouteKeyPost {
+            // Columns
+            id: number;
+            title: string;
+            content: string;
+            user_id: number;
+            status: boolean;
+            published_at: string | null;
+            metadata: string | null;
+            rating: number | null;
+            category: string;
+            options: string | null;
+            deleted_at: string | null;
+            created_at: string | null;
+            updated_at: string | null;
+            category_id: number | null;
+            visibility: string | null;
+            priority: number | null;
+            word_count: number | null;
+            reading_time_minutes: number | null;
+            featured_image_url: string | null;
+            is_pinned: boolean;
         }
         export interface BaseExtendableModel extends ParentModelInterface {
         }
@@ -382,6 +420,43 @@ declare global {
             name: string;
             other_col: string;
         }
+        /**
+         * Exercises Model::toResource()/Collection::toResourceCollection(): `owner`/`staff` resolve by
+         * convention, `historyEvent` via #[UseResource], `filing`/`alert` have no resolvable resource.
+         * `registrar`/`registrars`/`suppliers` pin the three resolution orderings against a losing
+         * candidate that also exists, so an inverted order would visibly fail (see
+         * ResourceAstAnalyzerTest.php's MerchantResource ordering describe block).
+         */
+        export interface Merchant {
+            // Columns
+            id: number;
+            name: string;
+            // Relations
+            owner: User | null;
+            owner_count: number;
+            owner_exists: boolean;
+            staff: User[];
+            staff_count: number;
+            staff_exists: boolean;
+            history_event: TrackingEvent | null;
+            history_event_count: number;
+            history_event_exists: boolean;
+            filing: Activity | null;
+            filing_count: number;
+            filing_exists: boolean;
+            alert: illuminate.notifications.DatabaseNotification | null;
+            alert_count: number;
+            alert_exists: boolean;
+            registrar: Registrar | null;
+            registrar_count: number;
+            registrar_exists: boolean;
+            registrars: Registrar[];
+            registrars_count: number;
+            registrars_exists: boolean;
+            suppliers: Supplier[];
+            suppliers_count: number;
+            suppliers_exists: boolean;
+        }
         export interface ModelWithNestedTraitExtends extends TraitInterface {
             // Columns
             id: number;
@@ -475,6 +550,7 @@ declare global {
             is_paid: boolean;
             /** Formatted total with currency symbol */
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             /** Write-only mutator whose docblock still documents what a getter would return. */
             tracking_code: string | null;
             score_map: Record<string, number>;
@@ -765,6 +841,17 @@ declare global {
             labels: string[];
         }
         /**
+         * Exercises two orderings: singular toResource() must prefer the Resource-suffixed naming
+         * candidate (RegistrarResource) over the bare one (Registrar), which also exists; and
+         * #[UseResourceCollection] must stop hard even when its target's element is undeterminable,
+         * never falling through to the RegistrarResource naming-convention guess.
+         */
+        export interface Registrar {
+            // Columns
+            id: number;
+            name: string;
+        }
+        /**
          * A help-desk ticket linked to a customer Order and optionally assigned to a CRM agent.
          *
          * Exercises the inline model FQCN collision scenario: two relations to classes with the
@@ -841,6 +928,16 @@ declare global {
             assignee_count: number;
             assignee_exists: boolean;
         }
+        /**
+         * Exercises toResourceCollection()'s naming-convention order: the guessed SupplierCollection
+         * class must win over the bare SupplierResource fallback, and since it collects a different
+         * resource (SupplierSummaryResource), the two orderings are visibly distinguishable.
+         */
+        export interface Supplier {
+            // Columns
+            id: number;
+            name: string;
+        }
         export interface Tag {
             // Columns
             id: number;
@@ -909,7 +1006,7 @@ declare global {
             created_at: string | null;
             updated_at: string | null;
             deleted_at: string | null;
-            week_days: app.enums.StatusType[] | null;
+            week_days: app.enums.WeekDaysType[] | null;
             grid_configs: { label: string; config: Record<string, unknown> }[] | null;
             grid_preset: { name: string; locked?: boolean } | null;
             // Mutators
@@ -917,11 +1014,16 @@ declare global {
             has_member: boolean;
             /** Number of members */
             member_count: number;
+            status_history: app.enums.StatusType[];
             // Relations
             /** The user who owns this team */
             owner: User;
             owner_count: number;
             owner_exists: boolean;
+            /** Named literally 'map' to pin the relation-filter guard against Laravel's ->map proxy. */
+            map: User;
+            map_count: number;
+            map_exists: boolean;
             /** Members of the team (pivot includes role and joined_at) */
             members: User[];
             members_count: number;
@@ -1059,6 +1161,7 @@ declare global {
             /** Non-column accessor returning a TsType class (MenuSettings) with custom import */
             menu_config: MenuSettingsType | null;
             last_user_activity_by: crm.models.User | User | null;
+            last_checked_by: Image | User | null;
             last_user_activity_by_typed: crm.models.User | User | null;
             last_user_activity_by_typed_short: crm.models.User | User | null;
             review_priority: app.enums.StatusType | app.enums.PriorityType | null;
@@ -1456,6 +1559,24 @@ declare global {
             Draft: 'Draft',
         }
         export type VisibilityType = 'Public' | 'Private' | 'Protected' | 'Internal' | 'Draft';
+
+        /**
+         * Plain backed enum for Team::week_days — no #[TsEnum] family attributes and no
+         * ArchTech\Enums traits. This fixture exercises AsEnumCollection casting, not
+         * enum-feature generation (Status and Season already cover that).
+         */
+        export interface WeekDays
+        {
+            Monday: 'monday',
+            Tuesday: 'tuesday',
+            Wednesday: 'wednesday',
+            Thursday: 'thursday',
+            Friday: 'friday',
+            Saturday: 'saturday',
+            Sunday: 'sunday',
+        }
+        export type WeekDaysType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+        export type WeekDaysKind = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
     }
     export namespace blog.enums {
         export interface ArticleStatus
@@ -1666,6 +1787,14 @@ declare global {
             user_bio?: string | null;
         }
         /**
+         * A spread whose call-site casing differs from the declared method. PHP method calls are
+         * case-insensitive, so this is valid, runnable code the analyzer must still resolve.
+         */
+        export interface CaseSpreadResource {
+            id: number;
+            case_title: string;
+        }
+        /**
          * Exercises: self-referencing Resource::make and Resource::collection,
          * when conditional, whenCounted, cross-resource PostResource::collection.
          */
@@ -1699,6 +1828,31 @@ declare global {
          * SharedExtendsInterface should appear only once in the result despite being reachable via two paths.
          */
         export interface ChildSharedResource extends SharedInterface {
+        }
+        /**
+         * Regression fixture for Task 17A: SomeClass::CONSTANT as a property value resolves to a real TS
+         * type via reflection instead of unknown. Also pins that `Foo::class` and an enum case reached
+         * through EnumResource::make() keep resolving exactly as before alongside the new feature.
+         */
+        export interface ClassConstantResource {
+            owner_minimum_channels: { in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } };
+            max_retries: number;
+            schema_version: number;
+            base_version: number;
+            default_status: app.enums.StatusType;
+            fallback_channels: { in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } };
+            channel_tags: string[];
+            mixed_tags: (string | number)[];
+            nested_tags: { primary: string[]; secondary: string[] };
+            broken_channels: unknown;
+            over_element_limit: unknown;
+            over_depth_limit: unknown;
+            status_map: { status: app.enums.OrderStatusType };
+            status_list: app.enums.OrderStatusType[];
+            all_int_keys: Record<string, unknown>;
+            mixed_keys: { a: number };
+            resource_marker: string;
+            status_marker: app.enums.StatusType;
         }
         /**
          * Exercises closure control-flow paths in collectReturnExpressions:
@@ -1812,6 +1966,9 @@ declare global {
             exists_with_default: boolean | string;
             transform_no_default?: boolean;
             transform_with_default: boolean | number;
+            transform_with_one_param_default: boolean | number;
+            unless_user_resource?: UserResource;
+            transform_user_resource?: UserResource;
             merge_unless_label?: string;
         }
         /**
@@ -1827,6 +1984,7 @@ declare global {
             notes_or_default?: string;
             user_meta?: { profile: { name: string; email: string }; verified: boolean };
             notes_when_null: null | string;
+            flagged_notes_present?: (string | null)[];
         }
         /**
          * Exercises issue #38: closure parameter passed by the conditional method,
@@ -1899,7 +2057,9 @@ declare global {
             user_id?: number;
             user_verified?: boolean;
             notes_upper?: string;
-            notes_length: string | number;
+            notes_length: string;
+            notes_length_or_default: string | number;
+            notes_length_variadic_default: string | number;
         }
         /**
          * Exercises collectDirectReturns elseif, else, and loop branches
@@ -1993,6 +2153,24 @@ declare global {
             images: app.models.Image[];
             notifications: illuminate.notifications.DatabaseNotification[];
         }
+        /**
+         * Exercises EnumResource::collection() across its backing shapes: an accessor returning
+         * list<Enum>, an AsEnumCollection cast, a first-class callable value, and a local
+         * variable ->map() (not $this->relation->map()) — those should all emit an array-wrapped
+         * AsEnum utility type, not the unresolved EnumResource itself. member_role_snapshot is the
+         * one exception: a bare (unwrapped) enum read, pinning a distinct import-GC concern.
+         */
+        export interface EnumCollectionResource {
+            id: number;
+            status_history: app.enums.StatusType[];
+            week_days: app.enums.WeekDaysType[] | null;
+            wrapped_week_days: { week_days: app.enums.WeekDaysType[] | null };
+            week_days_when_has?: app.enums.WeekDaysType[] | null;
+            week_days_when_has_default: app.enums.WeekDaysType[] | null | string;
+            status_history_when_appended?: app.enums.StatusType[];
+            members_via_var?: app.enums.RoleType[];
+            member_role_snapshot?: ({ role: app.enums.RoleType | null })[];
+        }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
         export interface EnumNullFirstResource {
             value: string;
@@ -2022,6 +2200,21 @@ declare global {
             flag?: string | null;
             extra: Record<string, unknown>;
             extra_field: string;
+        }
+        /**
+         * Regression fixture for Task 17C: a fluent method chained onto a receiver that resolves to a
+         * resource (`new self($x)`, `self::make($x)`, or a chain of both) keeps the receiver's type when
+         * the method's declared return type hands the same instance back.
+         */
+        export interface FluentSelfResource {
+            id: number;
+            name: string;
+            parent_fluent?: FluentSelfResource;
+            parent_fluent_make?: FluentSelfResource;
+            parent_fluent_chain?: FluentSelfResource;
+            parent_fluent_docblock?: FluentSelfResource;
+            parent_summary?: unknown;
+            parent_fluent_nullable?: FluentSelfResource | null;
         }
         /** Resource using FQCN @mixin — tests resolveModelClass FQCN branch. */
         export interface FqcnMixinResource {
@@ -2221,6 +2414,16 @@ declare global {
             first_item_name?: string;
             total?: number;
         }
+        /**
+         * Regression pin: `$this->map->only([...])` must route through the relation-filter guard, not
+         * Laravel's `->map->only()` HigherOrderCollectionProxy guard — both structurally match a relation
+         * literally named `map`, so only their declaration order in analyzeValueExpression() keeps this
+         * correct. A reorder would silently regress this with a fully green suite otherwise.
+         */
+        export interface MapRelationFilterResource {
+            id: number;
+            map: Pick<app.models.User, 'id' | 'name'>;
+        }
         export interface MediaTypeInstanceOfResource {
             name: string;
             value: string;
@@ -2246,6 +2449,34 @@ declare global {
             name: unknown;
             value: unknown;
             meta: { extensions: unknown; maxSizeMb: unknown; sizeUnit: string; icon: unknown };
+        }
+        /**
+         * Exercises Model::toResource() / Collection::toResourceCollection() resolution: naming
+         * convention, #[UseResource], explicit arguments, the unresolvable negative cases, and
+         * (registrar/registrars/suppliers) the three resolution orderings against a losing
+         * candidate that also exists, so an inverted order would visibly fail.
+         *
+         * Also reuses the staff/registrars/historyEvent relations for the ->map->only()/->except()
+         * HigherOrderCollectionProxy: a to-many whenLoaded param is a bound collection and matches,
+         * a singular one (historyEvent) is not and must stay unknown.
+         */
+        export interface MerchantResource {
+            id: number;
+            owner_via_closure?: UserResource;
+            owner_explicit?: UserResource;
+            owner_variant_constant?: unknown;
+            owner_direct: UserResource;
+            staff_via_closure?: UserResource[];
+            staff_explicit?: UserResource[];
+            history_event?: EventLogResource;
+            filing?: unknown;
+            alert?: unknown;
+            registrar?: RegistrarResource;
+            registrars?: unknown;
+            suppliers?: SupplierSummaryResource[];
+            staff_map_only?: ({ id: number; name: string; role: app.enums.RoleType | null; last_login_at: string | null })[];
+            registrars_map_except?: { name: string }[];
+            history_event_map_only?: unknown;
         }
         /**
          * Exercises resolveClosureReturnExpression with a Closure passed to merge().
@@ -2280,6 +2511,24 @@ declare global {
          */
         export interface MutuallyRecursiveSpreadResource {
             name: string;
+        }
+        /**
+         * Exercises spreading a resolved resource inside a NESTED inline array literal — a map()
+         * closure's return body — as opposed to the four already-supported top-level toArray() spreads.
+         *
+         * Mirrors a real-world report: `whenLoaded()` closure -> `$var->map(closure)` -> multi-statement
+         * inner closure -> array literal spreading `SomeResource::make($x)->resolve($request)` plus a
+         * sibling key. Every layer except the spread-plus-siblings shape already works.
+         */
+        export interface NestedResourceSpreadResource {
+            id: number;
+            members_with_profile?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
+            members_bare?: UserResource[];
+            members_model_spread?: { flag: boolean }[];
+            members_double_spread?: (Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[];
+            members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
+            owner_map_untyped?: unknown;
+            members_colliding_spread?: (Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[];
         }
         export interface NonArrayReturnResource {
         }
@@ -2355,6 +2604,7 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2492,11 +2742,32 @@ declare global {
             data: Record<string, TeamResource>;
         }
         /**
+         * Key-preserving AND flat ($wrap = null): the paginated Inertia prop must emit a keyed
+         * record data member, not JsonResourcePaginator's array one. Property form, so the fixture
+         * behaves identically on Laravel 12.
+         */
+        export type PreserveKeysFlatCollection = Record<string, TeamResource>;
+        /**
          * A collection that keeps its source keys, so the payload is a JSON object rather than an array.
          * Uses the property form, which predates the attribute and works on Laravel 12.
          */
         export interface PreserveKeysPropertyCollection {
             data: Record<string, TeamResource>;
+        }
+        /**
+         * Singular resource whose ::collection() preserves keys via $preserveKeys — exercises the
+         * anonymous (static-collection) Inertia path. Delegates to TeamResource's toArray() shape.
+         */
+        export interface PreserveKeysTeamResource {
+            id: number;
+            name: string;
+            slug: string;
+            description?: string | null;
+            is_active: boolean;
+            owner?: UserResource;
+            members?: TeamMemberResource[];
+            members_count?: number;
+            settings?: Record<string, unknown> | null;
         }
         /**
          * Exercises: multiple whenAggregated (sum/min/max), whenNotNull, when,
@@ -2556,6 +2827,7 @@ declare global {
             empty_user: UserResource;
             empty_enum: unknown;
             fcc_enum: unknown;
+            fcc_enum_collection: unknown;
             not_enum: unknown;
             uncast_enum: unknown;
             empty_new_enum: unknown;
@@ -2574,16 +2846,43 @@ declare global {
             fallback_owner: app.models.User;
         }
         /**
+         * The bare naming candidate for the Registrar model — deliberately present so the
+         * Resource-suffixed-first ordering test is non-vacuous: this class must lose to
+         * RegistrarResource.
+         */
+        export interface Registrar {
+            id: number;
+        }
+        /**
+         * The #[UseResourceCollection] target for Registrar. Deliberately declares no $collects and has
+         * no matching RegistrarGroupResource/RegistrarGroup class, so its element type is undeterminable —
+         * this must degrade to unknown rather than silently falling through to RegistrarResource.
+         */
+        export interface RegistrarGroupCollection {
+            data: unknown;
+        }
+        /**
+         * The Resource-suffixed naming candidate for Registrar — must win over the bare Registrar
+         * resource below, since Model::guessResourceName() tries the suffixed name first.
+         */
+        export interface RegistrarResource {
+            id: number;
+        }
+        /**
          * Exercises collection method chains rooted at a many-relation
-         * ($this->members->take(5)->map(...)->values()).
+         * ($this->members->take(5)->map(...)->values()), plus the ->map->only()
+         * HigherOrderCollectionProxy reached directly off the relation.
          */
         export interface RelationChainResource {
             first_members: app.models.User[];
             member_cards: { id: number; name: string }[];
             member_profiles: ({ id: number; role: app.enums.RoleType | null; owner: app.models.User })[];
+            member_map_only: ({ id: number; role: app.enums.RoleType | null })[];
             member_emails: string[];
             member_roles: (app.enums.RoleType | null)[];
             member_role_resources: app.enums.RoleType[];
+            member_role_resources_filtered: app.enums.RoleType[] | Record<string, app.enums.RoleType>;
+            wrapped_filtered: { roles: app.enums.RoleType[] | Record<string, app.enums.RoleType> };
             member_names_upper: unknown;
             member_formatted: unknown;
             member_mapped_fcc: unknown;
@@ -2594,6 +2893,7 @@ declare global {
             members_sorted: app.models.User[] | Record<string, app.models.User>;
             members_filtered_cards: { id: number }[] | Record<string, { id: number }>;
             members_tail: app.models.User[] | Record<string, app.models.User>;
+            members_tail_values: app.models.User[];
             members_sliced_emails: string[] | Record<string, string>;
             members_keyed_by_id: string[] | Record<string, string>;
             members_skipped: app.models.User[];
@@ -2769,6 +3069,7 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2809,6 +3110,7 @@ declare global {
             item_count: number;
             is_paid: boolean;
             formatted_total: string;
+            flagged_notes: (string | null)[] | null;
             tracking_code: string | null;
             score_map: Record<string, number>;
             sorted_items: app.models.OrderItem[];
@@ -2842,6 +3144,29 @@ declare global {
             widget_config_coalesce: WidgetConfigType;
             autocomplete: { value: number; label: string };
             summaries: { key: string; label: string }[];
+        }
+        /**
+         * The guessed {Supplier}Collection class — must be tried before the bare SupplierResource
+         * fallback, and collects SupplierSummaryResource rather than SupplierResource so the two
+         * possible orderings produce visibly different element types.
+         */
+        export interface SupplierCollection {
+            data: SupplierSummaryResource[];
+        }
+        /**
+         * The bare guessed-resource fallback for Supplier — deliberately present so the
+         * {Guessed}Collection-first ordering test is non-vacuous: this class must lose to
+         * SupplierCollection (which collects SupplierSummaryResource, not this one).
+         */
+        export interface SupplierResource {
+            id: number;
+        }
+        /**
+         * The resource SupplierCollection actually collects — must win over the bare SupplierResource
+         * fallback when toResourceCollection() resolves a Supplier[] collection by naming convention.
+         */
+        export interface SupplierSummaryResource {
+            id: number;
         }
         /** Exercises: whenCounted on two polymorphic relations. */
         export interface TagResource {
@@ -2905,6 +3230,7 @@ declare global {
             status_or_null: app.enums.StatusType | null;
             status_or_status: app.enums.StatusType;
             status_resource_or_type: app.enums.StatusType;
+            status_type_or_resource: app.enums.StatusType;
             status_or_visibility: app.enums.StatusType | app.enums.VisibilityType | null;
             category_or_null: CategoryResource | null;
             category_or_category: CategoryResource;
@@ -2932,6 +3258,13 @@ declare global {
             role: string;
             injected_field: Record<string, unknown>;
             coordinates: GeoPoint;
+        }
+        /**
+         * The naming-convention candidate for Workbench\App\Models\TrackingEvent — deliberately present so
+         * the #[UseResource(EventLogResource::class)] precedence test is non-vacuous: this class must lose.
+         */
+        export interface TrackingEventResource {
+            id: number;
         }
         export interface TraitSpreadCoverageResource {
             id: number;
@@ -3056,6 +3389,7 @@ declare global {
             last_user_activity_by_typed_short: app.models.User | crm.models.User | null;
             last_user_activity_by_partial: { id: number; name: string } | null;
             last_user_activity_by_mostly: { email: string; company: string | null; status: crm.enums.StatusType; created_at: string | null; updated_at: string | null; images: app.models.Image[] } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: app.models.Profile | null; posts: app.models.Post[]; comments: app.models.Comment[]; orders: app.models.Order[]; addresses: Address[]; teams: app.models.Team[]; ownedTeams: app.models.Team[]; images: app.models.Image[]; notifications: illuminate.notifications.DatabaseNotification[] } | null;
+            last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null; size_for_humans: string; is_landscape: boolean; aspect_ratio: string | null; extension: string | null; size: number; flexible_id: string | number | null; optional_label: string | null; status_from_docblock: app.enums.StatusType | null; uploader_from_docblock: app.models.User | null; config_from_docblock: MenuSettingsType; data_from_docblock: { title: string; weight: number | null }; uploaders_from_docblock: app.models.User[] | Record<string, app.models.User>; uploaders_from_docblock_int: app.models.User[]; uploaders_from_docblock_string: Record<string, app.models.User>; tree_from_docblock: { label: string; child: unknown[] }; price_from_docblock: { amount: number; currency: string }; label_from_docblock: string; no_docblock_accessor: unknown; wrong_format_docblock: string | null; positive_int_accessor: number; numeric_string_accessor: string } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: app.models.Profile | null; posts: app.models.Post[]; comments: app.models.Comment[]; orders: app.models.Order[]; addresses: Address[]; teams: app.models.Team[]; ownedTeams: app.models.Team[]; images: app.models.Image[]; notifications: illuminate.notifications.DatabaseNotification[] } | null;
         }
     }
     export namespace app.http.resources.admin {
@@ -3190,6 +3524,9 @@ declare global {
         }
     }
     export namespace app.http.requests {
+        export interface ArrayKeysObjectFormRequest {
+            attributes_map: unknown[];
+        }
         export interface ArrayRulesRequest {
             tags?: string[];
             selected_ids: number[];
@@ -3199,6 +3536,8 @@ declare global {
             airports: string[];
             primary_airport: string;
             config: { timezone?: unknown };
+            attributes_map: { color?: unknown; size?: unknown };
+            malformed_array_keys: unknown[];
             preferences?: { theme?: unknown; locale?: unknown } | null;
             shipping: { method?: 'standard' | 'express' | null; address: unknown };
             ordered_items: string[];
@@ -3408,12 +3747,15 @@ declare global {
             mobile: string | null;
             contact_method: string | null;
             permissions: { read: unknown; write: unknown };
-            optional_preference?: string;
+            optional_preference?: 'light' | 'dark' | 'system';
+            priority_level: 1 | 2 | 3;
+            legacy_code: '1' | '2' | '3';
+            padded_numeric_code: '007' | '2.50';
             is_authenticated: boolean;
-            role: string;
+            role: 'user' | 'admin' | 'moderator';
             display_name?: string | null;
             primary_email: string;
-            environment: string;
+            environment: 'development' | 'staging' | 'production';
             new_field?: string | null;
             option_a?: string | null;
             option_b?: string | null;
@@ -3423,7 +3765,7 @@ declare global {
             is_free: boolean;
             is_paid_subscriber: boolean;
             accept_free_terms: boolean;
-            plan: string;
+            plan: 'free' | 'basic' | 'premium';
             pay_with_bank_transfer?: boolean | null;
             send_notifications: boolean;
             send_sms: boolean;

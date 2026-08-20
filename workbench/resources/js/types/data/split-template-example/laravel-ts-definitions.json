@@ -1281,6 +1281,66 @@
             },
             "staticMethods": []
         },
+        "Workbench\\App\\Enums\\WeekDays": {
+            "name": "WeekDays",
+            "cases": [
+                {
+                    "name": "Monday",
+                    "value": "monday",
+                    "description": ""
+                },
+                {
+                    "name": "Tuesday",
+                    "value": "tuesday",
+                    "description": ""
+                },
+                {
+                    "name": "Wednesday",
+                    "value": "wednesday",
+                    "description": ""
+                },
+                {
+                    "name": "Thursday",
+                    "value": "thursday",
+                    "description": ""
+                },
+                {
+                    "name": "Friday",
+                    "value": "friday",
+                    "description": ""
+                },
+                {
+                    "name": "Saturday",
+                    "value": "saturday",
+                    "description": ""
+                },
+                {
+                    "name": "Sunday",
+                    "value": "sunday",
+                    "description": ""
+                }
+            ],
+            "caseKinds": [
+                "'Monday'",
+                "'Tuesday'",
+                "'Wednesday'",
+                "'Thursday'",
+                "'Friday'",
+                "'Saturday'",
+                "'Sunday'"
+            ],
+            "caseTypes": [
+                "'monday'",
+                "'tuesday'",
+                "'wednesday'",
+                "'thursday'",
+                "'friday'",
+                "'saturday'",
+                "'sunday'"
+            ],
+            "methods": [],
+            "staticMethods": []
+        },
         "Workbench\\Blog\\Enums\\ArticleStatus": {
             "name": "ArticleStatus",
             "cases": [
@@ -1513,6 +1573,20 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Requests\\ArrayKeysObjectFormRequest": {
+            "name": "ArrayKeysObjectFormRequest",
+            "isDynamic": false,
+            "fields": [
+                {
+                    "fieldPath": "attributes_map",
+                    "tsType": "unknown[]",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Requests\\ArrayRulesRequest": {
             "name": "ArrayRulesRequest",
             "isDynamic": false,
@@ -1576,6 +1650,22 @@
                 {
                     "fieldPath": "config",
                     "tsType": "{ timezone?: unknown }",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "attributes_map",
+                    "tsType": "{ color?: unknown; size?: unknown }",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "malformed_array_keys",
+                    "tsType": "unknown[]",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3260,8 +3350,32 @@
                 },
                 {
                     "fieldPath": "optional_preference",
-                    "tsType": "string",
+                    "tsType": "'light' | 'dark' | 'system'",
                     "isRequired": false,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "priority_level",
+                    "tsType": "1 | 2 | 3",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "legacy_code",
+                    "tsType": "'1' | '2' | '3'",
+                    "isRequired": true,
+                    "isNullable": false,
+                    "isProhibited": false,
+                    "jsDocMetadata": []
+                },
+                {
+                    "fieldPath": "padded_numeric_code",
+                    "tsType": "'007' | '2.50'",
+                    "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
                     "jsDocMetadata": []
@@ -3276,7 +3390,7 @@
                 },
                 {
                     "fieldPath": "role",
-                    "tsType": "string",
+                    "tsType": "'user' | 'admin' | 'moderator'",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3302,7 +3416,7 @@
                 },
                 {
                     "fieldPath": "environment",
-                    "tsType": "string",
+                    "tsType": "'development' | 'staging' | 'production'",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3382,7 +3496,7 @@
                 },
                 {
                     "fieldPath": "plan",
-                    "tsType": "string",
+                    "tsType": "'free' | 'basic' | 'premium'",
                     "isRequired": true,
                     "isNullable": false,
                     "isProhibited": false,
@@ -3819,6 +3933,39 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\ArrayObjectCastFixture": {
+            "name": "ArrayObjectCastFixture",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "tags",
+                    "type": "string | null"
+                },
+                {
+                    "name": "related_users",
+                    "type": "string | null"
+                },
+                {
+                    "name": "meta_info",
+                    "type": "string | null"
+                },
+                {
+                    "name": "owner_snapshot",
+                    "type": "unknown[] | Record<string, unknown> | null"
+                },
+                {
+                    "name": "created_at",
+                    "type": "string | null"
+                },
+                {
+                    "name": "updated_at",
+                    "type": "string | null"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\Attachment": {
             "name": "Attachment",
             "properties": [
@@ -3864,6 +4011,91 @@
                 },
                 {
                     "name": "attachable_exists",
+                    "type": "boolean"
+                }
+            ]
+        },
+        "Workbench\\App\\Models\\AttributeRouteKeyPost": {
+            "name": "AttributeRouteKeyPost",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "title",
+                    "type": "string"
+                },
+                {
+                    "name": "content",
+                    "type": "string"
+                },
+                {
+                    "name": "user_id",
+                    "type": "number"
+                },
+                {
+                    "name": "status",
+                    "type": "boolean"
+                },
+                {
+                    "name": "published_at",
+                    "type": "string | null"
+                },
+                {
+                    "name": "metadata",
+                    "type": "string | null"
+                },
+                {
+                    "name": "rating",
+                    "type": "number | null"
+                },
+                {
+                    "name": "category",
+                    "type": "string"
+                },
+                {
+                    "name": "options",
+                    "type": "string | null"
+                },
+                {
+                    "name": "deleted_at",
+                    "type": "string | null"
+                },
+                {
+                    "name": "created_at",
+                    "type": "string | null"
+                },
+                {
+                    "name": "updated_at",
+                    "type": "string | null"
+                },
+                {
+                    "name": "category_id",
+                    "type": "number | null"
+                },
+                {
+                    "name": "visibility",
+                    "type": "string | null"
+                },
+                {
+                    "name": "priority",
+                    "type": "number | null"
+                },
+                {
+                    "name": "word_count",
+                    "type": "number | null"
+                },
+                {
+                    "name": "reading_time_minutes",
+                    "type": "number | null"
+                },
+                {
+                    "name": "featured_image_url",
+                    "type": "string | null"
+                },
+                {
+                    "name": "is_pinned",
                     "type": "boolean"
                 }
             ]
@@ -4672,6 +4904,115 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\Merchant": {
+            "name": "Merchant",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                },
+                {
+                    "name": "owner",
+                    "type": "User | null"
+                },
+                {
+                    "name": "staff",
+                    "type": "User[]"
+                },
+                {
+                    "name": "history_event",
+                    "type": "TrackingEvent | null"
+                },
+                {
+                    "name": "filing",
+                    "type": "Activity | null"
+                },
+                {
+                    "name": "alert",
+                    "type": "DatabaseNotification | null"
+                },
+                {
+                    "name": "registrar",
+                    "type": "Registrar | null"
+                },
+                {
+                    "name": "registrars",
+                    "type": "Registrar[]"
+                },
+                {
+                    "name": "suppliers",
+                    "type": "Supplier[]"
+                },
+                {
+                    "name": "owner_count",
+                    "type": "number"
+                },
+                {
+                    "name": "staff_count",
+                    "type": "number"
+                },
+                {
+                    "name": "history_event_count",
+                    "type": "number"
+                },
+                {
+                    "name": "filing_count",
+                    "type": "number"
+                },
+                {
+                    "name": "alert_count",
+                    "type": "number"
+                },
+                {
+                    "name": "registrar_count",
+                    "type": "number"
+                },
+                {
+                    "name": "registrars_count",
+                    "type": "number"
+                },
+                {
+                    "name": "suppliers_count",
+                    "type": "number"
+                },
+                {
+                    "name": "owner_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "staff_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "history_event_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "filing_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "alert_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "registrar_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "registrars_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "suppliers_exists",
+                    "type": "boolean"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\ModelWithNestedTraitExtends": {
             "name": "ModelWithNestedTraitExtends",
             "properties": [
@@ -4997,6 +5338,10 @@
                 {
                     "name": "formatted_total",
                     "type": "string"
+                },
+                {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null"
                 },
                 {
                     "name": "tracking_code",
@@ -5730,6 +6075,19 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\Registrar": {
+            "name": "Registrar",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\Sales\\Report\\Report": {
             "name": "Report",
             "properties": [
@@ -5987,6 +6345,19 @@
                 }
             ]
         },
+        "Workbench\\App\\Models\\Supplier": {
+            "name": "Supplier",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number"
+                },
+                {
+                    "name": "name",
+                    "type": "string"
+                }
+            ]
+        },
         "Workbench\\App\\Models\\Tag": {
             "name": "Tag",
             "properties": [
@@ -6215,7 +6586,7 @@
                 },
                 {
                     "name": "week_days",
-                    "type": "StatusType[] | null"
+                    "type": "WeekDaysType[] | null"
                 },
                 {
                     "name": "grid_configs",
@@ -6234,7 +6605,15 @@
                     "type": "number"
                 },
                 {
+                    "name": "status_history",
+                    "type": "StatusType[]"
+                },
+                {
                     "name": "owner",
+                    "type": "User"
+                },
+                {
+                    "name": "map",
                     "type": "User"
                 },
                 {
@@ -6246,11 +6625,19 @@
                     "type": "number"
                 },
                 {
+                    "name": "map_count",
+                    "type": "number"
+                },
+                {
                     "name": "members_count",
                     "type": "number"
                 },
                 {
                     "name": "owner_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "map_exists",
                     "type": "boolean"
                 },
                 {
@@ -6665,6 +7052,10 @@
                 {
                     "name": "last_user_activity_by",
                     "type": "CrmUser | ManagerUser | null"
+                },
+                {
+                    "name": "last_checked_by",
+                    "type": "Image | ManagerUser | null"
                 },
                 {
                     "name": "last_user_activity_by_typed",
@@ -7723,6 +8114,21 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\CaseSpreadResource": {
+            "name": "CaseSpreadResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "case_title",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\CategoryResource": {
             "name": "CategoryResource",
             "properties": [
@@ -7846,6 +8252,101 @@
         "Workbench\\App\\Http\\Resources\\ChildSharedResource": {
             "name": "ChildSharedResource",
             "properties": []
+        },
+        "Workbench\\App\\Http\\Resources\\ClassConstantResource": {
+            "name": "ClassConstantResource",
+            "properties": [
+                {
+                    "name": "owner_minimum_channels",
+                    "type": "{ in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } }",
+                    "optional": false
+                },
+                {
+                    "name": "max_retries",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "schema_version",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "base_version",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "default_status",
+                    "type": "StatusType",
+                    "optional": false
+                },
+                {
+                    "name": "fallback_channels",
+                    "type": "{ in_app: { status_updates: boolean; comments: boolean }; digest: { status_updates: boolean; comments: boolean } }",
+                    "optional": false
+                },
+                {
+                    "name": "channel_tags",
+                    "type": "string[]",
+                    "optional": false
+                },
+                {
+                    "name": "mixed_tags",
+                    "type": "(string | number)[]",
+                    "optional": false
+                },
+                {
+                    "name": "nested_tags",
+                    "type": "{ primary: string[]; secondary: string[] }",
+                    "optional": false
+                },
+                {
+                    "name": "broken_channels",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "over_element_limit",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "over_depth_limit",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
+                    "name": "status_map",
+                    "type": "{ status: OrderStatusType }",
+                    "optional": false
+                },
+                {
+                    "name": "status_list",
+                    "type": "OrderStatusType[]",
+                    "optional": false
+                },
+                {
+                    "name": "all_int_keys",
+                    "type": "Record<string, unknown>",
+                    "optional": false
+                },
+                {
+                    "name": "mixed_keys",
+                    "type": "{ a: number }",
+                    "optional": false
+                },
+                {
+                    "name": "resource_marker",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "status_marker",
+                    "type": "AsEnum<typeof Status>",
+                    "optional": false
+                }
+            ]
         },
         "Workbench\\App\\Http\\Resources\\ClosureControlFlowResource": {
             "name": "ClosureControlFlowResource",
@@ -8261,6 +8762,21 @@
                     "optional": false
                 },
                 {
+                    "name": "transform_with_one_param_default",
+                    "type": "boolean | number",
+                    "optional": false
+                },
+                {
+                    "name": "unless_user_resource",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "transform_user_resource",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
                     "name": "merge_unless_label",
                     "type": "string",
                     "optional": true
@@ -8294,6 +8810,11 @@
                     "name": "notes_when_null",
                     "type": "null | string",
                     "optional": false
+                },
+                {
+                    "name": "flagged_notes_present",
+                    "type": "(string | null)[]",
+                    "optional": true
                 }
             ]
         },
@@ -8447,6 +8968,16 @@
                 },
                 {
                     "name": "notes_length",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "notes_length_or_default",
+                    "type": "string | number",
+                    "optional": false
+                },
+                {
+                    "name": "notes_length_variadic_default",
                     "type": "string | number",
                     "optional": false
                 }
@@ -8810,6 +9341,56 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\EnumCollectionResource": {
+            "name": "EnumCollectionResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "status_history",
+                    "type": "AsEnum<typeof Status>[]",
+                    "optional": false
+                },
+                {
+                    "name": "week_days",
+                    "type": "AsEnum<typeof WeekDays>[] | null",
+                    "optional": false
+                },
+                {
+                    "name": "wrapped_week_days",
+                    "type": "{ week_days: AsEnum<typeof WeekDays>[] | null }",
+                    "optional": false
+                },
+                {
+                    "name": "week_days_when_has",
+                    "type": "AsEnum<typeof WeekDays>[] | null",
+                    "optional": true
+                },
+                {
+                    "name": "week_days_when_has_default",
+                    "type": "AsEnum<typeof WeekDays>[] | null | string",
+                    "optional": false
+                },
+                {
+                    "name": "status_history_when_appended",
+                    "type": "AsEnum<typeof Status>[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_via_var",
+                    "type": "AsEnum<typeof Role>[]",
+                    "optional": true
+                },
+                {
+                    "name": "member_role_snapshot",
+                    "type": "({ role: RoleType | null })[]",
+                    "optional": true
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\EnumNullFirstResource": {
             "name": "EnumNullFirstResource",
             "properties": [
@@ -8902,6 +9483,51 @@
                     "name": "extra_field",
                     "type": "string",
                     "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\FluentSelfResource": {
+            "name": "FluentSelfResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "parent_fluent",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_fluent_make",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_fluent_chain",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_fluent_docblock",
+                    "type": "FluentSelfResource",
+                    "optional": true
+                },
+                {
+                    "name": "parent_summary",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "parent_fluent_nullable",
+                    "type": "FluentSelfResource | null",
+                    "optional": true
                 }
             ]
         },
@@ -9380,6 +10006,21 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\MapRelationFilterResource": {
+            "name": "MapRelationFilterResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "map",
+                    "type": "Pick<User, 'id' | 'name'>",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\MediaTypeInstanceOfResource": {
             "name": "MediaTypeInstanceOfResource",
             "properties": [
@@ -9465,6 +10106,91 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\MerchantResource": {
+            "name": "MerchantResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "owner_via_closure",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "owner_explicit",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "owner_variant_constant",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "owner_direct",
+                    "type": "UserResource",
+                    "optional": false
+                },
+                {
+                    "name": "staff_via_closure",
+                    "type": "UserResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "staff_explicit",
+                    "type": "UserResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "history_event",
+                    "type": "EventLogResource",
+                    "optional": true
+                },
+                {
+                    "name": "filing",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "alert",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "registrar",
+                    "type": "RegistrarResource",
+                    "optional": true
+                },
+                {
+                    "name": "registrars",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "suppliers",
+                    "type": "SupplierSummaryResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "staff_map_only",
+                    "type": "({ id: number; name: string; role: RoleType | null; last_login_at: string | null })[]",
+                    "optional": true
+                },
+                {
+                    "name": "registrars_map_except",
+                    "type": "{ name: string }[]",
+                    "optional": true
+                },
+                {
+                    "name": "history_event_map_only",
+                    "type": "unknown",
+                    "optional": true
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\MergeClosureResource": {
             "name": "MergeClosureResource",
             "properties": [
@@ -9537,6 +10263,51 @@
                     "name": "name",
                     "type": "string",
                     "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\NestedResourceSpreadResource": {
+            "name": "NestedResourceSpreadResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "members_with_profile",
+                    "type": "(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_bare",
+                    "type": "UserResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_model_spread",
+                    "type": "{ flag: boolean }[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_double_spread",
+                    "type": "(Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_with_profile_untyped",
+                    "type": "(Omit<UserResource, 'profile'> & { profile: ProfileResource })[]",
+                    "optional": true
+                },
+                {
+                    "name": "owner_map_untyped",
+                    "type": "unknown",
+                    "optional": true
+                },
+                {
+                    "name": "members_colliding_spread",
+                    "type": "(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]",
+                    "optional": true
                 }
             ]
         },
@@ -9800,6 +10571,11 @@
                 {
                     "name": "formatted_total",
                     "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null",
                     "optional": false
                 },
                 {
@@ -10272,6 +11048,10 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysFlatCollection": {
+            "name": "PreserveKeysFlatCollection",
+            "typeAlias": "Record<string, TeamResource>"
+        },
         "Workbench\\App\\Http\\Resources\\PreserveKeysPropertyCollection": {
             "name": "PreserveKeysPropertyCollection",
             "properties": [
@@ -10279,6 +11059,56 @@
                     "name": "data",
                     "type": "Record<string, TeamResource>",
                     "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\PreserveKeysTeamResource": {
+            "name": "PreserveKeysTeamResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "slug",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "description",
+                    "type": "string | null",
+                    "optional": true
+                },
+                {
+                    "name": "is_active",
+                    "type": "boolean",
+                    "optional": false
+                },
+                {
+                    "name": "owner",
+                    "type": "UserResource",
+                    "optional": true
+                },
+                {
+                    "name": "members",
+                    "type": "TeamMemberResource[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_count",
+                    "type": "number",
+                    "optional": true
+                },
+                {
+                    "name": "settings",
+                    "type": "Record<string, unknown> | null",
+                    "optional": true
                 }
             ]
         },
@@ -10521,6 +11351,11 @@
                     "optional": false
                 },
                 {
+                    "name": "fcc_enum_collection",
+                    "type": "unknown",
+                    "optional": false
+                },
+                {
                     "name": "not_enum",
                     "type": "unknown",
                     "optional": false
@@ -10567,6 +11402,36 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\Registrar": {
+            "name": "Registrar",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\RegistrarGroupCollection": {
+            "name": "RegistrarGroupCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "unknown",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\RegistrarResource": {
+            "name": "RegistrarResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\RelationChainResource": {
             "name": "RelationChainResource",
             "properties": [
@@ -10586,6 +11451,11 @@
                     "optional": false
                 },
                 {
+                    "name": "member_map_only",
+                    "type": "({ id: number; role: RoleType | null })[]",
+                    "optional": false
+                },
+                {
                     "name": "member_emails",
                     "type": "string[]",
                     "optional": false
@@ -10597,7 +11467,17 @@
                 },
                 {
                     "name": "member_role_resources",
-                    "type": "RoleType[]",
+                    "type": "AsEnum<typeof Role>[]",
+                    "optional": false
+                },
+                {
+                    "name": "member_role_resources_filtered",
+                    "type": "AsEnum<typeof Role>[] | Record<string, AsEnum<typeof Role>>",
+                    "optional": false
+                },
+                {
+                    "name": "wrapped_filtered",
+                    "type": "{ roles: RoleType[] | Record<string, RoleType> }",
                     "optional": false
                 },
                 {
@@ -10648,6 +11528,11 @@
                 {
                     "name": "members_tail",
                     "type": "User[] | Record<string, User>",
+                    "optional": false
+                },
+                {
+                    "name": "members_tail_values",
+                    "type": "User[]",
                     "optional": false
                 },
                 {
@@ -11260,6 +12145,11 @@
                     "optional": false
                 },
                 {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null",
+                    "optional": false
+                },
+                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -11455,6 +12345,11 @@
                     "optional": false
                 },
                 {
+                    "name": "flagged_notes",
+                    "type": "(string | null)[] | null",
+                    "optional": false
+                },
+                {
                     "name": "tracking_code",
                     "type": "string | null",
                     "optional": false
@@ -11607,6 +12502,36 @@
                 {
                     "name": "summaries",
                     "type": "{ key: string; label: string }[]",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\SupplierCollection": {
+            "name": "SupplierCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "SupplierSummaryResource[]",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\SupplierResource": {
+            "name": "SupplierResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\SupplierSummaryResource": {
+            "name": "SupplierSummaryResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
                     "optional": false
                 }
             ]
@@ -11775,6 +12700,11 @@
                     "optional": false
                 },
                 {
+                    "name": "status_type_or_resource",
+                    "type": "AsEnum<typeof Status> | StatusType",
+                    "optional": false
+                },
+                {
                     "name": "status_or_visibility",
                     "type": "AsEnum<typeof Status> | AsEnum<typeof Visibility> | null",
                     "optional": false
@@ -11877,6 +12807,16 @@
                 {
                     "name": "coordinates",
                     "type": "GeoPoint",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\TrackingEventResource": {
+            "name": "TrackingEventResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
                     "optional": false
                 }
             ]
@@ -12347,6 +13287,11 @@
                 {
                     "name": "last_user_activity_by_mostly",
                     "type": "{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null; images: Image[] } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: Profile | null; posts: Post[]; comments: Comment[]; orders: Order[]; addresses: Address[]; teams: Team[]; ownedTeams: Team[]; images: Image[]; notifications: DatabaseNotification[] } | null",
+                    "optional": false
+                },
+                {
+                    "name": "last_checked_by_mostly",
+                    "type": "{ id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null; size_for_humans: string; is_landscape: boolean; aspect_ratio: string | null; extension: string | null; size: number; flexible_id: string | number | null; optional_label: string | null; status_from_docblock: EnumsStatusType | null; uploader_from_docblock: ModelsUser | null; config_from_docblock: MenuSettingsType; data_from_docblock: { title: string; weight: number | null }; uploaders_from_docblock: ModelsUser[] | Record<string, ModelsUser>; uploaders_from_docblock_int: ModelsUser[]; uploaders_from_docblock_string: Record<string, ModelsUser>; tree_from_docblock: { label: string; child: unknown[] }; price_from_docblock: { amount: number; currency: string }; label_from_docblock: string; no_docblock_accessor: unknown; wrong_format_docblock: string | null; positive_int_accessor: number; numeric_string_accessor: string } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null; initials: string; is_premium: boolean; profile: Profile | null; posts: Post[]; comments: Comment[]; orders: Order[]; addresses: Address[]; teams: Team[]; ownedTeams: Team[]; images: Image[]; notifications: DatabaseNotification[] } | null",
                     "optional": false
                 }
             ]

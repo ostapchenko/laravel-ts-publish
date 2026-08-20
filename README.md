@@ -433,7 +433,7 @@ import type { StorePostRequest } from '@js/types/data/form-requests';
 
 Key capabilities:
 
-- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type. `required_array_keys:a,b`, `in_array_keys:a,b`, and `array:a,b` name an array's keys without a full nested shape, resolving to a keyed object (`config: { timezone?: unknown }`) instead of `unknown[]`.
+- **Rule-aware type inference** — scalar, array, `in:`/`Rule::in()`, `Rule::enum()`, `Rule::anyOf()`, file, and dozens of other rules resolve to the matching TypeScript type. `required_array_keys:a,b`, `in_array_keys:a,b`, `array:a,b`, and `array_keys:a,b` name an array's keys without a full nested shape, resolving to a keyed object (`config: { timezone?: unknown }`) instead of `unknown[]`.
 - **Nested/wildcard composition** — `parent.*.child` and `parent.child` dot-notation rules compose recursively into their nearest undotted ancestor (`tags.*` → `tags: string[]`, `order.items.*.sku` → `order?: { items?: { sku: string }[] }`) instead of surviving as separate flat, quoted keys. Declaring the parent's own rules (e.g. `'order' => ['required', 'array']`) makes the composed key required instead of optional.
 - **Presence & nullability** — `required`/`sometimes` control whether a field is optional (`?`), `nullable` adds `| null`, and `missing`/`prohibited` fields are excluded from the interface entirely.
 - **`#[TsCasts]`** — override or add field types on the request class itself, the same attribute used by models and resources.
@@ -552,6 +552,7 @@ Key capabilities:
 - **`#[TsCasts]` / `@return` docblock overrides** — override or add types for keys Surveyor can't infer on its own, the same `#[TsCasts]` attribute used everywhere else in the package.
 - **`errorValueType`** — automatically added to the augmentation when the middleware's `$withAllErrors` property is `true`, matching Inertia's validation error bag shape.
 - **Route-linked page props** — a related but separate piece: a controller action's `Inertia::render()` call gets its own page-prop type that intersects with `Inertia.SharedData`, threaded into that route's generated file automatically. See [Inertia Integration](https://tolki.abe.dev/ts/routing.html#inertia-integration) in the Routing docs.
+- **Preserve-keys resource collections** — a paginated `Inertia::render()` prop backed by a `#[PreserveKeys]`/`$preserveKeys` resource collection types its `data` member as `Record<string, T>`, matching Laravel's key-preserving JSON shape instead of the default array.
 
 For the full middleware discovery rules, the type-override priority order, and the generated file anatomy, see the full [Inertia documentation](https://tolki.abe.dev/ts/inertia.html).
 

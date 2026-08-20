@@ -1,3 +1,4 @@
+export { default as AttributeRouteKeyController } from './attribute-route-key-controller';
 export { default as CustomKeyController } from './custom-key-controller';
 export { default as CustomKeyNameController } from './custom-key-name-controller';
 export { default as CustomRouteKeyController } from './custom-route-key-controller';
@@ -11,6 +12,7 @@ export { default as InertiaController } from './inertia-controller';
 export { default as InertiaFormRequestController } from './inertia-form-request-controller';
 export { default as InertiaNamedCollectionsController } from './inertia-named-collections-controller';
 export { default as InertiaPaginationsController } from './inertia-paginations-controller';
+export { default as InertiaPreserveKeysController } from './inertia-preserve-keys-controller';
 export { default as InertiaResourceSharedTemplate } from './inertia-resource-shared-template';
 export { default as InertiaSingleResourceController } from './inertia-single-resource-controller';
 export { default as InertiaTsCastsController } from './inertia-ts-casts-controller';

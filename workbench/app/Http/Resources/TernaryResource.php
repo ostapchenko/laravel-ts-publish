@@ -56,6 +56,15 @@ class TernaryResource extends JsonResource
                 ? EnumResource::make($this->status)
                 : $this->status,
 
+            // ── Enum type vs enum resource (reversed arm order) ────────────
+            // Same pair as status_resource_or_type with the ternary arms swapped. Source arm order
+            // does not affect the emitted union: ResourceTransformer::rewriteEnumResourceTypes()
+            // normalizes both properties to `AsEnum<typeof Status> | StatusType`. The reversed-pair
+            // fold in rewriteAsEnumToType() is covered by its own unit test, not by this fixture.
+            'status_type_or_resource' => $this->is_pinned
+                ? $this->status
+                : EnumResource::make($this->status),
+
             // ── Enum resource vs enum resource (different classes) ─────────
             // Branches resolve to two different enum types.
             // Expected TypeScript: AsEnum<typeof Status> | AsEnum<typeof Visibility> union.

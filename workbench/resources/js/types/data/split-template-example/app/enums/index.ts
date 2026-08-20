@@ -10,3 +10,4 @@ export * from './role';
 export * from './season';
 export * from './status';
 export * from './visibility';
+export * from './week-days';

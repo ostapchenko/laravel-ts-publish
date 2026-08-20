@@ -140,6 +140,20 @@ class UtilityRulesRequest extends FormRequest
             // sometimes — only validated when present in the input
             'optional_preference' => ['sometimes', 'string', 'in:light,dark,system'],
 
+            // A sibling `integer` rule signals the field is numeric, so string-form `in:1,2,3` params
+            // (always strings per ValidationRuleParser::parse()) must emit unquoted numeric literals —
+            // matching what `Rule::in([1, 2, 3])` emits for the same field.
+            'priority_level' => ['required', 'integer', 'in:1,2,3'],
+
+            // Contrast: a declared `string` field keeps its `in:1,2,3` params quoted, since nothing here
+            // says the values are meant as numbers.
+            'legacy_code' => ['required', 'string', 'in:1,2,3'],
+
+            // A padded/reformatted param ('007' -> 7, '2.50' -> 2.5) must stay quoted even on a numeric
+            // field: Laravel's validateIn() compares (string) $value against the literal param text, so
+            // an unquoted, renormalized literal would describe a value the validator actually rejects.
+            'padded_numeric_code' => ['required', 'numeric', 'in:007,2.50'],
+
             // Helper fields referenced by other rules above
             'is_authenticated' => ['required', 'boolean'],
             'role' => ['required', 'string', 'in:user,admin,moderator'],
