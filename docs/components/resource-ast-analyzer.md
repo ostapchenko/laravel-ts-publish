@@ -256,13 +256,38 @@ every arm that names the enum and leaving the rest of the union untouched.
 
 The other branch of `analyzeRelationFilter()` — an accessor typed as a union of two or more
 Eloquent models, e.g. `Attribute<CrmUser|User, never>` — is left on the pre-existing inline
-expansion entirely. Each union member's `Pick`/`Omit` reference would need its own
-alias-correct import (two models can share a basename across namespaces, as `CrmUser`/`User`
-do in the workbench fixtures), and the FQCN-dispatch channel `analyzeRelationFilter()` already
-has (`embeddedModelFqcns`, self-keyed by FQCN) does not carry the per-property association
-needed to alias-rewrite each member's reference correctly. Extending Pick/Omit to this branch
-is possible but requires new per-property import plumbing — tracked as follow-up work, not
-part of this feature.
+expansion entirely. Nothing *rejects* a union: `relationFilterModelReference()` is only called
+below the `$modelFqcn === null` guard, and that guard is precisely what diverts a multi-model
+receiver into the accessor-union loop. The `Pick`/`Omit` builder is unreachable from that
+branch rather than declined by it.
+
+Staying inline costs real fidelity, so this is a gap rather than a preference. The inline path
+re-derives each column's type and loses the `#[TsCasts]` refinements a model reference keeps by
+construction: `WarehouseResource::$last_user_activity_by_mostly` emits `options: unknown[] | null`
+and `settings: unknown[] | null` where the `User` model interface declares
+`Record<string, unknown> | null` and a full `{ theme; notifications; locale }` object shape.
+
+What blocks the fix is **not** import plumbing — an earlier version of this section said it was,
+and that was never accurate. `embeddedModelFqcns` is accumulated per property name by
+`analyzeRelationFilter()`'s caller, and `LaravelTsPublish::aliasPropertyType()` already rewrites
+each same-basename occurrence within a single property. The real obstacles are three:
+
+- **`Omit<Model, …>` is template-dependent; the inline expansion is not.** Under the `model-full`
+  template the bare model interface also carries mutators, relations, counts and exists, so a
+  reference re-widens exactly what the runtime-faithful `except()` expansion narrowed to database
+  columns. A model declaring `$appends` has the same problem under every template.
+- **The test pinning "columns only" would stop testing it.** `ResourceTransformerTest` asserts
+  `not->toContain('images: Image[]')` against the emitted type *string*. `Omit<User, 'id' | 'name'>`
+  names no members, so that assertion passes vacuously while the type genuinely spans them — the
+  guarantee would retire silently instead of failing.
+- **The union loop dedupes by rendered type.** `relationFilterModelReference()` renders
+  `class_basename()`, so two models sharing a basename collapse to one string and the dedupe drops
+  the second arm — together with the FQCN push that would have registered its import.
+
+`only()` is a separate case with nothing to gain: `Pick<A, K> | Pick<B, K>` is type-identical to
+the inline object the union loop already emits. Only `except()` would benefit, and only once the
+template-dependence is resolved. Tracked with a full fix shape in the analyzer-followups plan's
+Out of Scope section.
 
 ## Variable bindings
 
