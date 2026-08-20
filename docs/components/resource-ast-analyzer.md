@@ -281,18 +281,20 @@ each same-basename occurrence within a single property. The real obstacles are t
   see [When a Pick reference is emitted](#when-a-pick-reference-is-emitted) above. That removes
   this obstacle for the single-model path; extending the same reference into the union loop below
   is Task 12 in the analyzer-backlog plan, and is still blocked by the next two bullets.
-- **The test pinning "columns only" would stop testing it.** `ResourceTransformerTest` asserts
-  `not->toContain('images: Image[]')` against the emitted type *string*. `Omit<User, 'id' | 'name'>`
-  names no members, so that assertion passes vacuously while the type genuinely spans them — the
-  guarantee would retire silently instead of failing.
+- **Resolved: the test pinning "columns only" no longer retires silently.** `ResourceTransformerTest`
+  used to assert `not->toContain('images: Image[]')` against the emitted type *string*, which
+  `Omit<User, 'id' | 'name'>` passes vacuously — no member names, so the check never fails. It now
+  splits the union with `splitTopLevelType()` and reads each arm's members through
+  `relationFilterArmMembers()`, which **throws** on a model-reference arm instead of returning `[]`.
+  A future `Pick<>`/`Omit<>` arm fails the test loudly, forcing an update, not a silent pass.
 - **The union loop dedupes by rendered type.** `relationFilterModelReference()` renders
   `class_basename()`, so two models sharing a basename collapse to one string and the dedupe drops
   the second arm — together with the FQCN push that would have registered its import.
 
 `only()` is a separate case with nothing to gain: `Pick<A, K> | Pick<B, K>` is type-identical to
 the inline object the union loop already emits. `except()` is the one that would benefit, and its
-template-dependence blocker is now resolved (see above) — the remaining test-vacuity and dedupe
-obstacles are Task 12 in `docs/superpowers/plans/2026-08-20-analyzer-backlog.md`.
+template-dependence and test-vacuity blockers are now resolved (see above) — the remaining dedupe
+obstacle is Task 12 in `docs/superpowers/plans/2026-08-20-analyzer-backlog.md`.
 
 ## Variable bindings
 

@@ -63,6 +63,65 @@ use Workbench\Crm\Http\Resources\DealResource;
 use Workbench\Crm\Http\Resources\UserResource as CrmUserResource;
 use Workbench\Crm\Models\User as CrmUser;
 
+/**
+ * Split a union type string on top-level ' | ' only, so a union nested inside a member's own
+ * type (e.g. `role: RoleType | null`) is never mistaken for a top-level arm boundary.
+ *
+ * @return list<string>
+ */
+function splitTopLevelType(string $type): array
+{
+    $arms = [];
+    $current = '';
+    $depth = 0;
+
+    for ($i = 0, $length = strlen($type); $i < $length; $i++) {
+        $char = $type[$i];
+        $depth += (int) ($char === '{' || $char === '<') - (int) ($char === '}' || $char === '>');
+
+        if ($depth === 0 && substr($type, $i, 3) === ' | ') {
+            $arms[] = $current;
+            $current = '';
+            $i += 2;
+
+            continue;
+        }
+
+        $current .= $char;
+    }
+
+    $arms[] = $current;
+
+    return $arms;
+}
+
+/**
+ * Extract member names from one inline-object union arm. Throws on a model reference such as
+ * `Pick<User, …>`, whose member set cannot be derived from the type string: returning an empty
+ * list instead would make the caller's "does not contain member X" assertions pass vacuously.
+ *
+ * @return list<string>
+ */
+function relationFilterArmMembers(string $arm): array
+{
+    $arm = trim($arm);
+
+    if (! str_starts_with($arm, '{')) {
+        throw new RuntimeException("Cannot derive members from a model reference arm: {$arm}");
+    }
+
+    $inner = trim(substr($arm, 1, -1));
+
+    if ($inner === '') {
+        return [];
+    }
+
+    return array_map(
+        fn (string $member): string => trim(explode(':', $member, 2)[0]),
+        explode('; ', $inner)
+    );
+}
+
 describe('ResourceTransformer with PostResource', function () {
     test('resolves model class from @mixin docblock', function () {
         $data = (new ResourceTransformer(PostResource::class))->data();
@@ -1446,9 +1505,17 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->not->toBe('unknown')
             ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null }')
             ->toContain('{ email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null }')
-            ->not->toContain('images: Image[]')
-            ->not->toContain('initials: string')
             ->toEndWith('| null');
+
+        // Member-level, not substring: relationFilterArmMembers() throws on a model-reference arm
+        // instead of returning [], so a future Pick<>/Omit<> arm fails this loudly, not silently.
+        $arms = array_filter(splitTopLevelType($type), fn (string $arm): bool => trim($arm) !== 'null');
+
+        foreach ($arms as $arm) {
+            expect(relationFilterArmMembers($arm))
+                ->not->toContain('images')
+                ->not->toContain('initials');
+        }
     });
 
     test('accessor returning a union of two enum types produces correct aliased type', function () {
