@@ -89,7 +89,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Find props of the form `'key' => new SomeResource($paginatedVar)`.
+     * Find props of the form `'key' => new SomeResource($paginatedVar)` or `new SomeResource(Model::paginate())`.
      *
      * @return array<string, class-string<object>> prop key => resource FQCN
      */
@@ -107,7 +107,7 @@ class ControllerPaginatorAnalyzer
     }
 
     /**
-     * Find props of the form `'key' => SomeResource::collection($paginatedVar)`.
+     * Find props of the form `'key' => SomeResource::collection($paginatedVar)` or `::collection(Model::paginate())`.
      *
      * @return array<string, class-string> prop key => resource FQCN
      */

@@ -326,7 +326,10 @@ describe('FormRequestRulesAnalyzer', function () {
             expect($tier->tsType)->toBe('1.5 | 2.5');
         });
 
-        it('a padded decimal in: param stays quoted even with a numeric sibling rule', function () {
+        // Guard, not a discriminator: this also passes with fieldIsNumeric() reverted to integer/int/numeric,
+        // where `decimal` stops counting and the params stay quoted for the other reason. The two tests above
+        // are what pin the widened list. This pins that padding survives whichever list is in force.
+        it('a padded decimal in: param stays quoted whichever rules count as numeric', function () {
             $analyzer = new FormRequestRulesAnalyzer;
             $nodes = $analyzer->analyze(UtilityRulesRequest::class);
 

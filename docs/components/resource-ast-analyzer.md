@@ -790,8 +790,17 @@ stays ungated on purpose — an explicitly named resource is a declaration, not 
 
 - the explicit-argument arms of `analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`
 - `resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
-- `collectedResourceClass()`, whose answer comes from `#[Collects]`/`$collects` or from a
-  `{X}Collection` → `{X}Resource` step rooted in a collection class its caller already accepted
+- `collectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the `$collects`
+  property default
+
+`collectedResourceClass()`'s **third** branch is the exception to that rule, and a known gap rather
+than a declaration. The `{X}Collection` → `{X}Resource` naming-convention step *invents* a name — the
+exact property this section opens by attributing to convention branches alone — and is **not** gated on
+`PublishedResourceRegistry`. Being rooted in a collection class the caller already accepted says
+nothing about whether the guessed *element* resource is one this run will emit, so it can still name a
+third-party or `#[TsExclude]`d class and produce the TS2307 this section exists to prevent. Gating it
+is a recorded follow-up; it is called out here so the ungated set is not misread as three deliberate
+declarations.
 
 ### The registry fails open, and `RunnerForSource` depends on it
 
@@ -891,10 +900,13 @@ only enum/model reference when that reference sits inside an inline array litera
 emitting a type token with no import.
 
 It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `syncAnalysisMaps()` never
-touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule —
-`analyzeReturnArray()` never sets either field, so every branch reaching this method already has
-both null; only `buildCollectionDelegatedAnalysis()` sets them, and it returns directly without
-going through branch merging.
+touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule, and the
+argument has to cover **both** callers. `analyzeAllReturnBranches()` builds its branches with
+`analyzeReturnArray()`; `resolveArrayOrClosureToProperties()` — the `merge()`/`mergeWhen()` path, which
+merges a multi-return closure's branches — builds its own with `extractPropertiesFromArray()`. Neither
+builder ever sets either field, so every branch reaching this method already has both null. Only
+`buildCollectionDelegatedAnalysis()` sets them, and it returns directly without going through branch
+merging.
 
 ## Resource inheritance: a subclass with no `toArray()` of its own
 

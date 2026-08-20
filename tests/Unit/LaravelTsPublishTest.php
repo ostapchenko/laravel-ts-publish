@@ -1093,7 +1093,9 @@ describe('aliasPropertyType', function () {
         ))->toBe('AppUser | UserProfile | Users');
     });
 
-    // Longest-first alternation: a shorter name that prefixes a longer one must not claim its match.
+    // The trailing (?![A-Za-z0-9_$]) is what stops `User` claiming `UserProfile`: it fails on the `P` and
+    // PCRE backtracks into the longer alternative. Passes with the longest-first usort deleted, so this
+    // guards the outcome, not that sort — the sort is defensive only.
     test('a longer registered name is not shadowed by a shorter one that prefixes it', function () use ($nameMap) {
         expect($this->service->aliasPropertyType(
             'UserProfile | User',

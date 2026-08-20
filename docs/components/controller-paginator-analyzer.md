@@ -18,16 +18,22 @@ class-string, not a `ReflectionClass` — and exposes three methods, all consume
 
 1. **`analyze(): array<string, class-string>`** — prop key => model FQCN for a bare-variable prop
    (`'posts' => $posts`) whose variable was itself assigned from a paginator call, plus prop key =>
-   resource FQCN for a `SomeResource::collection($x)` prop whose argument is *not* a paginated
-   variable.
+   resource FQCN for a `SomeResource::collection($x)` prop that `resolveStaticCollectionProps()`
+   classified as `nonPaginated`. That predicate has two disjuncts, not one: the argument is neither a
+   `Variable` present in `$varModelMap` **nor** an expression `resolveInlinePaginatorModel()` resolves.
+   `InertiaPreserveKeysController::anonymousInlinePaginated()` is the live counterexample to reading
+   it as "not a paginated variable" — `PreserveKeysTeamResource::collection(Team::query()->paginate(10))`
+   passes no variable at all, and still lands in `paginated`.
 2. **`analyzePaginatedResourceProps(): array<string, class-string<object>>`** — prop key =>
-   resource FQCN for `'key' => new SomeResource($paginated)` constructor props.
+   resource FQCN for `'key' => new SomeResource($paginated)` constructor props, where `$paginated`
+   is either a paginated variable or an inline paginator call.
 3. **`analyzePaginatedStaticCollectionProps(): array<string, class-string>`** — prop key =>
-   resource FQCN for `'key' => SomeResource::collection($paginated)` props.
+   resource FQCN for `'key' => SomeResource::collection($paginated)` props, same two argument forms.
 
-All three share one cached method context (`buildMethodContext()`): the parsed `ClassMethod` AST,
-a `NodeFinder`, and `$varModelMap` — the variable-name => model FQCN map built once by
-`resolveVariableModels()`.
+All three share one method context: the parsed `ClassMethod` AST, a `NodeFinder`, and `$varModelMap`
+— the variable-name => model FQCN map built once by `resolveVariableModels()`. `buildMethodContext()`
+constructs it and caches nothing; the caching lives in `getMethodContext()`, which memoises the result
+in `$resolvedMethodContext` behind a `$methodContextBuilt` flag so a `null` context is cached too.
 
 ## `PAGINATOR_METHODS`
 

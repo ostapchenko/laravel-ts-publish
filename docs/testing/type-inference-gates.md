@@ -209,17 +209,45 @@ workers that re-read `php.ini`, so `php -d` on the parent process does not reach
   exists to prevent, documented under
   [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set).
 
-  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **60** of
-  them, and 59 are bare aliases — `@/types/audit`, `@js/types/settings`, `@workbench/types` and friends —
+  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **59** of
+  them, and 58 are bare aliases — `@/types/audit`, `@js/types/settings`, `@workbench/types` and friends —
   from app-side `custom_ts_mappings` and `#[TsType]`. Those are the same escape hatches behind the TS2304
   baseline: the consuming app declares the module, so the package cannot emit anything that resolves.
+  Re-measure before quoting these; the count moves whenever a fixture's imports change. It dropped from
+  60 when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
+  `warehouse-resource.ts` importing `@js/types/settings`.
 
   The open option is a **sub-gate scoped to relative specifiers only**. A `./`- or `../`-relative import
   inside the generated tree resolves against files this package itself writes, so it is never an app-side
   escape hatch. Exactly one exists today — `default-example/app/models/warehouse.ts` importing
   `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate`, which is also two of
-  the 14 TS2304s — so the sub-gate would need either that instance fixed or a baseline of 1. Real,
-  scoped work, deliberately left as a follow-up.
+  the **12** TS2304s — so the sub-gate would need either that instance fixed or a baseline of 1. (The
+  gate's baseline of 14 is not the TS2304 count: it is the combined TS2300/TS2304/TS2344/TS2552 total,
+  currently 0 + 12 + 0 + 2.) Real, scoped work, deliberately left as a follow-up.
+
+- **All Inertia page-props output is unguarded by `unknown-regression-gate.py`.** `PROP` is
+  `^\s*([A-Za-z_$][\w$]*)\??:\s*(.+?);\s*$` — it requires `identifier:`, a **colon**. Page props are
+  emitted as a single-line type alias, `export type NamedPageProps = Inertia.SharedData & { … };`, whose
+  separator is `=`. It never matches. Neither does `type SharedData = { … };` in `inertia-config.d.ts`.
+  Confirmed directly: `snapshot('HEAD')` returns **zero** keys for
+  `default-example/app/http/controllers/inertia-preserve-keys-controller.ts` — an entire generated file
+  the gate cannot see one property of. Both Inertia commits on this branch read `18372 == 18372` —
+  reproduce with `unknown-regression-gate.py ebf64698~1 ebf64698` and the same for `4aa22c62` — and it
+  was taken as evidence the change was safe. It was a no-op pass: those counts never included the output
+  that changed. Only the `sharedPageProps:` member inside `interface InertiaConfig` is captured, and
+  only as one whole-object string (see the next point).
+
+- **`PROP` is line-anchored, so an inline object is *one* property's type string.** Everything between
+  the first `:` and the trailing `;` on that line is a single opaque value. `WarehouseResource`'s
+  `last_checked_by_mostly` is one key whose value is a two-arm union of inline objects carrying close to
+  thirty members between them. Members can be added or removed with **zero** movement in the count and zero
+  comparison work — an entire semantic change can pass CI unobserved. Worse for the FAIL test itself,
+  which is `"unknown" not in b[k] and "unknown" in h[k]` over that whole string: `last_checked_by_mostly`
+  already contains `metadata: unknown[] | null`, so `"unknown" in b[k]` is *already* true and the key is
+  permanently excluded from the comparison. Any member inside it regressing to `unknown` is invisible.
+  The same holds for every inline object anywhere in the corpus that already carries one `unknown`.
+  Keying by `(file, scope, property)` buys nothing here, because the object's members are not properties
+  to this script — they are substrings.
 
 - **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
   is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,

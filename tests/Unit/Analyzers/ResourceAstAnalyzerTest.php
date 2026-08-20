@@ -613,6 +613,9 @@ describe('ResourceAstAnalyzer with a body-less subclass', function () {
             ->and($analysis->nestedResources)->toHaveKey('owner');
     });
 
+    // Outcome guard only: with no model passed the inherited analysis is already empty, so returning it or
+    // falling through both give []. The `properties !== []` conjunct is pinned by the body-less *collection*
+    // fixtures that need the fall-through to reach buildCollectionDelegatedAnalysis(); dropping it fails 9.
     test('an ancestor chain with no toArray() anywhere stays empty rather than borrowing a shape', function () {
         $analysis = (new ResourceAstAnalyzer(new ReflectionClass(ChildSharedResource::class)))->analyze();
 
@@ -5222,7 +5225,9 @@ test('relation except() expands to database columns only, matching Model::except
 });
 
 test('relation only() still resolves a named accessor and a named relation, unlike except()', function () {
-    // HasAttributes::only() calls getAttribute() per named key, so both do come back at runtime.
+    // HasAttributes::only() calls getAttribute() per named key, so both do come back at runtime. The
+    // columns-only change touched the $include === false branch only, so this cannot fail from it: it is a
+    // standing guard that the include branch keeps resolving accessors and relations, not proof of that fix.
     $analyzer = new class(new ReflectionClass(WarehouseResource::class), Warehouse::class) extends ResourceAstAnalyzer
     {
         /** @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: array<string, list<string>>} */
