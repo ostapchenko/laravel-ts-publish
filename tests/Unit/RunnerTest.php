@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaSharedDataAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Generators\EnumGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\ModelGenerator;
+use AbeTwoThree\LaravelTsPublish\Generators\ResourceGenerator;
 use AbeTwoThree\LaravelTsPublish\Runners\Runner;
+use Workbench\App\Http\Resources\Registrar as BareRegistrarResource;
+use Workbench\App\Http\Resources\RegistrarResource;
 use Workbench\Blog\Enums\ArticleStatus;
 use Workbench\Blog\Enums\ContentType;
 use Workbench\Blog\Models\Article;
@@ -433,4 +437,56 @@ test('runner skips broadcast events when shouldPublishBroadcastEvents is false',
     $runner->run();
 
     expect($runner->broadcastEventsIndexContent)->toBe('');
+});
+
+// ─── PublishedResourceRegistry run boundary ────────────────────────
+
+describe('PublishedResourceRegistry run boundary', function () {
+    test('a second run narrows the registry to its own collected set', function () {
+        $firstRunner = new Runner;
+        $firstRunner->run();
+
+        expect(PublishedResourceRegistry::isPublished(RegistrarResource::class))->toBeTrue();
+
+        config()->set('ts-publish.resources.excluded', [RegistrarResource::class]);
+
+        $secondRunner = new Runner;
+        $secondRunner->run();
+
+        expect(PublishedResourceRegistry::isPublished(RegistrarResource::class))->toBeFalse();
+    });
+
+    test('a run with shouldPublishResources false clears the previous run\'s set', function () {
+        $firstRunner = new Runner;
+        $firstRunner->run();
+
+        expect(PublishedResourceRegistry::isEmpty())->toBeFalse();
+
+        $secondRunner = new Runner;
+        $secondRunner->shouldPublishResources = false;
+        $secondRunner->run();
+
+        expect(PublishedResourceRegistry::isEmpty())->toBeTrue();
+    });
+
+    test('an excluded resource degrades a dependent property to unknown instead of naming an unemitted symbol', function () {
+        $firstRunner = new Runner;
+        $firstRunner->run();
+
+        // Both naming candidates for the Registrar model, so the convention loop has nothing
+        // left to fall through to and the property degrades to unknown rather than to Registrar.
+        config()->set('ts-publish.resources.excluded', [RegistrarResource::class, BareRegistrarResource::class]);
+
+        $secondRunner = new Runner;
+        $secondRunner->run();
+
+        $merchantGenerator = $secondRunner->resourceGenerators
+            ->first(fn (ResourceGenerator $generator): bool => $generator->filename() === 'merchant-resource');
+
+        expect($merchantGenerator)->toBeInstanceOf(ResourceGenerator::class);
+
+        expect($merchantGenerator->content)
+            ->toContain('registrar?: unknown;')
+            ->not->toContain('RegistrarResource');
+    });
 });

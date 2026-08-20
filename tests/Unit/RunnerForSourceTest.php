@@ -2,15 +2,19 @@
 
 declare(strict_types=1);
 
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Generators\BroadcastEventGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\EnumGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\ModelGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\ResourceGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\RouteGenerator;
+use AbeTwoThree\LaravelTsPublish\Runners\Runner;
 use AbeTwoThree\LaravelTsPublish\Runners\RunnerForSource;
 use Illuminate\Filesystem\Filesystem;
 
 use function Orchestra\Testbench\workbench_path;
+
+use Workbench\App\Http\Resources\UserResource;
 
 beforeEach(function () {
     config()->set('ts-publish.output_to_files', false);
@@ -186,3 +190,21 @@ test('throws when broadcast event publishing is disabled', function () {
     $runner->shouldPublishBroadcastEvents = false;
     $runner->run();
 })->throws(InvalidArgumentException::class, 'Broadcast event publishing is disabled');
+
+test('a --source run clears a full run\'s stale registry instead of narrowing against it', function () {
+    config()->set('ts-publish.resources.excluded', [UserResource::class]);
+
+    $fullRunner = new Runner;
+    $fullRunner->run();
+
+    expect(PublishedResourceRegistry::isPublished(UserResource::class))->toBeFalse();
+
+    $sourceRunner = new RunnerForSource('Workbench\App\Http\Resources\MerchantResource');
+    $sourceRunner->run();
+
+    expect($sourceRunner->resourceGenerators->first())->toBeInstanceOf(ResourceGenerator::class);
+
+    expect($sourceRunner->resourceGenerators->first()->content)
+        ->toContain('owner_via_closure?: UserResource;')
+        ->not->toContain('owner_via_closure?: unknown;');
+});

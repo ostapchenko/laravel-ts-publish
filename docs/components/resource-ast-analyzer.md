@@ -831,9 +831,30 @@ declarations.
 
 An empty registry means "no information", so `isPublished()` returns `true` for every class. That is a
 contract, not a convenience: `RunnerForSource` handles a single FQCN and never resolves a collector, so it
-never reaches `PublishedResourceRegistry::register()` and a `ts:publish --source=…` regeneration analyzes
-with the registry empty. Failing closed there would silently strip every nested resource reference out of
-the regenerated file.
+never reaches `PublishedResourceRegistry::register()`. A `ts:publish --source=…` regeneration must still
+analyze against an empty registry even in the same process as an earlier full run — otherwise a leftover
+set from that run narrows this run's own convention guess and a real type silently collapses to `unknown`.
+Failing closed there would also silently strip every nested resource reference out of the regenerated file.
+
+### Both runners reset the registry at the top of `run()`, once per run
+
+`PublishedResourceRegistry` means *this run*, not "every run since the process started". Both concrete
+runners enforce that as the first statement of `run()`: `Runner::run()` calls
+`PublishedResourceRegistry::reset()` before doing anything else, and `RunnerForSource::run()` does the
+same — its own reset, not a side effect of skipping `register()`.
+
+Placement matters. `Runner::generateResources()` returns early, before it would otherwise call
+`register()`, whenever `shouldPublishResources` is `false` (see "Populated once, before the generate
+loop" below). A reset placed next to that `register()` call would never run on a resources-disabled run,
+so the registry would still hold the *previous* run's set — the wrong kind of narrowing, not the
+intended "allow everything" of an empty registry. Resetting at the top of `run()` instead means a
+resources-disabled run reaches every convention-guessed resource unfiltered, exactly like the
+single-FQCN `RunnerForSource` path above, rather than being gated by stale state.
+
+This also closes the other direction: two full `Runner::run()` calls in one process, the second with a
+narrower `ts-publish.resources.excluded`, no longer leave the first run's classes registered — a
+resource the second run does not emit is no longer imported by that run's output, which would otherwise
+name a symbol `BarrelWriter::writeModular()`'s rebuilt `index.ts` does not export.
 
 ### Populated once, before the generate loop
 
@@ -848,7 +869,9 @@ The registry is process-static, in the shape of `DependencyRecorder` and `Output
 collector is `resolve()`d per call rather than bound as a singleton (the service provider registers only
 `ModelAttributeResolver` and `CacheRepository`) and constructor plumbing would have to cross four hops
 from `Runner` down to the analyzer. `Tests\TestCase::setUp()` resets all three, since process-static
-state otherwise leaks across a parallel Pest run.
+state otherwise leaks across a parallel Pest run — that reset stays even though both runners now reset
+`PublishedResourceRegistry` themselves, because it also protects tests that never construct a runner at
+all. A consuming application gets no such per-test hook, which is why both runners reset on entry too.
 
 Neither CI gate can catch a regression here — an import of an unpublished resource surfaces as TS2307,
 which `unimportable-token-gate.sh` does not count. See

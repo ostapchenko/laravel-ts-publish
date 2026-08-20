@@ -35,6 +35,10 @@ class Runner extends BaseRunner
 {
     public function run(): void
     {
+        // Process-static and only ever added to. Clearing at the run boundary, not next to register(),
+        // is what makes "this run publishes no resources" mean an empty registry, not the last run's set.
+        PublishedResourceRegistry::reset();
+
         /** @var BarrelWriter $barrelWriter */
         $barrelWriter = resolve(Config::string('ts-publish.barrel_writer_class', BarrelWriter::class));
         $this->barrelWriter = $barrelWriter;
