@@ -35,11 +35,14 @@ export interface TeamMutators
     /** Number of members */
     member_count: number;
     status_history: StatusType[];
+    /** A single scalar Status, distinct from statusHistory()'s array shape. */
+    latest_status: StatusType;
 }
 
-export interface TeamMutatorsResource extends Omit<TeamMutators, 'status_history'>
+export interface TeamMutatorsResource extends Omit<TeamMutators, 'status_history' | 'latest_status'>
 {
     status_history: AsEnum<typeof Status>[];
+    latest_status: AsEnum<typeof Status>;
 }
 
 export interface TeamRelations

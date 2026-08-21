@@ -2121,6 +2121,17 @@ describe('ResourceTransformer with ResourceWrappedEnumResource — inline array 
             ->toBe('AsEnum<typeof Priority> | PriorityType | null')
             ->and($data->properties['priority_when_not_null_make']['optional'])->toBeFalse();
     });
+
+    // Full-pipeline pin: analyzeInlineArray() already collapsed both arms to AsEnum<typeof Status>
+    // before the transformer runs, and rewriteEnumResourceTypes() only iterates top-level
+    // properties, so it never touches this nested key — the analyzer's own output is final.
+    test('ternary_enums_array stays collapsed to AsEnum<typeof Status> through the full transformer pipeline', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(ResourceWrappedEnumResource::class))->data();
+
+        expect($data->properties['ternary_enums_array']['type'])
+            ->toBe('{ status: AsEnum<typeof Status> }');
+    });
 });
 
 describe('ResourceTransformer with RelationChainResource — EnumResource::make() array-wrapped by a map() chain', function () {
@@ -2241,16 +2252,17 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
             ->and($allValueImports)->toContain('Role');
     });
 
-    // Every property that reads Status goes through substitution now — none keeps the bare
-    // StatusType token — so its type import must be garbage-collected, not just its value import.
-    test('bare StatusType type import is dropped once every Status property is AsEnum-substituted', function () {
+    // No other property in this file keeps a bare StatusType token; it survives only because
+    // wrapped_status_fallback's direct fallback arm genuinely needs it (Task 14) — that property
+    // alone is why this now asserts the opposite of its old name.
+    test('bare StatusType type import survives only because of a genuine direct reader, not stale substitution', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
         $statusTypeStillImported = isset($data->typeImports['../../enums'])
             && in_array('StatusType', $data->typeImports['../../enums'], true);
 
-        expect($statusTypeStillImported)->toBeFalse();
+        expect($statusTypeStillImported)->toBeTrue();
     });
 
     // A bare enum read nested inside an inline array must keep its own type import: pins
@@ -2265,6 +2277,20 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
 
         expect($data->typeImports)->toHaveKey('../../enums');
         expect($data->typeImports['../../enums'])->toContain('RoleType');
+    });
+
+    // Full-pipeline pin: the collection-wrapped arm substitutes to AsEnum<typeof Status>[], the
+    // scalar direct arm stays bare StatusType, and that bare token's own type import must survive
+    // since it is genuinely still referenced.
+    test('wrapped_status_fallback substitutes only its array-shaped arm and keeps StatusType imported', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['wrapped_status_fallback']['type'])
+            ->toBe('{ status: AsEnum<typeof Status>[] | StatusType }');
+
+        expect($data->typeImports)->toHaveKey('../../enums');
+        expect($data->typeImports['../../enums'])->toContain('StatusType');
     });
 });
 

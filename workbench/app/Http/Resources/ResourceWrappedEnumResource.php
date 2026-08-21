@@ -114,6 +114,15 @@ class ResourceWrappedEnumResource extends JsonResource
                 'priority' => EnumResource::make($this->resource->priority),
             ],
 
+            // Inline array whose single member is itself a mixed ternary: EnumResource::make()
+            // vs the same $this->resource->status read directly (both scalar StatusType).
+            // Nests status_ternary_both's mixed shape one level deeper (Task 14).
+            'ternary_enums_array' => [
+                'status' => $this->resource->is_pinned
+                    ? EnumResource::make($this->resource->status)
+                    : $this->resource->status,
+            ],
+
             // Mixed type and enum instance type array where every enum value goes through $this->resource->prop
             'mixed_enums_array' => [
                 'status_type' => $this->status,

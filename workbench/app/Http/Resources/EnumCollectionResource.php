@@ -73,6 +73,15 @@ class EnumCollectionResource extends JsonResource
                 'members',
                 fn ($members) => $members->map(fn (User $member) => ['role' => $member->role])
             ),
+
+            // Mixed ternary nested inside an inline array literal: one arm wraps status_history
+            // (array-shaped), the other reads latest_status directly (scalar) — same Status FQCN,
+            // different shapes. Exercises analyzeInlineArray()'s $isMixed synthesis (Task 14).
+            'wrapped_status_fallback' => [
+                'status' => $this->is_active
+                    ? EnumResource::collection($this->status_history)
+                    : $this->latest_status,
+            ],
         ];
     }
 }

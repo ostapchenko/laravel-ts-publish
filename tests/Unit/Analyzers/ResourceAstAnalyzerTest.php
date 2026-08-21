@@ -817,6 +817,14 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
             ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_role_snapshot')
             ->and($this->analysis->inlineEnumFqcns['member_role_snapshot'])->toContain(Role::class);
     });
+
+    // A mixed ternary nested in an inline array whose arms differ in shape (an array-forcing
+    // EnumResource::collection() wrap vs a scalar direct read): both members stay visible in the
+    // merged union, so only the array-shaped one substitutes — the scalar arm is left bare (Task 14).
+    test('mixed ternary nested in an inline array: a collection-wrapped arm and a scalar direct arm substitute independently', function () {
+        expect($this->props['wrapped_status_fallback']['type'])
+            ->toBe('{ status: AsEnum<typeof Status>[] | StatusType }');
+    });
 });
 
 describe('ResourceAstAnalyzer with ProductResource', function () {
@@ -4606,6 +4614,16 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
         expect($prop)->not->toBeNull()
             ->and($prop['type'])->toBe('StatusType | VisibilityType | null')
             ->and($prop['optional'])->toBeFalse();
+    });
+
+    // A same-shaped mixed ternary (EnumResource::make() vs a direct read, both scalar StatusType)
+    // deduplicates to one merged token, leaving $isMixed synthesis (Task 14) no per-member signal
+    // to act on — a standing parity gap with the top-level rewrite, not something this task fixes.
+    test('mixed ternary nested in an inline array: same-shaped arms stay collapsed to AsEnum<typeof Status>', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'ternary_enums_array');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('{ status: AsEnum<typeof Status> }');
     });
 
     // ── Inline array: enums_array (all EnumResource) ──────────────────────────

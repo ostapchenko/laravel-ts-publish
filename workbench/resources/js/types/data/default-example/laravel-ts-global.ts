@@ -1028,6 +1028,8 @@ declare global {
             /** Number of members */
             member_count: number;
             status_history: app.enums.StatusType[];
+            /** A single scalar Status, distinct from statusHistory()'s array shape. */
+            latest_status: app.enums.StatusType;
             // Relations
             /** The user who owns this team */
             owner: User;
@@ -2240,6 +2242,7 @@ declare global {
             status_history_when_appended?: app.enums.StatusType[];
             members_via_var?: app.enums.RoleType[];
             member_role_snapshot?: ({ role: app.enums.RoleType | null })[];
+            wrapped_status_fallback: { status: app.enums.StatusType[] | app.enums.StatusType };
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
         export interface EnumNullFirstResource {
@@ -3014,6 +3017,7 @@ declare global {
             status_ternary_both: app.enums.StatusType;
             status_or_visibility_ternary: app.enums.StatusType | app.enums.VisibilityType | null;
             enums_array: { status: app.enums.StatusType; visibility: app.enums.VisibilityType | null; priority: app.enums.PriorityType | null };
+            ternary_enums_array: { status: app.enums.StatusType };
             mixed_enums_array: { status_type: app.enums.StatusType; visibility_type: app.enums.VisibilityType | null; priority_type: app.enums.PriorityType | null; status_resource_type: app.enums.StatusType; visibility_resource_type: app.enums.VisibilityType | null; priority_resource_type: app.enums.PriorityType | null; status_enum: app.enums.StatusType; visibility_enum: app.enums.VisibilityType | null; priority_enum: app.enums.PriorityType | null };
             merged_status?: app.enums.StatusType;
             merged_visibility?: app.enums.VisibilityType | null;

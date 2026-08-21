@@ -6669,6 +6669,10 @@
                     "type": "StatusType[]"
                 },
                 {
+                    "name": "latest_status",
+                    "type": "StatusType"
+                },
+                {
                     "name": "owner",
                     "type": "User"
                 },
@@ -9592,6 +9596,11 @@
                     "name": "member_role_snapshot",
                     "type": "({ role: RoleType | null })[]",
                     "optional": true
+                },
+                {
+                    "name": "wrapped_status_fallback",
+                    "type": "{ status: AsEnum<typeof Status>[] | StatusType }",
+                    "optional": false
                 }
             ]
         },
@@ -11887,6 +11896,11 @@
                 {
                     "name": "enums_array",
                     "type": "{ status: AsEnum<typeof Status>; visibility: AsEnum<typeof Visibility> | null; priority: AsEnum<typeof Priority> | null }",
+                    "optional": false
+                },
+                {
+                    "name": "ternary_enums_array",
+                    "type": "{ status: AsEnum<typeof Status> }",
                     "optional": false
                 },
                 {

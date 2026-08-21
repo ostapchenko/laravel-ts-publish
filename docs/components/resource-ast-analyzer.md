@@ -225,18 +225,23 @@ the `$isMixed` check is key-sensitive, testing whether a property name is a key 
 the other two — both import-garbage-collection loops — compare values only and work correctly for
 both entry kinds. `substituteEnumResourceType()` never reads this map at all.
 
+`analyzeInlineArray()` runs the identical `$isMixed` check for a *nested* key, against its own
+method-local `ResourceAnalysis` rather than `ResourceTransformer`'s instance maps — see
+[A mixed ternary inside an inline array](#a-mixed-ternary-inside-an-inline-array) below.
+
 ### The tolki `AsEnum` wrap substitutes a token; it never rebuilds the type
 
 An `EnumResource::make()`-wrapped property reaches the `enumResources` channel carrying the
 analyzer's own type string, in which the enum appears as its bare TS type name (`RoleType` —
 `TypeScriptTypeInfo::$enumTypes[0]`, i.e. the `#[TsEnum]` name or the class basename, suffixed
 `Type`). With `enums.use_tolki_package` on, **both** rewrite paths turn that into
-`AsEnum<typeof Role>` by *substituting the bare token in place*:
+`AsEnum<typeof Role>` by *substituting the bare token in place*, for the ordinary (non-mixed) case:
 `ResourceTransformer::substituteEnumResourceType()` for a top-level property, and
 `ResourceAstAnalyzer::substituteEnumType()` for one nested inside an inline array literal.
 Both use the same word-boundary pattern — the lookbehind excludes `.` so a namespace-qualified
 `foo.RoleType` is left alone, the lookahead stops `RoleType` matching the prefix of
-`RoleTypeExtra`.
+`RoleTypeExtra`. A nested key whose ternary is *mixed* — wrapped in one arm, read directly in the
+other — instead goes through `ResourceAstAnalyzer::expandMixedEnumType()`; see the next section.
 
 Substitution matters because the analyzer's type is often richer than `X`/`X[]`, and the corpus
 pins two such shapes:
@@ -259,6 +264,61 @@ left un-wrapped. That guard is gone: substitution reproduces any shape losslessl
 every arm that names the enum and leaving the rest of the union untouched.
 `RelationChainResource::$member_role_resources_filtered` (top level) and `$wrapped_filtered`
 (inline array) pin the two paths against the identical PHP shape — they must never disagree.
+
+### A mixed ternary inside an inline array
+
+`ResourceTransformer::rewriteEnumResourceTypes()`'s top-level `$isMixed` branch synthesizes
+`AsEnum<typeof Const> | EnumTypeName` from scratch whenever a property is both EnumResource-wrapped
+and directly enum-read — it never trusts the analyzer's own merged type string. `analyzeInlineArray()`
+cannot do the same for a *nested* key: its `ResourceAnalysis` is method-local, and only flat property
+lists leave the method, keyed by the array literal's own (outer) property name, so the transformer
+has no way to know which inner key was mixed. The fix has to stay analyzer-side, in
+`expandMixedEnumType()`, and it can only act on what the merged type string still shows.
+
+Two shapes reach this code, and the merged type string carries different information for each:
+
+- **Homogeneous** — both ternary arms produce the identical type string (e.g. `EnumResource::make($this->status)`
+  vs `$this->status`, both `StatusType`). `analyzeClosureUnion()` deduplicates identical strings
+  before `mergeUnionChannels()` ever joins them, so by the time `analyzeInlineArray()` sees it there
+  is exactly one `StatusType` token — no per-member signal survives to say "this token stands for
+  two arms, only one of which was wrapped." This case still goes through the ordinary
+  `substituteEnumType()`, which turns the single token into `AsEnum<typeof Status>`, silently
+  dropping the direct-read arm. `ResourceWrappedEnumResource::$ternary_enums_array` pins it:
+  `{ status: AsEnum<typeof Status> }`, byte-identical to what a non-mixed `EnumResource::make()`-only
+  property would produce. This is a standing parity gap with the top-level `$isMixed` rewrite, not
+  something this task closes: the transformer's top-level rewrite never has this limit — it
+  reconstructs `AsEnum<typeof Const> | EnumTypeName` from the FQCN maps regardless of what the
+  analyzer's own merged string says, so a same-shaped top-level mixed pair (`status_when_not_null_arrow`,
+  below) gets the full union where this nested one does not. (`status_ternary_both`, elsewhere in
+  the same fixture, looks similar but is not this case at all — both of its arms are
+  EnumResource-wrapped, so `mergeUnionChannels()` never sets `directEnumFqcn` for it; its single
+  `AsEnum<typeof Status>` is the ordinary, correct wrapped-only substitution, not a dropped arm.)
+- **Heterogeneous** — the two arms produce *different* type strings because one is forced into an
+  array shape and the other is not (e.g. `EnumResource::collection($this->status_history)`, already
+  array-shaped, vs a direct scalar read of a different accessor sharing the same enum — `StatusType[]`
+  vs `StatusType`). Those two strings are not identical, so `analyzeClosureUnion()` keeps both and the
+  merged type string is a genuine two-member union, each member's own shape still visible.
+  `expandMixedEnumType()` substitutes
+  only the member matching `{bareTypeName}[]` — the one `EnumResource::collection()` actually
+  produced — and leaves any other member untouched. `EnumCollectionResource::$wrapped_status_fallback`
+  pins it: `{ status: AsEnum<typeof Status>[] | StatusType }`. Before this fix, the same blanket
+  `substituteEnumType()` call used for the homogeneous case matched *both* members (the word-boundary
+  regex does not stop at `[`), wrongly producing `AsEnum<typeof Status>[] | AsEnum<typeof Status>`.
+
+This deliberately does **not** mirror `rewriteEnumResourceTypes()`'s `isCollection` reconstruction,
+which wraps the *entire* mixed union in `()[]` (`(AsEnum<typeof Const> | EnumTypeName)[]`) when the
+top-level property's pre-rewrite type happened to end in `[]` — a shape that is only correct when
+*both* arms are arrays, and wrong (`(A | B)[]` where the truth is `A | B[]`) for exactly this
+heterogeneous case. `expandMixedEnumType()` instead reconstructs each member independently, so an
+array-shaped arm keeps its own `[]` and a scalar arm never gains one it didn't earn.
+
+In the globals tree, `LaravelTsPublish::rewriteAsEnumToType()`'s pair pattern only folds an
+*exact* `AsEnum<typeof Const> | EnumTypeName` adjacency (no `[]` between the two) to a single
+qualified reference — `status_when_not_null_arrow`'s top-level homogeneous pair collapses to one
+`StatusType` reference, for example. `wrapped_status_fallback`'s heterogeneous
+`AsEnum<typeof Status>[] | StatusType` does not match that adjacency (the `[]` sits between them),
+so it renders as two independently-qualified references, `StatusType[] | StatusType` — correct,
+since the two members mean different things despite sharing a base name.
 
 ### Multi-model accessor unions reference each arm's own model
 

@@ -4106,7 +4106,17 @@ class ResourceAstAnalyzer
                 $tsInfo = LaravelTsPublish::toTsType($fqcn);
                 $constName = $tsInfo['enums'][0] ?? class_basename($fqcn);
                 $bareTypeName = $tsInfo['enumTypes'][0] ?? class_basename($fqcn).'Type';
-                $prop['type'] = $this->substituteEnumType($prop['type'], $bareTypeName, 'AsEnum<typeof '.$constName.'>');
+                $asEnumType = 'AsEnum<typeof '.$constName.'>';
+
+                // A mixed wrap/direct ternary merged to two distinct members keeps each arm's own
+                // shape visible, so only the array-shaped one substitutes. A same-shaped pair merges
+                // to one token with no per-member signal left, so it falls through to the blanket case.
+                $isMixed = ($analysis->directEnumFqcns[$prop['name']] ?? null) === $fqcn;
+                $members = LaravelTsPublish::splitTopLevelUnion($prop['type']);
+
+                $prop['type'] = $isMixed && count($members) > 1
+                    ? $this->expandMixedEnumType($members, $bareTypeName, $asEnumType)
+                    : $this->substituteEnumType($prop['type'], $bareTypeName, $asEnumType);
             }
 
             unset($prop);
@@ -4810,6 +4820,26 @@ class ResourceAstAnalyzer
         $pattern = '/(?<![A-Za-z0-9_$.])'.preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
 
         return preg_replace($pattern, $asEnumType, $typeStr) ?? $typeStr;
+    }
+
+    /**
+     * Rejoin a mixed wrap/direct enum union's split members, substituting only the array-shaped
+     * one — the arm EnumResource::collection() forced. A same-shaped direct member is left bare:
+     * it was never wrapped, so AsEnum-ing it would claim an import it never earned.
+     *
+     * @param  list<string>  $members
+     */
+    private function expandMixedEnumType(array $members, string $bareTypeName, string $asEnumType): string
+    {
+        foreach ($members as &$member) {
+            if ($member === $bareTypeName.'[]') {
+                $member = $asEnumType.'[]';
+            }
+        }
+
+        unset($member);
+
+        return implode(' | ', $members);
     }
 
     /**

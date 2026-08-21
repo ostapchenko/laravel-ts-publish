@@ -1046,6 +1046,8 @@ declare global {
             /** Number of members */
             member_count: number;
             status_history: workbench.app.enums.StatusType[];
+            /** A single scalar Status, distinct from statusHistory()'s array shape. */
+            latest_status: workbench.app.enums.StatusType;
             // Relations
             /** The user who owns this team */
             owner: User;
@@ -2240,6 +2242,7 @@ declare global {
             status_history_when_appended?: workbench.app.enums.StatusType[];
             members_via_var?: workbench.app.enums.RoleType[];
             member_role_snapshot?: ({ role: workbench.app.enums.RoleType | null })[];
+            wrapped_status_fallback: { status: workbench.app.enums.StatusType[] | workbench.app.enums.StatusType };
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
         export interface EnumNullFirstResource {
@@ -3014,6 +3017,7 @@ declare global {
             status_ternary_both: workbench.app.enums.StatusType;
             status_or_visibility_ternary: workbench.app.enums.StatusType | workbench.app.enums.VisibilityType | null;
             enums_array: { status: workbench.app.enums.StatusType; visibility: workbench.app.enums.VisibilityType | null; priority: workbench.app.enums.PriorityType | null };
+            ternary_enums_array: { status: workbench.app.enums.StatusType };
             mixed_enums_array: { status_type: workbench.app.enums.StatusType; visibility_type: workbench.app.enums.VisibilityType | null; priority_type: workbench.app.enums.PriorityType | null; status_resource_type: workbench.app.enums.StatusType; visibility_resource_type: workbench.app.enums.VisibilityType | null; priority_resource_type: workbench.app.enums.PriorityType | null; status_enum: workbench.app.enums.StatusType; visibility_enum: workbench.app.enums.VisibilityType | null; priority_enum: workbench.app.enums.PriorityType | null };
             merged_status?: workbench.app.enums.StatusType;
             merged_visibility?: workbench.app.enums.VisibilityType | null;
