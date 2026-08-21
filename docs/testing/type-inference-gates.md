@@ -19,7 +19,9 @@ type, not an existing property degrading, so the regression gate structurally ca
 ## `unknown-regression-gate.py`
 
 Compares the committed type trees under `workbench/resources/js/types/data` at two revisions and fails if
-any property went from a real type to one containing `unknown`.
+a property that carried a real type now emits one containing `unknown`. One blind spot survives by
+design: an inline object that *already* carries an `unknown` member anywhere cannot report its own
+wholesale collapse. See [What the gates do not cover](#what-the-gates-do-not-cover).
 
 ```bash
 python3 .github/scripts/unknown-regression-gate.py [BASE_REV] [HEAD_REV]
@@ -53,7 +55,8 @@ property's or alias's value contains one or more inline `{ … }` object types, 
 key *in addition to* the parent: `prop.member` for a single object, `prop[i].member` per arm for a union of
 objects, alongside `prop` itself holding the whole rendered value. A member regressing to `unknown` is
 therefore not masked by an already-`unknown` sibling in the same object, and a property whose whole inline
-object collapses to a bare `unknown` still matches its own base key rather than sharing none.
+object collapses to a bare `unknown` still matches its own base key rather than sharing none — provided
+that object was entirely real-typed at base. If it was not, see the residual below.
 
 Keeping the parent is what makes the whole-object case visible at all. When only the members were keyed,
 a base holding `heading_content.title` and `heading_content.summary` and a head holding just
@@ -291,10 +294,11 @@ When changing `unknown-regression-gate.py` itself, also run its
 
 - **TS2307 (`Cannot find module`) is only partly counted.** `unimportable-token-gate.sh`'s main count
   greps only TS2300/TS2304/TS2344/TS2552, and an unresolved *module* is not an existing property degrading
-  to `unknown`, so the regression gate is structurally blind to it too. The relative-specifier sub-gate
-  described below is the one place any TS2307 is counted, and it counts only the relative ones. That
-  diagnostic is the signature of an import of a class the package never writes a file for — the failure
-  mode `PublishedResourceRegistry` exists to prevent, documented under
+  to `unknown`, so the regression gate is structurally blind to it too.
+  [The relative-specifier sub-gate](#the-relative-specifier-sub-gate) above is the one place any TS2307
+  is counted, and it counts only the relative ones. That diagnostic is the signature of an import of a
+  class the package never writes a file for — the failure mode `PublishedResourceRegistry` exists to
+  prevent, documented under
   [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set),
   including its shared `InspectsAstNodes::resolveCollectedResourceClass()` resolver, which both
   `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call.
@@ -316,6 +320,22 @@ When changing `unknown-regression-gate.py` itself, also run its
   14 is not the TS2304 count: it is the combined TS2300/TS2304/TS2344/TS2552 total, currently 0 + 12 + 0 +
   2.) The other 58 remain uncounted: a blanket TS2307 gate is still impractical, since almost all of them
   are the same bare-alias escape hatch behind the TS2304 baseline, not a defect.
+
+- **An inline object that already contains `unknown` cannot report its own wholesale collapse.**
+  `detect_regressions()` gates the base side on the substring test `"unknown" not in b[k]`, and the
+  restored parent key's value is the *whole rendered object*. So one already-`unknown` member anywhere
+  inside an object disarms that object's own parent key; when the object then collapses to a bare
+  `unknown`, its member keys are absent from the head snapshot and nothing is left to match. This is the
+  gate's founding design, not a regression — the same substring test disarmed the parent key before
+  member splitting existed — but it is a real residual and the prose above is scoped to it.
+
+  Measured at `HEAD`: **1088** top-level inline-object properties, **128** of them already carrying
+  `unknown` (about 12%). At the default base rev `a6c268da`: **576** and **72**. Real exposure is the
+  real-typed members sitting under those dirty parents — **120** member keys across six property names
+  (`meta`, `tree_from_docblock`, `metadata`, `grid_config`, `shipping`, `grid_configs`), with at most
+  **3** real members in any one property. The other eight dirty property names have no real-typed member
+  at all, so nothing could be lost there. Re-derive these with a snapshot diff rather than quoting them;
+  they move with every regeneration.
 
 - **Removed properties are structurally invisible to `unknown-regression-gate.py`.** The comparison loop
   is `[... for k in h if k in b and ...]` — it only ever looks at keys present in the **head** snapshot,

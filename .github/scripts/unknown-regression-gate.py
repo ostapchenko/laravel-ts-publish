@@ -11,8 +11,12 @@ never conflated. Matches any indent depth.
 
 Single-line `type X = ...;` aliases are parsed too, and any inline object's
 members are split into their own `prop.member` / `prop[i].member` keys *in
-addition to* the parent key, so a regression is masked neither by an
-already-`unknown` sibling member nor by the whole object collapsing at once.
+addition to* the parent key, so an already-`unknown` sibling no longer masks a
+member regression, and an object that was entirely real-typed at base is caught
+when it collapses wholesale. Residual: detect_regressions()'s `"unknown" not in
+b[k]` test reads the parent's whole rendered value, so an object already holding
+an `unknown` member disarms its own parent key and its wholesale collapse still
+reports nothing. See docs/testing/type-inference-gates.md.
 
 Usage: unknown-regression-gate.py [BASE_REV] [HEAD_REV]
 Exit 1 if any property regressed. Self-test: --selftest RANGE expects a FAIL.
