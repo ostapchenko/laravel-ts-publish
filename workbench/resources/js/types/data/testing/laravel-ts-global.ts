@@ -3484,6 +3484,7 @@ declare global {
             regional_hub_contacts: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
             probe_nested: { first: workbench.crm.models.User | workbench.app.models.User | null; second: workbench.app.models.User | null };
             crm_contact_partial: { status: workbench.crm.enums.StatusType; images: workbench.app.models.Image[] } | null;
+            probe_mixed: { id: number } | Pick<workbench.app.models.User, 'id' | 'phone'> | null;
         }
     }
     export namespace workbench.app.http.resources.admin {

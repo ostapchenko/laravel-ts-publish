@@ -3810,7 +3810,6 @@ class ResourceAstAnalyzer
                 }
 
                 $inlineTypes[] = $filterResult['type'];
-                $embeddedModelFqcns[] = $fqcn;
                 array_push($embeddedEnumFqcns, ...$filterResult['enumFqcns']);
                 array_push($embeddedModelFqcns, ...$filterResult['modelFqcns']);
 

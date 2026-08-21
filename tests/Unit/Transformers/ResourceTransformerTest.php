@@ -1560,6 +1560,17 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->and($data->properties['crm_contact_partial']['type'])
             ->toContain('status: CrmStatusType');
     });
+
+    test('a declining arm does not misalign the alias queue for the arm that resolves to Pick<>', function () {
+        $data = (new ResourceTransformer(WarehouseResource::class))->data();
+
+        // Only App\Models\User has a 'phone' column, so the CrmUser arm falls back to a plain
+        // { id: number } — no bare model token — while the other arm resolves to Pick<>, which must
+        // alias to WorkbenchUser, not CrmUser via a phantom queue entry from the declining arm.
+        expect($data->properties)->toHaveKey('probe_mixed')
+            ->and($data->properties['probe_mixed']['type'])
+            ->toBe("{ id: number } | Pick<WorkbenchUser, 'id' | 'phone'> | null");
+    });
 });
 
 describe('ResourceTransformer mergePropertyFqcnMaps() overlap guard', function () {

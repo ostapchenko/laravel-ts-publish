@@ -5241,6 +5241,19 @@ test('a multi-model accessor union of two unrelated models keeps both per-arm FQ
         ->and($analysis->inlineModelFqcns['last_checked_by_mostly'])->toBe([Image::class, User::class]);
 });
 
+test('a declining arm never registers its own FQCN against an occurrence it did not produce', function () {
+    // probe_mixed filters on 'phone', a column on App\Models\User but not Crm\Models\User: the CrmUser
+    // arm declines Pick<> and falls back to { id: number } — no bare 'User' token — while the other arm
+    // resolves to Pick<User, ...>. Only one FQCN belongs in the queue: one per real occurrence, not per arm.
+    $analysis = new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+        ->analyze();
+
+    $type = collect($analysis->properties)->keyBy('name')['probe_mixed']['type'];
+
+    expect($type)->toBe("{ id: number } | Pick<User, 'id' | 'phone'> | null")
+        ->and($analysis->inlineModelFqcns['probe_mixed'])->toBe([User::class]);
+});
+
 test('relation except() expands to database columns only, matching Model::except() at runtime', function () {
     // HasAttributes::except() iterates getAttributes(): it never reads $this->relations, and
     // mergeAttributeFromAttributeCasts() refuses to merge a get-only Attribute back into $attributes.

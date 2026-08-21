@@ -13567,6 +13567,11 @@
                     "name": "crm_contact_partial",
                     "type": "{ status: CrmStatusType; images: Image[] } | null",
                     "optional": false
+                },
+                {
+                    "name": "probe_mixed",
+                    "type": "{ id: number } | Pick<ModelsUser, 'id' | 'phone'> | null",
+                    "optional": false
                 }
             ]
         },

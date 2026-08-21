@@ -52,6 +52,13 @@ to `unknown` is no longer masked by an already-`unknown` sibling in the same obj
 regenerated file shifts which arm sits at index `0` and can mask a regression. This is a known, accepted
 limit — not something a future change to this gate should try to fix with content-hashed arm keys.
 
+A `Pick<Model, K>` reference is the companion case: it has no `{` for the member-splitting logic to
+descend into, so it stays a single opaque key rather than expanding into `prop.member`/`prop[i].member`
+entries. This is de-duplicated coverage, not lost coverage — the members `Pick<>` names still live in
+`Model`'s own generated file (e.g. `app/models/user.ts`), which this same gate already watches, so a
+regression on one of them still fails here, just keyed under the model file instead of the resource
+that references it.
+
 ### Parser self-test
 
 ```bash

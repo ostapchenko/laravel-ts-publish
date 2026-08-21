@@ -53,6 +53,12 @@ class WarehouseResource extends RoutableResource
             // enum (status: CrmStatusType) alive now that the multi-model accessor arms above reference
             // their models directly instead of expanding inline.
             'crm_contact_partial' => $this->primaryContact?->only(['status', 'images']),
+            // Mixed-arm union: 'phone' is a column on App\Models\User but not on Crm\Models\User, so the
+            // CrmUser arm declines the Pick<> reference and falls back to inline expansion while the
+            // App\Models\User arm resolves to Pick<>. Pins that a declining arm's own FQCN is never
+            // registered against a text occurrence it never produced, which would misalign the very next
+            // Pick<> arm's positional FQCN lookup onto the wrong model.
+            'probe_mixed' => $this->last_user_activity_by?->only(['id', 'phone']),
         ];
     }
 }

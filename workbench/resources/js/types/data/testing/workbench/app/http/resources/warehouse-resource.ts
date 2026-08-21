@@ -33,4 +33,5 @@ export interface WarehouseResource extends BaseResource, ExtendableInterface, Om
     regional_hub_contacts: { primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null;
     probe_nested: { first: CrmUser | WorkbenchUser | null; second: WorkbenchUser | null };
     crm_contact_partial: { status: CrmStatusType; images: Image[] } | null;
+    probe_mixed: { id: number } | Pick<WorkbenchUser, 'id' | 'phone'> | null;
 }

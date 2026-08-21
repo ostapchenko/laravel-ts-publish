@@ -3484,6 +3484,7 @@ declare global {
             regional_hub_contacts: { primaryContact: crm.models.User | null; manager: app.models.User | null; secondaryContact: crm.models.User | null } | null;
             probe_nested: { first: crm.models.User | app.models.User | null; second: app.models.User | null };
             crm_contact_partial: { status: crm.enums.StatusType; images: app.models.Image[] } | null;
+            probe_mixed: { id: number } | Pick<app.models.User, 'id' | 'phone'> | null;
         }
     }
     export namespace app.http.resources.admin {

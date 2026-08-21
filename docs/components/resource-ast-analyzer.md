@@ -171,8 +171,7 @@ Two touch points implement the implicit side. `buildModelDelegatedAnalysis()`
 select an explicitly-named hidden column from, so the method takes a `bool $excludeHidden = true`
 parameter instead of filtering unconditionally: `analyzeOnlyFilter()` is the one caller that
 passes `false`. `resolveFilteredRelationType()`'s except branch has no such sharing problem — it
-builds its key list fresh per call — so it filters unconditionally there. Since Task 12
-(`docs/superpowers/plans/2026-08-20-analyzer-backlog.md`), `WarehouseResource`'s own
+builds its key list fresh per call — so it filters unconditionally there. `WarehouseResource`'s own
 union-accessor `except()` calls (`last_user_activity_by_mostly`, `last_checked_by_mostly`) no
 longer reach this branch: every excluded key there is a non-hidden published column, so each arm
 resolves through `relationFilterModelReference()` instead — see [Multi-model accessor unions
@@ -180,11 +179,14 @@ reference each arm's own model](#multi-model-accessor-unions-reference-each-arms
 `ModelAttributeResolver::publishedColumnNames()` is `relationFilterModelReference()`'s own
 `$hidden` gate, and it is still pinned directly — `PostAttachmentFilterResource::$attachment_hidden`
 under `exclude_hidden` — but no fixture currently drives a hidden column through this specific
-except-branch subtraction end to end; see **Out of Scope** in the analyzer-backlog plan. Three
-sites are deliberately left untouched because each already takes the caller's request verbatim
-rather than deriving it from the full attribute list: `filterAnalysisByKeys()`, the include branch
-of `resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()` (the
-single-attribute resolution that `only()` and `whenHas()` both end up calling).
+except-branch subtraction end to end: the only two `$hidden`-bearing workbench models are
+`Attachment` (exercised only via `only()`, never reaching this branch) and `App\Models\User`
+(whose `except()` calls above now resolve through `Pick<>` instead). This is a test-coverage gap,
+not a behavior gap — the subtraction logic itself already agrees with `Model::except()`'s runtime
+behavior. Three sites are deliberately left untouched because each already takes the caller's
+request verbatim rather than deriving it from the full attribute list: `filterAnalysisByKeys()`,
+the include branch of `resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()`
+(the single-attribute resolution that `only()` and `whenHas()` both end up calling).
 
 ## Import dispatch rules
 
@@ -332,6 +334,21 @@ in `WarehouseResource` would still spell out `CrmStatusType` inline, `Workbench\
 would stop colliding with `Workbench\App\Enums\Status`, and `review_priority`'s own enum would
 render as the unaliased `StatusType` instead of `EnumsStatusType` — a change to an unrelated
 property caused entirely by an import that stopped being needed elsewhere in the same file.
+
+A declining arm's own FQCN must never reach `embeddedModelFqcns`, precisely because it declined:
+its inline `{ ... }` expansion spells out member types, never a bare reference to the model's own
+name, so there is no occurrence in the rendered text for that FQCN to align against.
+`WarehouseResource::$probe_mixed` (`$this->last_user_activity_by?->only(['id', 'phone'])`) pins
+this — `phone` is a column on `App\Models\User` but not on `Crm\Models\User`, so the `CrmUser`
+arm declines and falls back to `{ id: number }` while the other arm resolves to `Pick<User, 'id' |
+'phone'>`. The emitted type has exactly one bare `User` occurrence, so exactly one FQCN belongs in
+the queue. Pushing the declining arm's FQCN anyway — as an earlier version of this fix briefly did
+— left two entries queued against one occurrence: `aliasPropertyType()` consumed the first (`CrmUser`)
+for the arm that was really `App\Models\User`'s, emitting `Pick<CrmUser, 'id' | 'phone'>`, silently
+wrong. Only `$filterResult['modelFqcns']` — FQCNs nested *inside* a fallback arm's own inline
+expansion, from a relation the arm's shape happens to reference — belong in the list from that
+branch, mirroring the single-model path's `'embeddedModelFqcns' => $filterResult['modelFqcns']`
+just above (never the arm's own FQCN there either).
 
 ## Variable bindings
 
