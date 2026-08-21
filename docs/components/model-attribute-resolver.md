@@ -114,16 +114,44 @@ emits the bare class name.
 
 ### Why inline at all
 
-The package publishes no file for such a class, so step 5's token has nothing to import — that is the
-motivating reason, and it is unconditional.
+The motivating reason is that for the classes that actually reach 5c *and get emitted* in this corpus, the
+package publishes no file, so step 5's token has nothing to import. `Coordinate` is that case.
 
-The shape itself **approximates** what `json_encode()` emits: for a plain object PHP serializes its public
-non-static properties. For `Coordinate` the two agree exactly — `json_encode(new Coordinate(1.5, 2.5))`
-gives `{"lat":1.5,"lng":2.5}` against an emitted `{ lat: number; lng: number }`.
+**Publication is a real axis, not a constant, and 5c does not test it.** The step-5 path below builds its
+import from `classFqcns` through `namespaceToPath()` and `relativeImportPath()` with no published-set check,
+so "unimportable" is an assumption about the classes that happen to arrive here, not something either step
+verifies. The workbench contains a whole family that contradicts it: **all 12** classes in
+`workbench/app/Events/` are plain, non-`Model`, non-`JsonSerializable`, have no `__toString()` and no
+`#[TsType]`, and carry typed public promoted properties — so every one of them reaches 5c and inlines when
+`toTsType()` is called on it directly. Probed against the real service:
+
+```
+EnumBroadcastEvent  -> { status: unknown; color: unknown }
+OrderShipped        -> { orderId: number; trackingNumber: string; carrier: string; metadata: unknown[] | null }
+ServerCreated       -> { serverId: number; serverName: string }
+…12 of 12
+```
+
+And the package **does** publish a file for each: the two sets are identical, 12 PHP fixtures against 12
+`.ts` files in `app/events/` plus an `index.ts` that re-exports them, so `'../events'` — what step 5 would
+have derived for `Workbench\App\Events\OrderShipped` — is a directory this package writes.
+
+This costs nothing today. `src/Transformers/BroadcastEventTransformer.php` contains **no** reference to
+`toTsType` — it resolves a class-typed event property itself in `convertClassType()` (enum → `XType`,
+`Model` → `Partial<X>`, else `SurveyorTypeMapper::convert()`) — so the shapes above are never consulted when
+an event file is written. Confirmed against the output as well: all 12 inlined shapes were searched, as
+exact strings, across every file under `workbench/resources/js/types/`, and matched **zero** files. Treat
+this as a standing caveat on the reasoning rather than a defect: if some future path *does* send a published
+class through 5c, inlining is the wrong answer for it and nothing here would notice.
+
+### The shape approximates `json_encode()`, and one fixture shows the gap
+
+For a plain object PHP serializes its public non-static properties, so for `Coordinate` the two agree
+exactly — `json_encode(new Coordinate(1.5, 2.5))` gives `{"lat":1.5,"lng":2.5}` against an emitted
+`{ lat: number; lng: number }`.
 
 They are not identical in general. PHP **omits an uninitialized typed property** from `json_encode()` output,
-while `ReflectionClass::getProperties(IS_PUBLIC)` — what `publicPropertyShapeType()` reads — includes it.
-Measured through the real service:
+while `ReflectionClass::getProperties(IS_PUBLIC)` — what `publicPropertyShapeType()` reads — includes it:
 
 ```php
 class H3Uninit { public string $a; public int $b = 1; }
@@ -132,10 +160,32 @@ json_encode(new H3Uninit)          // {"b":1}
 toTsType(H3Uninit::class)['type']  // { a: string; b: number }
 ```
 
-So for such a class the inlined shape claims a **required** key the wire may never carry; the honest
-emission would be `a?: string`. No corpus fixture is affected — promoted constructor properties, which
-`Coordinate` and every other value object here use, are always initialized — so this is a gap in the
-*grounding*, not in today's output. It is filed as an out-of-scope entry.
+So the inlined shape claims a **required** key the wire may never carry; the honest emission would be
+`a?: string`.
+
+The corpus reproduces this, in `Workbench\App\Events\UserNotification`, whose
+`HasBroadcastTimestamps` trait declares a bare `public string $occurredAt;` alongside three promoted
+constructor properties:
+
+```
+json_encode(new UserNotification(1, 't', 'm'))
+  // {"userId":1,"title":"t","message":"m"}          — no occurredAt
+toTsType(UserNotification::class)['type']
+  // { userId: number; title: string; message: string; occurredAt: string }
+```
+
+No **generated output** is affected, for the reason in the previous section — the published
+`app/events/UserNotification.ts` is written by `BroadcastEventTransformer`, which emits
+`extends HasTimestamps` from the trait's `#[TsExtends]` and never consults this shape. Among the classes
+whose 5c output *does* reach a file, the value objects, none is affected either, and that is worth stating
+precisely rather than as a rule about promoted properties. Enumerating all 10 of
+`workbench/app/ValueObjects/`: seven carry public non-static properties (13 in total) and every one of those
+13 is promoted, hence always initialized; the other three — `OpaqueHandle`, `StringableLabel` and `TreeNode`
+— have no public non-static property at all, so they never reach the shape builder. `TreeNode` in
+particular has no constructor whatsoever, so "they all use promoted properties" would be the wrong reason
+for it; "it has nothing public to inline" is the right one.
+
+This is filed as an out-of-scope entry.
 
 ### What the guard does, and what each conjunct is worth
 

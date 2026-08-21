@@ -166,15 +166,33 @@ The baseline is **12**, not zero — but it is not a homogeneous "expected" buck
 | --- | --- | --- | --- |
 | `CustomObject` | 8 | A `@return array{…, custom_val: CustomObject, …}` docblock shape in `workbench/app/Http/Resources/Concerns/IncludesExtras.php`. A resource docblock shape map is string-only, so it carries no FQCN and no import can be derived. | Yes — app-declared |
 | `ExtendableInterface` | 2 | `#[TsExtends('ExtendableInterface')]` on `workbench/app/Http/Resources/Concerns/ExtendsInterfaces.php`, with no import argument. (Its sibling `#[TsExtends(…, '@/types/util', …)]` on the next line passes one and resolves fine.) | Yes — app-declared |
-| `PostAttributes` | 1 | `#[TsCasts(['attributes' => ['type' => 'PostAttributes', 'import' => '@js/types/posts']])]` on `workbench/app/Http/Requests/UpdatePostRequest.php`. The modular file *does* emit the import (`app/http/requests/update-post-request.ts:1`); only `laravel-ts-global.ts` cannot, since it emits no imports for app-side types. | Yes — global-flavor limitation |
+| `PostAttributes` | 1 | `#[TsCasts(['attributes' => ['type' => 'PostAttributes', 'import' => '@js/types/posts']])]` on `workbench/app/Http/Requests/UpdatePostRequest.php`. The modular file *does* emit the import (`app/http/requests/update-post-request.ts:1`); `laravel-ts-global.ts` does not, for the reason below. | Partly — see below |
 | `AddressResource` | 1 | **A real leak, not an escape hatch.** See below. | **No** |
 
-So 11 of the 12 are genuine escape hatches — in three different flavors, none of them `custom_ts_mappings`
-— where the *consuming app* declares the type and the package cannot emit an import. Those are expected and
-must not be "fixed".
+Ten of the 12 — `CustomObject` and `ExtendableInterface` — are genuine escape hatches, in two different
+flavors, neither of them `custom_ts_mappings`: the *consuming app* declares the type and the package has no
+FQCN or import path to work from. Those are expected and must not be "fixed". The remaining two are not
+that, for two different reasons.
 
-The twelfth is not. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it **is** published — as
-the interface `Address` in `app/http/resources/address.ts` — but `InlineArrayFqcnResource`'s
+`PostAttributes` **could** be imported into the global file; the package simply does not do it. The reason
+is not that `laravel-ts-global.ts` cannot carry app-side imports — it carries **17** of them, at lines 9-25,
+five `@js/types/*` and twelve `@/types/*`, including `@/types/geo` from the very same `#[TsCasts]` channel
+that produced `PostAttributes` and `@/types/util` from `#[TsExtends]`. The reason is narrower: `GlobalsWriter`
+builds its `$externalTypeImports` map (`src/Writers/GlobalsWriter.php`, the block beginning at the comment
+"Collect external (non-relative) type imports") from **three** generator collections — `modelGenerators`'
+`customImports`, `resourceGenerators`' non-relative `typeImports`, and `broadcastEventGenerators`' non-relative
+`typeImports`. `formRequestGenerators` is not one of them, even though the same writer iterates it a few lines
+earlier to register form-request type *names* in the global namespaces, and even though
+`FormRequestTransformer::$typeImports` is populated — it is what the modular file above prints. So a form
+request's custom import reaches the modular flavor and is dropped on the way to the global one.
+(`enumGenerators` is also absent from that map, but `EnumTransformer` declares no import channel at all, so
+that is not a gap.) The module `@js/types/posts` is still app-declared, so propagating it would move the
+diagnostic rather than remove it: the *name* would resolve and the unresolved *module* would join the TS2307
+bucket, where that specifier already appears once from the modular file. That reasoning is not measured — it
+is what the mechanism above implies, and it has not been reproduced by making the change.
+
+The twelfth is a different shape again. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it
+**is** published — as the interface `Address` in `app/http/resources/address.ts` — but `InlineArrayFqcnResource`'s
 `AddressResource::make($this->user)` reference emits the *class basename* instead of the `#[TsResource]`
 name, so the reference and the emitted interface disagree. It shows up twice, once per output flavor, which
 is exactly the split
@@ -188,7 +206,8 @@ output. It is filed as an out-of-scope entry.
 Raise the baseline only when you add a fixture that legitimately uses one of those escape hatches, and say
 so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch. And
 do not read the current number as twelve *approved* diagnostics — re-derive the origins before quoting them;
-as of this measurement one of the four names is a defect, not an escape hatch.
+as of this measurement, of the four names, two are escape hatches, one is a defect, and one is an
+unimplemented import propagation.
 
 `12` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
 value object's property shape instead of emitting a class token for it; that removed the two `Coordinate`
