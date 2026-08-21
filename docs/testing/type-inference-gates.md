@@ -85,9 +85,13 @@ that references it.
 python3 .github/scripts/unknown-regression-gate.py --parsetest
 ```
 
-No git range exercises a member-level `FAIL`. That was checked against every commit that has touched the
-generated tree (`git rev-list HEAD -- workbench/resources/js/types/data`), so this self-test is the only
-guard on the alias-, parent- and member-splitting logic above. It checks seven cases: five lifted from the
+No commit in this repo's history exercises a member-level `FAIL`, so this self-test is the only guard on
+the alias-, parent- and member-splitting logic above. Measured, not assumed: 189 commits have touched the
+generated tree (`git rev-list --count HEAD -- workbench/resources/js/types/data`), and replaying each of
+the 184 parent→commit transitions that changed a `.ts` file through `parse_source()` and
+`detect_regressions()` reports a regression on 2 of them and a **member-level** regression on **0**. That
+covers consecutive transitions, not every possible `BASE..HEAD` pair, so it is a strong absence rather
+than a proof. It checks seven cases: five lifted from the
 corpus — a single-line type alias, a namespaced alias inside `declare global`, an inline object with one
 member, one with several members, and a union of two inline objects — plus two synthetic regressions. The
 first is a member degrading to `unknown` beside a sibling that is already `unknown[]`, the exact shape the

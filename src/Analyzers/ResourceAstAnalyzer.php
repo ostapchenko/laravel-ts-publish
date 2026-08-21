@@ -603,9 +603,8 @@ class ResourceAstAnalyzer
     /**
      * Merge a ResourceAnalysis result into the running accumulator arrays.
      *
-     * inlineModelFqcns unions per occurrence; the two enum inline maps still dedupe even though all
-     * three feed aliasPropertyType()'s positional queue. Latent bug, safe only while no property repeats
-     * one enum FQCN at a non-tail position among two or more distinct same-basename FQCNs.
+     * inlineModelFqcns unions per occurrence; the enum inline maps still dedupe, though all three feed
+     * aliasPropertyType(). Lossless only while a queue is its distinct FQCNs then repeats of the last.
      *
      * @param  ResourcePropertyInfoList  $properties
      * @param  ClassMapType  $enumResources

@@ -1083,10 +1083,21 @@ state otherwise leaks across a parallel Pest run — that reset stays even thoug
 `PublishedResourceRegistry` themselves, because it also protects tests that never construct a runner at
 all. A consuming application gets no such per-test hook, which is why both runners reset on entry too.
 
-CI catches some regressions here and misses others, and the axis is **not** namespace. Every import this
-package writes is a relative directory-barrel specifier, cross-namespace ones included
-(`'../../../crm/http/resources'`), so relativeness alone decides nothing. What decides the diagnostic is
-whether the package writes a barrel into the target directory **at all**.
+CI catches some regressions here and misses others, and the axis is **not** namespace. A resource file's
+references to other published classes are written as relative *directory* specifiers, cross-namespace ones
+included (`'../../../crm/http/resources'`), so relativeness alone decides nothing. What decides the
+diagnostic is whether the package writes a barrel into the target directory **at all**.
+
+Scope that claim to resource files, because the tree as a whole is mixed. Measured across the committed
+trees (`import ... from` lines only, excluding barrel `export ... from` re-exports): **1820** import
+specifiers, of which **620 are bare** — `@tolki/ts` (364, emitted under this package's own shipped
+`'use_tolki_package' => true` default, so not an app-side escape hatch), `@tolki/types` (24) and 232
+`@/types/*`, `@js/types/*` and `@workbench/types` aliases. Of the **1200** relative ones, 1068 resolve to
+a directory, 128 to a single file — `broadcast-events.ts` and `echo-broadcast-events.d.ts` (56 each,
+`'./app/events/OrderShipped'` and friends) plus 16 controller-to-request imports such as
+`'../requests/store-post-request'` — and 4 to nothing (`'../value-objects'`, one per tree). Inside
+generated resource files specifically, excluding their barrels, **all 680 relative imports resolve to a
+directory**; that is the enumerated set the paragraph below is about.
 
 If it never writes that directory, the specifier resolves to nothing, tsc reports TS2307, and
 `unimportable-token-gate.sh`'s relative-specifier sub-gate counts it — CI runs that armed
@@ -1101,8 +1112,17 @@ fixtures below, and it does not depend on their sharing a namespace with `Mercha
 unpublished symbol *cross*-namespace out of `crm/http/resources` fails the same way. Reproduced against
 this repo's tsc, importing both `#[TsExclude]`d fixtures from the 124-export `app/http/resources` barrel
 gives TS2724 for `AttachmentResource` ("Did you mean 'CommentResource'?") and TS2305 for
-`AttachmentCollection`. So a regression here trips neither gate whenever the target directory exists,
-which is every directory holding a published resource. See
+`AttachmentCollection`.
+
+Which gate sees it therefore depends on the output flavor, and the package emits both into the same tree.
+In the **modular** files a leaked resource is an *import*, so it lands in the TS2305/TS2724 hole above and
+neither gate counts it. In `laravel-ts-global.ts` the same resource is referenced by **bare name** inside a
+nested namespace, with no import at all — the file's only imports are 17 bare app-side aliases — so an
+unresolvable one is a missing *name*, which `unimportable-token-gate.sh` **does** count. Injecting the leak
+into a scratch copy of the global file confirms both codes it can take, and both are in the gate's grep:
+`unpublished_guess?: AttachmentResource` gives `TS2552: Cannot find name 'AttachmentResource'. Did you mean
+'CommentResource'?`, and a name with no near neighbor gives plain `TS2304`. So the same defect is gated in
+the global flavor and ungated in the modular one. See
 [Type inference gates](../testing/type-inference-gates.md). The coverage is instead the published-set
 tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentResource` and
 `AttachmentCollection` workbench fixtures, plus a matching pair for `resolveCollectedResourceClass()`'s
@@ -1151,12 +1171,16 @@ on, not a separate collection class. The other is `toResourceCollection(SomeReso
 so lands in that same method. The remaining sites reflect on whatever class Laravel instantiates — the
 `ResourceCollection` subclass for `make()`, `new`, and the collection-delegated path. The argument-less
 `toResourceCollection()` arm (site 1924) is the one that varies: it reflects on
-`resolveResourceCollectionForModel()`'s `collectionFqcn`, which the `#[UseResource]` arm sets to the
-*resource* rather than a collection. Probing that resolver on `Workbench\App\Models\TrackingEvent`
-(`#[UseResource(EventLogResource::class)]`) returns `collectionFqcn === resourceFqcn ===
-EventLogResource`, a plain `JsonResource`. The analyzer is right to do that — vendor's
-`guessResourceCollection()` returns `$useResource::collection($this)` for that arm — so read the rule as
-"reflect on whatever Laravel instantiates", not "always the collection class".
+`resolveResourceCollectionForModel()`'s `collectionFqcn`, and that is only sometimes a collection class.
+Of the method's four value-returning arms, the two that resolve *through a collection class*
+(`#[UseResourceCollection]`, and the `{Guessed}Collection` naming branch) set it to that class; the two
+that find **no collection class at all** — the `#[UseResource]` arm and the naming-convention fallback
+over `guessResourceNames()` — set `collectionFqcn` to the plain resource, because the resource is what
+stands in for the collection. Vendor does the same in both: `guessResourceCollection()` returns
+`$resourceClass::collection($this)` for each. Probing the resolver on `Workbench\App\Models\TrackingEvent`
+(`#[UseResource(EventLogResource::class)]`) returns `collectionFqcn === resourceFqcn === EventLogResource`,
+a plain `JsonResource`. So read the rule as "reflect on whatever Laravel instantiates", not "always the
+collection class".
 
 ### Inertia props
 
@@ -1210,21 +1234,26 @@ for. Both reach `aliasPropertyType()`: `inlineEnumResourceFqcns` becomes
 and `mergePropertyFqcnMaps()`'s own docblock ends "never dedupe it". Task 14 dropped `array_unique`
 from `inlineModelFqcns` only, and left the two enum maps as they were.
 
-What makes the dedupe safe today is the corpus, not the design. The condition that breaks the queue,
-established by invoking `aliasPropertyType()` directly rather than by reading it, is a repeat at a
-**non-tail position** with **two or more distinct same-basename FQCNs** in the queue. Adjacency is
-irrelevant — `[A, A, B]` mistypes its second occurrence once deduped — and a *trailing* run is harmless,
-because the `min($cursor + 1, count($queues[$name]) - 1)` clamp keeps re-serving the last entry, so
-`[A, B, B]` renders identically either way. A single distinct FQCN is harmless for the same reason.
+What makes the dedupe safe today is the corpus, not the design. The exact rule, established by invoking
+`aliasPropertyType()` directly rather than by reading it: **dropping duplicates is lossless if and only if
+the queue is its distinct FQCNs in first-appearance order followed only by repeats of the last one.**
+Everything else mistypes an occurrence. The trailing run is free because the
+`min($cursor + 1, count($queues[$name]) - 1)` clamp keeps re-serving the final entry. Run against the real
+function, the rule agrees with observed behavior on every shape tried: `[A, B]`, `[A, A, A]`, `[A, B, B]`
+and `[A, B, B, B]` are lossless; `[A, A, B]`, `[A, B, A]`, `[B, A, B]`, `[A, B, A, B]` and `[A, A, B, B]`
+are not.
 
-No workbench property meets that condition, and only one even meets its precondition. The corpus has
-exactly one same-basename enum group — `Workbench\App\Enums\Status`, `Workbench\Crm\Enums\Status`,
-`Workbench\Shipping\Enums\Status` — and scanning every generated property line for two distinct members
-of it, counting bare `StatusType` reads as well as `AsEnum<typeof …>` wraps, leaves a single genuine hit:
-`DealResource::$status_pair`, which names `Workbench\App\Enums\Status` and `Workbench\Crm\Enums\Status`
-once each, so there is no repeat to lose. (`EnumCollectionResource::$wrapped_status_fallback` looks like a
-second hit and is not: its `Status` and `StatusType` tokens are the const and type names of the *same*
-FQCN, both imported from `'../../enums'`.)
+**Two** corpus properties meet the precondition for that to bite — one property naming two distinct
+members of a same-basename FQCN group — and both are lossless. The corpus has exactly one such group
+(`Workbench\App\Enums\Status`, `Workbench\Crm\Enums\Status`, `Workbench\Shipping\Enums\Status`).
+Enumerating every generated property line whose *type* side names two distinct members of it, and
+collapsing each enum's const and type names together, returns exactly two property names, each in all four
+example trees: `DealResource::$status_pair` and `DealEnumInlineResource::$summary`. Both are the on-point
+shape rather than a curiosity — both are inline `EnumResource::make()` wraps, so both populate
+`inlineEnumResourceFqcns`, the map this paragraph is about. Both name each FQCN exactly once, so each
+queue is `[d1, d2]` and there is no multiplicity to lose. (`EnumCollectionResource::$wrapped_status_fallback`
+is a near-miss, not a third: its `Status` and `StatusType` tokens are the const and type names of the
+*same* FQCN, both imported from `'../../enums'`.)
 
 Treat the two `array_unique` calls as a latent bug with no current trigger rather than a decision to
 preserve — the plan's Out of Scope section records the fixture that would be needed to fix it.
