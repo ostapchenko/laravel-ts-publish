@@ -166,10 +166,10 @@ so it contributes none of the 10. Traced to source, the two surviving names are:
 
 Both names are genuine escape hatches, in two different flavors, neither of them `custom_ts_mappings`: the
 *consuming app* declares the type and the package has no FQCN or import path to work from. They are expected
-and must not be "fixed". As of this measurement the bucket holds nothing else — but it has twice held a real
-defect, so re-derive rather than assume; the two most recent are recorded below.
+and must not be "fixed". As of this measurement the bucket holds nothing else — but it has held real defects
+before, so re-derive rather than assume; the two most recent are recorded below.
 
-A fourth name, `PostAttributes`, sat in this bucket until the count dropped from 12 to 11.
+`PostAttributes` sat in this bucket until the count dropped from 12 to 11.
 `GlobalsWriter` built its `$externalTypeImports` map (`src/Writers/GlobalsWriter.php`, the block beginning
 at the comment "Collect external (non-relative) type imports") from three generator collections —
 `modelGenerators`' `customImports`, `resourceGenerators`' non-relative `typeImports`, and
@@ -185,8 +185,8 @@ bucket rose by three rather than one, because the same loop also propagated two 
 imports the globals body never references. `laravel-ts-global.ts` now carries **20** imports, at lines 9-28,
 six `@js/types/*` and fourteen `@/types/*`.
 
-An eleventh name, `AddressResource`, was a real leak rather than an escape hatch, and took the count from
-11 to 10 when it was fixed. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it **is**
+`AddressResource` was a real leak rather than an escape hatch, and took the count from 11 to 10 when it
+was fixed. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it **is**
 published — as the interface `Address` in `app/http/resources/address.ts` — but `InlineArrayFqcnResource`'s
 `AddressResource::make($this->user)` reference emitted the *class basename*, which nothing declares. It was
 the corpus's only live instance of the counted/uncounted split
@@ -209,7 +209,7 @@ do not read the current number as ten *approved* diagnostics — re-derive the o
 As of this measurement both names are escape hatches, but that is a measurement, not a guarantee: the two
 entries above each sat in this bucket looking like one.
 
-`11` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
+`10` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
 value object's property shape instead of emitting a class token for it; that removed the two `Coordinate`
 TS2304s and, in the same change, took the relative-specifier sub-gate below from `1` to `0`. It fell to `11`
 when `GlobalsWriter` gained its form-request import loop, and to `10` when analyzer-derived resource
@@ -403,7 +403,8 @@ When changing `unknown-regression-gate.py` itself, also run its
   app-side escape hatch. None is emitted today — `default-example/app/models/warehouse.ts` was the last
   one, importing `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate` — so the
   sub-gate carries a baseline of 0. (The gate's baseline of 10 is not the TS2304 count, though they
-  coincide today: it is the combined TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 0.) The 61 bare ones remain uncounted, for
+  coincide today: it is the combined TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 0.) The 61
+bare ones remain uncounted, for
   the reason given above.
 
 - **An inline object that already contains `unknown` cannot report its own wholesale collapse.**
