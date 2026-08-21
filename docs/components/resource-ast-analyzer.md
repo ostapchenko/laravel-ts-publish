@@ -1215,6 +1215,45 @@ returns are `$this->collection->map->…->all()` — neither an array literal no
 analyzer can read — so the recursion yields no properties and body-less collections such as
 `PostCollection` and `PreserveKeysCollection` still reach `buildCollectionDelegatedAnalysis()`.
 
+### A body-less `ResourceCollection` stacked on another inherits its parent's `$collects` — not its own
+
+Two body-less `ResourceCollection` subclasses stacked on each other (`LeafCollection extends
+MidCollection extends ResourceCollection`, neither declaring `toArray()`) do not each resolve
+`$collects` independently. `LeafCollection::analyze()` finds no own-file `toArray()` and calls
+`analyzeParentToArray()`, which builds `new self($midClass, $this->modelClass)` and analyzes *that*.
+`MidCollection` is itself body-less, so its own `analyzeParentToArray()` walks up again to the real
+`ResourceCollection::toArray()`, which — per the guard above — yields no usable properties, so
+`MidCollection::analyze()` falls through to its **own** `buildCollectionDelegatedAnalysis()`, resolving
+`$collects` from `MidCollection`'s own reflection. If `MidCollection` doesn't declare `$wrap` (or
+declares a non-null one), that call returns a non-empty `properties` array — the wrapped `{ data: … }`
+shape. Back in `LeafCollection::analyze()`, the `properties !== []` guard passes on that inherited
+result and returns it unchanged: `LeafCollection`'s own `#[Collects]`/`$collects` is never consulted,
+even when it names a different resource than `MidCollection`'s.
+
+No corpus fixture has this shape, so this was verified with a throwaway two-class probe outside the
+workbench tree rather than asserted from a trace: `MidCollection` (`#[Collects(PostResource::class)]`,
+default `$wrap`) and `LeafCollection extends MidCollection` (`#[Collects(UserResource::class)]`, no
+`$wrap` of its own) both analyze to `{ data: PostResource[] }` — `LeafCollection` emits its parent's
+collected type, not its own.
+
+**The carve-out: a parent with `$wrap === null` breaks the inheritance.**
+`buildCollectionDelegatedAnalysis()` returns `new ResourceAnalysis(flatTypeAlias: $elementType,
+flatTypeAliasFqcn: $singular)` when `$wrap` resolves `null`/empty — `properties` stays at its `[]`
+default, which *fails* the `properties !== []` guard. `LeafCollection::analyze()` then falls through
+instead of returning the parent's result, reaches `isResourceCollection()`, and calls its **own**
+`buildCollectionDelegatedAnalysis()` — this time resolving `$collects` from `LeafCollection`'s own
+reflection, so its own override *is* honoured here.
+
+That recomputation does not inherit the parent's `$wrap = null`, though.
+`buildCollectionDelegatedAnalysis()` only reads `$wrap` when `ReflectionProperty::getDeclaringClass()`
+is the class currently being analyzed (`Read $wrap declared on this class only`). Since `LeafCollection`
+doesn't redeclare `$wrap` itself, its declaring class resolves to `MidCollection`, not `LeafCollection`,
+so that check fails and `$wrapKey` falls back to the method's hardcoded `'data'` default. The same
+probe's `$wrap = null` variant (`MidCollection` declares `public static $wrap = null;`,
+`LeafCollection` does not) confirms it: `LeafCollection` analyzes to `{ data: UserResource[] }`, the
+wrapped shape, not the flat `UserResource[]` its parent's `$wrap = null` would suggest. A body-less
+child only reproduces an ancestor's flat shape if it redeclares `$wrap = null` itself.
+
 ### An inherited shape needs an inherited model
 
 `ResourceTransformer::resolveModelClass()` used to read the docblock of the resource itself only. A
