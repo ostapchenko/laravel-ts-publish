@@ -474,7 +474,7 @@ class ResourceTransformer extends CoreTransformer
             $this->typeAlias = $analysis->flatTypeAlias;
 
             if ($analysis->flatTypeAliasFqcn !== null && $analysis->flatTypeAliasFqcn !== $this->findable) {
-                $this->resourceFqcnMap[$analysis->flatTypeAliasFqcn] = class_basename($analysis->flatTypeAliasFqcn);
+                $this->resourceFqcnMap[$analysis->flatTypeAliasFqcn] = LaravelTsPublish::resourceTypeName($analysis->flatTypeAliasFqcn);
             }
 
             return $this;
@@ -512,7 +512,7 @@ class ResourceTransformer extends CoreTransformer
 
         foreach ($analysis->nestedResources as $propName => $fqcn) {
             if ($fqcn !== $this->findable) {
-                $this->resourceFqcnMap[$fqcn] = class_basename($fqcn);
+                $this->resourceFqcnMap[$fqcn] = LaravelTsPublish::resourceTypeName($fqcn);
                 $this->propertyResourceFqcns[$propName] = $fqcn;
             }
         }

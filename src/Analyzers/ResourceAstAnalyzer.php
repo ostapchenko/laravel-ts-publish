@@ -1694,7 +1694,7 @@ class ResourceAstAnalyzer
             if ($collected !== null) {
                 return [
                     ...$result,
-                    'type' => $this->wrapCollectionElementType(class_basename($collected), new ReflectionClass($className)),
+                    'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($collected), new ReflectionClass($className)),
                     'optional' => $this->hasConditionalArgument($call),
                     'resourceFqcn' => $collected,
                 ];
@@ -1703,7 +1703,7 @@ class ResourceAstAnalyzer
 
         // SomeResource::make($this->prop) — nested resource
         if ($this->isResourceClass($className) && $methodName === 'make') {
-            $resourceName = class_basename($className);
+            $resourceName = LaravelTsPublish::resourceTypeName($className);
             $optional = $this->hasConditionalArgument($call);
 
             /** @var class-string $className */
@@ -1717,7 +1717,7 @@ class ResourceAstAnalyzer
 
         // SomeResource::collection(...) — array or keyed record of nested resource
         if ($this->isResourceClass($className) && $methodName === 'collection') {
-            $resourceName = class_basename($className);
+            $resourceName = LaravelTsPublish::resourceTypeName($className);
             $optional = $this->hasConditionalArgument($call);
 
             /** @var class-string $className */
@@ -1760,7 +1760,7 @@ class ResourceAstAnalyzer
         // A collection receiver (e.g. ::collection()) resolves to an AnonymousResourceCollection
         // instance, not a $resourceFqcn instance — reflecting the method below would validate
         // against the wrong receiver, so exclude it rather than misfire on e.g. ->additional().
-        if ($resourceFqcn === null || $receiverResult['type'] !== class_basename($resourceFqcn)) {
+        if ($resourceFqcn === null || $receiverResult['type'] !== LaravelTsPublish::resourceTypeName($resourceFqcn)) {
             return null;
         }
 
@@ -1871,7 +1871,7 @@ class ResourceAstAnalyzer
             }
 
             /** @var class-string $explicit */
-            return [...$result, 'type' => class_basename($explicit), 'optional' => false, 'resourceFqcn' => $explicit];
+            return [...$result, 'type' => LaravelTsPublish::resourceTypeName($explicit), 'optional' => false, 'resourceFqcn' => $explicit];
         }
 
         $modelFqcn = $this->resolveToResourceReceiverModel($call->var);
@@ -1881,7 +1881,7 @@ class ResourceAstAnalyzer
             return $result;
         }
 
-        return [...$result, 'type' => class_basename($resourceFqcn), 'optional' => false, 'resourceFqcn' => $resourceFqcn];
+        return [...$result, 'type' => LaravelTsPublish::resourceTypeName($resourceFqcn), 'optional' => false, 'resourceFqcn' => $resourceFqcn];
     }
 
     /**
@@ -1906,7 +1906,7 @@ class ResourceAstAnalyzer
             /** @var class-string $explicit */
             return [
                 ...$result,
-                'type' => $this->wrapCollectionElementType(class_basename($explicit), new ReflectionClass($explicit)),
+                'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($explicit), new ReflectionClass($explicit)),
                 'optional' => false,
                 'resourceFqcn' => $explicit,
             ];
@@ -1922,7 +1922,7 @@ class ResourceAstAnalyzer
         return [
             ...$result,
             'type' => $this->wrapCollectionElementType(
-                class_basename($resolved['resourceFqcn']),
+                LaravelTsPublish::resourceTypeName($resolved['resourceFqcn']),
                 new ReflectionClass($resolved['collectionFqcn']),
             ),
             'optional' => false,
@@ -2474,7 +2474,7 @@ class ResourceAstAnalyzer
             if ($collected !== null) {
                 return [
                     ...$result,
-                    'type' => $this->wrapCollectionElementType(class_basename($collected), new ReflectionClass($className)),
+                    'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($collected), new ReflectionClass($className)),
                     'optional' => $this->hasConditionalNewArgument($expr),
                     'resourceFqcn' => $collected,
                 ];
@@ -2485,7 +2485,7 @@ class ResourceAstAnalyzer
             return $result; // @codeCoverageIgnore
         }
 
-        $resourceName = class_basename($className);
+        $resourceName = LaravelTsPublish::resourceTypeName($className);
         $optional = $this->hasConditionalNewArgument($expr);
 
         /** @var class-string $className */
@@ -3642,7 +3642,7 @@ class ResourceAstAnalyzer
             }
         }
 
-        $elementType = $this->wrapCollectionElementType(class_basename($singular), $this->resourceReflection);
+        $elementType = $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $this->resourceReflection);
 
         if ($wrapKey === null || $wrapKey === '') {
             return new ResourceAnalysis(flatTypeAlias: $elementType, flatTypeAliasFqcn: $singular);
@@ -3678,7 +3678,7 @@ class ResourceAstAnalyzer
 
         return [
             ...$result,
-            'type' => $this->wrapCollectionElementType(class_basename($singular), $this->resourceReflection),
+            'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $this->resourceReflection),
             'resourceFqcn' => $singular,
         ];
     }
@@ -4222,7 +4222,7 @@ class ResourceAstAnalyzer
 
             $spreadResult = $this->analyzeValueExpression($item->value);
 
-            if (isset($spreadResult['resourceFqcn']) && $spreadResult['type'] === class_basename($spreadResult['resourceFqcn'])) {
+            if (isset($spreadResult['resourceFqcn']) && $spreadResult['type'] === LaravelTsPublish::resourceTypeName($spreadResult['resourceFqcn'])) {
                 $spreadArms[] = ['fqcn' => $spreadResult['resourceFqcn'], 'isModel' => false];
             }
         }
@@ -4277,7 +4277,7 @@ class ResourceAstAnalyzer
 
         return array_map(function (int $index) use ($spreadFqcns, $explicitKeyLiterals): string {
             $laterArmNames = array_values(array_unique(array_map(
-                fn (string $fqcn): string => class_basename($fqcn),
+                fn (string $fqcn): string => LaravelTsPublish::resourceTypeName($fqcn),
                 array_slice($spreadFqcns, $index + 1),
             )));
 
@@ -4286,7 +4286,7 @@ class ResourceAstAnalyzer
                 ...array_map(fn (string $name): string => "keyof {$name}", $laterArmNames),
             ];
 
-            $armName = class_basename($spreadFqcns[$index]);
+            $armName = LaravelTsPublish::resourceTypeName($spreadFqcns[$index]);
 
             return $excluded === [] ? $armName : 'Omit<'.$armName.', '.implode(' | ', $excluded).'>';
         }, array_keys($spreadFqcns));

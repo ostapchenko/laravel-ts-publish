@@ -1,5 +1,5 @@
 import type { OrderItem } from '../../models';
-import type { AddressResource } from '.';
+import type { Address } from '.';
 
 /**
  * Exercises analyzeInlineArray embeddedModelFqcns and embeddedResourceFqcns
@@ -12,5 +12,5 @@ import type { AddressResource } from '.';
 export interface InlineArrayFqcnResource
 {
     id: number;
-    payload?: { address: AddressResource; items_loaded?: OrderItem[] } | null;
+    payload?: { address: Address; items_loaded?: OrderItem[] } | null;
 }

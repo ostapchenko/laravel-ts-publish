@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish;
 
 use AbeTwoThree\LaravelTsPublish\Attributes\TsEnum;
+use AbeTwoThree\LaravelTsPublish\Attributes\TsResource;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsType;
 use BackedEnum;
 use Closure;
@@ -64,6 +65,13 @@ class LaravelTsPublish
      * @var array<string, array<string, array{definition: string, class: ReflectionClass<object>}|null>>
      */
     protected array $phpstanTypeAliasCache = [];
+
+    /**
+     * Per-class cache of published resource interface names: FQCN => #[TsResource(name:)] or basename.
+     *
+     * @var array<string, string>
+     */
+    protected array $resourceTypeNames = [];
 
     /** @var list<string> */
     private const array RESERVED_JS_IDENTIFIERS = [
@@ -1844,6 +1852,31 @@ class LaravelTsPublish
 
             return $queues[$name][$cursor];
         }, $type) ?? $type;
+    }
+
+    /**
+     * Resolve the TypeScript interface name a resource class is published under.
+     *
+     * #[TsResource(name:)] renames the emitted interface, so a reference that used class_basename()
+     * instead named a type nothing declares. ResourceTransformer::initReflection() is the same rule.
+     */
+    public function resourceTypeName(string $fqcn): string
+    {
+        if (isset($this->resourceTypeNames[$fqcn])) {
+            return $this->resourceTypeNames[$fqcn];
+        }
+
+        $name = class_basename($fqcn);
+
+        if (class_exists($fqcn)) {
+            $attributes = (new ReflectionClass($fqcn))->getAttributes(TsResource::class);
+
+            if ($attributes !== []) {
+                $name = $attributes[0]->newInstance()->name ?? $name;
+            }
+        }
+
+        return $this->resourceTypeNames[$fqcn] = $name;
     }
 
     /**

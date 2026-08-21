@@ -10139,7 +10139,7 @@
                 },
                 {
                     "name": "payload",
-                    "type": "{ address: AddressResource; items_loaded?: OrderItem[] } | null",
+                    "type": "{ address: Address; items_loaded?: OrderItem[] } | null",
                     "optional": true
                 }
             ]

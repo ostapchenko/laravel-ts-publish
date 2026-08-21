@@ -1103,7 +1103,7 @@ directory**; that is the enumerated set the paragraph below is about.
 
 If it never writes that directory, the specifier resolves to nothing, tsc reports TS2307, and
 `unimportable-token-gate.sh`'s relative-specifier sub-gate counts it — CI runs that armed
-(`.github/workflows/run-tests.yml` invokes `unimportable-token-gate.sh 11 0`). The corpus's one live
+(`.github/workflows/run-tests.yml` invokes `unimportable-token-gate.sh 10 0`). The corpus's one live
 instance was exactly this shape until step 5c removed it: `warehouse.ts` imported `'../value-objects'`,
 and `default-example/app/value-objects/` does not exist. The sub-gate's baseline is `0` now, so nothing in
 the corpus exercises its failure path — see
@@ -1122,7 +1122,11 @@ Which gate sees it therefore depends on the output flavor, and the package emits
 In the **modular** files a leaked resource is an *import*, so it lands in the TS2305/TS2724 hole above and
 neither gate counts it. In `laravel-ts-global.ts` the same resource is referenced by **bare name** inside a
 nested namespace, with no import at all — the file's only imports are 20 bare app-side aliases — so an
-unresolvable one is a missing *name*, which `unimportable-token-gate.sh` **does** count. Injecting the leak
+unresolvable one is a missing *name*, which `unimportable-token-gate.sh` **does** count. The corpus carried
+one live instance of that split until `AddressResource`'s `#[TsResource(name: 'Address')]` rename started
+being honored by analyzer-derived references; it produced `TS2552` in the global flavor and `TS2724` in the
+modular one, and both went away together. Nothing in the generated tree exercises the split now — tsc
+reports no TS2305 and no TS2724 over it — so the split has to be synthesized to be seen. Injecting the leak
 into a scratch copy of the global file confirms both codes it can take, and both are in the gate's grep:
 `unpublished_guess?: AttachmentResource` gives `TS2552: Cannot find name 'AttachmentResource'. Did you mean
 'CommentResource'?`, and a name with no near neighbor gives plain `TS2304`. So the same defect is gated in
