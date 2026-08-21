@@ -4063,13 +4063,12 @@ class ResourceAstAnalyzer
                 $bareTypeName = $tsInfo['enumTypes'][0] ?? class_basename($fqcn).'Type';
                 $asEnumType = 'AsEnum<typeof '.$constName.'>';
 
-                // A mixed wrap/direct ternary merged to two distinct members keeps each arm's own
-                // shape visible, so only the array-shaped one substitutes. A same-shaped pair merges
-                // to one token with no per-member signal left, so it falls through to the blanket case.
+                // A mixed wrap/direct ternary needs both arms named, whether or not the merged union
+                // still shows them apart; blanket substitution would rewrite the direct arm too.
                 $isMixed = ($analysis->directEnumFqcns[$prop['name']] ?? null) === $fqcn;
                 $members = LaravelTsPublish::splitTopLevelUnion($prop['type']);
 
-                $prop['type'] = $isMixed && count($members) > 1
+                $prop['type'] = $isMixed
                     ? $this->expandMixedEnumType($members, $bareTypeName, $asEnumType)
                     : $this->substituteEnumType($prop['type'], $bareTypeName, $asEnumType);
             }
@@ -4821,23 +4820,27 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Rejoin a mixed wrap/direct enum union's split members, substituting only the array-shaped
-     * one — the arm EnumResource::collection() forced. A same-shaped direct member is left bare:
-     * it was never wrapped, so AsEnum-ing it would claim an import it never earned.
+     * Rejoin a mixed wrap/direct enum union's split members, naming the wrapped arm without
+     * losing the direct one.
+     *
+     * An array-shaped member is the arm EnumResource::collection() forced, so it substitutes and the
+     * bare member stays as the direct arm. With no such member both arms rendered the same token and
+     * deduped to one, so the wrapped arm is spelled out beside it instead of overwriting it.
      *
      * @param  list<string>  $members
      */
     private function expandMixedEnumType(array $members, string $bareTypeName, string $asEnumType): string
     {
-        foreach ($members as &$member) {
-            if ($member === $bareTypeName.'[]') {
-                $member = $asEnumType.'[]';
-            }
-        }
+        $collectionType = $bareTypeName.'[]';
+        $hasCollectionArm = in_array($collectionType, $members, true);
 
-        unset($member);
+        $expanded = array_map(fn (string $member): string => match (true) {
+            $member === $collectionType => $asEnumType.'[]',
+            ! $hasCollectionArm && $member === $bareTypeName => $asEnumType.' | '.$bareTypeName,
+            default => $member,
+        }, $members);
 
-        return implode(' | ', $members);
+        return implode(' | ', $expanded);
     }
 
     /**

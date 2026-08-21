@@ -313,7 +313,8 @@ and directly enum-read — it never trusts the analyzer's own merged type string
 cannot do the same for a *nested* key: its `ResourceAnalysis` is method-local, and only flat property
 lists leave the method, keyed by the array literal's own (outer) property name, so the transformer
 has no way to know which inner key was mixed. The fix has to stay analyzer-side, in
-`expandMixedEnumType()`, and it can only act on what the merged type string still shows.
+`expandMixedEnumType()`, working from the merged type string plus the one out-of-band signal the
+analyzer does keep — `$isMixed`.
 
 Two shapes reach this code, and the merged type string carries different information for each:
 
@@ -321,18 +322,23 @@ Two shapes reach this code, and the merged type string carries different informa
   vs `$this->status`, both `StatusType`). `analyzeClosureUnion()` deduplicates identical strings
   before `mergeUnionChannels()` ever joins them, so by the time `analyzeInlineArray()` sees it there
   is exactly one `StatusType` token — no per-member signal survives to say "this token stands for
-  two arms, only one of which was wrapped." This case still goes through the ordinary
-  `substituteEnumType()`, which turns the single token into `AsEnum<typeof Status>`, silently
-  dropping the direct-read arm. `ResourceWrappedEnumResource::$ternary_enums_array` pins it:
-  `{ status: AsEnum<typeof Status> }`, byte-identical to what a non-mixed `EnumResource::make()`-only
-  property would produce. This is a standing parity gap with the top-level `$isMixed` rewrite, not
-  something this task closes: the transformer's top-level rewrite never has this limit — it
-  reconstructs `AsEnum<typeof Const> | EnumTypeName` from the FQCN maps regardless of what the
-  analyzer's own merged string says, so a same-shaped top-level mixed pair (`status_when_not_null_arrow`,
-  below) gets the full union where this nested one does not. (`status_ternary_both`, elsewhere in
-  the same fixture, looks similar but is not this case at all — both of its arms are
-  EnumResource-wrapped, so `mergeUnionChannels()` never sets `directEnumFqcn` for it; its single
-  `AsEnum<typeof Status>` is the ordinary, correct wrapped-only substitution, not a dropped arm.)
+  two arms, only one of which was wrapped." `$isMixed` is the signal that survives instead:
+  `mergeUnionChannels()` sets *both* `enumFqcn` and `directEnumFqcn` only when one arm wrapped and
+  another read directly, so its presence alone proves a wrapped arm exists that the single token does
+  not show. `expandMixedEnumType()` therefore spells that arm out beside the bare one rather than
+  substituting the token in place. `ResourceWrappedEnumResource::$ternary_enums_array` pins it:
+  `{ status: AsEnum<typeof Status> | StatusType }`. Both halves are load-bearing and were measured
+  separately — substituting in place (the pre-fix blanket `substituteEnumType()` path, reached because
+  the call site used to gate `expandMixedEnumType()` behind `count($members) > 1`) emitted
+  `{ status: AsEnum<typeof Status> }`, dropping the direct-read arm; removing that gate without
+  teaching `expandMixedEnumType()` the collapsed shape emitted `{ status: StatusType }`, dropping the
+  wrapped arm instead. This now matches the top-level `$isMixed` rewrite, which reconstructs
+  `AsEnum<typeof Const> | EnumTypeName` from the FQCN maps regardless of what the analyzer's own
+  merged string says — a same-shaped top-level mixed pair (`status_when_not_null_arrow`, below) and
+  this nested one both get the full union. (`status_ternary_both`, elsewhere in the same fixture,
+  looks similar but is not this case at all — both of its arms are EnumResource-wrapped, so
+  `mergeUnionChannels()` never sets `directEnumFqcn` for it; its single `AsEnum<typeof Status>` is
+  the ordinary, correct wrapped-only substitution, not a dropped arm.)
 - **Heterogeneous** — the two arms produce *different* type strings because one is forced into an
   array shape and the other is not (e.g. `EnumResource::collection($this->status_history)`, already
   array-shaped, vs a direct scalar read of a different accessor sharing the same enum — `StatusType[]`
@@ -340,7 +346,9 @@ Two shapes reach this code, and the merged type string carries different informa
   merged type string is a genuine two-member union, each member's own shape still visible.
   `expandMixedEnumType()` substitutes
   only the member matching `{bareTypeName}[]` — the one `EnumResource::collection()` actually
-  produced — and leaves any other member untouched. `EnumCollectionResource::$wrapped_status_fallback`
+  produced — and leaves any other member untouched; the presence of that array-shaped member is also
+  what tells it the arms are already distinguishable, so it does not additionally spell out the
+  wrapped arm the way the homogeneous case needs. `EnumCollectionResource::$wrapped_status_fallback`
   pins it: `{ status: AsEnum<typeof Status>[] | StatusType }`. Before this fix, the same blanket
   `substituteEnumType()` call used for the homogeneous case matched *both* members (the word-boundary
   regex does not stop at `[`), wrongly producing `AsEnum<typeof Status>[] | AsEnum<typeof Status>`.
@@ -364,7 +372,10 @@ In the globals tree, `LaravelTsPublish::rewriteAsEnumToType()`'s pair pattern fo
 `AsEnum<typeof Const> | EnumTypeName` adjacency — no `[]` anywhere in that span, neither between
 the two names nor trailing the bare one — to a single qualified reference —
 `status_when_not_null_arrow`'s top-level homogeneous pair collapses to one `StatusType` reference,
-for example. `wrapped_status_fallback`'s heterogeneous `AsEnum<typeof Status>[] | StatusType` does
+and `ternary_enums_array`'s nested one folds the same way inside its inline object — the bare name is
+followed by a space and `}`, which the lookahead allows — so the globals tree kept
+`{ status: app.enums.StatusType }` byte-identical across this fix.
+`wrapped_status_fallback`'s heterogeneous `AsEnum<typeof Status>[] | StatusType` does
 not match (the `[]` sits between the two names), and neither does `latest_status_or_history`'s
 `AsEnum<typeof Status> | StatusType[]` (the `[]` trails the bare name instead) — both render as two
 independently-qualified references, correct, since the two members mean different things despite

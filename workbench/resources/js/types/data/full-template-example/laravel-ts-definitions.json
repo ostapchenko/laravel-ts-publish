@@ -11925,7 +11925,7 @@
                 },
                 {
                     "name": "ternary_enums_array",
-                    "type": "{ status: AsEnum<typeof Status> }",
+                    "type": "{ status: AsEnum<typeof Status> | StatusType }",
                     "optional": false
                 },
                 {

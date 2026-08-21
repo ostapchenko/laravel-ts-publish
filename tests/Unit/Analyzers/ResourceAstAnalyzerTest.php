@@ -4637,13 +4637,13 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
     });
 
     // A same-shaped mixed ternary (EnumResource::make() vs a direct read, both scalar StatusType)
-    // deduplicates to one merged token, leaving $isMixed synthesis (Task 14) no per-member signal
-    // to act on — a standing parity gap with the top-level rewrite, not something this task fixes.
-    test('mixed ternary nested in an inline array: same-shaped arms stay collapsed to AsEnum<typeof Status>', function () {
+    // dedupes to one merged token, so expandMixedEnumType() spells the wrapped arm out beside the
+    // bare one — rewriting the single token in place would drop the direct-read arm.
+    test('mixed ternary nested in an inline array: same-shaped arms both stay named in the union', function () {
         $prop = collect($this->analysis->properties)->firstWhere('name', 'ternary_enums_array');
 
         expect($prop)->not->toBeNull()
-            ->and($prop['type'])->toBe('{ status: AsEnum<typeof Status> }');
+            ->and($prop['type'])->toBe('{ status: AsEnum<typeof Status> | StatusType }');
     });
 
     // ── Inline array: enums_array (all EnumResource) ──────────────────────────

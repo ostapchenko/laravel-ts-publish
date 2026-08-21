@@ -2152,15 +2152,15 @@ describe('ResourceTransformer with ResourceWrappedEnumResource — inline array 
             ->and($data->properties['priority_when_not_null_make']['optional'])->toBeFalse();
     });
 
-    // Full-pipeline pin: analyzeInlineArray() already collapsed both arms to AsEnum<typeof Status>
-    // before the transformer runs, and rewriteEnumResourceTypes() only iterates top-level
-    // properties, so it never touches this nested key — the analyzer's own output is final.
-    test('ternary_enums_array stays collapsed to AsEnum<typeof Status> through the full transformer pipeline', function () {
+    // Full-pipeline pin: rewriteEnumResourceTypes() only iterates top-level properties, so it never
+    // touches this nested key — analyzeInlineArray()'s own mixed-arm expansion is what reaches the
+    // emitted file, and the transformer must leave both arms standing.
+    test('ternary_enums_array keeps both mixed arms through the full transformer pipeline', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(ResourceWrappedEnumResource::class))->data();
 
         expect($data->properties['ternary_enums_array']['type'])
-            ->toBe('{ status: AsEnum<typeof Status> }');
+            ->toBe('{ status: AsEnum<typeof Status> | StatusType }');
     });
 });
 
