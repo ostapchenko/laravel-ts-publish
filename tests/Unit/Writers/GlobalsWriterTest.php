@@ -186,3 +186,20 @@ test('globals resources section emits export type for flat collections', functio
         ->toContain('export type PostFlatCollection =')
         ->not->toContain('export interface PostFlatCollection {');
 })->skip(fn () => ! version_compare(app()->version(), '13', '>='));
+
+test('globals content imports a form request custom type instead of leaving the name unresolved', function () {
+    config()->set('ts-publish.globals.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new GlobalsWriter(new Filesystem);
+    $content = $writer->write($runner);
+
+    // UpdatePostRequest's #[TsCasts] names PostAttributes from '@js/types/posts'; the modular
+    // flavor imports it, so the globals flavor must too or the bare name resolves to nothing.
+    expect($content)
+        ->toContain("import type { PostAttributes } from '@js/types/posts';")
+        ->toContain('attributes?: PostAttributes');
+});

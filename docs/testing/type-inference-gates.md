@@ -139,59 +139,56 @@ interface omits `$hidden` ones, so `K extends keyof T` failed. See
 
 ```bash
 .github/scripts/unimportable-token-gate.sh          # report only
-.github/scripts/unimportable-token-gate.sh 12       # fail if the count exceeds 12
-.github/scripts/unimportable-token-gate.sh 12 0     # also fail if the relative-specifier TS2307 sub-gate exceeds 0
+.github/scripts/unimportable-token-gate.sh 11       # fail if the count exceeds 11
+.github/scripts/unimportable-token-gate.sh 11 0     # also fail if the relative-specifier TS2307 sub-gate exceeds 0
 ```
 
 ```
-TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 12
+TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 11
    8   CustomObject
    2   ExtendableInterface
-   1   PostAttributes
    1   AddressResource
 TS2307 (cannot find module) with a relative specifier in generated tree: 0
 
-PASS - no new unimportable or colliding tokens (baseline 12)
+PASS - no new unimportable or colliding tokens (baseline 11)
 PASS - no new relative-specifier TS2307s (baseline 0)
 ```
 
 ### The baseline
 
-The baseline is **12**, not zero — but it is not a homogeneous "expected" bucket, and it is **not** made of
+The baseline is **11**, not zero — but it is not a homogeneous "expected" bucket, and it is **not** made of
 `custom_ts_mappings` entries. The workbench's `custom_ts_mappings` is empty
 (`workbench/config/ts-publish.php:80-82` holds only a commented-out example), so it contributes none of the
-12. Traced to source, the four surviving names are:
+11. Traced to source, the three surviving names are:
 
 | Name | Count | Where it comes from | Expected? |
 | --- | --- | --- | --- |
 | `CustomObject` | 8 | A `@return array{…, custom_val: CustomObject, …}` docblock shape in `workbench/app/Http/Resources/Concerns/IncludesExtras.php`. A resource docblock shape map is string-only, so it carries no FQCN and no import can be derived. | Yes — app-declared |
 | `ExtendableInterface` | 2 | `#[TsExtends('ExtendableInterface')]` on `workbench/app/Http/Resources/Concerns/ExtendsInterfaces.php`, with no import argument. (Its sibling `#[TsExtends(…, '@/types/util', …)]` on the next line passes one and resolves fine.) | Yes — app-declared |
-| `PostAttributes` | 1 | `#[TsCasts(['attributes' => ['type' => 'PostAttributes', 'import' => '@js/types/posts']])]` on `workbench/app/Http/Requests/UpdatePostRequest.php`. The modular file *does* emit the import (`app/http/requests/update-post-request.ts:1`); `laravel-ts-global.ts` does not, for the reason below. | Partly — see below |
 | `AddressResource` | 1 | **A real leak, not an escape hatch.** See below. | **No** |
 
-Ten of the 12 — `CustomObject` and `ExtendableInterface` — are genuine escape hatches, in two different
+Ten of the 11 — `CustomObject` and `ExtendableInterface` — are genuine escape hatches, in two different
 flavors, neither of them `custom_ts_mappings`: the *consuming app* declares the type and the package has no
-FQCN or import path to work from. Those are expected and must not be "fixed". The remaining two are not
-that, for two different reasons.
+FQCN or import path to work from. Those are expected and must not be "fixed". The remaining one is not
+that.
 
-`PostAttributes` **could** be imported into the global file; the package simply does not do it. The reason
-is not that `laravel-ts-global.ts` cannot carry app-side imports — it carries **17** of them, at lines 9-25,
-five `@js/types/*` and twelve `@/types/*`, including `@/types/geo` from the very same `#[TsCasts]` channel
-that produced `PostAttributes` and `@/types/util` from `#[TsExtends]`. The reason is narrower: `GlobalsWriter`
-builds its `$externalTypeImports` map (`src/Writers/GlobalsWriter.php`, the block beginning at the comment
-"Collect external (non-relative) type imports") from **three** generator collections — `modelGenerators`'
-`customImports`, `resourceGenerators`' non-relative `typeImports`, and `broadcastEventGenerators`' non-relative
-`typeImports`. `formRequestGenerators` is not one of them, even though the same writer iterates it a few lines
-earlier to register form-request type *names* in the global namespaces, and even though
-`FormRequestTransformer::$typeImports` is populated — it is what the modular file above prints. So a form
-request's custom import reaches the modular flavor and is dropped on the way to the global one.
-(`enumGenerators` is also absent from that map, but `EnumTransformer` declares no import channel at all, so
-that is not a gap.) The module `@js/types/posts` is still app-declared, so propagating it would move the
-diagnostic rather than remove it: the *name* would resolve and the unresolved *module* would join the TS2307
-bucket, where that specifier already appears once from the modular file. That reasoning is not measured — it
-is what the mechanism above implies, and it has not been reproduced by making the change.
+A fourth name, `PostAttributes`, sat in this bucket until the count dropped from 12 to 11.
+`GlobalsWriter` built its `$externalTypeImports` map (`src/Writers/GlobalsWriter.php`, the block beginning
+at the comment "Collect external (non-relative) type imports") from three generator collections —
+`modelGenerators`' `customImports`, `resourceGenerators`' non-relative `typeImports`, and
+`broadcastEventGenerators`' non-relative `typeImports` — with `formRequestGenerators` absent, so
+`UpdatePostRequest`'s `#[TsCasts(['attributes' => ['type' => 'PostAttributes', 'import' => '@js/types/posts']])]`
+reached the modular flavor and was dropped on the way to the global one. A fourth loop over
+`formRequestGenerators` closed that. (`enumGenerators` is still absent from that map, but `EnumTransformer`
+declares no import channel at all, so that is not a gap.)
 
-The twelfth is a different shape again. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it
+The measured effect was a move, not a removal, as the mechanism implied: `@js/types/posts` is app-declared
+either way, so the *name* now resolves and the unresolved *module* joined the uncounted TS2307 bucket. That
+bucket rose by three rather than one, because the same loop also propagated two form-request `#[TsExtends]`
+imports the globals body never references. `laravel-ts-global.ts` now carries **20** imports, at lines 9-28,
+six `@js/types/*` and fourteen `@/types/*`.
+
+The eleventh is a different shape again. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it
 **is** published — as the interface `Address` in `app/http/resources/address.ts` — but `InlineArrayFqcnResource`'s
 `AddressResource::make($this->user)` reference emits the *class basename* instead of the `#[TsResource]`
 name, so the reference and the emitted interface disagree. It shows up twice, once per output flavor, which
@@ -205,14 +202,14 @@ output. It is filed as an out-of-scope entry.
 
 Raise the baseline only when you add a fixture that legitimately uses one of those escape hatches, and say
 so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch. And
-do not read the current number as twelve *approved* diagnostics — re-derive the origins before quoting them;
-as of this measurement, of the four names, two are escape hatches, one is a defect, and one is an
-unimplemented import propagation.
+do not read the current number as eleven *approved* diagnostics — re-derive the origins before quoting them;
+as of this measurement, of the three names, two are escape hatches and one is a defect.
 
-`12` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
+`11` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
 value object's property shape instead of emitting a class token for it; that removed the two `Coordinate`
-TS2304s and, in the same change, took the relative-specifier sub-gate below from `1` to `0`. Lowering a
-baseline once the defect behind it is actually gone is the point; defending the number is not.
+TS2304s and, in the same change, took the relative-specifier sub-gate below from `1` to `0`. It fell to `11`
+when `GlobalsWriter` gained its form-request import loop. Lowering a baseline once the defect behind it is
+actually gone is the point; defending the number is not.
 
 ### The relative-specifier sub-gate
 
@@ -222,8 +219,8 @@ against a file *this package itself writes* — it is never the app-side `custom
 behind the baseline above, so it gets its own count and its own baseline instead of being folded into it.
 
 ```bash
-.github/scripts/unimportable-token-gate.sh 12        # unchanged: no relative-specifier check runs
-.github/scripts/unimportable-token-gate.sh 12 0      # gate the relative-specifier count too
+.github/scripts/unimportable-token-gate.sh 11        # unchanged: no relative-specifier check runs
+.github/scripts/unimportable-token-gate.sh 11 0      # gate the relative-specifier count too
 ```
 
 The baseline is **0**. It was `1` while
@@ -234,7 +231,7 @@ inlines that class's property shape, so no import is emitted and the measured co
 #### Its negative control had to be replaced
 
 That single instance was also the sub-gate's negative control: `14 0` used to fail, because the count was
-1. With the count at `0`, `12 0` passes, so that invocation is no longer a control at all. Two replacements
+1. With the count at `0`, `11 0` passes, so that invocation is no longer a control at all. Two replacements
 exist, and they prove different things — prefer the first.
 
 **Detection control (synthesize an offending import).** This is the one that proves the sub-gate still
@@ -243,7 +240,7 @@ passes first, so the `exit 1` is the sub-gate's own:
 
 ```bash
 printf "import type { Nope } from './deliberately-missing';\nexport type Control = Nope;\n" > tests/types/relative-subgate-control.ts
-.github/scripts/unimportable-token-gate.sh 12 0   # exit 1: "relative-specifier TS2307 count rose from 0 to 1"
+.github/scripts/unimportable-token-gate.sh 11 0   # exit 1: "relative-specifier TS2307 count rose from 0 to 1"
 rm tests/types/relative-subgate-control.ts
 ```
 
@@ -253,14 +250,14 @@ Delete the scratch file afterwards: `tests/types/` has its own CI step that fail
 count of `0`, so this fails against the committed tree with nothing to clean up:
 
 ```bash
-.github/scripts/unimportable-token-gate.sh 12 -1   # exit 1: "relative-specifier TS2307 count rose from -1 to 0"
+.github/scripts/unimportable-token-gate.sh 11 -1   # exit 1: "relative-specifier TS2307 count rose from -1 to 0"
 ```
 
 It only exercises the threshold branch — the grep and the relative-specifier regex above it are not under
 test — so it is a weaker check than the synthesized import, not a substitute for it.
 
-The gate's **main** count still has a live control of its own, since that count is 12 rather than 0:
-`.github/scripts/unimportable-token-gate.sh 11 0` exits 1. It returns before the sub-gate block ever runs,
+The gate's **main** count still has a live control of its own, since that count is 11 rather than 0:
+`.github/scripts/unimportable-token-gate.sh 10 0` exits 1. It returns before the sub-gate block ever runs,
 so it controls the main baseline only.
 
 Passing a single argument leaves this sub-gate off entirely — CI passes two arguments, but any other caller
@@ -350,7 +347,7 @@ npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print not
 ```bash
 composer test -- --passthru-php="-d memory_limit=1024M"   # regenerates the trees
 python3 .github/scripts/unknown-regression-gate.py
-.github/scripts/unimportable-token-gate.sh 12 0
+.github/scripts/unimportable-token-gate.sh 11 0
 ```
 
 Run the suite first — both gates read the committed trees, so they check whatever the last test run wrote.
@@ -379,10 +376,10 @@ When changing `unknown-regression-gate.py` itself, also run its
   including its shared `InspectsAstNodes::resolveCollectedResourceClass()` resolver, which both
   `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call.
 
-  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **58** of
-  them, and the relative-specifier count is 0, so all 58 are bare specifiers. They span **21 distinct
-  module names**, every one under an app-side alias namespace — `@/types/*` (14 names, 38 diagnostics),
-  `@js/types/*` (6 names, 19) and `@workbench/types` (1) — counted straight off the `Cannot find module`
+  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **61** of
+  them, and the relative-specifier count is 0, so all 61 are bare specifiers. They span **21 distinct
+  module names**, every one under an app-side alias namespace — `@/types/*` (14 names, 40 diagnostics),
+  `@js/types/*` (6 names, 20) and `@workbench/types` (1) — counted straight off the `Cannot find module`
   text. The consuming app is expected to declare those modules, so the package cannot emit anything that
   resolves. They reach the output through several different annotation channels (`#[TsCasts]`, `#[TsType]`
   and `#[TsExtends]` all take an import argument); this measurement counted the specifiers, not their
@@ -392,15 +389,16 @@ When changing `unknown-regression-gate.py` itself, also run its
   before quoting these; the count moves whenever a fixture's imports change. It dropped from 60
   when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
   `warehouse-resource.ts` importing `@js/types/settings`, and from 59 when step 5c stopped
-  `warehouse.ts` importing `'../value-objects'`.
+  `warehouse.ts` importing `'../value-objects'`. It rose from 58 when `GlobalsWriter` gained its
+  form-request import loop and `laravel-ts-global.ts` picked up three more bare specifiers.
 
   That gap is now partly closed by a **sub-gate scoped to relative specifiers only** — see
   [The relative-specifier sub-gate](#the-relative-specifier-sub-gate) above. A `./`- or `../`-relative
   import inside the generated tree resolves against files this package itself writes, so it is never an
   app-side escape hatch. None is emitted today — `default-example/app/models/warehouse.ts` was the last
   one, importing `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate` — so the
-  sub-gate carries a baseline of 0. (The gate's baseline of 12 is not the TS2304 count: it is the combined
-  TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 2.) The 58 bare ones remain uncounted, for
+  sub-gate carries a baseline of 0. (The gate's baseline of 11 is not the TS2304 count: it is the combined
+  TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 1.) The 61 bare ones remain uncounted, for
   the reason given above.
 
 - **An inline object that already contains `unknown` cannot report its own wholesale collapse.**

@@ -75,7 +75,7 @@ class GlobalsWriter
 
         // Collect external (non-relative) type imports needed at the top of the globals file.
         // Model customImports hold imports from #[TsExtends] and #[TsType] with custom paths.
-        // Resource typeImports hold all resolved imports; filter to non-relative ones.
+        // Resource, broadcast-event and form-request typeImports hold all resolved imports; non-relative only.
         /** @var array<string, list<string>> $externalTypeImports */
         $externalTypeImports = [];
 
@@ -103,6 +103,19 @@ class GlobalsWriter
         }
 
         foreach ($runner->broadcastEventGenerators as $gen) {
+            foreach ($gen->transformer->typeImports as $path => $types) {
+                if (str_starts_with($path, '.')) {
+                    continue;
+                }
+                foreach ($types as $type) {
+                    if (! in_array($type, $externalTypeImports[$path] ?? [], true)) {
+                        $externalTypeImports[$path][] = $type;
+                    }
+                }
+            }
+        }
+
+        foreach ($runner->formRequestGenerators as $gen) {
             foreach ($gen->transformer->typeImports as $path => $types) {
                 if (str_starts_with($path, '.')) {
                     continue;

@@ -7,6 +7,7 @@
 export {}
 
 import type { PageMetaType } from '@js/types/page-meta';
+import type { PostAttributes } from '@js/types/posts';
 import type { ProductMetadata, ProductJsonMetaData } from '@js/types/product';
 import type { MenuSettingsType } from '@js/types/settings';
 import type { PostSnapshot } from '@js/types/snapshots';
@@ -18,11 +19,13 @@ import type { HasTimestamps } from '@/types/common';
 import type { GeoBounds, GeoPoint } from '@/types/geo';
 import type { ParentModelInterface } from '@/types/model-parent';
 import type { TraitInterface } from '@/types/model-trait';
+import type { FormRequestBase } from '@/types/requests';
 import type { ResourceRoutes } from '@/types/resources';
 import type { Routable } from '@/types/routing';
 import type { SharedInterface } from '@/types/shared';
 import type { SharedModelInterface } from '@/types/shared-model';
 import type { Timestamps } from '@/types/util';
+import type { HasValidationMeta } from '@/types/validation';
 
 /* prettier-ignore */
 declare global {
