@@ -1894,7 +1894,7 @@ declare global {
          */
         export interface ChildInlineFqcnResource {
             id: number;
-            regional_hub_contacts: { manager: app.models.User | null; secondaryContact: crm.models.User | null; primaryContact: crm.models.User | null } | null;
+            regional_hub_contacts: { manager: app.models.User | null; secondaryContact: crm.models.User | null; primaryContact: crm.models.User | null; last_checked_by: app.models.Image | app.models.User | null } | null;
             regional_hub_leads: { primaryContact: crm.models.User | null; manager: app.models.User | null; secondaryContact: crm.models.User | null } | null;
         }
         /**

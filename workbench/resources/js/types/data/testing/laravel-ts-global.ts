@@ -1894,7 +1894,7 @@ declare global {
          */
         export interface ChildInlineFqcnResource {
             id: number;
-            regional_hub_contacts: { manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null; primaryContact: workbench.crm.models.User | null } | null;
+            regional_hub_contacts: { manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null; primaryContact: workbench.crm.models.User | null; last_checked_by: workbench.app.models.Image | workbench.app.models.User | null } | null;
             regional_hub_leads: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
         }
         /**
