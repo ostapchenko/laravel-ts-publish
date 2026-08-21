@@ -8452,7 +8452,7 @@
                 },
                 {
                     "name": "regional_hub_contacts",
-                    "type": "{ manager: WorkbenchUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null",
+                    "type": "{ manager: WorkbenchUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null; last_checked_by: Image | WorkbenchUser | null } | null",
                     "optional": false
                 },
                 {

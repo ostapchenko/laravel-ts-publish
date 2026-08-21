@@ -1,5 +1,5 @@
 import type { User as CrmUser } from '../../../crm/models';
-import type { User as ModelsUser } from '../../models';
+import type { Image, User as ModelsUser } from '../../models';
 
 /**
  * Regression fixture, two-sided:
@@ -15,6 +15,6 @@ import type { User as ModelsUser } from '../../models';
 export interface ChildInlineFqcnResource
 {
     id: number;
-    regional_hub_contacts: { manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null;
+    regional_hub_contacts: { manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null; last_checked_by: Image | ModelsUser | null } | null;
     regional_hub_leads: { primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null;
 }

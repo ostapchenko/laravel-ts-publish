@@ -24,7 +24,7 @@ class ChildInlineFqcnResource extends InheritedInlineFqcnResource
     {
         return [
             ...parent::toArray($request),
-            'regional_hub_contacts' => $this->regional_hub?->only(['manager', 'secondaryContact', 'primaryContact']),
+            'regional_hub_contacts' => $this->regional_hub?->only(['manager', 'secondaryContact', 'primaryContact', 'last_checked_by']),
         ];
     }
 }
