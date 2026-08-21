@@ -1254,7 +1254,21 @@ probe's `$wrap = null` variant (`MidCollection` declares `public static $wrap = 
 wrapped shape, not the flat `UserResource[]` its parent's `$wrap = null` would suggest. A body-less
 child only reproduces an ancestor's flat shape if it redeclares `$wrap = null` itself.
 
-### An inherited shape needs an inherited model
+### The explicit `parent::toArray($request)` forms are unchanged
+
+Writing the call out by hand remains fully supported and is still the idiomatic form. Both spellings
+route through the same `analyzeParentToArray()`:
+
+- `...parent::toArray($request)` spread inside an array literal — `analyzeReturnArray()` matches the
+  unpacked item with `isParentToArrayCall()`, then merges the parent analysis in through
+  `syncAnalysisMaps()`. `ApiPostResource` pins this one.
+- a bare `return parent::toArray($request);` — the non-array fallback in `analyze()` matches the
+  `Return_` expression with `isParentToArrayCall()`. `PreserveKeysTeamResource` pins this one.
+
+Because both classes declare a `toArray()`, the own-file lookup succeeds and the new walk is never
+reached for them.
+
+## An inherited shape needs an inherited model
 
 `ResourceTransformer::resolveModelClass()` used to read the docblock of the resource itself only. A
 body-less child with no docblock of its own resolved no model, and the inherited analysis degraded
@@ -1281,17 +1295,3 @@ before falling through to the `$resource` property and the naming convention. Th
 right scope, since an ancestor's `@mixin` describes the same model either way, and it moved nothing
 in the generated trees; but read the precedence list above as the whole rule, not as a body-less
 special case.
-
-### The explicit `parent::toArray($request)` forms are unchanged
-
-Writing the call out by hand remains fully supported and is still the idiomatic form. Both spellings
-route through the same `analyzeParentToArray()`:
-
-- `...parent::toArray($request)` spread inside an array literal — `analyzeReturnArray()` matches the
-  unpacked item with `isParentToArrayCall()`, then merges the parent analysis in through
-  `syncAnalysisMaps()`. `ApiPostResource` pins this one.
-- a bare `return parent::toArray($request);` — the non-array fallback in `analyze()` matches the
-  `Return_` expression with `isParentToArrayCall()`. `PreserveKeysTeamResource` pins this one.
-
-Because both classes declare a `toArray()`, the own-file lookup succeeds and the new walk is never
-reached for them.

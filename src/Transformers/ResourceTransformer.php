@@ -316,8 +316,8 @@ class ResourceTransformer extends CoreTransformer
     /**
      * Find the nearest ancestor whose own docblock names a model.
      *
-     * A body-less subclass inherits its parent's toArray() shape, so it has to inherit the
-     * parent's model too or every column degrades to unknown.
+     * Runs for any resource lacking its own @mixin/@extends, not only a body-less one, so an
+     * ancestor's model is picked up before falling back to the naming convention.
      *
      * @return class-string<Model>|null
      */
