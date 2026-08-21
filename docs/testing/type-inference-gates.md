@@ -139,38 +139,35 @@ interface omits `$hidden` ones, so `K extends keyof T` failed. See
 
 ```bash
 .github/scripts/unimportable-token-gate.sh          # report only
-.github/scripts/unimportable-token-gate.sh 11       # fail if the count exceeds 11
-.github/scripts/unimportable-token-gate.sh 11 0     # also fail if the relative-specifier TS2307 sub-gate exceeds 0
+.github/scripts/unimportable-token-gate.sh 10       # fail if the count exceeds 10
+.github/scripts/unimportable-token-gate.sh 10 0     # also fail if the relative-specifier TS2307 sub-gate exceeds 0
 ```
 
 ```
-TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 11
+TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 10
    8   CustomObject
    2   ExtendableInterface
-   1   AddressResource
 TS2307 (cannot find module) with a relative specifier in generated tree: 0
 
-PASS - no new unimportable or colliding tokens (baseline 11)
+PASS - no new unimportable or colliding tokens (baseline 10)
 PASS - no new relative-specifier TS2307s (baseline 0)
 ```
 
 ### The baseline
 
-The baseline is **11**, not zero — but it is not a homogeneous "expected" bucket, and it is **not** made of
-`custom_ts_mappings` entries. The workbench's `custom_ts_mappings` is empty
-(`workbench/config/ts-publish.php:80-82` holds only a commented-out example), so it contributes none of the
-11. Traced to source, the three surviving names are:
+The baseline is **10**, not zero, and it is **not** made of `custom_ts_mappings` entries. The workbench's
+`custom_ts_mappings` is empty (`workbench/config/ts-publish.php:80-82` holds only a commented-out example),
+so it contributes none of the 10. Traced to source, the two surviving names are:
 
 | Name | Count | Where it comes from | Expected? |
 | --- | --- | --- | --- |
 | `CustomObject` | 8 | A `@return array{…, custom_val: CustomObject, …}` docblock shape in `workbench/app/Http/Resources/Concerns/IncludesExtras.php`. A resource docblock shape map is string-only, so it carries no FQCN and no import can be derived. | Yes — app-declared |
 | `ExtendableInterface` | 2 | `#[TsExtends('ExtendableInterface')]` on `workbench/app/Http/Resources/Concerns/ExtendsInterfaces.php`, with no import argument. (Its sibling `#[TsExtends(…, '@/types/util', …)]` on the next line passes one and resolves fine.) | Yes — app-declared |
-| `AddressResource` | 1 | **A real leak, not an escape hatch.** See below. | **No** |
 
-Ten of the 11 — `CustomObject` and `ExtendableInterface` — are genuine escape hatches, in two different
-flavors, neither of them `custom_ts_mappings`: the *consuming app* declares the type and the package has no
-FQCN or import path to work from. Those are expected and must not be "fixed". The remaining one is not
-that.
+Both names are genuine escape hatches, in two different flavors, neither of them `custom_ts_mappings`: the
+*consuming app* declares the type and the package has no FQCN or import path to work from. They are expected
+and must not be "fixed". As of this measurement the bucket holds nothing else — but it has twice held a real
+defect, so re-derive rather than assume; the two most recent are recorded below.
 
 A fourth name, `PostAttributes`, sat in this bucket until the count dropped from 12 to 11.
 `GlobalsWriter` built its `$externalTypeImports` map (`src/Writers/GlobalsWriter.php`, the block beginning
@@ -188,27 +185,35 @@ bucket rose by three rather than one, because the same loop also propagated two 
 imports the globals body never references. `laravel-ts-global.ts` now carries **20** imports, at lines 9-28,
 six `@js/types/*` and fourteen `@/types/*`.
 
-The eleventh is a different shape again. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it
-**is** published — as the interface `Address` in `app/http/resources/address.ts` — but `InlineArrayFqcnResource`'s
-`AddressResource::make($this->user)` reference emits the *class basename* instead of the `#[TsResource]`
-name, so the reference and the emitted interface disagree. It shows up twice, once per output flavor, which
-is exactly the split
-[`resource-ast-analyzer.md`](../components/resource-ast-analyzer.md) describes: `TS2552` on the bare name in
-`laravel-ts-global.ts` (counted here) and `TS2724` on the import in
-`app/http/resources/inline-array-fqcn-resource.ts` (`'"."' has no exported member named 'AddressResource'`,
-not counted by either gate). It sits inside the baseline because it predates the step-5c change, not
-because it is correct — `0f568e42`'s copy of this file already listed `1 AddressResource` in its sample
-output. It is filed as an out-of-scope entry.
+An eleventh name, `AddressResource`, was a real leak rather than an escape hatch, and took the count from
+11 to 10 when it was fixed. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it **is**
+published — as the interface `Address` in `app/http/resources/address.ts` — but `InlineArrayFqcnResource`'s
+`AddressResource::make($this->user)` reference emitted the *class basename*, which nothing declares. It was
+the corpus's only live instance of the counted/uncounted split
+[`resource-ast-analyzer.md`](../components/resource-ast-analyzer.md) describes, showing up once per output
+flavor: `TS2552` on the bare name in `laravel-ts-global.ts`, counted here, and `TS2724` on the import in
+`app/http/resources/inline-array-fqcn-resource.ts` (`'"."' has no exported member named 'AddressResource'`),
+counted by neither gate. Both were reproduced before the fix and both are gone after it, which is the point
+worth keeping: the gate saw one of the two, so the baseline moved by 1 while 2 diagnostics disappeared.
+
+Resolving an analyzer-derived resource reference through the same `#[TsResource]`-aware naming the publisher
+uses closed it. No live instance of that split remains in the corpus — `npx tsc --noEmit -p tsconfig.json`
+over the generated tree now reports exactly three codes, **61** TS2307, **10** TS2304 and **5** TS6196, with
+no TS2305 or TS2724 among them. To exercise the uncounted half again you have to synthesize one, as
+[`resource-ast-analyzer.md`](../components/resource-ast-analyzer.md) does with the `#[TsExclude]`d
+`AttachmentResource` fixture.
 
 Raise the baseline only when you add a fixture that legitimately uses one of those escape hatches, and say
 so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch. And
-do not read the current number as eleven *approved* diagnostics — re-derive the origins before quoting them;
-as of this measurement, of the three names, two are escape hatches and one is a defect.
+do not read the current number as ten *approved* diagnostics — re-derive the origins before quoting them.
+As of this measurement both names are escape hatches, but that is a measurement, not a guarantee: the two
+entries above each sat in this bucket looking like one.
 
 `11` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
 value object's property shape instead of emitting a class token for it; that removed the two `Coordinate`
 TS2304s and, in the same change, took the relative-specifier sub-gate below from `1` to `0`. It fell to `11`
-when `GlobalsWriter` gained its form-request import loop. Lowering a baseline once the defect behind it is
+when `GlobalsWriter` gained its form-request import loop, and to `10` when analyzer-derived resource
+references started honoring `#[TsResource(name:)]`. Lowering a baseline once the defect behind it is
 actually gone is the point; defending the number is not.
 
 ### The relative-specifier sub-gate
@@ -219,8 +224,8 @@ against a file *this package itself writes* — it is never the app-side `custom
 behind the baseline above, so it gets its own count and its own baseline instead of being folded into it.
 
 ```bash
-.github/scripts/unimportable-token-gate.sh 11        # unchanged: no relative-specifier check runs
-.github/scripts/unimportable-token-gate.sh 11 0      # gate the relative-specifier count too
+.github/scripts/unimportable-token-gate.sh 10        # unchanged: no relative-specifier check runs
+.github/scripts/unimportable-token-gate.sh 10 0      # gate the relative-specifier count too
 ```
 
 The baseline is **0**. It was `1` while
@@ -231,7 +236,7 @@ inlines that class's property shape, so no import is emitted and the measured co
 #### Its negative control had to be replaced
 
 That single instance was also the sub-gate's negative control: `14 0` used to fail, because the count was
-1. With the count at `0`, `11 0` passes, so that invocation is no longer a control at all. Two replacements
+1. With the count at `0`, `10 0` passes, so that invocation is no longer a control at all. Two replacements
 exist, and they prove different things — prefer the first.
 
 **Detection control (synthesize an offending import).** This is the one that proves the sub-gate still
@@ -240,7 +245,7 @@ passes first, so the `exit 1` is the sub-gate's own:
 
 ```bash
 printf "import type { Nope } from './deliberately-missing';\nexport type Control = Nope;\n" > tests/types/relative-subgate-control.ts
-.github/scripts/unimportable-token-gate.sh 11 0   # exit 1: "relative-specifier TS2307 count rose from 0 to 1"
+.github/scripts/unimportable-token-gate.sh 10 0   # exit 1: "relative-specifier TS2307 count rose from 0 to 1"
 rm tests/types/relative-subgate-control.ts
 ```
 
@@ -250,14 +255,14 @@ Delete the scratch file afterwards: `tests/types/` has its own CI step that fail
 count of `0`, so this fails against the committed tree with nothing to clean up:
 
 ```bash
-.github/scripts/unimportable-token-gate.sh 11 -1   # exit 1: "relative-specifier TS2307 count rose from -1 to 0"
+.github/scripts/unimportable-token-gate.sh 10 -1   # exit 1: "relative-specifier TS2307 count rose from -1 to 0"
 ```
 
 It only exercises the threshold branch — the grep and the relative-specifier regex above it are not under
 test — so it is a weaker check than the synthesized import, not a substitute for it.
 
-The gate's **main** count still has a live control of its own, since that count is 11 rather than 0:
-`.github/scripts/unimportable-token-gate.sh 10 0` exits 1. It returns before the sub-gate block ever runs,
+The gate's **main** count still has a live control of its own, since that count is 10 rather than 0:
+`.github/scripts/unimportable-token-gate.sh 9 0` exits 1. It returns before the sub-gate block ever runs,
 so it controls the main baseline only.
 
 Passing a single argument leaves this sub-gate off entirely — CI passes two arguments, but any other caller
@@ -347,7 +352,7 @@ npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print not
 ```bash
 composer test -- --passthru-php="-d memory_limit=1024M"   # regenerates the trees
 python3 .github/scripts/unknown-regression-gate.py
-.github/scripts/unimportable-token-gate.sh 11 0
+.github/scripts/unimportable-token-gate.sh 10 0
 ```
 
 Run the suite first — both gates read the committed trees, so they check whatever the last test run wrote.
@@ -397,8 +402,8 @@ When changing `unknown-regression-gate.py` itself, also run its
   import inside the generated tree resolves against files this package itself writes, so it is never an
   app-side escape hatch. None is emitted today — `default-example/app/models/warehouse.ts` was the last
   one, importing `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate` — so the
-  sub-gate carries a baseline of 0. (The gate's baseline of 11 is not the TS2304 count: it is the combined
-  TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 1.) The 61 bare ones remain uncounted, for
+  sub-gate carries a baseline of 0. (The gate's baseline of 10 is not the TS2304 count, though they
+  coincide today: it is the combined TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 0.) The 61 bare ones remain uncounted, for
   the reason given above.
 
 - **An inline object that already contains `unknown` cannot report its own wholesale collapse.**

@@ -2420,7 +2420,7 @@ declare global {
          */
         export interface InlineArrayFqcnResource {
             id: number;
-            payload?: { address: AddressResource; items_loaded?: workbench.app.models.OrderItem[] } | null;
+            payload?: { address: Address; items_loaded?: workbench.app.models.OrderItem[] } | null;
         }
         /**
          * Fixture: Kpi::reportable() morphs to two Report models sharing basename and parent segment,

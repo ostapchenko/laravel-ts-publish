@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
+use AbeTwoThree\LaravelTsPublish\Transformers\ResourceTransformer;
 use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
@@ -3525,6 +3526,18 @@ describe('ResourceAstAnalyzer with InlineArrayFqcnResource (inline array embedde
 
         expect($payload)->not->toBeNull()
             ->and($payload['optional'])->toBeTrue();
+    });
+
+    test('the inline-array reference names the interface AddressResource is published as', function () {
+        $payload = collect($this->analysis->properties)->firstWhere('name', 'payload');
+
+        // AddressResource carries #[TsResource(name: 'Address')], so the reference must agree with
+        // the published interface name; the class basename would name a type nothing declares.
+        $published = (new ResourceTransformer(AddressResource::class))->resourceName;
+
+        expect($published)->toBe('Address')
+            ->and($payload['type'])->toContain("address: {$published};")
+            ->and($payload['type'])->not->toContain('AddressResource');
     });
 });
 

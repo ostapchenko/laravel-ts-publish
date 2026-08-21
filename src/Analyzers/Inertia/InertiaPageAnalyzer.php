@@ -407,7 +407,7 @@ class InertiaPageAnalyzer
             DependencyRecorder::recordClass($resourceFqcn);
 
             $reflection = new ReflectionClass($resourceFqcn);
-            $baseName = $reflection->getShortName();
+            $baseName = LaravelTsPublish::resourceTypeName($resourceFqcn);
             $defaults = $reflection->getDefaultProperties();
 
             $isFlat = is_a($resourceFqcn, LaravelResourceCollection::class, true)
@@ -418,7 +418,7 @@ class InertiaPageAnalyzer
 
             if ($isFlat) {
                 $singularFqcn = $this->resolveSingularResourceFqcn($resourceFqcn);
-                $singularBase = $singularFqcn !== null ? (new ReflectionClass($singularFqcn))->getShortName() : 'unknown';
+                $singularBase = $singularFqcn !== null ? LaravelTsPublish::resourceTypeName($singularFqcn) : 'unknown';
 
                 $paginator = $this->collectionPreservesKeys($reflection)
                     ? "Omit<JsonResourcePaginator<{$singularBase}>, 'data'> & { data: Record<string, {$singularBase}> }"
@@ -469,7 +469,7 @@ class InertiaPageAnalyzer
             DependencyRecorder::recordClass($resourceFqcn);
 
             $reflection = new ReflectionClass($resourceFqcn);
-            $baseName = $reflection->getShortName();
+            $baseName = LaravelTsPublish::resourceTypeName($resourceFqcn);
 
             // Resource::collection() inherits the singular resource's preserve-keys state.
             $paginator = $this->collectionPreservesKeys($reflection)
@@ -523,7 +523,7 @@ class InertiaPageAnalyzer
             DependencyRecorder::recordClass($fqcn);
 
             $dotNotation = str_replace('\\', '.', $fqcn);
-            $collectionName = class_basename($fqcn);
+            $collectionName = LaravelTsPublish::resourceTypeName($fqcn);
             $typeString = str_replace($dotNotation, $collectionName, $typeString);
 
             $rewrittenFqcns[] = $fqcn;
