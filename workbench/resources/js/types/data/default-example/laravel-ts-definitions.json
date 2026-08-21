@@ -7893,6 +7893,16 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\Admin\\StoreCollection": {
+            "name": "StoreCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "Store[]",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\ApiPostResource": {
             "name": "ApiPostResource",
             "properties": [
@@ -10141,6 +10151,16 @@
                     "name": "reportable",
                     "type": "MarketingReportReport | SalesReportReport",
                     "optional": true
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\LedgerCollection": {
+            "name": "LedgerCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "unknown",
+                    "optional": false
                 }
             ]
         },
@@ -12800,6 +12820,16 @@
                 {
                     "name": "id",
                     "type": "number",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\SupplierSummaryCollection": {
+            "name": "SupplierSummaryCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "SupplierSummaryResource[]",
                     "optional": false
                 }
             ]

@@ -17,6 +17,8 @@ use Workbench\App\Enums\Status;
 use Workbench\App\Enums\Visibility;
 use Workbench\App\Enums\WeekDays;
 use Workbench\App\Http\Resources\AddressResource;
+use Workbench\App\Http\Resources\Admin\Store as AdminStore;
+use Workbench\App\Http\Resources\Admin\StoreCollection as AdminStoreCollection;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\AttachmentCollection;
 use Workbench\App\Http\Resources\AttachmentResource;
@@ -54,6 +56,9 @@ use Workbench\App\Http\Resources\FluentSelfResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
 use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
+use Workbench\App\Http\Resources\Ledger;
+use Workbench\App\Http\Resources\LedgerCollection;
+use Workbench\App\Http\Resources\LedgerResource;
 use Workbench\App\Http\Resources\LocalVarGuardClauseResource;
 use Workbench\App\Http\Resources\LocalVarReassignResource;
 use Workbench\App\Http\Resources\LocalVarRecursionResource;
@@ -105,6 +110,7 @@ use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardDoubleClosureReturnResource;
 use Workbench\App\Http\Resources\StaticCallResource;
 use Workbench\App\Http\Resources\SupplierResource;
+use Workbench\App\Http\Resources\SupplierSummaryCollection;
 use Workbench\App\Http\Resources\SupplierSummaryResource;
 use Workbench\App\Http\Resources\TagResource;
 use Workbench\App\Http\Resources\TeamMemberResource;
@@ -5559,6 +5565,70 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
             // An explicitly named resource is the developer's declaration and stays ungated.
             ->and($props['owner_explicit']['type'])->toBe('UserResource')
             ->and($analysis->nestedResources)->toHaveKey('owner_explicit', UserResource::class);
+
+        PublishedResourceRegistry::reset();
+    });
+});
+
+describe('collectedResourceClass() naming-convention branch is gated on the published set', function () {
+    test('an empty registry fails open, so a convention guess outside the published set still resolves', function () {
+        expect(PublishedResourceRegistry::isEmpty())->toBeTrue();
+
+        $reflection = new ReflectionClass(LedgerCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('LedgerResource[]')
+            ->and($analysis->nestedResources)->toHaveKey('data', LedgerResource::class);
+    });
+
+    test('the naming convention resolves its first, Resource-suffixed candidate when published', function () {
+        PublishedResourceRegistry::register([SupplierSummaryResource::class]);
+
+        $reflection = new ReflectionClass(SupplierSummaryCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('SupplierSummaryResource[]')
+            ->and($analysis->nestedResources)->toHaveKey('data', SupplierSummaryResource::class);
+
+        PublishedResourceRegistry::reset();
+    });
+
+    test('the naming convention falls through to its bare, unsuffixed candidate when published', function () {
+        // Non-vacuous: Admin\StoreResource does not exist, so only the bare candidate can resolve.
+        expect(class_exists('Workbench\App\Http\Resources\Admin\StoreResource'))->toBeFalse();
+
+        PublishedResourceRegistry::register([AdminStore::class]);
+
+        $reflection = new ReflectionClass(AdminStoreCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('Store[]')
+            ->and($analysis->nestedResources)->toHaveKey('data', AdminStore::class);
+
+        PublishedResourceRegistry::reset();
+    });
+
+    test('both naming-convention candidates are rejected when neither is published', function () {
+        // Non-vacuous: both losing candidates genuinely exist — only #[TsExclude] keeps them
+        // out of the published set, so class_exists() alone would accept either.
+        expect(class_exists(LedgerResource::class))->toBeTrue()
+            ->and(class_exists(Ledger::class))->toBeTrue();
+
+        PublishedResourceRegistry::register([UserResource::class]);
+
+        $reflection = new ReflectionClass(LedgerCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('unknown')
+            ->and($analysis->nestedResources)->not->toHaveKey('data');
 
         PublishedResourceRegistry::reset();
     });

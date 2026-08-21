@@ -270,7 +270,9 @@ When changing `unknown-regression-gate.py` itself, also run its
   `unknown`, so the regression gate is structurally blind to it too. That diagnostic is the signature of
   an import of a class the package never writes a file for — the failure mode `PublishedResourceRegistry`
   exists to prevent, documented under
-  [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set).
+  [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set),
+  including its shared `InspectsAstNodes::resolveCollectedResourceClass()` resolver, which both
+  `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call.
 
   A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **59** of
   them, and 58 are bare aliases — `@/types/audit`, `@js/types/settings`, `@workbench/types` and friends —

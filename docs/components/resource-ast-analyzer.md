@@ -967,10 +967,12 @@ excluded as unreachable anywhere else in the family.
 
 ## `#[Collects]` resolution is Laravel-version-guarded
 
-`collectedResourceClass()` checks for `Illuminate\Http\Resources\Attributes\Collects` behind
-`class_exists()` rather than a `use` import, because the package still supports Laravel 12 releases
-that don't ship the attribute. See [Version-guarded Laravel
-classes](../laravel-version-guards.md) for the full registry and when this guard can be removed.
+`InspectsAstNodes::resolveCollectedResourceClass()` — the shared resolver `collectedResourceClass()`
+and `resolveSingularResourceFqcn()` both delegate to — checks for
+`Illuminate\Http\Resources\Attributes\Collects` behind `class_exists()` rather than a `use` import,
+because the package still supports Laravel 12 releases that don't ship the attribute. See
+[Version-guarded Laravel classes](../laravel-version-guards.md) for the full registry and when this
+guard can be removed.
 
 ## `toResource()` convention guesses are gated on the published set
 
@@ -983,31 +985,36 @@ resource this package never writes a file for. `ResourceTransformer` would then 
 string transformation and never touches the filesystem, so the import names a module that does not exist.
 
 `PublishedResourceRegistry` holds the resource classes the current run will actually emit.
-`isPublishedResourceClass()` is `isResourceClass()` plus that membership test, and it is used at exactly
-three convention sites:
+`isPublishedResourceClass()` is `isResourceClass()` plus that membership test, and it gates every site
+that invents a candidate class name, four in total:
 
 | Site | Candidates it can now reject |
 | --- | --- |
 | `resolveResourceForModel()`'s candidate loop | `{Model}Resource`, then bare `{Model}` |
 | `resolveResourceCollectionForModel()`'s `{Guessed}Collection` loop | `{Model}ResourceCollection`, then `{Model}Collection` — the inline `class_exists()`/`is_a()` pair gained a third `PublishedResourceRegistry::isPublished()` conjunct |
 | `resolveResourceCollectionForModel()`'s bare-candidate loop | the `{Model}Resource` fallback |
+| `InspectsAstNodes::resolveCollectedResourceClass()`'s naming-convention branch | `{X}Resource`, then bare `{X}` — shared by `ResourceAstAnalyzer::collectedResourceClass()` and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` (see below) |
 
 **`isResourceClass()` itself is unchanged.** Every branch that reads a class the developer wrote down
 stays ungated on purpose — an explicitly named resource is a declaration, not a guess:
 
 - the explicit-argument arms of `analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`
 - `resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
-- `collectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the `$collects`
-  property default
+- `resolveCollectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the
+  `$collects` property default
+- `ControllerPaginatorAnalyzer::resolvePaginatedResourceConstructorProps()`'s `new $resourceFqcn(...)`
+  resolution (`ControllerPaginatorAnalyzer.php:258`) — the class name comes from an explicit `new`
+  expression in the analyzed source, not an invented candidate, so it stays ungated on the same basis
 
-`collectedResourceClass()`'s **third** branch is the exception to that rule, and a known gap rather
-than a declaration. The `{X}Collection` → `{X}Resource` naming-convention step *invents* a name — the
-exact property this section opens by attributing to convention branches alone — and is **not** gated on
-`PublishedResourceRegistry`. Being rooted in a collection class the caller already accepted says
-nothing about whether the guessed *element* resource is one this run will emit, so it can still name a
-third-party or `#[TsExclude]`d class and produce the TS2307 this section exists to prevent. Gating it
-is a recorded follow-up; it is called out here so the ungated set is not misread as three deliberate
-declarations.
+### One resolver, not two — `collectedResourceClass()` and `resolveSingularResourceFqcn()` share it
+
+`ResourceAstAnalyzer::collectedResourceClass()` and `InertiaPageAnalyzer::resolveSingularResourceFqcn()`
+used to be near-verbatim copies of the same `#[Collects]` / `$collects` / naming-convention resolution
+order, including the same third, naming-convention branch — the one gap this section used to carry as a
+recorded follow-up rather than a fix. Both methods are now one-line delegations to
+`InspectsAstNodes::resolveCollectedResourceClass()`, the only place that logic exists; its naming-convention
+branch is gated on `PublishedResourceRegistry` exactly like the three sites above. Two call sites can no
+longer drift apart on this resolution order, because there is only one implementation left to diverge from.
 
 ### The registry fails open, and `RunnerForSource` depends on it
 
@@ -1059,7 +1066,12 @@ Neither CI gate can catch a regression here — an import of an unpublished reso
 which `unimportable-token-gate.sh` does not count. See
 [Type inference gates](../testing/type-inference-gates.md). The coverage is instead the published-set
 tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentResource` and
-`AttachmentCollection` workbench fixtures.
+`AttachmentCollection` workbench fixtures, plus a matching pair for `resolveCollectedResourceClass()`'s
+own naming-convention branch: `SupplierSummaryCollection` and `Admin\StoreCollection` prove the two
+positive candidates (Resource-suffixed and bare) still resolve when published, and `LedgerCollection`
+with `#[TsExclude]`d `LedgerResource`/`Ledger` proves both are rejected when neither is. The same
+`LedgerCollection` fixture backs the equivalent test in `InertiaPageAnalyzerTest.php` for
+`resolveSingularResourceFqcn()`, so both call sites onto the shared resolver are covered.
 
 ## `#[PreserveKeys]`/`$preserveKeys` flip a collection's element type to `Record<string, R>`
 

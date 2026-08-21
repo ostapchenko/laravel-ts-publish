@@ -1849,52 +1849,7 @@ class ResourceAstAnalyzer
      */
     protected function collectedResourceClass(string $collectionFqcn): ?string
     {
-        $reflection = new ReflectionClass($collectionFqcn);
-
-        $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
-        if (class_exists($collectsAttribute)) {
-            // Priority 1: #[Collects] attribute (Laravel 12+)
-            $collectsAttrs = $reflection->getAttributes($collectsAttribute);
-
-            if ($collectsAttrs !== []) {
-                $collectsClass = $collectsAttrs[0]->newInstance()->class;
-
-                if (class_exists($collectsClass) && is_a($collectsClass, JsonResource::class, true)) {
-                    return $collectsClass;
-                }
-            }
-        }
-
-        // Priority 2: explicit $collects property default value
-        /** @var array<string, mixed> $defaults */
-        $defaults = $reflection->getDefaultProperties();
-        $collects = $defaults['collects'] ?? null;
-
-        if (is_string($collects) && class_exists($collects) && is_a($collects, JsonResource::class, true)) {
-            return $collects;
-        }
-
-        // Priority 3: naming convention — FooCollection → FooResource
-        $className = $reflection->getShortName();
-        $namespace = $reflection->getNamespaceName();
-
-        if (str_ends_with($className, 'Collection')) {
-            $base = substr($className, 0, -10);
-
-            $candidate = $namespace.'\\'.$base.'Resource';
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            }
-
-            $candidate = $namespace.'\\'.$base; // @codeCoverageIgnoreStart
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            } // @codeCoverageIgnoreEnd
-        }
-
-        return null;
+        return $this->resolveCollectedResourceClass($collectionFqcn);
     }
 
     /**

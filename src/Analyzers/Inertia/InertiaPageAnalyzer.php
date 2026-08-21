@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
+use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
-use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection as LaravelResourceCollection;
 use Illuminate\Support\Str;
 use Laravel\Ranger\Collectors\InertiaComponents;
@@ -33,6 +33,7 @@ use Throwable;
 class InertiaPageAnalyzer
 {
     use ChecksPreserveKeys;
+    use InspectsAstNodes;
 
     /**
      * Create the analyzer with Ranger's response collector and an optional table analyzer override.
@@ -541,49 +542,7 @@ class InertiaPageAnalyzer
      */
     protected function resolveSingularResourceFqcn(string $collectionFqcn): ?string
     {
-        $reflection = new ReflectionClass($collectionFqcn);
-
-        $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
-        if (class_exists($collectsAttribute)) {
-            $collectsAttrs = $reflection->getAttributes($collectsAttribute);
-
-            if ($collectsAttrs !== []) {
-                $collectsClass = $collectsAttrs[0]->newInstance()->class;
-
-                if (class_exists($collectsClass) && is_a($collectsClass, JsonResource::class, true)) {
-                    return $collectsClass;
-                }
-            }
-        }
-
-        /** @var array<string, mixed> $defaults */
-        $defaults = $reflection->getDefaultProperties();
-        $collects = $defaults['collects'] ?? null;
-
-        if (is_string($collects) && class_exists($collects) && is_a($collects, JsonResource::class, true)) {
-            return $collects;
-        }
-
-        $className = $reflection->getShortName();
-        $namespace = $reflection->getNamespaceName();
-
-        if (str_ends_with($className, 'Collection')) {
-            $base = substr($className, 0, -10);
-
-            $candidate = $namespace.'\\'.$base.'Resource';
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            }
-
-            $candidate = $namespace.'\\'.$base; // @codeCoverageIgnoreStart
-
-            if (class_exists($candidate) && is_a($candidate, JsonResource::class, true)) {
-                return $candidate;
-            } // @codeCoverageIgnoreEnd
-        }
-
-        return null;
+        return $this->resolveCollectedResourceClass($collectionFqcn);
     }
 
     /**

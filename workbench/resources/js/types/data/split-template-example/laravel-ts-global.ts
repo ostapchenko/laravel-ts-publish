@@ -2426,6 +2426,10 @@ declare global {
         export interface KpiResource {
             reportable?: app.models.marketing.report.Report | app.models.sales.report.Report;
         }
+        /** A collection of ledger entries. */
+        export interface LedgerCollection {
+            data: unknown;
+        }
         /**
          * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the
          * same variable, separated by a guard-clause return, must not resolve either return
@@ -3257,6 +3261,10 @@ declare global {
         export interface SupplierResource {
             id: number;
         }
+        /** A collection of supplier summaries. */
+        export interface SupplierSummaryCollection {
+            data: SupplierSummaryResource[];
+        }
         /**
          * The resource SupplierCollection actually collects — must win over the bare SupplierResource
          * fallback when toResourceCollection() resolves a Supplier[] collection by naming convention.
@@ -3496,6 +3504,10 @@ declare global {
         export interface Store {
             id: number;
             name: string;
+        }
+        /** A collection of admin stores. */
+        export interface StoreCollection {
+            data: Store[];
         }
     }
     export namespace blog.http.resources {
