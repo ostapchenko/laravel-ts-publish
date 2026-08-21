@@ -3556,10 +3556,19 @@ declare global {
     }
     export namespace workbench.crm.http.resources {
         /**
+         * Exercises two same-named enum consts reachable only through an inline EnumResource
+         * wrap, with no top-level reader of either enum anywhere else in the file.
+         */
+        export interface DealEnumInlineResource {
+            id: number;
+            summary: { app_status: workbench.app.enums.StatusType; crm_status: workbench.crm.enums.StatusType };
+        }
+        /**
          * Exercises: dual enum conflict — $this->status (App\Enums\Status direct access)
          * vs EnumResource::make($this->crm_status) (Crm\Enums\Status), whenLoaded bare
          * with two different User models (Crm\User + App\User), when conditional,
-         * resource wrapping with colliding resource names, dual EnumResource::make.
+         * resource wrapping with colliding resource names, dual EnumResource::make,
+         * both same-named consts wrapped again inside one inline object (status_pair).
          */
         export interface DealResource {
             id: number;
@@ -3569,6 +3578,7 @@ declare global {
             status_enum: workbench.app.enums.StatusType;
             crm_status: workbench.crm.enums.StatusType;
             crm_enum: workbench.crm.enums.StatusType;
+            status_pair: { app: workbench.app.enums.StatusType; crm: workbench.crm.enums.StatusType };
             customer?: workbench.crm.models.User;
             admin?: workbench.app.models.User;
             customer_resource?: UserResource;

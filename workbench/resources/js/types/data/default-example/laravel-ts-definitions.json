@@ -13804,6 +13804,21 @@
                 }
             ]
         },
+        "Workbench\\Crm\\Http\\Resources\\DealEnumInlineResource": {
+            "name": "DealEnumInlineResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "summary",
+                    "type": "{ app_status: AsEnum<typeof EnumsStatus>; crm_status: AsEnum<typeof CrmStatus> }",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\Crm\\Http\\Resources\\DealResource": {
             "name": "DealResource",
             "properties": [
@@ -13840,6 +13855,11 @@
                 {
                     "name": "crm_enum",
                     "type": "AsEnum<typeof CrmStatus>",
+                    "optional": false
+                },
+                {
+                    "name": "status_pair",
+                    "type": "{ app: AsEnum<typeof EnumsStatus>; crm: AsEnum<typeof CrmStatus> }",
                     "optional": false
                 },
                 {

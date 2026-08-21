@@ -59,6 +59,7 @@ use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
 use Workbench\App\Resources\DirectResource;
 use Workbench\Blog\Http\Resources\ApiArticleResource;
+use Workbench\Crm\Http\Resources\DealEnumInlineResource;
 use Workbench\Crm\Http\Resources\DealResource;
 use Workbench\Crm\Http\Resources\UserResource as CrmUserResource;
 use Workbench\Crm\Models\User as CrmUser;
@@ -1402,6 +1403,35 @@ describe('ResourceTransformer import collision deconfliction', function () {
         expect($data->properties['admin']['type'])->toBe('ModelsUser');
         expect($data->properties['customer_resource']['type'])->toBe('CrmUserResource');
         expect($data->properties['admin_resource']['type'])->toBe('ResourcesUserResource');
+    });
+
+    test('aliases both same-named consts wrapped again inside one inline object', function () {
+        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
+        config()->set('ts-publish.enums.use_tolki_package', true);
+
+        $data = (new ResourceTransformer(DealResource::class))->data();
+
+        // Both App\Enums\Status and Crm\Enums\Status are already aliased at top level (the test
+        // above), so status_pair's inline wrap of the same two FQCNs must reuse the same aliases —
+        // not the bare 'Status' const analyzeInlineArray() substitutes before any alias exists.
+        expect($data->properties['status_pair']['type'])
+            ->toBe('{ app: AsEnum<typeof EnumsStatus>; crm: AsEnum<typeof CrmStatus> }');
+    });
+
+    test('registers and aliases consts reachable only through an inline EnumResource wrap', function () {
+        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
+        config()->set('ts-publish.enums.use_tolki_package', true);
+
+        $data = (new ResourceTransformer(DealEnumInlineResource::class))->data();
+
+        $allValueImports = array_merge(...array_values($data->valueImports));
+
+        // Neither enum is read at the top level anywhere in this file, so enumFqcnMap stays empty
+        // and no bare type import is generated — only the two value imports, now distinct.
+        expect($data->typeImports)->toBe([]);
+        expect($allValueImports)->toBe(['Status as EnumsStatus', 'Status as CrmStatus']);
+        expect($data->properties['summary']['type'])
+            ->toBe('{ app_status: AsEnum<typeof EnumsStatus>; crm_status: AsEnum<typeof CrmStatus> }');
     });
 });
 

@@ -780,6 +780,22 @@ class ResourceTransformer extends CoreTransformer
             ];
         }
 
+        // analyzeInlineArray() already substituted each inline wrap's bare const name into
+        // 'AsEnum<typeof {bare}>'; rewriteTypeReferences() can't alias it — $nameMap excludes
+        // enumConstMap. Two inline members can share one bare name, so alias by FQCN order.
+        foreach ($this->propertyInlineEnumResourceFqcns as $propName => $fqcns) {
+            if (! isset($this->properties[$propName])) {
+                continue; // @codeCoverageIgnore
+            }
+
+            $this->properties[$propName]['type'] = LaravelTsPublish::aliasPropertyType(
+                $this->properties[$propName]['type'],
+                $fqcns,
+                $this->enumConstMap,
+                $this->constImportAliases,
+            );
+        }
+
         return $this;
     }
 
@@ -920,6 +936,15 @@ class ResourceTransformer extends CoreTransformer
 
         foreach ($this->modelFqcnMap as $fqcn => $typeName) {
             $registry->register($fqcn, $typeName);
+        }
+
+        // An inline-only EnumResource FQCN never enters enumFqcnMap, so the loop above never
+        // registers its const — register the leftovers here so two inline-only consts (or one
+        // inline-only and one top-level) with the same bare name still resolve to distinct names.
+        foreach ($this->enumConstMap as $fqcn => $constName) {
+            if (! isset($this->enumFqcnMap[$fqcn])) {
+                $constRegistry->register($fqcn, $constName);
+            }
         }
 
         $this->applyResolvedImportNames(

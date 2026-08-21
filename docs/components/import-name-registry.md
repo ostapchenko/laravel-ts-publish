@@ -52,8 +52,23 @@ climbs only as far as needed:
 ## Rewriting aliased type references
 
 `applyResolvedImportNames()` records an FQCN in `$importAliases` only when its resolved local name
-differs from its type name, then calls the transformer's `rewriteTypeReferences()` once. Each
-transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
+differs from its type name, then calls the transformer's `rewriteTypeReferences()` once.
+
+It handles `$constImportAliases` in two passes. The first walks `$resolved` (the type registry's
+own output) and cross-references `$constNames` by the same FQCN — the case where a const's FQCN
+also carries a bare type import, true for every enum every consumer registers today except one.
+The second is a leftover pass over `$constNames` alone, for any FQCN present there but absent
+from `$typeNames`: `ResourceTransformer` is the one consumer with such FQCNs — an enum reached
+only through an inline `EnumResource::make()` wrap never needs a bare type import, so it never
+reaches the first pass. The second pass is a proven no-op for the other two consumers rather than
+dead code kept "just in case": `ModelTransformer`'s const registry is populated only by mirroring
+`$enumFqcnMap`, so its `$constNames` is always a subset of `$typeNames`'s keys, and
+`BroadcastEventTransformer` never passes `$constNames` at all. Generalizing this into the shared
+method — rather than a second, transformer-local pass over `$constRegistry->resolve()` — is what
+lets `ResourceTransformer::resolveImportConflicts()` stay a single call to
+`applyResolvedImportNames()`; see its own section below.
+
+Each transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
 `$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns`/`$relationFqcns` in `ModelTransformer`, `$propertyFqcns`
 in `BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`.
 Callers must neither sort nor dedupe that list: multiplicity and order together *are* the contract.
@@ -173,6 +188,17 @@ with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
   relation-derived preference the way `ModelTransformer`'s models do.
 - **Const-alias mirroring.** Identical to `ModelTransformer`: a sibling registry (same skip
   list) resolves enum const aliases independently of the type aliases.
+- **Inline-only consts.** An enum reached only through `EnumResource::make()` nested inside an
+  inline array literal (`analyzeInlineArray()`'s tolki branch) never enters `enumFqcnMap` — no
+  bare type import is needed for it, only a value import for its const — so the loop that mirrors
+  `enumFqcnMap` into the const registry never sees it. A second loop registers every
+  `enumConstMap` FQCN the first loop skipped, guarded by `! isset($this->enumFqcnMap[$fqcn])` so
+  it only ever adds the leftovers; the guard does not itself change `$constRegistry`'s output
+  (`register()` keeps an already-registered FQCN's original slot, so re-registering it would be a
+  harmless no-op), but it keeps the loop legible as "leftovers only." This is what lets two
+  same-named consts that are *both* inline-only, or one inline-only and one already registered by
+  the first loop, resolve to distinct names instead of colliding as two identical, unaliased value
+  imports from different files — a `TS2300`.
 - **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
   $this->resourceFqcnMap + $this->modelFqcnMap, $constRegistry->resolve())` — the three-way
   union is safe because no FQCN is written into more than one of the three maps. `resourceFqcnMap`
@@ -184,6 +210,17 @@ with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
   respectively. This is a property of *where these maps are populated from*, not something PHP's
   type system enforces (a class extending both `Model` and `JsonResource` is technically
   possible; nothing in this codebase creates or expects one).
+
+  This single call is also what resolves the inline-only const's alias — no separate
+  transformer-local step is needed. See [Rewriting aliased type references](#rewriting-aliased-type-references)
+  above for `applyResolvedImportNames()`'s own leftover pass, which is what makes that work.
+- **Substituting the inline wrap's own token.** Aliasing the import is not enough on its own — the
+  property's *type string* still needs the corrected const name substituted into its
+  `AsEnum<typeof {const}>` occurrence. That happens later, in `rewriteEnumResourceTypes()`, not
+  here: see [ResourceAstAnalyzer § The inline wrap's own const token is aliased by the transformer,
+  not here](resource-ast-analyzer.md#the-inline-wraps-own-const-token-is-aliased-by-the-transformer-not-here)
+  for why it has to be a separate `aliasPropertyType()` call keyed on the const maps, rather than
+  reusing `rewriteTypeReferences()`.
 
 ### `BroadcastEventTransformer`
 

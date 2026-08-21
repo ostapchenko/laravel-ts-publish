@@ -265,6 +265,39 @@ every arm that names the enum and leaving the rest of the union untouched.
 `RelationChainResource::$member_role_resources_filtered` (top level) and `$wrapped_filtered`
 (inline array) pin the two paths against the identical PHP shape — they must never disagree.
 
+### The inline wrap's own const token is aliased by the transformer, not here
+
+Both substitution paths above embed the enum's **bare** const name (`Role`, not whatever alias it
+may need) into `AsEnum<typeof {const}>`, because neither one can do otherwise:
+`ResourceAstAnalyzer::substituteEnumType()` runs during analysis (`runAstAnalysis()`, step 6 of
+`ResourceTransformer::transform()`), before `resolveImportConflicts()` (step 10) has computed any
+alias at all. For a top-level property this is invisible: `rewriteEnumResourceTypes()` reads
+`$constImportAliases` itself and builds the *already-aliased* string directly
+(`$constName = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn]`), so the bare-const
+string the analyzer might otherwise have produced is never actually built for that case.
+
+For a wrap nested inside an inline array, the bare-const string *is* what leaves the analyzer —
+`analyzeInlineArray()`'s substituted type string travels out flat, keyed by the *outer* property
+name, with no alias information attached. `ResourceTransformer::rewriteEnumResourceTypes()`
+corrects it in a dedicated final pass, after `resolveImportConflicts()` has run: for each property
+in `$propertyInlineEnumResourceFqcns` it calls `LaravelTsPublish::aliasPropertyType()`, keyed on
+`$this->enumConstMap` (the unaliased name) and `$this->constImportAliases` (the alias, when one
+exists), walking the FQCN list in the same order `analyzeInlineArray()` built it in. That order
+matters: two inline members can wrap *different* FQCNs that happen to share one bare const name —
+two distinct `Status` enums, say — and a naive per-FQCN global substitution would let the second
+FQCN's replacement clobber the first FQCN's own occurrence. `aliasPropertyType()`'s per-name queue,
+consumed left to right, is what keeps each occurrence pinned to its own FQCN.
+`DealResource::$status_pair` pins it: both arms wrap an already-top-level-aliased `Status` enum
+(`App\Enums\Status` and `Crm\Enums\Status`), and each occurrence must keep its own alias rather than
+both collapsing to whichever FQCN's alias is looked up first.
+
+`rewriteTypeReferences()` cannot be reused for this: its `$nameMap` is built from `enumFqcnMap +
+resourceFqcnMap + modelFqcnMap` only, so `enumConstMap` — the only map an inline-only EnumResource
+FQCN ever populates — is invisible to it. See
+[ImportNameRegistry § ResourceTransformer](import-name-registry.md#resourcetransformer) for the
+matching registration-side half: an enum reached *only* through an inline wrap never enters
+`enumFqcnMap` at all, so it needs its own path onto the const registry too.
+
 ### A mixed ternary inside an inline array
 
 `ResourceTransformer::rewriteEnumResourceTypes()`'s top-level `$isMixed` branch synthesizes
