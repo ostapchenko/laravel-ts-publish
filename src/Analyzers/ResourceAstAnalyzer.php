@@ -114,6 +114,7 @@ use UnitEnum;
  *      directEnumFqcn?: class-string,
  *      modelFqcn?: class-string
  * }
+ * @phpstan-type InlineSpreadArm = array{fqcn: class-string, isModel: bool, isCollection: bool}
  */
 class ResourceAstAnalyzer
 {
@@ -4037,10 +4038,9 @@ class ResourceAstAnalyzer
             return ['type' => 'never[]', 'optional' => false];
         }
 
-        // A spread whose value resolves to a bare named resource (not an array/collection of one),
-        // or to a bound model's toArray(), intersects that type with the literal's own explicit keys.
+        // A spread whose value resolves to a bare named resource (not an array/collection of one), to a
+        // bound model's toArray(), or to a bound collection's toArray(), intersects with the literal's keys.
         $spreadArms = $this->collectInlineArraySpreadArms($array);
-        $spreadFqcns = array_column($spreadArms, 'fqcn');
 
         if ($analysis->properties === [] && $spreadArms === []) {
             return ['type' => 'Record<string, unknown>', 'optional' => false];
@@ -4081,7 +4081,7 @@ class ResourceAstAnalyzer
         // own keys a later spread arm or an explicit key also sets — PHP's `[...a, ...b, 'k' => v]`
         // lets the later assignment win, `&` does not, so the earlier arm needs Omit<>'d.
         $spreadArmTypes = array_values(array_unique(
-            $this->buildSpreadArmTypes($spreadFqcns, array_column($analysis->properties, 'name')),
+            $this->buildSpreadArmTypes($spreadArms, array_column($analysis->properties, 'name')),
         ));
         $type = match (true) {
             $spreadArms === [] => $this->buildInlineObjectType($analysis),
@@ -4197,14 +4197,15 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Collect every spread in an inline array resolving to a bare named resource or to a bound
-     * model's toArray(), in source order — the arms an intersection type is built from.
+     * Collect every spread in an inline array resolving to a bare named resource, to a bound
+     * model's toArray(), or to a bound collection's toArray(), in source order — the arms an
+     * intersection type is built from.
      *
-     * @return list<array{fqcn: class-string, isModel: bool}>
+     * @return list<InlineSpreadArm>
      */
     private function collectInlineArraySpreadArms(Array_ $array): array
     {
-        /** @var list<array{fqcn: class-string, isModel: bool}> $spreadArms */
+        /** @var list<InlineSpreadArm> $spreadArms */
         $spreadArms = [];
 
         foreach ($array->items as $item) {
@@ -4215,7 +4216,15 @@ class ResourceAstAnalyzer
             $modelFqcn = $this->spreadModelToArrayFqcn($item->value);
 
             if ($modelFqcn !== null) {
-                $spreadArms[] = ['fqcn' => $modelFqcn, 'isModel' => true];
+                $spreadArms[] = ['fqcn' => $modelFqcn, 'isModel' => true, 'isCollection' => false];
+
+                continue;
+            }
+
+            $collectionFqcn = $this->spreadCollectionToArrayFqcn($item->value);
+
+            if ($collectionFqcn !== null) {
+                $spreadArms[] = ['fqcn' => $collectionFqcn, 'isModel' => true, 'isCollection' => true];
 
                 continue;
             }
@@ -4223,7 +4232,7 @@ class ResourceAstAnalyzer
             $spreadResult = $this->analyzeValueExpression($item->value);
 
             if (isset($spreadResult['resourceFqcn']) && $spreadResult['type'] === LaravelTsPublish::resourceTypeName($spreadResult['resourceFqcn'])) {
-                $spreadArms[] = ['fqcn' => $spreadResult['resourceFqcn'], 'isModel' => false];
+                $spreadArms[] = ['fqcn' => $spreadResult['resourceFqcn'], 'isModel' => false, 'isCollection' => false];
             }
         }
 
@@ -4231,14 +4240,12 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Resolve `$var->toArray()`, where `$var` is a closure-bound model, to that model's FQCN.
+     * Resolve `$var->toArray()` to the name of `$var`, or null when the expression is not that shape.
      *
      * `$this->toArray()` is the resource's own method and is handled elsewhere, so it is excluded
      * by name — `$this` parses as a `Variable` too, which would otherwise match incidentally.
-     *
-     * @return class-string<Model>|null
      */
-    private function spreadModelToArrayFqcn(Expr $expr): ?string
+    private function spreadToArrayVarName(Expr $expr): ?string
     {
         if (! $expr instanceof MethodCall
             || ! $expr->name instanceof Identifier
@@ -4249,13 +4256,30 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        if (isset($this->varModelBindings[$expr->var->name])) {
-            return $this->varModelBindings[$expr->var->name];
+        return $expr->var->name;
+    }
+
+    /**
+     * Resolve `$var->toArray()`, where `$var` is a closure-bound model, to that model's FQCN.
+     *
+     * @return class-string<Model>|null
+     */
+    private function spreadModelToArrayFqcn(Expr $expr): ?string
+    {
+        $varName = $this->spreadToArrayVarName($expr);
+
+        if ($varName === null) {
+            return null;
+        }
+
+        if (isset($this->varModelBindings[$varName])) {
+            return $this->varModelBindings[$varName];
         }
 
         // A to-many whenLoaded param holds the whole collection, not one element — its toArray()
-        // is a list of member arrays, never a single model's shape.
-        if (isset($this->varCollectionBindings[$expr->var->name])) {
+        // is a list of member arrays, never a single model's shape. spreadCollectionToArrayFqcn()
+        // picks it up instead.
+        if (isset($this->varCollectionBindings[$varName])) {
             return null;
         }
 
@@ -4263,22 +4287,43 @@ class ResourceAstAnalyzer
     }
 
     /**
+     * Resolve `$var->toArray()`, where `$var` is a closure-bound relation collection, to its
+     * element model's FQCN.
+     *
+     * @return class-string<Model>|null
+     */
+    private function spreadCollectionToArrayFqcn(Expr $expr): ?string
+    {
+        $varName = $this->spreadToArrayVarName($expr);
+
+        return $varName === null ? null : ($this->varCollectionBindings[$varName]['modelFqcn'] ?? null);
+    }
+
+    /**
      * Build each spread's intersection arm, `Omit<>`'d against every key a later arm or an
      * explicit key will overwrite at runtime. `Omit<T, K>` doesn't require `K extends keyof T`,
      * so a later arm's own shape never has to be resolved — only its name, for `keyof`.
      *
-     * @param  list<class-string>  $spreadFqcns
+     * @param  list<InlineSpreadArm>  $spreadArms
      * @param  list<string>  $explicitKeyNames
      * @return list<string>
      */
-    private function buildSpreadArmTypes(array $spreadFqcns, array $explicitKeyNames): array
+    private function buildSpreadArmTypes(array $spreadArms, array $explicitKeyNames): array
     {
         $explicitKeyLiterals = array_map(fn (string $key): string => "'{$key}'", $explicitKeyNames);
 
-        return array_map(function (int $index) use ($spreadFqcns, $explicitKeyLiterals): string {
+        return array_map(function (int $index) use ($spreadArms, $explicitKeyLiterals): string {
+            $armName = LaravelTsPublish::resourceTypeName($spreadArms[$index]['fqcn']);
+
+            // Spreading a collection renumbers its elements 0..n, so a collection arm holds only
+            // numeric keys: nothing string-keyed can overwrite it, and it overwrites nothing.
+            if ($spreadArms[$index]['isCollection']) {
+                return "Record<number, {$armName}>";
+            }
+
             $laterArmNames = array_values(array_unique(array_map(
-                fn (string $fqcn): string => LaravelTsPublish::resourceTypeName($fqcn),
-                array_slice($spreadFqcns, $index + 1),
+                fn (array $arm): string => LaravelTsPublish::resourceTypeName($arm['fqcn']),
+                array_filter(array_slice($spreadArms, $index + 1), fn (array $arm): bool => ! $arm['isCollection']),
             )));
 
             $excluded = [
@@ -4286,10 +4331,8 @@ class ResourceAstAnalyzer
                 ...array_map(fn (string $name): string => "keyof {$name}", $laterArmNames),
             ];
 
-            $armName = LaravelTsPublish::resourceTypeName($spreadFqcns[$index]);
-
             return $excluded === [] ? $armName : 'Omit<'.$armName.', '.implode(' | ', $excluded).'>';
-        }, array_keys($spreadFqcns));
+        }, array_keys($spreadArms));
     }
 
     /**

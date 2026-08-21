@@ -5678,12 +5678,14 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->and(array_values($this->analysis->modelFqcns))->toContain(User::class);
     });
 
-    test('a to-many whenLoaded param\'s own toArray() spread does not resolve to the element model', function () {
+    test('a to-many whenLoaded param\'s own toArray() spread is a Record<number, Model>, not the element model', function () {
         // $members is bound in varCollectionBindings (a list), not varModelBindings (one model) —
-        // spreadModelToArrayFqcn() must not fall back to closureRelationModelClass for it.
-        expect($this->props['members_collection_spread']['type'])->toBe('{ flag: boolean }')
+        // spreadModelToArrayFqcn() must not fall back to closureRelationModelClass for it. The
+        // spread renumbers the members 0..n, so they key by index beside the literal's 'flag'.
+        expect($this->props['members_collection_spread']['type'])->toBe('Record<number, User> & { flag: boolean }')
             ->and($this->props['members_collection_spread']['optional'])->toBeTrue()
-            ->and($this->analysis->inlineModelFqcns)->not->toHaveKey('members_collection_spread');
+            ->and($this->props['members_collection_spread']['type'])->not->toContain('Omit<')
+            ->and($this->analysis->inlineModelFqcns['members_collection_spread'] ?? [])->toBe([User::class]);
     });
 
     test('two resource spreads plus a sibling key intersect in order, each Omit<>\'d against what later overrides it', function () {

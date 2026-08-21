@@ -10569,7 +10569,7 @@
                 },
                 {
                     "name": "members_collection_spread",
-                    "type": "{ flag: boolean }",
+                    "type": "Record<number, User> & { flag: boolean }",
                     "optional": true
                 },
                 {

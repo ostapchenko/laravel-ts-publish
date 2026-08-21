@@ -2625,7 +2625,7 @@ declare global {
             members_with_profile?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             members_bare?: UserResource[];
             members_model_spread?: (Omit<workbench.app.models.User, 'flag'> & { flag: boolean })[];
-            members_collection_spread?: { flag: boolean };
+            members_collection_spread?: Record<number, workbench.app.models.User> & { flag: boolean };
             members_double_spread?: (Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[];
             members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             owner_map_untyped?: unknown;

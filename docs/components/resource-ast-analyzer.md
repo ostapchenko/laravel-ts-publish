@@ -629,7 +629,7 @@ An inline array literal that spreads a named type alongside its own keys —
 `[...UserResource::make($m)->resolve($request), 'profile' => new ProfileResource($m->profile)]` —
 emits an intersection rather than flattening the spread's keys inline. `analyzeInlineArray()`
 collects the arms via `collectInlineArraySpreadArms()` and builds each one with
-`buildSpreadArmTypes()`. Two arm kinds are recognised, both handled identically once collected:
+`buildSpreadArmTypes()`. Three arm kinds are recognised:
 
 - **A resource arm** — a spread whose value resolves to a *bare* named resource (not an array or
   collection of one). The guard is that the result carries a `resourceFqcn` *and* its emitted type
@@ -637,12 +637,36 @@ collects the arms via `collectInlineArraySpreadArms()` and builds each one with
 - **A model arm** — `$var->toArray()` where `$var` is a closure-bound model. `spreadModelToArrayFqcn()`
   checks `$varModelBindings` first, then returns `null` for a `$var` bound only in
   `$varCollectionBindings` — a to-many `whenLoaded` param holding the whole collection, not one
-  model (`members_collection_spread` pins this) — else falls back to `$closureRelationModelClass`.
+  model — else falls back to `$closureRelationModelClass`.
   Every `->map()` closure element actually resolves through that fallback, typed or not:
   `analyzeVariableMapCall()` sets only `$closureRelationModelClass` for the element and never
   populates `$varModelBindings` (`members_model_spread` pins the fallback path, not the explicit-
   binding one). `$this->toArray()` is excluded by name: it is the resource's own method and
   `isKnownArraySpreadShape()` already flattens it.
+- **A collection arm** — the `null` `spreadModelToArrayFqcn()` returns for a `$varCollectionBindings`
+  name is a *decline*, not a drop: `spreadCollectionToArrayFqcn()` picks the same expression up and
+  resolves it to the binding's element model. It emits `Record<number, {Model}>`.
+  `members_collection_spread` pins both halves — the decline and the Record.
+
+Resource and model arms are handled identically once collected. A collection arm is not, for the
+reason the next section gives.
+
+### Why a collection arm is a `Record<number, {Model}>`
+
+Spreading a *collection* is not spreading a *model*. `[...$members->toArray(), 'flag' => true]`
+renumbers the collection's elements, so the members land under `0..n` and the sibling string key
+rides alongside them — the payload is `{"0":{…},"1":{…},"flag":true}`, not one member's columns
+merged with `flag`. Typing that arm as `Omit<User, 'flag'>` would claim one user's columns at the
+top level, which the JSON contradicts; typing it as nothing at all would assert the object has
+*only* `flag`, hiding every member. `Record<number, {Model}>` is what the payload actually is.
+
+The element type carries the same honest-floor caveat a model arm does — `Collection::toArray()`
+calls each member's `toArray()`, so the value is the model's attribute map, and bare `{Model}` is
+the floor for that. See "What a model arm's bare `{Model}` does not say" below.
+
+`Record<…>` is the house idiom for a key-typed object here — 564 occurrences in the committed trees
+before this arm existed, against zero index signatures (`grep -E '\[[A-Za-z_]\w*\s*:\s*(string|number|symbol)\s*\]\s*:'`
+over `workbench/resources/js/types` returns nothing). `Record<number, …>` itself is new with this arm.
 
 Model detection is deliberately **local to the collector**. `analyzeValueExpression()` still types a
 bare `$member->toArray()` as `unknown[]` everywhere else, because giving it a `modelFqcn` generally
@@ -656,20 +680,35 @@ TypeScript's `&` does not — it intersects both, collapsing a colliding key to 
 types disagree. Subtracting the overridden keys from the earlier arm is what makes the emitted type
 mean what the PHP means.
 
-The subtraction is **unconditional**: an explicit key is Omitted whether or not the arm actually
-declares it. `Omit<T, K>` does not require `K extends keyof T`, so this is well-typed either way,
+A collection arm is the one exception, in both directions: it is never `Omit<>`'d, and it is never
+subtracted from an earlier arm. Its members key by index; every sibling key and every other arm's
+keys are strings, so the two cannot collide, and `Omit<T, number>` on a string-keyed `T` would
+subtract nothing anyway.
+
+The shape that *would* collide is a numeric explicit sibling key — `[...$members->toArray(), 5 => 'x']`
+puts `5` in both halves. It is unreachable rather than unhandled: `resolveKeyName()`
+(`src/Analyzers/Concerns/InspectsAstNodes.php:116`) returns a name only for a `String_` key, and
+`analyzeReturnArray()` skips every item whose key resolves to `null`, so a numeric key never becomes
+a property in the first place. `QuirkyResource` pins that independently — it writes `42 => $this->total`
+and `42 => 'number_keyed'`, and the generated `QuirkyResource` interface has no `42` member. So the
+collision cannot be constructed while numeric keys are dropped wholesale; a change that started
+emitting them would have to revisit this arm.
+
+For every other arm the subtraction is **unconditional**: an explicit key is Omitted whether or not
+the arm actually declares it. `Omit<T, K>` does not require `K extends keyof T`, so this is well-typed either way,
 and it lets `buildSpreadArmTypes()` work from `class_basename()` alone — a later arm's own shape
 never has to be resolved, only its name, for `keyof`. `NestedResourceSpreadResource` pins both
 sides of that: `members_double_spread` Omits `'note'` from `UserResource`, which has no `note` key,
 and `members_model_spread` Omits `'flag'` from `User`, which has no `flag` column.
 
-Arm order is source order, because the subtraction reads every arm *after* the current index. The
-two kinds are tracked together for that reason, and split only when the imports are dispatched:
-resource arms travel `embeddedResourceFqcns`, model arms `embeddedModelFqcns`, or the emitted token
-would be looked up in the wrong channel and never resolve to an import.
+Arm order is source order, because the subtraction reads every arm *after* the current index. All
+three kinds are tracked in one list for that reason, and split only when the imports are dispatched:
+resource arms travel `embeddedResourceFqcns`; model *and* collection arms travel
+`embeddedModelFqcns`, both naming a model, or the emitted token would be looked up in the wrong
+channel and never resolve to an import.
 
 That guarantee holds today only because `collectInlineArraySpreadArms()` appends to one list as it
-walks `$array->items`, never splitting model and resource arms into separate lists that get
+walks `$array->items`, never splitting the kinds into separate lists that get
 concatenated afterward — a plausible-looking refactor that would silently regroup arms by kind and
 subtract against the wrong later arm. `members_model_then_resource_spread` and
 `members_resource_then_model_spread` on `NestedResourceSpreadResource` pin this directly: each
