@@ -86,9 +86,9 @@ python3 .github/scripts/unknown-regression-gate.py --parsetest
 ```
 
 No commit in this repo's history exercises a member-level `FAIL`, so this self-test is the only guard on
-the alias-, parent- and member-splitting logic above. Measured, not assumed: 189 commits have touched the
+the alias-, parent- and member-splitting logic above. Measured, not assumed: 190 commits have touched the
 generated tree (`git rev-list --count HEAD -- workbench/resources/js/types/data`), and replaying each of
-the 184 parent→commit transitions that changed a `.ts` file through `parse_source()` and
+the 185 parent→commit transitions that changed a `.ts` file through `parse_source()` and
 `detect_regressions()` reports a regression on 2 of them and a **member-level** regression on **0**. That
 covers consecutive transitions, not every possible `BASE..HEAD` pair, so it is a strong absence rather
 than a proof. It checks seven cases: five lifted from the
@@ -411,7 +411,7 @@ When changing `unknown-regression-gate.py` itself, also run its
   gate's founding design, not a regression — the same substring test disarmed the parent key before
   member splitting existed — but it is a real residual and the prose above is scoped to it.
 
-  Measured at `HEAD`: **1088** top-level inline-object properties, **128** of them already carrying
+  Measured at `HEAD`: **1104** top-level inline-object properties, **128** of them already carrying
   `unknown` (about 12%). At the default base rev `a6c268da`: **576** and **72**. Real exposure is the
   real-typed members sitting under those dirty parents — **120** member keys across six property names
   (`meta`, `tree_from_docblock`, `metadata`, `grid_config`, `shipping`, `grid_configs`), with at most

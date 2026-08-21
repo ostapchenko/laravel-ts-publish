@@ -180,8 +180,8 @@ reference each arm's own model](#multi-model-accessor-unions-reference-each-arms
 `ModelAttributeResolver::publishedColumnNames()` is `relationFilterModelReference()`'s own
 `$hidden` gate, and it is still pinned directly — `PostAttachmentFilterResource::$attachment_hidden`
 under `exclude_hidden` — but no fixture currently drives a hidden column through this specific
-except-branch subtraction end to end: the only two `$hidden`-bearing workbench models are
-`Attachment` (exercised only via `only()`, never reaching this branch) and `App\Models\User`
+except-branch subtraction end to end: the only two workbench models with a `protected $hidden`
+property are `Attachment` (exercised only via `only()`, never reaching this branch) and `App\Models\User`
 (whose `except()` calls above now resolve through `Pick<>` instead). This is a test-coverage gap,
 not a behavior gap — the subtraction logic itself already agrees with `Model::except()`'s runtime
 behavior. Three sites are deliberately left untouched because each already takes the caller's

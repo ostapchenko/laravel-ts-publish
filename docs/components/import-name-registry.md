@@ -76,8 +76,8 @@ Each transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` i
 in `BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`.
 Callers must neither sort nor dedupe that list: multiplicity and order together *are* the contract.
 `ModelTransformer` and `BroadcastEventTransformer` supply **one entry per occurrence, in registration
-order**, exactly: `ModelTransformer` by construction (`$columnFqcns[$name][] = $fqcn` and its three
-siblings are plain appends — `$relationFqcns[$name]` is assigned once, wholesale, from the same
+order**, exactly: `ModelTransformer` by construction (`$columnFqcns[$name][] = $fqcn` and two of its
+three siblings are plain appends — `$relationFqcns[$name]` is assigned once, wholesale, from the same
 `$morphTargets`/`[$relation['related']]` list that built the relation's type string, so it is
 per-occurrence by construction too), `BroadcastEventTransformer` by dropping the
 `array_values(array_unique(...))` its `$propertyFqcns` assignment used to end in.

@@ -656,8 +656,9 @@ class ResourceTransformer extends CoreTransformer
                 // tell the arms apart here — synthesize the union explicitly instead.
                 $wrappedTypeName = 'AsEnum<typeof '.$constName.'>';
 
-                // EnumResource::make() is always scalar; isCollection reflects only the direct
-                // arm's own shape, so the array suffix belongs on the bare type name alone.
+                // EnumResource::make() is always scalar; the direct arm's own shape decides the array suffix. This
+                // assumes the wrap arm is never EnumResource::collection() — not true in general; see the filed
+                // Out of Scope entry under Task 16 in docs/superpowers/plans/2026-08-20-analyzer-backlog.md.
                 $directTypeName = $info['isCollection'] ? $enumTypeName.'[]' : $enumTypeName;
 
                 $type = $wrappedTypeName.' | '.$directTypeName;
