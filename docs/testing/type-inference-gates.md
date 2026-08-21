@@ -28,9 +28,14 @@ python3 .github/scripts/unknown-regression-gate.py [BASE_REV] [HEAD_REV]
 `BASE_REV` defaults to the branch point of the type-inference work; `HEAD_REV` defaults to `HEAD`.
 
 ```
-base properties: 16452   head properties: 21096
+base properties: 17072   head properties: <moves with every regeneration>
 PASS - no property regressed to unknown
 ```
+
+The base count is stable, because `BASE_REV` is a pinned commit and only a change to this script's own
+parser moves it. The head count changes whenever the trees are regenerated, so it is left as a
+placeholder rather than a literal that rots on every commit. Neither number is load-bearing; the
+`PASS`/`FAIL` line is.
 
 Because it reads both sides out of git, it also enforces that regenerated output was **committed** — a
 change that improves inference but leaves the trees stale compares against itself and reports nothing.
@@ -45,8 +50,20 @@ only, silently conflated ~116 pairs, and could never fail.
 Single-line `export type X = …;` aliases are parsed the same way as properties, keyed by their name —
 including a namespaced alias nested inside `declare global { namespace … { type X = …; } }`. When a
 property's or alias's value contains one or more inline `{ … }` object types, each member becomes its own
-key: `prop.member` for a single object, `prop[i].member` per arm for a union of objects. A member regressing
-to `unknown` is no longer masked by an already-`unknown` sibling in the same object.
+key *in addition to* the parent: `prop.member` for a single object, `prop[i].member` per arm for a union of
+objects, alongside `prop` itself holding the whole rendered value. A member regressing to `unknown` is
+therefore not masked by an already-`unknown` sibling in the same object, and a property whose whole inline
+object collapses to a bare `unknown` still matches its own base key rather than sharing none.
+
+Keeping the parent is what makes the whole-object case visible at all. When only the members were keyed,
+a base holding `heading_content.title` and `heading_content.summary` and a head holding just
+`heading_content: unknown` had no key in common, and `detect_regressions()` — which iterates
+`for k in h if k in b` — matched nothing and reported zero regressions.
+
+The parent key holds the whole rendered value, so it is coarse on purpose: it also fires when an existing
+object merely *gains* a member typed `unknown`, since that member is a new key with no base counterpart
+and nothing else in the gate would see it. Treat such a failure as a real question to answer, not as
+noise to silence.
 
 `prop[i]` is a positional index into the arms as written, not a content hash: reordering two union arms in a
 regenerated file shifts which arm sits at index `0` and can mask a regression. This is a known, accepted
@@ -65,12 +82,14 @@ that references it.
 python3 .github/scripts/unknown-regression-gate.py --parsetest
 ```
 
-There is no git range that exercises a member-level `FAIL` — proven across all 143 commits that have
-touched the generated tree — so this is the only guard on the alias- and member-splitting logic above. It
-checks six cases lifted from the corpus: a single-line type alias, a namespaced alias inside `declare
-global`, an inline object with one member, one with several members, a union of two inline objects, and a
-synthetic case — a member regressing to `unknown` beside a sibling that is already `unknown[]`, the exact
-shape the whole-string `FAIL` test below used to miss. Run it after any change to this script.
+No git range exercises a member-level `FAIL`. That was checked against every commit that has touched the
+generated tree (`git rev-list HEAD -- workbench/resources/js/types/data`), so this self-test is the only
+guard on the alias-, parent- and member-splitting logic above. It checks seven cases: five lifted from the
+corpus — a single-line type alias, a namespaced alias inside `declare global`, an inline object with one
+member, one with several members, and a union of two inline objects — plus two synthetic regressions. The
+first is a member degrading to `unknown` beside a sibling that is already `unknown[]`, the exact shape the
+whole-string `FAIL` test below used to miss. The second is a whole inline object collapsing to a bare
+`unknown`, the shape member-splitting itself used to miss. Run it after any change to this script.
 
 ### Self-test
 
@@ -138,6 +157,11 @@ are expected and must not be "fixed".
 
 Raise the baseline only when you add a fixture that legitimately uses one of those escape hatches, and say
 so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch.
+
+`14` is a current count, not a target, in the same way the relative-specifier baseline of `1` below is. Two
+of its TS2304s are the `Coordinate` import that the planned inlining change removes, so that change takes
+this baseline down to `12` at the same time it takes the sub-gate's to `0`. Lowering a baseline once the
+defect behind it is actually gone is the point; defending the number is not.
 
 ### The relative-specifier sub-gate
 
@@ -265,11 +289,12 @@ When changing `unknown-regression-gate.py` itself, also run its
   adding an inference path, add a fixture for the hazardous shape too — several real defects were found
   only by constructing a fixture and regenerating, never by reading the code or running the suite.
 
-- **TS2307 (`Cannot find module`) is counted by neither gate.** `unimportable-token-gate.sh` greps only
-  TS2300/TS2304/TS2344/TS2552, and an unresolved *module* is not an existing property degrading to
-  `unknown`, so the regression gate is structurally blind to it too. That diagnostic is the signature of
-  an import of a class the package never writes a file for — the failure mode `PublishedResourceRegistry`
-  exists to prevent, documented under
+- **TS2307 (`Cannot find module`) is only partly counted.** `unimportable-token-gate.sh`'s main count
+  greps only TS2300/TS2304/TS2344/TS2552, and an unresolved *module* is not an existing property degrading
+  to `unknown`, so the regression gate is structurally blind to it too. The relative-specifier sub-gate
+  described below is the one place any TS2307 is counted, and it counts only the relative ones. That
+  diagnostic is the signature of an import of a class the package never writes a file for — the failure
+  mode `PublishedResourceRegistry` exists to prevent, documented under
   [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set),
   including its shared `InspectsAstNodes::resolveCollectedResourceClass()` resolver, which both
   `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call.
@@ -299,17 +324,27 @@ When changing `unknown-regression-gate.py` itself, also run its
   loop at all — not as a pass, not as a fail, not as any kind of signal. The gate has no code path that
   even notices a key vanished.
 
-  This is not theoretical: this branch shipped the first base-only keys the gate has ever seen, both from
-  the write-only-accessor waterfall (`cb7c302`). `order.search_index` was dropped outright — a set-only
-  mutator with no getter, no docblock generic, and no backing column, so it is correctly omitted rather
-  than emitted as `unknown`. `profile.normalized_phone` was *moved*: in the three split-template trees it
-  left `ProfileMutators` and reappeared in `Profile`, where the same-named column types it
-  `string | null` instead of `unknown`. Because keys are scoped by enclosing interface, a relocation is a
-  removal plus an addition, and the gate is blind to exactly the half that would tell you a property left
-  its old home. (In `full-template-example` the same change is fully visible — one interface holds both
-  sections, so the key never moved and the gate simply saw `unknown` become `string | null`. Whether a
-  change is observable can depend on the template, which is its own reason not to treat a green gate as
-  coverage.)
+  This is not theoretical: this branch shipped the first base-only property **roots** the gate has
+  ever seen, both from the write-only-accessor waterfall (`cb7c302`). `order.search_index` was dropped
+  outright — a set-only mutator with no getter, no docblock generic, and no backing column, so it is
+  correctly omitted rather than emitted as `unknown`. `profile.normalized_phone` was *moved*: in the
+  three split-template trees it left `ProfileMutators` and reappeared in `Profile`, where the
+  same-named column types it `string | null` instead of `unknown`. Because keys are scoped by
+  enclosing interface, a relocation is a removal plus an addition, and the gate is blind to exactly
+  the half that would tell you a property left its old home. (In `full-template-example` the same
+  change is fully visible — one interface holds both sections, so the key never moved and the gate
+  simply saw `unknown` become `string | null`. Whether a change is observable can depend on the
+  template, which is its own reason not to treat a green gate as coverage.)
+
+  Keep the base-only *root* separate from the base-only *key*. Member splitting keys each inline object's
+  members individually, so any property that changes shape strands its old member keys on the base side.
+  Base-rev→HEAD currently has 867 base-only keys and only 35 property roots among them: the `search_index`
+  (32) and `normalized_phone` (3) entries above, and nothing else. The other 832 sit under nine roots whose
+  own key is present on both sides, every one a property that was an inline `{ … }` at base and is a
+  `Pick<Model, K>` at head — `Pick<>` has no `{` to descend into, so its members stop being keyed
+  separately (see [Aliases and inline-object members](#aliases-and-inline-object-members)). Those are
+  noise, not signal. Re-measure rather than quoting these counts; they move whenever any property's shape
+  changes.
 
   What did **not** ship is a `$hidden` removal, and it is worth being precise about that, because it is
   the change most likely to be misremembered as one. `config/ts-publish.php` ships

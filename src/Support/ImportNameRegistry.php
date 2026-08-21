@@ -101,9 +101,9 @@ class ImportNameRegistry
     }
 
     /**
-     * Assign aliases to one colliding group, all members advancing together each
-     * round so no member keeps an ambiguous shallow alias. FQCN-sorted iteration
-     * makes numeric tiebreaks deterministic.
+     * Assign aliases to one colliding group. Each round advances every member whose own
+     * candidate still collides, so none is compared against a stale one; already-unique
+     * members keep theirs. FQCN-sorted iteration makes numeric tiebreaks deterministic.
      *
      * @param  list<RegistryEntry>  $group
      * @param  array<string, true>  $taken

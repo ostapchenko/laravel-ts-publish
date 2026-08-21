@@ -170,7 +170,7 @@ trait InspectsAstNodes
 
         $collectsAttribute = 'Illuminate\Http\Resources\Attributes\Collects';
         if (class_exists($collectsAttribute)) {
-            // Priority 1: #[Collects] attribute (Laravel 12+)
+            // Priority 1: #[Collects] attribute (Laravel 13.0+)
             $collectsAttrs = $reflection->getAttributes($collectsAttribute);
 
             if ($collectsAttrs !== []) {

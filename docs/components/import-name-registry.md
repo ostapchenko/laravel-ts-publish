@@ -25,14 +25,17 @@ climbs only as far as needed:
    `ts-publish.namespace_strip_prefix` is stripped from the namespace before segments are
    read. If every segment is skip-listed (e.g. `App\Models\Order`), the unfiltered segments
    are used instead so the alias can still be built.
-3. **Extend one segment deeper per round.** Every member of a colliding group — same type
-   name registered more than once, or a type name that is reserved — advances *together*,
-   each round: a colliding preferred alias drops to the one-segment prefix; a colliding
-   prefix extends one segment further into the namespace (`MailPrice` →
-   `EngineeringMailPrice` → `CustomerEngineeringMailPrice`). Advancing the whole group each
-   round, rather than only the newest collider, means no member is ever left holding a
-   shallow alias that merely happens to look unique against the *other* member's *previous*
-   candidate.
+3. **Extend one segment deeper per round.** A group is one type name registered more than
+   once, or a type name that is reserved. Each round recounts the group's current candidates
+   and advances only the members whose own candidate still collides: a colliding preferred
+   alias drops to the one-segment prefix; a colliding prefix extends one segment further into
+   the namespace (`MailPrice` → `EngineeringMailPrice` → `CustomerEngineeringMailPrice`). A
+   member already unique against both its group-mates and the reserved set is skipped and
+   keeps the alias it holds — register `A\B\Foo`, `C\Foo` and `D\C\Foo` together and
+   `A\B\Foo` stays on the depth-1 `BFoo` while the other two resolve to `CFoo` and `DCFoo`.
+   Advancing every *still-colliding* member in the same round, rather than only the newest
+   collider, is what stops a member being left on a shallow alias that merely looks unique
+   against another member's *previous* candidate.
 4. **Numeric suffix**, as the final tiebreak, for any member that exhausts its namespace
    (or two FQCNs that are otherwise identical past the root) — `2`, `3`, … in FQCN-sorted
    order, the first member keeping the unsuffixed name.

@@ -10,8 +10,9 @@ within the same file, e.g. the nested namespaces in laravel-ts-global.ts -- are
 never conflated. Matches any indent depth.
 
 Single-line `type X = ...;` aliases are parsed too, and any inline object's
-members are split into their own `prop.member` / `prop[i].member` keys, so a
-regression is no longer masked by an already-`unknown` sibling member.
+members are split into their own `prop.member` / `prop[i].member` keys *in
+addition to* the parent key, so a regression is masked neither by an
+already-`unknown` sibling member nor by the whole object collapsing at once.
 
 Usage: unknown-regression-gate.py [BASE_REV] [HEAD_REV]
 Exit 1 if any property regressed. Self-test: --selftest RANGE expects a FAIL.
@@ -87,7 +88,10 @@ def expand(name: str, value: str) -> dict[str, str]:
     spans = scan_objects(value)
     if not spans:
         return {name: value.strip()}
-    out: dict[str, str] = {}
+    # The parent key is kept alongside its members, not replaced by them: a property whose whole
+    # inline object collapses to `unknown` shares no member key with its base and would otherwise
+    # match nothing in `detect_regressions()`.
+    out: dict[str, str] = {name: value.strip()}
     indexed = len(spans) > 1
     for i, (s, e) in enumerate(spans):
         prefix = f"{name}[{i}]" if indexed else name
@@ -211,6 +215,10 @@ REGRESS_BASE = (
 REGRESS_HEAD = REGRESS_BASE.replace("alt_text: string | null", "alt_text: unknown")
 
 
+COLLAPSE_BASE = "    heading_content: { title: string; summary: string };"
+COLLAPSE_HEAD = "    heading_content: unknown;"
+
+
 def run_parsetest() -> int:
     failed = 0
     for name, source, want in PARSE_CASES:
@@ -231,7 +239,17 @@ def run_parsetest() -> int:
         failed += 1
         print(f"FAIL - member regressing beside an already-unknown sibling (synthetic)\n  got: {bad}")
 
-    total = len(PARSE_CASES) + 1
+    base, head = parse_source(COLLAPSE_BASE), parse_source(COLLAPSE_HEAD)
+    bad = detect_regressions(base, head)
+    if [(k[1], was, now) for k, was, now in bad] == [
+        ("heading_content", "{ title: string; summary: string }", "unknown")
+    ]:
+        print("PASS - whole inline object collapsing to unknown (synthetic)")
+    else:
+        failed += 1
+        print(f"FAIL - whole inline object collapsing to unknown (synthetic)\n  got: {bad}")
+
+    total = len(PARSE_CASES) + 2
     if failed:
         print(f"FAIL - {failed} of {total} parser cases failed")
         return 1

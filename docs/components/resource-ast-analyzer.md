@@ -54,7 +54,8 @@ already carries columns only) or `model-full` (one interface per model carrying 
 `item_count`, `formatted_total`, `user`, `items`, `items_count`, `user_exists`, … on top of the
 same columns). Naming the *excluded* keys instead — `Omit<Order, 'created_at' | 'updated_at'>`,
 the shape this analyzer used to emit — would have inherited whatever `keyof Order` is under the
-active template, re-widening back to those 46 members under `model-full` even though
+active template, re-widening back to every member `keyof Order` carries under `model-full` — columns,
+mutators, relations, counts and exists alike — even though
 `Model::except()` never returns any of them. Naming the *surviving* keys explicitly cannot
 re-widen, regardless of how many other members the base interface carries. The regenerated
 fixtures confirm this directly: the `order_extended`/`post_extended`/`latest_payment_excluded`
@@ -204,10 +205,16 @@ resolvable `import` statement somewhere in the dispatch chain.
 | Multiple enums (`Status\|Priority`) | yes | `embeddedEnumFqcns` (per-property inline-enum import plumbing) |
 | Single `Model` subclass | yes | `modelFqcn` |
 | Multiple / mixed `Model` subclasses | yes | `embeddedModelFqcns` |
-| `Model` + enum union (`Order\|Status`) | yes | `modelFqcn`/`embeddedModelFqcns` *and* `directEnumFqcn`/`embeddedEnumFqcns` together — both channels fire off the same result |
+| `Model` + enum union (`Order\|Status`) | yes | `embeddedEnumFqcns` *and* `embeddedModelFqcns` together — always the multi-entry channels, never the single-entry ones, whatever each kind's count |
 | `#[TsType(import: ...)]`-annotated class | yes | `customImports`, merged into `ResourceAnalysis::$customImports` and consumed by `ResourceTransformer::mergeCustomImports()` |
 | Any non-`Model` class (DTO, value object, cast class without `#[TsType]`) | **no** — degrades to `unknown` | none; this package generates no published file for an arbitrary class, so there is nothing to import |
 | `void` / `never` / `mixed`'s reflected `unknown \| null` / empty type | **no** — degrades to `unknown` | none; these carry no meaningful TypeScript shape |
+
+"Always the multi-entry channels" in that last row is structural, not a convention.
+`acceptReflectedTypeInfo()` sets `directEnumFqcn` only when `count($enumFqcns) === 1 && $classFqcns === []`,
+and `modelFqcn` only when `count($classFqcns) === 1 && $enumFqcns === []`. A union carrying both kinds
+fails both tests, so the single-entry channels are unreachable for it even when each kind contributes
+exactly one FQCN — which is why that row does not contradict the two above it.
 
 The non-`Model`-class rejection is a single guard checked before any channel is populated:
 `Order|Status` and `Order|SomeDto` are structurally similar (`classFqcns` and `enumFqcns` both
@@ -477,10 +484,14 @@ degrading to `unknown`. It is populated from three sources, each scoped to the b
 
 ### Scoping and shadowing
 
-Every writer follows the same save/restore discipline as `$closureRelationModelClass`: snapshot
-the map (or the one key being overwritten), mutate it for the nested body's analysis, then restore
-the snapshot — so a closure parameter that shadows an outer variable of the same name resolves
-against its **own** binding and can never leak into, or be leaked into by, the outer scope. See
+The two closure writers follow the same save/restore discipline as `$closureRelationModelClass`:
+snapshot the map (or the one key being overwritten), mutate it for the nested body's analysis, then
+restore the snapshot. The third writer does not. `bindForeachLoopVariables()` assigns
+`$this->varModelBindings[$stmt->valueVar->name]` outright, with no snapshot and no restore, because its
+binding is method-wide by design — the third bullet above says so. The shadowing guarantee survives that
+exception: a closure parameter that shadows an outer variable of the same name still resolves against its
+**own** binding and can never leak into, or be leaked into by, the outer scope, because it is the closure
+writers' own snapshots that restore over whatever the `foreach` binding left behind. See
 `ClosureParamShadowResource` in the workbench: a top-level `$member` and a `map(fn ($member) =>
 $member)` closure param share a name, and each site resolves independently.
 
@@ -570,7 +581,10 @@ the workbench and the corresponding test in `ResourceAstAnalyzerTest` for the tr
 `analyzeSelfReturningResourceMethodCall()` handles `new self($x)->method()`, `self::make($x)->method()`
 and chains of both. When `methodPreservesReceiverType()` says the method hands the same instance back —
 a native `static`/`self`/the resource class, or a docblock-only `@return $this` — the receiver's own
-resolved result is returned unchanged. When it says otherwise, the expression has stopped being the
+resolved result is returned, with one adjustment. A nullable method return appends `| null` to it first
+(`if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null'))`), so
+`FluentSelfResource::whenAuthorized(): ?static` widens the receiver's type rather than passing it
+through; `parent_fluent_nullable` pins that. When it says otherwise, the expression has stopped being the
 resource, and the method's *body* is resolved through `analyzeThisMethodSpread()` instead of degrading
 to `unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
 `buildInlineObjectType()` — the same helper `analyzeInlineArray()` assembles its `{ … }` arm with.
@@ -1023,7 +1037,14 @@ contract, not a convenience: `RunnerForSource` handles a single FQCN and never r
 never reaches `PublishedResourceRegistry::register()`. A `ts:publish --source=…` regeneration must still
 analyze against an empty registry even in the same process as an earlier full run — otherwise a leftover
 set from that run narrows this run's own convention guess and a real type silently collapses to `unknown`.
-Failing closed there would also silently strip every nested resource reference out of the regenerated file.
+Failing closed there would also silently strip the regenerated file's *convention-guessed* nested resource
+references. Only those. The registry is consulted at four candidate-inventing sites:
+`ResourceAstAnalyzer.php:2247`, `:2293` and `:2304`, plus the naming-convention branch of
+`InspectsAstNodes::resolveCollectedResourceClass()`, which tries two candidates (`:203`, `:209`). An
+explicitly named reference never reaches it and would survive — `SomeResource::make()` and
+`::collection()` (`ResourceAstAnalyzer.php:1705`, `:1719`) test `isResourceClass()` rather than
+`isPublishedResourceClass()`, and so do the explicit-argument arms of `analyzeToResourceCall()` and
+`analyzeToResourceCollectionCall()`.
 
 ### Both runners reset the registry at the top of `run()`, once per run
 
@@ -1062,8 +1083,15 @@ state otherwise leaks across a parallel Pest run — that reset stays even thoug
 `PublishedResourceRegistry` themselves, because it also protects tests that never construct a runner at
 all. A consuming application gets no such per-test hook, which is why both runners reset on entry too.
 
-Neither CI gate can catch a regression here — an import of an unpublished resource surfaces as TS2307,
-which `unimportable-token-gate.sh` does not count. See
+CI catches some regressions here and misses others, and which it is depends on where the leaked resource
+sits relative to the file importing it. A resource in a **different** namespace is imported by a relative
+specifier, so it surfaces as TS2307 and lands inside `unimportable-token-gate.sh`'s relative-specifier
+sub-gate, which CI runs armed (`.github/workflows/run-tests.yml` invokes
+`unimportable-token-gate.sh 14 1`). A resource in the **same** namespace does not: the import is written
+`from '.'`, that barrel `index.ts` exists, and tsc reports TS2305 "has no exported member", which neither
+gate counts. The `AttachmentResource`/`AttachmentCollection` fixtures below are the second shape — they
+share `Workbench\App\Http\Resources` with the `MerchantResource` that references them, so a regression
+there would not trip either gate. See
 [Type inference gates](../testing/type-inference-gates.md). The coverage is instead the published-set
 tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentResource` and
 `AttachmentCollection` workbench fixtures, plus a matching pair for `resolveCollectedResourceClass()`'s
@@ -1082,27 +1110,36 @@ version). Either one makes Laravel keep the collection's original keys, so the p
 object instead — `collectionPreservesKeys()` checks both, and `wrapCollectionElementType()` is the
 single point that turns that boolean into `Record<string, R>` instead of `R[]`.
 
-Every collection-typing call site routes through `wrapCollectionElementType()`, at six emission
-points across two paths:
+Every collection-typing call site routes through `wrapCollectionElementType()`. There are **seven**,
+across three paths, and `grep -n 'wrapCollectionElementType(' src/Analyzers/ResourceAstAnalyzer.php` is
+the check:
 
 - **`SomeResource::collection(...)` / `SomeCollection::make()`/`::collection()` / `new
-  SomeCollection(...)`, referenced inside another resource's `toArray()`** — three sites, in
+  SomeCollection(...)`, referenced inside another resource's `toArray()`** — three calls, in
   `analyzeStaticCall()` (two: the named-collection branch and the plain-resource branch) and
   `analyzeNewResource()` (one).
-- **A `ResourceCollection` with no `toArray()` override, delegating to `$this->collection`** —
-  three sites, in `buildCollectionDelegatedAnalysis()` (the `flatTypeAlias` branch and the
-  wrapped-`data`-key branch, which share one computed element type) and `analyzeCollectionProperty()`
-  (the `$this->collection` property read).
+- **`$collection->toResourceCollection()`** — two calls, both in `analyzeToResourceCollectionCall()`:
+  the explicit-argument arm (`toResourceCollection(SomeResource::class)`) and the arm that resolves a
+  collection through `resolveResourceCollectionForModel()`. They reflect on different classes; see the
+  note below.
+- **A `ResourceCollection` with no `toArray()` override, delegating to `$this->collection`** — two
+  calls, in `buildCollectionDelegatedAnalysis()` (one call whose element type feeds both the
+  `flatTypeAlias` branch and the wrapped-`data`-key branch) and `analyzeCollectionProperty()` (the
+  `$this->collection` property read).
 
 That count is exactly what a future change to any of these methods is liable to get wrong — a site
 that's missed silently keeps emitting `R[]`, and nothing catches it until a fixture exercises that
-exact call shape with `#[PreserveKeys]` or `$preserveKeys` set.
+exact call shape with `#[PreserveKeys]` or `$preserveKeys` set. The list has already been wrong once
+in that exact way: it read "six" and omitted `analyzeToResourceCollectionCall()` altogether.
 
 The reflection target passed to `wrapCollectionElementType()` differs by site to match what Laravel
-itself reflects on at runtime: for `SomeResource::collection(...)`, Laravel's `JsonResource::collection()`
-checks `static::class` — the singular resource being called on, not a separate collection class — so
-that site reflects on the resource. Every other site reflects on the `ResourceCollection` subclass
-itself, since that's what Laravel instantiates and reflects on for `make()`, `new`, and the
+itself reflects on at runtime. Two sites reflect on the *resource*. One is `SomeResource::collection(...)`,
+where Laravel's `JsonResource::collection()` checks `static::class` — the singular resource being called
+on, not a separate collection class. The other is `toResourceCollection(SomeResource::class)`, because
+`TransformsToResourceCollection::toResourceCollection()` returns `$resourceClass::collection($this)` and
+so lands in that same method. The remaining sites reflect on the `ResourceCollection` subclass itself,
+since that's what Laravel instantiates and reflects on for `make()`, `new`, the argument-less
+`toResourceCollection()` arm (which routes through `guessResourceCollection()`), and the
 collection-delegated path.
 
 ### Inertia props
@@ -1146,8 +1183,23 @@ paths used to `array_unique` all three inline maps, which lost real multiplicity
 or branched property named the same model twice — `aliasPropertyType()`'s per-occurrence queue then
 fell back to its shorter-than-occurrence-count clamp and mistyped the missing occurrence.
 `BranchedInlineFqcnResource` pins the branch-merge case; `ChildInlineFqcnResource` pins the
-`syncAnalysisMaps()` case. `inlineEnumFqcns`/`inlineEnumResourceFqcns` stay deduped: they feed
-import lists, not a per-occurrence queue, so one entry per import is correct there.
+`syncAnalysisMaps()` case.
+
+`inlineEnumFqcns` and `inlineEnumResourceFqcns` stay deduped **even though they feed the same
+per-occurrence queue**, so this is an asymmetry the code has, not a difference in what the maps are
+for. Both reach `aliasPropertyType()`: `inlineEnumResourceFqcns` becomes
+`ResourceTransformer::$propertyInlineEnumResourceFqcns` and is walked directly by
+`rewriteEnumResourceTypes()`, and `inlineEnumFqcns` becomes `$propertyInlineEnumFqcns`, which
+`mergePropertyFqcnMaps()` folds into the list `rewriteTypeReferences()` passes to the same helper —
+and `mergePropertyFqcnMaps()`'s own docblock ends "never dedupe it". Task 14 dropped `array_unique`
+from `inlineModelFqcns` only, and left the two enum maps as they were.
+
+What makes the dedupe safe today is the corpus, not the design. Losing multiplicity only
+desynchronizes the queue when one property's type repeats a single enum FQCN *non-adjacently* among
+same-basename siblings, and no workbench property has that shape: `DealResource::$status_pair`, the
+fixture that exercises two same-basename `Status` enums in one property, names each FQCN once. Treat
+the two `array_unique` calls as a latent bug with no current trigger rather than a decision to
+preserve — the plan's Out of Scope section records the fixture that would be needed to fix it.
 
 **A single inline array member's own multi-FQCN accessor now contributes its own arms too.** The three
 fixes above only cover *merging* an already-populated queue across branches or inheritance. A member whose
