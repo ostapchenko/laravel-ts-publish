@@ -820,19 +820,19 @@ describe('ModelTransformer with Warehouse model', function () {
             ->and($data->columns['phone']['type'])->toBe('string | null');
     });
 
-    test('column cast to CastsAttributes returning a plain class tracks classFqcns', function () {
+    test('column cast to CastsAttributes returning a plain class inlines its shape', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
-        // CoordinateCast::get() returns Coordinate, a class with neither TsType nor CastsAttributes.
+        // CoordinateCast::get() returns Coordinate, a plain class this package publishes no file for.
         expect($data->columns)->toHaveKey('coordinate_data')
-            ->and($data->columns['coordinate_data']['type'])->toBe('Coordinate | null');
+            ->and($data->columns['coordinate_data']['type'])->toBe('{ lat: number; lng: number } | null');
     });
 
-    test('appended attribute returning a plain class tracks classFqcns', function () {
+    test('appended attribute returning a plain class inlines its shape', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
         expect($data->appends)->toHaveKey('location')
-            ->and($data->appends['location']['type'])->toBe('Coordinate');
+            ->and($data->appends['location']['type'])->toBe('{ lat: number; lng: number }');
     });
 
     test('mutator returning a TsType class includes customImports', function () {

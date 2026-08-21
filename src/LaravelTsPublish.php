@@ -306,6 +306,23 @@ class LaravelTsPublish
             return $result;
         }
 
+        // 5c. Plain class with fully typed public properties → inline the shape json_encode() would emit,
+        //     since no file is published for such a class and step 5's token could never resolve.
+        //     JsonSerializable is excluded: it overrides that default, so its properties prove nothing.
+        if (class_exists($phpType)
+            && ! is_a($phpType, Model::class, true)
+            && ! is_a($phpType, JsonSerializable::class, true)
+            && $this->hasFullyTypedPublicProperties($phpType)
+        ) {
+            $shapeType = $this->publicPropertyShapeType($phpType);
+
+            if ($shapeType !== null) {
+                $result['type'] = $shapeType;
+
+                return $result;
+            }
+        }
+
         // 5. Any other existing class
         if (class_exists($phpType)) {
             /** @var class-string $name */
@@ -492,6 +509,32 @@ class LaravelTsPublish
         }
 
         return $parts === [] ? null : '{ '.implode('; ', $parts).' }';
+    }
+
+    /**
+     * Whether a class declares at least one public, non-static property and every one of them is typed.
+     *
+     * Guards step 5c: an untyped property would inline as `unknown`, which is worse than the class token.
+     *
+     * @param  class-string  $fqcn
+     */
+    protected function hasFullyTypedPublicProperties(string $fqcn): bool
+    {
+        $found = false;
+
+        foreach ((new ReflectionClass($fqcn))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+
+            if (! $property->hasType()) {
+                return false;
+            }
+
+            $found = true;
+        }
+
+        return $found;
     }
 
     /**

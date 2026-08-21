@@ -7067,7 +7067,7 @@
                 },
                 {
                     "name": "coordinate_data",
-                    "type": "Coordinate | null"
+                    "type": "{ lat: number; lng: number } | null"
                 },
                 {
                     "name": "status",
@@ -7103,7 +7103,7 @@
                 },
                 {
                     "name": "location",
-                    "type": "Coordinate"
+                    "type": "{ lat: number; lng: number }"
                 },
                 {
                     "name": "current_crm_status",

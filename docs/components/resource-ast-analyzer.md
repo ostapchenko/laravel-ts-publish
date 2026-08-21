@@ -1089,21 +1089,25 @@ included (`'../../../crm/http/resources'`), so relativeness alone decides nothin
 diagnostic is whether the package writes a barrel into the target directory **at all**.
 
 Scope that claim to resource files, because the tree as a whole is mixed. Measured across the committed
-trees (`import ... from` lines only, excluding barrel `export ... from` re-exports): **1820** import
+trees (`import ... from` lines only, excluding barrel `export ... from` re-exports): **1816** import
 specifiers, of which **620 are bare** — `@tolki/ts` (364, emitted under this package's own shipped
 `'use_tolki_package' => true` default, so not an app-side escape hatch), `@tolki/types` (24) and 232
-`@/types/*`, `@js/types/*` and `@workbench/types` aliases. Of the **1200** relative ones, 1068 resolve to
-a directory, 128 to a single file — `broadcast-events.ts` and `echo-broadcast-events.d.ts` (56 each,
+`@/types/*`, `@js/types/*` and `@workbench/types` aliases. Of the **1196** relative ones, 1068 resolve to
+a directory and 128 to a single file — `broadcast-events.ts` and `echo-broadcast-events.d.ts` (56 each,
 `'./app/events/OrderShipped'` and friends) plus 16 controller-to-request imports such as
-`'../requests/store-post-request'` — and 4 to nothing (`'../value-objects'`, one per tree). Inside
+`'../requests/store-post-request'`. None resolves to nothing any more: the four `'../value-objects'`
+imports that did, one per tree, went away when `toTsType()` step 5c started inlining `Coordinate`'s
+property shape instead of emitting a class token for it. Inside
 generated resource files specifically, excluding their barrels, **all 680 relative imports resolve to a
 directory**; that is the enumerated set the paragraph below is about.
 
 If it never writes that directory, the specifier resolves to nothing, tsc reports TS2307, and
 `unimportable-token-gate.sh`'s relative-specifier sub-gate counts it — CI runs that armed
-(`.github/workflows/run-tests.yml` invokes `unimportable-token-gate.sh 14 1`). The corpus's single live
-instance is exactly this shape: `warehouse.ts` imports `'../value-objects'`, and
-`default-example/app/value-objects/` does not exist.
+(`.github/workflows/run-tests.yml` invokes `unimportable-token-gate.sh 12 0`). The corpus's one live
+instance was exactly this shape until step 5c removed it: `warehouse.ts` imported `'../value-objects'`,
+and `default-example/app/value-objects/` does not exist. The sub-gate's baseline is `0` now, so nothing in
+the corpus exercises its failure path — see
+[Type inference gates](../testing/type-inference-gates.md#its-negative-control-had-to-be-replaced).
 
 If the directory *is* written, its `index.ts` resolves and only the symbol is missing, so tsc reports
 TS2305 "has no exported member" — or **TS2724** when the barrel happens to export a near-miss name — and

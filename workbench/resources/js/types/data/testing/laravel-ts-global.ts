@@ -1181,7 +1181,7 @@ declare global {
             name: string;
             /** Write-only accessor on DB column 'phone' — normalizes on set, no get */
             phone: string | null;
-            coordinate_data: Coordinate | null;
+            coordinate_data: { lat: number; lng: number } | null;
             status: workbench.app.enums.StatusType | null;
             color: workbench.app.enums.ColorType | null;
             priority: workbench.app.enums.PriorityType | null;
@@ -1203,7 +1203,7 @@ declare global {
             review_priority_typed: workbench.app.enums.StatusType | workbench.app.enums.PriorityType | null;
             review_priority_typed_short: workbench.app.enums.StatusType | workbench.app.enums.PriorityType | null;
             /** Non-column accessor returning a plain class (Coordinate) */
-            location: Coordinate;
+            location: { lat: number; lng: number };
             /** Non-column accessor returning CRM Status enum — creates name conflict with column 'status' */
             current_crm_status: workbench.crm.enums.StatusType | null;
             // Relations

@@ -1163,7 +1163,7 @@ declare global {
             name: string;
             /** Write-only accessor on DB column 'phone' — normalizes on set, no get */
             phone: string | null;
-            coordinate_data: Coordinate | null;
+            coordinate_data: { lat: number; lng: number } | null;
             status: app.enums.StatusType | null;
             color: app.enums.ColorType | null;
             priority: app.enums.PriorityType | null;
@@ -1185,7 +1185,7 @@ declare global {
             review_priority_typed: app.enums.StatusType | app.enums.PriorityType | null;
             review_priority_typed_short: app.enums.StatusType | app.enums.PriorityType | null;
             /** Non-column accessor returning a plain class (Coordinate) */
-            location: Coordinate;
+            location: { lat: number; lng: number };
             /** Non-column accessor returning CRM Status enum — creates name conflict with column 'status' */
             current_crm_status: crm.enums.StatusType | null;
             // Relations

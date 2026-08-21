@@ -139,36 +139,35 @@ interface omits `$hidden` ones, so `K extends keyof T` failed. See
 
 ```bash
 .github/scripts/unimportable-token-gate.sh          # report only
-.github/scripts/unimportable-token-gate.sh 14       # fail if the count exceeds 14
-.github/scripts/unimportable-token-gate.sh 14 1     # also fail if the relative-specifier TS2307 sub-gate exceeds 1
+.github/scripts/unimportable-token-gate.sh 12       # fail if the count exceeds 12
+.github/scripts/unimportable-token-gate.sh 12 0     # also fail if the relative-specifier TS2307 sub-gate exceeds 0
 ```
 
 ```
-TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 14
+TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 12
    8   CustomObject
    2   ExtendableInterface
-   2   Coordinate
    1   PostAttributes
    1   AddressResource
-TS2307 (cannot find module) with a relative specifier in generated tree: 1
-  ../value-objects
-PASS - no new unimportable or colliding tokens (baseline 14)
-PASS - no new relative-specifier TS2307s (baseline 1)
+TS2307 (cannot find module) with a relative specifier in generated tree: 0
+
+PASS - no new unimportable or colliding tokens (baseline 12)
+PASS - no new relative-specifier TS2307s (baseline 0)
 ```
 
 ### The baseline
 
-The baseline is **14**, not zero. Those names come from `custom_ts_mappings` and `#[TsType]` — the escape
+The baseline is **12**, not zero. Those names come from `custom_ts_mappings` and `#[TsType]` — the escape
 hatches where the *consuming app* declares the type, so the package cannot emit an import for them. They
 are expected and must not be "fixed".
 
 Raise the baseline only when you add a fixture that legitimately uses one of those escape hatches, and say
 so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch.
 
-`14` is a current count, not a target, in the same way the relative-specifier baseline of `1` below is. Two
-of its TS2304s are the `Coordinate` import that the planned inlining change removes, so that change takes
-this baseline down to `12` at the same time it takes the sub-gate's to `0`. Lowering a baseline once the
-defect behind it is actually gone is the point; defending the number is not.
+`12` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
+value object's property shape instead of emitting a class token for it; that removed the two `Coordinate`
+TS2304s and, in the same change, took the relative-specifier sub-gate below from `1` to `0`. Lowering a
+baseline once the defect behind it is actually gone is the point; defending the number is not.
 
 ### The relative-specifier sub-gate
 
@@ -178,18 +177,46 @@ against a file *this package itself writes* — it is never the app-side `custom
 behind the baseline above, so it gets its own count and its own baseline instead of being folded into it.
 
 ```bash
-.github/scripts/unimportable-token-gate.sh 14        # unchanged: no relative-specifier check runs
-.github/scripts/unimportable-token-gate.sh 14 1      # gate the relative-specifier count too
+.github/scripts/unimportable-token-gate.sh 12        # unchanged: no relative-specifier check runs
+.github/scripts/unimportable-token-gate.sh 12 0      # gate the relative-specifier count too
 ```
 
-The baseline is **1**, not zero, because of one live instance:
-`workbench/resources/js/types/data/default-example/app/models/warehouse.ts:11` imports
-`Coordinate` from `'../value-objects'` — the unpublished `Workbench\App\ValueObjects\Coordinate`. That
-same instance is also the negative control: invoking the script as `14 0` must fail, since the count is 1.
+The baseline is **0**. It was `1` while
+`workbench/resources/js/types/data/default-example/app/models/warehouse.ts` imported `Coordinate` from
+`'../value-objects'` — the unpublished `Workbench\App\ValueObjects\Coordinate`. `toTsType()` step 5c now
+inlines that class's property shape, so no import is emitted and the measured count is `0`.
 
-**This baseline is not permanent.** A separate, already-planned change inlines `Coordinate`'s shape instead
-of emitting an import for it, which takes the count — and this baseline — to `0`. Do not treat `1` as a
-number to defend; treat it as the current, temporary count of one specific unfixed defect.
+#### Its negative control had to be replaced
+
+That single instance was also the sub-gate's negative control: `14 0` used to fail, because the count was
+1. With the count at `0`, `12 0` passes, so that invocation is no longer a control at all. Two replacements
+exist, and they prove different things — prefer the first.
+
+**Detection control (synthesize an offending import).** This is the one that proves the sub-gate still
+*finds* an unresolvable relative specifier, not merely that its comparison arithmetic works. The main gate
+passes first, so the `exit 1` is the sub-gate's own:
+
+```bash
+printf "import type { Nope } from './deliberately-missing';\nexport type Control = Nope;\n" > tests/types/relative-subgate-control.ts
+.github/scripts/unimportable-token-gate.sh 12 0   # exit 1: "relative-specifier TS2307 count rose from 0 to 1"
+rm tests/types/relative-subgate-control.ts
+```
+
+Delete the scratch file afterwards: `tests/types/` has its own CI step that fails on any diagnostic there.
+
+**Comparison control (no setup).** A negative baseline makes `rel_count -gt relative_baseline` true at a
+count of `0`, so this fails against the committed tree with nothing to clean up:
+
+```bash
+.github/scripts/unimportable-token-gate.sh 12 -1   # exit 1: "relative-specifier TS2307 count rose from -1 to 0"
+```
+
+It only exercises the threshold branch — the grep and the relative-specifier regex above it are not under
+test — so it is a weaker check than the synthesized import, not a substitute for it.
+
+The gate's **main** count still has a live control of its own, since that count is 12 rather than 0:
+`.github/scripts/unimportable-token-gate.sh 11 0` exits 1. It returns before the sub-gate block ever runs,
+so it controls the main baseline only.
 
 Passing a single argument leaves this sub-gate off entirely — CI passes two arguments, but any other caller
 that still passes one behaves exactly as it did before this sub-gate existed.
@@ -278,7 +305,7 @@ npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print not
 ```bash
 composer test -- --passthru-php="-d memory_limit=1024M"   # regenerates the trees
 python3 .github/scripts/unknown-regression-gate.py
-.github/scripts/unimportable-token-gate.sh 14 1
+.github/scripts/unimportable-token-gate.sh 12 0
 ```
 
 Run the suite first — both gates read the committed trees, so they check whatever the last test run wrote.
@@ -307,23 +334,24 @@ When changing `unknown-regression-gate.py` itself, also run its
   including its shared `InspectsAstNodes::resolveCollectedResourceClass()` resolver, which both
   `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call.
 
-  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **59** of
-  them, and 58 are bare aliases — `@/types/audit`, `@js/types/settings`, `@workbench/types` and friends —
-  from app-side `custom_ts_mappings` and `#[TsType]`. Those are the same escape hatches behind the TS2304
-  baseline: the consuming app declares the module, so the package cannot emit anything that resolves.
-  Re-measure before quoting these; the count moves whenever a fixture's imports change. It dropped from
-  60 when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
-  `warehouse-resource.ts` importing `@js/types/settings`.
+  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **58** of
+  them, and the relative-specifier count is 0, so all 58 are bare aliases — `@/types/audit`,
+  `@js/types/settings`, `@workbench/types` and friends — from app-side `custom_ts_mappings` and
+  `#[TsType]`. Those are the same escape hatches behind the TS2304 baseline: the consuming app declares the
+  module, so the package cannot emit anything that resolves. Re-measure before quoting these; the count
+  moves whenever a fixture's imports change. It dropped from 60 when `4016f7c9` (`Make relation except()
+  expansions return columns only`) stopped `warehouse-resource.ts` importing `@js/types/settings`, and
+  from 59 when step 5c stopped `warehouse.ts` importing `'../value-objects'`.
 
   That gap is now partly closed by a **sub-gate scoped to relative specifiers only** — see
   [The relative-specifier sub-gate](#the-relative-specifier-sub-gate) above. A `./`- or `../`-relative
   import inside the generated tree resolves against files this package itself writes, so it is never an
-  app-side escape hatch. Exactly one exists today — the same `default-example/app/models/warehouse.ts`
-  import of `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate`, which is
-  also two of the **12** TS2304s — so the sub-gate carries a baseline of 1, not 0. (The gate's baseline of
-  14 is not the TS2304 count: it is the combined TS2300/TS2304/TS2344/TS2552 total, currently 0 + 12 + 0 +
-  2.) The other 58 remain uncounted: a blanket TS2307 gate is still impractical, since almost all of them
-  are the same bare-alias escape hatch behind the TS2304 baseline, not a defect.
+  app-side escape hatch. None is emitted today — `default-example/app/models/warehouse.ts` was the last
+  one, importing `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate` — so the
+  sub-gate carries a baseline of 0. (The gate's baseline of 12 is not the TS2304 count: it is the combined
+  TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 2.) The 58 bare ones remain uncounted: a
+  blanket TS2307 gate is still impractical, since they are the same bare-alias escape hatch behind the
+  TS2304 baseline, not a defect.
 
 - **An inline object that already contains `unknown` cannot report its own wholesale collapse.**
   `detect_regressions()` gates the base side on the substring test `"unknown" not in b[k]`, and the

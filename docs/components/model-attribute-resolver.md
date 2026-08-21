@@ -83,6 +83,44 @@ uses for docblock shape cycles, under a `"{FQCN}::__properties"` key distinct fr
 `"{FQCN}::{method}"` docblock key — a property typed as the class itself, or a mutual A/B pair,
 degrades the second-level reference to `unknown[]` instead of recursing until memory is exhausted.
 
+## Plain classes inline their property shape too: `toTsType()` step 5c
+
+A class that is neither `Arrayable` nor `JsonSerializable`, has no `__toString()` and no `#[TsType]`
+override reaches **step 5c**, immediately ahead of step 5's class-basename fallback. When
+`hasFullyTypedPublicProperties()` holds, it resolves through the same `publicPropertyShapeType()` the
+`Arrayable` fallback above uses and inlines the shape; otherwise step 5 emits the bare class name.
+
+Two things justify it. The package publishes no file for such a class, so step 5's token has nothing to
+import; and `json_encode()` on a plain object emits exactly its public non-static properties, so the
+inlined shape *is* the wire shape rather than a guess. Checked directly:
+`json_encode(new Coordinate(1.5, 2.5))` gives `{"lat":1.5,"lng":2.5}`.
+`Workbench\App\ValueObjects\Coordinate` is the corpus fixture: `Warehouse.coordinate_data` and
+`Warehouse.location` used to emit `Coordinate` alongside an `import type { Coordinate } from
+'../value-objects'` pointing at a directory the package never writes, and now emit
+`{ lat: number; lng: number }`.
+
+`hasFullyTypedPublicProperties()` requires **at least one** public non-static property and a declared type
+on **every** one of them. Both halves carry weight:
+
+- *At least one* keeps a property-less class on step 5, where `ResourceAstAnalyzer::acceptReflectedTypeInfo()`
+  can still reject the whole result. `Workbench\App\ValueObjects\OpaqueHandle` is that fixture — its
+  promoted property is `protected` on purpose, so `StaticCallResource.money_value` stays `unknown` and the
+  rejection branch keeps its coverage.
+- *Every one typed* keeps `Illuminate\Database\Eloquent\Casts\Attribute` on step 5. Its four public
+  properties (`$get`, `$set`, `$withCaching`, `$withObjectCaching`) carry `@var` docblocks but no declared
+  types, so inlining would emit
+  `{ get: unknown; set: unknown; withCaching: unknown; withObjectCaching: unknown }` — and would silently
+  disarm `attributeDocblockReturnTypes()`, which degrades a bare `@return Attribute` by matching
+  `classFqcns === [Attribute::class]` on step 5's result.
+
+`JsonSerializable` is excluded from step 5c because it *overrides* the `json_encode()` default the
+paragraph above rests on — that is the same reason it gets `$fallbackToProperties = false` — so the
+fall-through described there still happens. `Model` is excluded because a published model does have a file
+to import; that exclusion is defensive rather than load-bearing today, since `Illuminate\Database\Eloquent\Model`
+itself declares six untyped public properties (`$incrementing`, `$preventsLazyLoading`, `$exists`,
+`$wasRecentlyCreated`, `$timestamps`, `$usesUniqueIds` on Laravel 13.24.0), which already makes
+`hasFullyTypedPublicProperties()` false for every model.
+
 ## Nested array shapes inside generic containers
 
 A docblock generic's value slot — the `X` in `list<X>`, `array<K, X>`, `Collection<K, X>` —
