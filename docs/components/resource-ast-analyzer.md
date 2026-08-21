@@ -1297,6 +1297,34 @@ builder ever sets either field, so every branch reaching this method already has
 `buildCollectionDelegatedAnalysis()` sets them, and it returns directly without going through branch
 merging.
 
+**The branch type union hoists a single top-level `| null`.** Each key's per-branch type strings are
+deduped whole (`array_unique` over the strings) and then joined. Two branches that differ in shape but
+are both nullable — `$this->regional_hub?->only(['primaryContact', 'manager'])` against
+`->only(['manager', 'secondaryContact', 'primaryContact'])` — survive that dedupe as two distinct
+strings, so a plain `implode(' | ', …)` repeated the nullable marker once per arm: `A | null | B | null`.
+`unionBranchTypes()` splits every arm on its top-level `|` via `LaravelTsPublish::splitTopLevelUnion()`
+(depth-aware over `{`, `(`, `<` and `[`, and it skips single-quoted literals whole), drops the top-level
+`null` members, and appends one trailing `| null` if any arm carried one. A nested null — `| null` on a
+member inside `{ … }` — sits inside a group, so the splitter never yields it and it is left alone. Arm
+order is otherwise preserved, which is load-bearing: `aliasPropertyType()` consumes `inlineModelFqcns`
+positionally against the type-name tokens in the rendered string, and moving only `null` members leaves
+every type-name token where it was.
+
+The duplicate it removed was cosmetic — TypeScript normalizes duplicate union members, so
+`A | null | B | null` and `A | B | null` denote the same type, and the token gate's `tsc` baselines
+(10 duplicate/unfindable identifiers, 0 relative-specifier `TS2307`s) were unmoved by the fix. A brace-aware
+scan of all four generated trees (counting `| null` only outside `{}`, `()` and `[]`) found exactly
+eight lines carrying a top-level duplicate before the fix, all of them
+`BranchedInlineFqcnResource::$regional_hub_contacts` — the four per-tree resource files plus the four
+`laravel-ts-global.ts` files — and zero after. The 176 lines that carry two or more `| null` in total are
+unchanged: those are nested member nulls, which is what a nullable member inside an object shape should
+look like.
+
+`analyzeClosureUnion()`, the ternary/Elvis union, has the same repetition and is **not** covered by this
+helper: it collapses only a standalone `'null'` member against arms that already carry one, so two arms
+each ending in `| null` still double. No corpus property reaches it; the plan's Out of Scope section
+records it.
+
 ## Resource inheritance: a subclass with no `toArray()` of its own
 
 `analyze()` looks up `toArray` in the **subclass's own file only**. It reads

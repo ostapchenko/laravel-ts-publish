@@ -27,6 +27,7 @@ use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BodylessTeamResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
+use Workbench\App\Http\Resources\BranchedInlineFqcnResource;
 use Workbench\App\Http\Resources\CaseSpreadResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ChildSharedResource;
@@ -5726,5 +5727,22 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             "Omit<User, 'flag' | keyof UserResource> & ".
             "Omit<UserResource, 'flag'> & { flag: boolean })[]"
         )->and($this->props['members_resource_then_model_spread']['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceAstAnalyzer with BranchedInlineFqcnResource (branch union nullability)', function () {
+    beforeEach(function () {
+        $reflection = new ReflectionClass(BranchedInlineFqcnResource::class);
+        $this->analysis = (new ResourceAstAnalyzer($reflection, Warehouse::class))->analyze();
+    });
+
+    // Both branches are `$this->regional_hub?->only([...])`, so each arm arrives already nullable.
+    test('two nullable branch arms union under one trailing null instead of one null per arm', function () {
+        $type = collect($this->analysis->properties)->firstWhere('name', 'regional_hub_contacts')['type'];
+
+        expect($type)->toBe(
+            '{ primaryContact: User | null; manager: User | null }'
+            .' | { manager: User | null; secondaryContact: User | null; primaryContact: User | null } | null'
+        )->and($type)->not->toContain('} | null | {');
     });
 });
