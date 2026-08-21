@@ -8302,7 +8302,7 @@
             "properties": [
                 {
                     "name": "regional_hub_contacts",
-                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null } | null | { manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null } | { manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null",
                     "optional": false
                 }
             ]

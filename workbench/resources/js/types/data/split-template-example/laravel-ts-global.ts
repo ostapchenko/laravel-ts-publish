@@ -1842,9 +1842,10 @@ declare global {
          * Regression fixture: mergeReturnBranches() unions inlineModelFqcns per property key across branches.
          * Deduping that union collapses Warehouse::regionalHub()'s real per-occurrence multiplicity, so once
          * the branch types combine into one union string, an occurrence past the deduped queue's end mistypes.
+         * Both branches are nullsafe, so the merged union carries one trailing `| null`, not one per arm.
          */
         export interface BranchedInlineFqcnResource {
-            regional_hub_contacts: { primaryContact: crm.models.User | null; manager: app.models.User | null } | null | { manager: app.models.User | null; secondaryContact: crm.models.User | null; primaryContact: crm.models.User | null } | null;
+            regional_hub_contacts: { primaryContact: crm.models.User | null; manager: app.models.User | null } | { manager: app.models.User | null; secondaryContact: crm.models.User | null; primaryContact: crm.models.User | null } | null;
         }
         /**
          * A spread whose call-site casing differs from the declared method. PHP method calls are

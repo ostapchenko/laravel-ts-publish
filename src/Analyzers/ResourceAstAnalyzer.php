@@ -5145,7 +5145,7 @@ class ResourceAstAnalyzer
 
         foreach ($propertyMap as $name => $entries) {
             $types = array_values(array_unique(array_column($entries, 'type')));
-            $type = count($types) === 1 ? $types[0] : implode(' | ', $types);
+            $type = count($types) === 1 ? $types[0] : $this->unionBranchTypes($types);
 
             $presentInAll = count($entries) === $branchCount;
             $anyOptional = (bool) array_filter($entries, fn (array $e) => $e['optional']);
@@ -5184,6 +5184,36 @@ class ResourceAstAnalyzer
             flatTypeAlias: $flatTypeAlias,
             flatTypeAliasFqcn: $flatTypeAliasFqcn,
         );
+    }
+
+    /**
+     * Union branch type strings, hoisting one trailing `| null` rather than repeating the marker each
+     * nullsafe branch already carries. Only top-level nulls move; a nested one belongs to its member.
+     *
+     * @param  list<string>  $types
+     */
+    private function unionBranchTypes(array $types): string
+    {
+        $members = [];
+        $nullable = false;
+
+        foreach ($types as $type) {
+            foreach (LaravelTsPublish::splitTopLevelUnion($type) as $member) {
+                if ($member === 'null') {
+                    $nullable = true;
+
+                    continue;
+                }
+
+                $members[] = $member;
+            }
+        }
+
+        if ($nullable) {
+            $members[] = 'null';
+        }
+
+        return implode(' | ', $members);
     }
 
     /**

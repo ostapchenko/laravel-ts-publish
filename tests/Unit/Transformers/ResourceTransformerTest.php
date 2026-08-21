@@ -2441,7 +2441,7 @@ describe('ResourceTransformer inline model FQCN multiplicity through analyzer me
         $data = (new ResourceTransformer(BranchedInlineFqcnResource::class))->data();
 
         expect($data->properties['regional_hub_contacts']['type'])->toBe(
-            '{ primaryContact: CrmUser | null; manager: WorkbenchUser | null } | null'
+            '{ primaryContact: CrmUser | null; manager: WorkbenchUser | null }'
             .' | { manager: WorkbenchUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null'
         );
     });
