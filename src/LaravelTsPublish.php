@@ -306,9 +306,9 @@ class LaravelTsPublish
             return $result;
         }
 
-        // 5c. Plain class with fully typed public properties → inline the shape json_encode() would emit,
-        //     since no file is published for such a class and step 5's token could never resolve.
-        //     JsonSerializable is excluded: it overrides that default, so its properties prove nothing.
+        // 5c. Plain class with typed public properties → inline them; no file is published for such a class,
+        //     so step 5's token could never resolve. Approximates json_encode(), which drops uninitialized ones.
+        //     JsonSerializable overrides that default; Model is subsumed by it, kept for 5a/5a-bis/5b symmetry.
         if (class_exists($phpType)
             && ! is_a($phpType, Model::class, true)
             && ! is_a($phpType, JsonSerializable::class, true)

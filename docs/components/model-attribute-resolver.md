@@ -85,41 +85,107 @@ degrades the second-level reference to `unknown[]` instead of recursing until me
 
 ## Plain classes inline their property shape too: `toTsType()` step 5c
 
-A class that is neither `Arrayable` nor `JsonSerializable`, has no `__toString()` and no `#[TsType]`
-override reaches **step 5c**, immediately ahead of step 5's class-basename fallback. When
-`hasFullyTypedPublicProperties()` holds, it resolves through the same `publicPropertyShapeType()` the
-`Arrayable` fallback above uses and inlines the shape; otherwise step 5 emits the bare class name.
+**Step 5c is defined by position, not by a list of negatives.** It sits immediately ahead of step 5's
+class-basename fallback, so a class reaches it only by surviving *every* earlier return in `toTsType()`.
+Read top to bottom, those are: `?T` unwrapping (step 0), the exact type-map match (1), the bare-name
+fallback for sized native types like `varchar(255)` (1a), castable-with-arguments strings `Cast:a,b` whose
+head is a class (1b), `#[TsType]` (2), PHP enums (3), `CastsAttributes` (4, which returns unconditionally —
+either its `get()` type or `unknown`), `Arrayable` non-Model (5a, also unconditional), `JsonSerializable`
+non-Model non-Arrayable (5a-bis, the one branch above that can fall *through*, when no `array{...}` docblock
+exists), and `__toString()` non-Model (5b).
 
-Two things justify it. The package publishes no file for such a class, so step 5's token has nothing to
-import; and `json_encode()` on a plain object emits exactly its public non-static properties, so the
-inlined shape *is* the wire shape rather than a guess. Checked directly:
-`json_encode(new Coordinate(1.5, 2.5))` gives `{"lat":1.5,"lng":2.5}`.
-`Workbench\App\ValueObjects\Coordinate` is the corpus fixture: `Warehouse.coordinate_data` and
-`Warehouse.location` used to emit `Coordinate` alongside an `import type { Coordinate } from
-'../value-objects'` pointing at a directory the package never writes, and now emit
-`{ lat: number; lng: number }`.
+Listing only "not `Arrayable`, not `JsonSerializable`, no `__toString()`, no `#[TsType]`" would be wrong,
+and the corpus falsifies it: `Workbench\App\Enums\Status` and `Workbench\App\Casts\CoordinateCast` both
+satisfy all four negatives, yet neither reaches 5c — the enum returns at step 3 as `StatusType`, and the
+cast returns at step 4. Probed directly against the real service:
+
+```
+Status           Arrayable=no JsonSerializable=no __toString=no TsType=no -> StatusType
+CoordinateCast   Arrayable=no JsonSerializable=no __toString=no TsType=no -> { lat: number; lng: number }
+Coordinate       Arrayable=no JsonSerializable=no __toString=no TsType=no -> { lat: number; lng: number }
+```
+
+(`CoordinateCast`'s inline object comes from step 4 resolving its `get(): Coordinate` return, which then
+reaches 5c — not from 5c resolving the cast class itself.)
+
+Once there, `hasFullyTypedPublicProperties()` decides. When it holds, the class resolves through the same
+`publicPropertyShapeType()` the `Arrayable` fallback above uses and the shape is inlined; otherwise step 5
+emits the bare class name.
+
+### Why inline at all
+
+The package publishes no file for such a class, so step 5's token has nothing to import — that is the
+motivating reason, and it is unconditional.
+
+The shape itself **approximates** what `json_encode()` emits: for a plain object PHP serializes its public
+non-static properties. For `Coordinate` the two agree exactly — `json_encode(new Coordinate(1.5, 2.5))`
+gives `{"lat":1.5,"lng":2.5}` against an emitted `{ lat: number; lng: number }`.
+
+They are not identical in general. PHP **omits an uninitialized typed property** from `json_encode()` output,
+while `ReflectionClass::getProperties(IS_PUBLIC)` — what `publicPropertyShapeType()` reads — includes it.
+Measured through the real service:
+
+```php
+class H3Uninit { public string $a; public int $b = 1; }
+
+json_encode(new H3Uninit)          // {"b":1}
+toTsType(H3Uninit::class)['type']  // { a: string; b: number }
+```
+
+So for such a class the inlined shape claims a **required** key the wire may never carry; the honest
+emission would be `a?: string`. No corpus fixture is affected — promoted constructor properties, which
+`Coordinate` and every other value object here use, are always initialized — so this is a gap in the
+*grounding*, not in today's output. It is filed as an out-of-scope entry.
+
+### What the guard does, and what each conjunct is worth
 
 `hasFullyTypedPublicProperties()` requires **at least one** public non-static property and a declared type
-on **every** one of them. Both halves carry weight:
+on **every** one of them. The two halves are worth very different amounts, and only one of them can change
+an outcome today:
 
-- *At least one* keeps a property-less class on step 5, where `ResourceAstAnalyzer::acceptReflectedTypeInfo()`
-  can still reject the whole result. `Workbench\App\ValueObjects\OpaqueHandle` is that fixture — its
-  promoted property is `protected` on purpose, so `StaticCallResource.money_value` stays `unknown` and the
-  rejection branch keeps its coverage.
-- *Every one typed* keeps `Illuminate\Database\Eloquent\Casts\Attribute` on step 5. Its four public
-  properties (`$get`, `$set`, `$withCaching`, `$withObjectCaching`) carry `@var` docblocks but no declared
-  types, so inlining would emit
+- ***Every one typed* is load-bearing.** It keeps `Illuminate\Database\Eloquent\Casts\Attribute` on step 5.
+  Its four public properties (`$get`, `$set`, `$withCaching`, `$withObjectCaching`) carry `@var` docblocks
+  but no declared types, so inlining would emit
   `{ get: unknown; set: unknown; withCaching: unknown; withObjectCaching: unknown }` — and would silently
   disarm `attributeDocblockReturnTypes()`, which degrades a bare `@return Attribute` by matching
-  `classFqcns === [Attribute::class]` on step 5's result.
+  `classFqcns === [Attribute::class]` on step 5's result. Deleting this half fails three tests.
+- ***At least one* changes no outcome.** `publicPropertyShapeType()` already returns `null` for a class with
+  no public non-static properties (`return $parts === [] ? null : …`), and step 5c already falls through on
+  `null`, so a property-less class reaches step 5 either way. Verified by mutation: dropping the `$found`
+  bookkeeping so the predicate returns `true` vacuously leaves the suite at 2494 passed / 5945 assertions
+  and all four trees byte-clean. It is kept so the predicate does not lie about its own name, and so the
+  shape build (and its `$shapeExpansionStack` push) is skipped for a class that cannot produce one — not
+  because it guards anything.
 
-`JsonSerializable` is excluded from step 5c because it *overrides* the `json_encode()` default the
-paragraph above rests on — that is the same reason it gets `$fallbackToProperties = false` — so the
-fall-through described there still happens. `Model` is excluded because a published model does have a file
-to import; that exclusion is defensive rather than load-bearing today, since `Illuminate\Database\Eloquent\Model`
-itself declares six untyped public properties (`$incrementing`, `$preventsLazyLoading`, `$exists`,
-`$wasRecentlyCreated`, `$timestamps`, `$usesUniqueIds` on Laravel 13.24.0), which already makes
-`hasFullyTypedPublicProperties()` false for every model.
+`Workbench\App\ValueObjects\OpaqueHandle` is still the fixture that pins the property-less path end to end:
+its promoted property is `protected` on purpose, so `StaticCallResource.money_value` stays `unknown` and
+`ResourceAstAnalyzer::acceptReflectedTypeInfo()`'s rejection branch keeps its coverage. What the mutation
+above shows is that `$found` is not the *mechanism* keeping it there — `publicPropertyShapeType()`'s own
+`null` is.
+
+### The two class exclusions
+
+`JsonSerializable` is excluded because it *overrides* the `json_encode()` default the section above rests
+on — the same reason `arrayableShapeType()` gets `$fallbackToProperties = false` for it — so the
+fall-through described there still happens. This conjunct is load-bearing: removing it inlines
+`JsonSerializableDivergingPropertiesValueObject` as `{ internalToken: string }` and fails its test.
+
+`Model` is **subsumed** by the `JsonSerializable` conjunct beside it and can never decide anything.
+`Illuminate\Database\Eloquent\Model` implements `JsonSerializable` — one of the nine interfaces
+`class_implements()` reports for it on Laravel 13.24.0 — and PHP inherits interfaces, so every class for
+which `is_a($x, Model::class, true)` holds also satisfies `is_a($x, JsonSerializable::class, true)`. The
+`Model` conjunct can therefore only ever be false where the next conjunct is false too. Confirmed by
+mutation: deleting it leaves the suite at 2494 passed / 5945 assertions with all four trees byte-clean.
+
+This is **not** a dormant guard waiting on some upstream change. No future edit to Laravel can revive it
+short of `Model` dropping `JsonSerializable`, and in particular it has nothing to do with `Model`'s six
+untyped public properties (`$incrementing`, `$preventsLazyLoading`, `$exists`, `$wasRecentlyCreated`,
+`$timestamps`, `$usesUniqueIds`) — those would make `hasFullyTypedPublicProperties()` false anyway, a third
+independent reason models never inline. It is kept for symmetry with steps 5a, 5a-bis and 5b, where the
+identical `! is_a($phpType, Model::class, true)` conjunct genuinely *is* load-bearing, precisely because
+`Model` implements `Arrayable`, implements `JsonSerializable`, and defines `__toString()`. Reading all four
+guards the same way is worth more than deleting one redundant line; do not "revive" it, and do not cite it
+as the reason models are excluded.
 
 ## Nested array shapes inside generic containers
 

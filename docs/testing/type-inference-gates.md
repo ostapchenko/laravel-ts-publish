@@ -157,12 +157,38 @@ PASS - no new relative-specifier TS2307s (baseline 0)
 
 ### The baseline
 
-The baseline is **12**, not zero. Those names come from `custom_ts_mappings` and `#[TsType]` — the escape
-hatches where the *consuming app* declares the type, so the package cannot emit an import for them. They
-are expected and must not be "fixed".
+The baseline is **12**, not zero — but it is not a homogeneous "expected" bucket, and it is **not** made of
+`custom_ts_mappings` entries. The workbench's `custom_ts_mappings` is empty
+(`workbench/config/ts-publish.php:80-82` holds only a commented-out example), so it contributes none of the
+12. Traced to source, the four surviving names are:
+
+| Name | Count | Where it comes from | Expected? |
+| --- | --- | --- | --- |
+| `CustomObject` | 8 | A `@return array{…, custom_val: CustomObject, …}` docblock shape in `workbench/app/Http/Resources/Concerns/IncludesExtras.php`. A resource docblock shape map is string-only, so it carries no FQCN and no import can be derived. | Yes — app-declared |
+| `ExtendableInterface` | 2 | `#[TsExtends('ExtendableInterface')]` on `workbench/app/Http/Resources/Concerns/ExtendsInterfaces.php`, with no import argument. (Its sibling `#[TsExtends(…, '@/types/util', …)]` on the next line passes one and resolves fine.) | Yes — app-declared |
+| `PostAttributes` | 1 | `#[TsCasts(['attributes' => ['type' => 'PostAttributes', 'import' => '@js/types/posts']])]` on `workbench/app/Http/Requests/UpdatePostRequest.php`. The modular file *does* emit the import (`app/http/requests/update-post-request.ts:1`); only `laravel-ts-global.ts` cannot, since it emits no imports for app-side types. | Yes — global-flavor limitation |
+| `AddressResource` | 1 | **A real leak, not an escape hatch.** See below. | **No** |
+
+So 11 of the 12 are genuine escape hatches — in three different flavors, none of them `custom_ts_mappings`
+— where the *consuming app* declares the type and the package cannot emit an import. Those are expected and
+must not be "fixed".
+
+The twelfth is not. `AddressResource` carries `#[TsResource(name: 'Address')]`, so it **is** published — as
+the interface `Address` in `app/http/resources/address.ts` — but `InlineArrayFqcnResource`'s
+`AddressResource::make($this->user)` reference emits the *class basename* instead of the `#[TsResource]`
+name, so the reference and the emitted interface disagree. It shows up twice, once per output flavor, which
+is exactly the split
+[`resource-ast-analyzer.md`](../components/resource-ast-analyzer.md) describes: `TS2552` on the bare name in
+`laravel-ts-global.ts` (counted here) and `TS2724` on the import in
+`app/http/resources/inline-array-fqcn-resource.ts` (`'"."' has no exported member named 'AddressResource'`,
+not counted by either gate). It sits inside the baseline because it predates the step-5c change, not
+because it is correct — `0f568e42`'s copy of this file already listed `1 AddressResource` in its sample
+output. It is filed as an out-of-scope entry.
 
 Raise the baseline only when you add a fixture that legitimately uses one of those escape hatches, and say
-so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch.
+so in the commit message. A rising baseline for any other reason is the bug this gate exists to catch. And
+do not read the current number as twelve *approved* diagnostics — re-derive the origins before quoting them;
+as of this measurement one of the four names is a defect, not an escape hatch.
 
 `12` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
 value object's property shape instead of emitting a class token for it; that removed the two `Coordinate`
@@ -335,13 +361,19 @@ When changing `unknown-regression-gate.py` itself, also run its
   `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call.
 
   A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **58** of
-  them, and the relative-specifier count is 0, so all 58 are bare aliases — `@/types/audit`,
-  `@js/types/settings`, `@workbench/types` and friends — from app-side `custom_ts_mappings` and
-  `#[TsType]`. Those are the same escape hatches behind the TS2304 baseline: the consuming app declares the
-  module, so the package cannot emit anything that resolves. Re-measure before quoting these; the count
-  moves whenever a fixture's imports change. It dropped from 60 when `4016f7c9` (`Make relation except()
-  expansions return columns only`) stopped `warehouse-resource.ts` importing `@js/types/settings`, and
-  from 59 when step 5c stopped `warehouse.ts` importing `'../value-objects'`.
+  them, and the relative-specifier count is 0, so all 58 are bare specifiers. They span **21 distinct
+  module names**, every one under an app-side alias namespace — `@/types/*` (14 names, 38 diagnostics),
+  `@js/types/*` (6 names, 19) and `@workbench/types` (1) — counted straight off the `Cannot find module`
+  text. The consuming app is expected to declare those modules, so the package cannot emit anything that
+  resolves. They reach the output through several different annotation channels (`#[TsCasts]`, `#[TsType]`
+  and `#[TsExtends]` all take an import argument); this measurement counted the specifiers, not their
+  annotations, so treat the channel breakdown as unenumerated. They are the same *kind* of app-side escape
+  hatch as most of the TS2304 baseline, but not the same mechanism: here the name is imported and the module
+  is undeclared, while `CustomObject` and `ExtendableInterface` carry no import at all. Re-measure
+  before quoting these; the count moves whenever a fixture's imports change. It dropped from 60
+  when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
+  `warehouse-resource.ts` importing `@js/types/settings`, and from 59 when step 5c stopped
+  `warehouse.ts` importing `'../value-objects'`.
 
   That gap is now partly closed by a **sub-gate scoped to relative specifiers only** — see
   [The relative-specifier sub-gate](#the-relative-specifier-sub-gate) above. A `./`- or `../`-relative
@@ -349,9 +381,8 @@ When changing `unknown-regression-gate.py` itself, also run its
   app-side escape hatch. None is emitted today — `default-example/app/models/warehouse.ts` was the last
   one, importing `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate` — so the
   sub-gate carries a baseline of 0. (The gate's baseline of 12 is not the TS2304 count: it is the combined
-  TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 2.) The 58 bare ones remain uncounted: a
-  blanket TS2307 gate is still impractical, since they are the same bare-alias escape hatch behind the
-  TS2304 baseline, not a defect.
+  TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 2.) The 58 bare ones remain uncounted, for
+  the reason given above.
 
 - **An inline object that already contains `unknown` cannot report its own wholesale collapse.**
   `detect_regressions()` gates the base side on the substring test `"unknown" not in b[k]`, and the
