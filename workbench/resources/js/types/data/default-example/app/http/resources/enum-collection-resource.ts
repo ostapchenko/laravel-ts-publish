@@ -1,7 +1,7 @@
 import { type AsEnum } from '@tolki/ts';
 
 import { Role, Status, WeekDays } from '../../enums';
-import type { RoleType } from '../../enums';
+import type { RoleType, StatusType } from '../../enums';
 
 /**
  * Exercises EnumResource::collection() across its backing shapes: an accessor returning
@@ -23,4 +23,6 @@ export interface EnumCollectionResource
     status_history_when_appended?: AsEnum<typeof Status>[];
     members_via_var?: AsEnum<typeof Role>[];
     member_role_snapshot?: ({ role: RoleType | null })[];
+    wrapped_status_fallback: { status: AsEnum<typeof Status>[] | StatusType };
+    latest_status_or_history: AsEnum<typeof Status> | StatusType[];
 }

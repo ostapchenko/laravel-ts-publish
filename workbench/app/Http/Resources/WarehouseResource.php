@@ -44,6 +44,21 @@ class WarehouseResource extends RoutableResource
             // old leftmost-occurrence heuristic left bare and unimportable — and the repeat is NOT the last
             // FQCN, so only a per-occurrence FQCN list resolves it. Deduping the list aliases it App.
             'regional_hub_contacts' => $this->regional_hub?->only(['primaryContact', 'manager', 'secondaryContact']),
+            // Inline array literal referencing a multi-FQCN accessor (Crm\User|User) plus a single-FQCN
+            // relation: proves an inline object member keeps its own per-occurrence FQCNs rather than
+            // losing them to the array literal's self-keyed, deduplicated model FQCN map.
+            'probe_nested' => ['first' => $this->last_user_activity_by, 'second' => $this->manager],
+            // 'images' is a relation, not a published column, so relationFilterModelReference() rejects the
+            // reference and this falls back to inline expansion — keeping an inline arm with an aliased
+            // enum (status: CrmStatusType) alive now that the multi-model accessor arms above reference
+            // their models directly instead of expanding inline.
+            'crm_contact_partial' => $this->primaryContact?->only(['status', 'images']),
+            // Mixed-arm union: 'phone' is a column on App\Models\User but not on Crm\Models\User, so the
+            // CrmUser arm declines the Pick<> reference and falls back to inline expansion while the
+            // App\Models\User arm resolves to Pick<>. Pins that a declining arm's own FQCN is never
+            // registered against a text occurrence it never produced, which would misalign the very next
+            // Pick<> arm's positional FQCN lookup onto the wrong model.
+            'probe_mixed' => $this->last_user_activity_by?->only(['id', 'phone']),
         ];
     }
 }

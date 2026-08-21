@@ -157,6 +157,19 @@ test('globals content resolves aliased types to namespace-qualified names', func
     expect($content)
         ->toContain('imageable: Post | Product | User | crm.models.User')
         ->not->toContain('imageable: Post | Product | crm.models.User | crm.models.User');
+
+    // reviewable's docblock generic is Crm-first (CrmUser|User), the opposite of imageable's
+    // reverse-map order, so the qualified arm must lead: proves per-occurrence order survives.
+    expect($content)
+        ->toContain('reviewable: crm.models.User | User | null')
+        ->not->toContain('reviewable: User | crm.models.User | null');
+
+    // probe_nested.first is an inline array member reading a multi-FQCN accessor (CrmUser|User): both
+    // arms must keep their own namespace, not collapse to the same 'app.models.User' and lose the CRM arm.
+    expect($content)
+        ->toContain('first: crm.models.User | app.models.User | null')
+        ->toContain('second: app.models.User | null')
+        ->not->toContain('first: app.models.User | app.models.User | null');
 });
 
 test('globals resources section emits export type for flat collections', function () {
@@ -173,3 +186,20 @@ test('globals resources section emits export type for flat collections', functio
         ->toContain('export type PostFlatCollection =')
         ->not->toContain('export interface PostFlatCollection {');
 })->skip(fn () => ! version_compare(app()->version(), '13', '>='));
+
+test('globals content imports a form request custom type instead of leaving the name unresolved', function () {
+    config()->set('ts-publish.globals.enabled', true);
+    config()->set('ts-publish.output_to_files', false);
+
+    $runner = resolve(Runner::class);
+    $runner->run();
+
+    $writer = new GlobalsWriter(new Filesystem);
+    $content = $writer->write($runner);
+
+    // UpdatePostRequest's #[TsCasts] names PostAttributes from '@js/types/posts'; the modular
+    // flavor imports it, so the globals flavor must too or the bare name resolves to nothing.
+    expect($content)
+        ->toContain("import type { PostAttributes } from '@js/types/posts';")
+        ->toContain('attributes?: PostAttributes');
+});

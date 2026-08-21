@@ -65,10 +65,13 @@ export interface ImageRelations
     // Relations
     /** Polymorphic parent (Product, Post, User, etc.) */
     imageable: Post | Product | ModelsUser | CrmUser;
+    reviewable: CrmUser | ModelsUser | null;
     // Counts
     imageable_count: number;
+    reviewable_count: number;
     // Exists
     imageable_exists: boolean;
+    reviewable_exists: boolean;
 }
 
 export interface ImageAll extends Image, ImageMutators, ImageRelations {}

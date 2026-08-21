@@ -54,10 +54,13 @@ export interface Image
     // Relations
     /** Polymorphic parent (Product, Post, User, etc.) */
     imageable: Post | Product | ModelsUser | CrmUser;
+    reviewable: CrmUser | ModelsUser | null;
     // Counts
     imageable_count: number;
+    reviewable_count: number;
     // Exists
     imageable_exists: boolean;
+    reviewable_exists: boolean;
 }
 
 export interface ImageResource extends Omit<Image, 'status_from_docblock'>

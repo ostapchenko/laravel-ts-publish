@@ -34,8 +34,10 @@ use Workbench\App\Models\OrderItem;
 use Workbench\App\Models\User;
 use Workbench\App\ValueObjects\ArrayableData;
 use Workbench\App\ValueObjects\CapabilitiesDto;
+use Workbench\App\ValueObjects\Coordinate;
 use Workbench\App\ValueObjects\GridConfigDto;
 use Workbench\App\ValueObjects\Money;
+use Workbench\App\ValueObjects\OpaqueHandle;
 use Workbench\Shipping\Enums\Status as ShippingStatus;
 
 beforeEach(function () {
@@ -603,6 +605,34 @@ describe('JsonSerializable DTO shape inference', function () {
 
         expect($result['type'])->toBe('JsonSerializableDivergingPropertiesValueObject')
             ->and($result['classFqcns'])->toBe([JsonSerializableDivergingPropertiesValueObject::class]);
+    });
+});
+
+describe('plain-class property-shape inference', function () {
+    test('a plain class with fully typed public properties inlines its shape', function () {
+        // No file is published for Coordinate, so a class token here could never resolve to an import.
+        $result = $this->service->toTsType(Coordinate::class);
+
+        expect($result['type'])->toBe('{ lat: number; lng: number }')
+            ->and($result['classes'])->toBe([])
+            ->and($result['classFqcns'])->toBe([]);
+    });
+
+    test('a plain class with no public properties still emits its class token', function () {
+        // The rejection branch: nothing to inline, so the token survives for acceptReflectedTypeInfo() to degrade.
+        $result = $this->service->toTsType(OpaqueHandle::class);
+
+        expect($result['type'])->toBe('OpaqueHandle')
+            ->and($result['classFqcns'])->toBe([OpaqueHandle::class]);
+    });
+
+    test('Eloquent Attribute keeps its class token because its public properties are untyped', function () {
+        // attributeDocblockReturnTypes() degrades a bare `@return Attribute` by matching this exact
+        // classFqcns value; inlining Attribute's shape would silently disarm that check.
+        $result = $this->service->toTsType(Attribute::class);
+
+        expect($result['type'])->toBe('Attribute')
+            ->and($result['classFqcns'])->toBe([Attribute::class]);
     });
 });
 
@@ -2317,6 +2347,18 @@ describe('rewriteAsEnumToType', function () {
         );
 
         expect($result)->toBe('foo.StatusType | app.enums.StatusType');
+    });
+
+    // A heterogeneous mixed union — ResourceTransformer::rewriteEnumResourceTypes()'s isCollection
+    // branch (Task 16) — is not the redundant same-shaped pair the fold exists for: the trailing
+    // `[]` makes the two members genuinely different, so both must survive, not collapse to one.
+    test('does not fold a pair whose bare arm is itself array-shaped', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Status> | StatusType[]',
+            ['Status' => 'enums.StatusType'],
+        );
+
+        expect($result)->toBe('enums.StatusType | StatusType[]');
     });
 });
 

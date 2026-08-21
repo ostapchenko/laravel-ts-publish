@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Runners;
 
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Collectors\Concerns\ValidatesCollectorFiles;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\Generators\BroadcastEventGenerator;
@@ -49,8 +50,16 @@ class RunnerForSource extends BaseRunner
         $this->broadcastEventGenerators = $broadcastEventGenerators;
     }
 
+    /**
+     * Resolve the configured source to a class and generate the matching TypeScript output.
+     *
+     * Resets PublishedResourceRegistry first: a leftover set from an earlier full run in the
+     * same process must not gate this run's own convention-guessed resource resolution.
+     */
     public function run(): void
     {
+        PublishedResourceRegistry::reset();
+
         $fqcn = $this->resolveSourceToFqcn();
 
         if (! class_exists($fqcn)) {

@@ -95,4 +95,16 @@ class Team extends Model
             get: fn (): array => [Status::Draft, Status::Published],
         );
     }
+
+    /**
+     * A single scalar Status, distinct from statusHistory()'s array shape.
+     *
+     * @return Attribute<Status, never>
+     */
+    protected function latestStatus(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): Status => Status::Draft,
+        );
+    }
 }

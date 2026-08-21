@@ -74,6 +74,15 @@ trait ResolvesImportConflicts
             }
         }
 
+        // A const registered independently of the type registry (e.g. an enum reached only
+        // through an inline EnumResource wrap, never a bare type import) has no key in
+        // $typeNames, so the loop above never reaches it. Apply those leftovers here.
+        foreach ($constNames as $fqcn => $localName) {
+            if (! isset($typeNames[$fqcn]) && $localName !== $this->enumConstMap[$fqcn]) {
+                $this->constImportAliases[$fqcn] = $localName;
+            }
+        }
+
         if ($this->importAliases !== []) {
             $this->rewriteTypeReferences();
         }

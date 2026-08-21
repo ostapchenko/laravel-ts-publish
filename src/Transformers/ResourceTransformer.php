@@ -316,8 +316,8 @@ class ResourceTransformer extends CoreTransformer
     /**
      * Find the nearest ancestor whose own docblock names a model.
      *
-     * A body-less subclass inherits its parent's toArray() shape, so it has to inherit the
-     * parent's model too or every column degrades to unknown.
+     * Runs for any resource lacking its own @mixin/@extends, not only a body-less one, so an
+     * ancestor's model is picked up before falling back to the naming convention.
      *
      * @return class-string<Model>|null
      */
@@ -474,7 +474,7 @@ class ResourceTransformer extends CoreTransformer
             $this->typeAlias = $analysis->flatTypeAlias;
 
             if ($analysis->flatTypeAliasFqcn !== null && $analysis->flatTypeAliasFqcn !== $this->findable) {
-                $this->resourceFqcnMap[$analysis->flatTypeAliasFqcn] = class_basename($analysis->flatTypeAliasFqcn);
+                $this->resourceFqcnMap[$analysis->flatTypeAliasFqcn] = LaravelTsPublish::resourceTypeName($analysis->flatTypeAliasFqcn);
             }
 
             return $this;
@@ -512,7 +512,7 @@ class ResourceTransformer extends CoreTransformer
 
         foreach ($analysis->nestedResources as $propName => $fqcn) {
             if ($fqcn !== $this->findable) {
-                $this->resourceFqcnMap[$fqcn] = class_basename($fqcn);
+                $this->resourceFqcnMap[$fqcn] = LaravelTsPublish::resourceTypeName($fqcn);
                 $this->propertyResourceFqcns[$propName] = $fqcn;
             }
         }
@@ -654,14 +654,14 @@ class ResourceTransformer extends CoreTransformer
                 // Mixed ternary: one branch wraps the enum, the other reads it directly. The
                 // analyzer collapses both to a single deduped bare type name, so substitution can't
                 // tell the arms apart here — synthesize the union explicitly instead.
-                $type = 'AsEnum<typeof '.$constName.'> | '.$enumTypeName;
+                $wrappedTypeName = 'AsEnum<typeof '.$constName.'>';
 
-                if ($info['isCollection']) {
-                    // Unpinned: no workbench fixture exercises a mixed same-FQCN wrap/direct
-                    // pairing inside a map-wrapped (array) context. Leave the parenthesization
-                    // in regardless — dropping it would mis-parse if this shape is ever produced.
-                    $type = '('.$type.')[]';
-                }
+                // EnumResource::make() is always scalar; the direct arm's own shape decides the array suffix. This
+                // assumes the wrap arm is never EnumResource::collection() — not true in general; see the filed
+                // Out of Scope entry under Task 16 in docs/superpowers/plans/2026-08-20-analyzer-backlog.md.
+                $directTypeName = $info['isCollection'] ? $enumTypeName.'[]' : $enumTypeName;
+
+                $type = $wrappedTypeName.' | '.$directTypeName;
 
                 if ($info['nullable']) {
                     $type .= ' | null';
@@ -780,6 +780,22 @@ class ResourceTransformer extends CoreTransformer
             ];
         }
 
+        // analyzeInlineArray() already substituted each inline wrap's bare const name into
+        // 'AsEnum<typeof {bare}>'; rewriteTypeReferences() can't alias it — $nameMap excludes
+        // enumConstMap. Two inline members can share one bare name, so alias by FQCN order.
+        foreach ($this->propertyInlineEnumResourceFqcns as $propName => $fqcns) {
+            if (! isset($this->properties[$propName])) {
+                continue; // @codeCoverageIgnore
+            }
+
+            $this->properties[$propName]['type'] = LaravelTsPublish::aliasPropertyType(
+                $this->properties[$propName]['type'],
+                $fqcns,
+                $this->enumConstMap,
+                $this->constImportAliases,
+            );
+        }
+
         return $this;
     }
 
@@ -846,7 +862,9 @@ class ResourceTransformer extends CoreTransformer
         $modelClass = $this->modelClass;
 
         foreach (array_keys($this->properties) as $propName) {
-            if (isset($this->propertyModelFqcns[$propName])) {
+            // Skip when inline analysis already owns this property's FQCNs — letting both maps populate here
+            // would double the merged queue and break its prefix alignment with real occurrences.
+            if (isset($this->propertyModelFqcns[$propName]) || isset($this->propertyInlineModelFqcns[$propName])) {
                 continue;
             }
 
@@ -920,6 +938,15 @@ class ResourceTransformer extends CoreTransformer
             $registry->register($fqcn, $typeName);
         }
 
+        // An inline-only EnumResource FQCN never enters enumFqcnMap, so the loop above never
+        // registers its const — register the leftovers here so two inline-only consts (or one
+        // inline-only and one top-level) with the same bare name still resolve to distinct names.
+        foreach ($this->enumConstMap as $fqcn => $constName) {
+            if (! isset($this->enumFqcnMap[$fqcn])) {
+                $constRegistry->register($fqcn, $constName);
+            }
+        }
+
         $this->applyResolvedImportNames(
             $registry->resolve(),
             $this->enumFqcnMap + $this->resourceFqcnMap + $this->modelFqcnMap,
@@ -951,9 +978,9 @@ class ResourceTransformer extends CoreTransformer
     }
 
     /**
-     * Merge every per-property FQCN map — singular and list — into one property => FQCN list.
-     *
-     * Named apart from BroadcastEventTransformer::collectPropertyFqcns(), whose signature differs.
+     * Merge every per-property FQCN map — singular and list — into a superset-in-order, prefix-aligned
+     * FQCN queue: a property in more than one map gets each map's entries concatenated, so its length can
+     * exceed real occurrences; aliasPropertyType() consumes only the matching prefix — never dedupe it.
      *
      * @return array<string, list<class-string>>
      */

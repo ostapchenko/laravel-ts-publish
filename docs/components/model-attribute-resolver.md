@@ -83,6 +83,160 @@ uses for docblock shape cycles, under a `"{FQCN}::__properties"` key distinct fr
 `"{FQCN}::{method}"` docblock key — a property typed as the class itself, or a mutual A/B pair,
 degrades the second-level reference to `unknown[]` instead of recursing until memory is exhausted.
 
+## Plain classes inline their property shape too: `toTsType()` step 5c
+
+**Step 5c is defined by position, not by a list of negatives.** It sits immediately ahead of step 5's
+class-basename fallback, so a class reaches it only by surviving *every* earlier return in `toTsType()`.
+Read top to bottom, those are: `?T` unwrapping (step 0), the exact type-map match (1), the bare-name
+fallback for sized native types like `varchar(255)` (1a), castable-with-arguments strings `Cast:a,b` whose
+head is a class (1b), `#[TsType]` (2), PHP enums (3), `CastsAttributes` (4, which returns unconditionally —
+either its `get()` type or `unknown`), `Arrayable` non-Model (5a, also unconditional), `JsonSerializable`
+non-Model non-Arrayable (5a-bis, the one branch above that can fall *through*, when no `array{...}` docblock
+exists), and `__toString()` non-Model (5b).
+
+Listing only "not `Arrayable`, not `JsonSerializable`, no `__toString()`, no `#[TsType]`" would be wrong,
+and the corpus falsifies it: `Workbench\App\Enums\Status` and `Workbench\App\Casts\CoordinateCast` both
+satisfy all four negatives, yet neither reaches 5c — the enum returns at step 3 as `StatusType`, and the
+cast returns at step 4. Probed directly against the real service:
+
+```
+Status           Arrayable=no JsonSerializable=no __toString=no TsType=no -> StatusType
+CoordinateCast   Arrayable=no JsonSerializable=no __toString=no TsType=no -> { lat: number; lng: number }
+Coordinate       Arrayable=no JsonSerializable=no __toString=no TsType=no -> { lat: number; lng: number }
+```
+
+(`CoordinateCast`'s inline object comes from step 4 resolving its `get(): Coordinate` return, which then
+reaches 5c — not from 5c resolving the cast class itself.)
+
+Once there, `hasFullyTypedPublicProperties()` decides. When it holds, the class resolves through the same
+`publicPropertyShapeType()` the `Arrayable` fallback above uses and the shape is inlined; otherwise step 5
+emits the bare class name.
+
+### Why inline at all
+
+The motivating reason is that for the classes that actually reach 5c *and get emitted* in this corpus, the
+package publishes no file, so step 5's token has nothing to import. `Coordinate` is that case.
+
+**Publication is a real axis, not a constant, and 5c does not test it.** The step-5 path below builds its
+import from `classFqcns` through `namespaceToPath()` and `relativeImportPath()` with no published-set check,
+so "unimportable" is an assumption about the classes that happen to arrive here, not something either step
+verifies. The workbench contains a whole family that contradicts it: **all 12** classes in
+`workbench/app/Events/` are plain, non-`Model`, non-`JsonSerializable`, have no `__toString()` and no
+`#[TsType]`, and carry typed public promoted properties — so every one of them reaches 5c and inlines when
+`toTsType()` is called on it directly. Probed against the real service:
+
+```
+EnumBroadcastEvent  -> { status: unknown; color: unknown }
+OrderShipped        -> { orderId: number; trackingNumber: string; carrier: string; metadata: unknown[] | null }
+ServerCreated       -> { serverId: number; serverName: string }
+…12 of 12
+```
+
+And the package **does** publish a file for each: the two sets are identical, 12 PHP fixtures against 12
+`.ts` files in `app/events/` plus an `index.ts` that re-exports them, so `'../events'` — what step 5 would
+have derived for `Workbench\App\Events\OrderShipped` — is a directory this package writes.
+
+This costs nothing today. `src/Transformers/BroadcastEventTransformer.php` contains **no** reference to
+`toTsType` — it resolves a class-typed event property itself in `convertClassType()` (enum → `XType`,
+`Model` → `Partial<X>`, else `SurveyorTypeMapper::convert()`) — so the shapes above are never consulted when
+an event file is written. Confirmed against the output as well: all 12 inlined shapes were searched, as
+exact strings, across every file under `workbench/resources/js/types/`, and matched **zero** files. Treat
+this as a standing caveat on the reasoning rather than a defect: if some future path *does* send a published
+class through 5c, inlining is the wrong answer for it and nothing here would notice.
+
+### The shape approximates `json_encode()`, and one fixture shows the gap
+
+For a plain object PHP serializes its public non-static properties, so for `Coordinate` the two agree
+exactly — `json_encode(new Coordinate(1.5, 2.5))` gives `{"lat":1.5,"lng":2.5}` against an emitted
+`{ lat: number; lng: number }`.
+
+They are not identical in general. PHP **omits an uninitialized typed property** from `json_encode()` output,
+while `ReflectionClass::getProperties(IS_PUBLIC)` — what `publicPropertyShapeType()` reads — includes it:
+
+```php
+class H3Uninit { public string $a; public int $b = 1; }
+
+json_encode(new H3Uninit)          // {"b":1}
+toTsType(H3Uninit::class)['type']  // { a: string; b: number }
+```
+
+So the inlined shape claims a **required** key the wire may never carry; the honest emission would be
+`a?: string`.
+
+The corpus reproduces this, in `Workbench\App\Events\UserNotification`, whose
+`HasBroadcastTimestamps` trait declares a bare `public string $occurredAt;` alongside three promoted
+constructor properties:
+
+```
+json_encode(new UserNotification(1, 't', 'm'))
+  // {"userId":1,"title":"t","message":"m"}          — no occurredAt
+toTsType(UserNotification::class)['type']
+  // { userId: number; title: string; message: string; occurredAt: string }
+```
+
+No **generated output** is affected, for the reason in the previous section — the published
+`app/events/UserNotification.ts` is written by `BroadcastEventTransformer`, which emits
+`extends HasTimestamps` from the trait's `#[TsExtends]` and never consults this shape. Among the classes
+whose 5c output *does* reach a file, the value objects, none is affected either, and that is worth stating
+precisely rather than as a rule about promoted properties. Enumerating all 10 of
+`workbench/app/ValueObjects/`: seven carry public non-static properties (13 in total) and every one of those
+13 is promoted, hence always initialized; the other three — `OpaqueHandle`, `StringableLabel` and `TreeNode`
+— have no public non-static property at all, so they never reach the shape builder. `TreeNode` in
+particular has no constructor whatsoever, so "they all use promoted properties" would be the wrong reason
+for it; "it has nothing public to inline" is the right one.
+
+This is filed as an out-of-scope entry.
+
+### What the guard does, and what each conjunct is worth
+
+`hasFullyTypedPublicProperties()` requires **at least one** public non-static property and a declared type
+on **every** one of them. The two halves are worth very different amounts, and only one of them can change
+an outcome today:
+
+- ***Every one typed* is load-bearing.** It keeps `Illuminate\Database\Eloquent\Casts\Attribute` on step 5.
+  Its four public properties (`$get`, `$set`, `$withCaching`, `$withObjectCaching`) carry `@var` docblocks
+  but no declared types, so inlining would emit
+  `{ get: unknown; set: unknown; withCaching: unknown; withObjectCaching: unknown }` — and would silently
+  disarm `attributeDocblockReturnTypes()`, which degrades a bare `@return Attribute` by matching
+  `classFqcns === [Attribute::class]` on step 5's result. Deleting this half fails three tests.
+- ***At least one* changes no outcome.** `publicPropertyShapeType()` already returns `null` for a class with
+  no public non-static properties (`return $parts === [] ? null : …`), and step 5c already falls through on
+  `null`, so a property-less class reaches step 5 either way. Verified by mutation: dropping the `$found`
+  bookkeeping so the predicate returns `true` vacuously leaves the suite at 2494 passed / 5945 assertions
+  and all four trees byte-clean. It is kept so the predicate does not lie about its own name, and so the
+  shape build (and its `$shapeExpansionStack` push) is skipped for a class that cannot produce one — not
+  because it guards anything.
+
+`Workbench\App\ValueObjects\OpaqueHandle` is still the fixture that pins the property-less path end to end:
+its promoted property is `protected` on purpose, so `StaticCallResource.money_value` stays `unknown` and
+`ResourceAstAnalyzer::acceptReflectedTypeInfo()`'s rejection branch keeps its coverage. What the mutation
+above shows is that `$found` is not the *mechanism* keeping it there — `publicPropertyShapeType()`'s own
+`null` is.
+
+### The two class exclusions
+
+`JsonSerializable` is excluded because it *overrides* the `json_encode()` default the section above rests
+on — the same reason `arrayableShapeType()` gets `$fallbackToProperties = false` for it — so the
+fall-through described there still happens. This conjunct is load-bearing: removing it inlines
+`JsonSerializableDivergingPropertiesValueObject` as `{ internalToken: string }` and fails its test.
+
+`Model` is **subsumed** by the `JsonSerializable` conjunct beside it and can never decide anything.
+`Illuminate\Database\Eloquent\Model` implements `JsonSerializable` — one of the nine interfaces
+`class_implements()` reports for it on Laravel 13.24.0 — and PHP inherits interfaces, so every class for
+which `is_a($x, Model::class, true)` holds also satisfies `is_a($x, JsonSerializable::class, true)`. The
+`Model` conjunct can therefore only ever be false where the next conjunct is false too. Confirmed by
+mutation: deleting it leaves the suite at 2494 passed / 5945 assertions with all four trees byte-clean.
+
+This is **not** a dormant guard waiting on some upstream change. No future edit to Laravel can revive it
+short of `Model` dropping `JsonSerializable`, and in particular it has nothing to do with `Model`'s six
+untyped public properties (`$incrementing`, `$preventsLazyLoading`, `$exists`, `$wasRecentlyCreated`,
+`$timestamps`, `$usesUniqueIds`) — those would make `hasFullyTypedPublicProperties()` false anyway, a third
+independent reason models never inline. It is kept for symmetry with steps 5a, 5a-bis and 5b, where the
+identical `! is_a($phpType, Model::class, true)` conjunct genuinely *is* load-bearing, precisely because
+`Model` implements `Arrayable`, implements `JsonSerializable`, and defines `__toString()`. Reading all four
+guards the same way is worth more than deleting one redundant line; do not "revive" it, and do not cite it
+as the reason models are excluded.
+
 ## Nested array shapes inside generic containers
 
 A docblock generic's value slot — the `X` in `list<X>`, `array<K, X>`, `Collection<K, X>` —
@@ -305,9 +459,10 @@ degrading to `unknown` whenever the model doesn't happen to import the same clas
 `databaseColumnNames()` is the raw schema listing (every real column, `$hidden` included).
 `publishedColumnNames()` is the subset that actually reaches the emitted model interface — the
 list a caller must use when naming keys against that interface, e.g. `ResourceAstAnalyzer`
-deciding whether `$this->relation->only(['a', 'b'])` can reference `Pick<Model, 'a' | 'b'>`
-instead of expanding inline (see [ResourceAstAnalyzer § When a Pick/Omit reference is
-emitted](resource-ast-analyzer.md#when-a-pickomit-reference-is-emitted)).
+deciding whether `$this->relation->only(['a', 'b'])` can reference `Pick<Model, 'a' | 'b'>`, or
+`$this->relation->except([...])` can reference `Pick<Model, complement>`, instead of expanding
+inline (see [ResourceAstAnalyzer § When a Pick reference is
+emitted](resource-ast-analyzer.md#when-a-pick-reference-is-emitted)).
 
 Which of the two a call site wants turns on the question it is asking. `publishedColumnNames()`
 answers "may I name this key against the generated interface?", so it must track what
@@ -328,6 +483,9 @@ same method to decide whether to skip a `$hidden` attribute when building the in
 
 Both call sites must agree, because `Pick<Model, K>` constrains `K extends keyof Model` — TypeScript
 error TS2344 fires if `publishedColumnNames()` ever names a key `transformColumns()` didn't emit.
+`relationFilterModelReference()` binds this for both `only()`'s verbatim keys and `except()`'s
+complement: the complement is computed by subtracting from `publishedColumnNames()` itself, so it
+can never contain a key the gate above it didn't already clear.
 `excludeHiddenAttributes()` is the single source of truth both sites read, and it is deliberately
 **not** cached alongside `resolveContext()`'s per-FQCN model context: that cache holds data that's
 inherent to the model (its columns, casts, hidden-array membership) and is safe to memoize for the
@@ -356,11 +514,11 @@ into that instance's ordinary state (`$table`/`$connection`/`$hidden`/`$visible`
 This package only ever reads that state back through plain instance calls, the same four call
 sites that already made `protected $table = '...'` etc. work before Laravel 13 existed:
 
-- `ModelTransformer::initInstance()` (`src/Transformers/ModelTransformer.php:182`) calls
+- `ModelTransformer::initInstance()` (`src/Transformers/ModelTransformer.php:185`) calls
   `$this->modelInstance->getConnection()->getSchemaBuilder()->getColumnListing($this->modelInstance->getTable())`
   — honours `#[Table]` and `#[Connection]` together, since both feed into which schema is queried
   for which table name.
-- `ModelTransformer::initInstance()` (`src/Transformers/ModelTransformer.php:184`) calls
+- `ModelTransformer::initInstance()` (`src/Transformers/ModelTransformer.php:187`) calls
   `$this->modelInstance->getAppends()` — honours `#[Appends]`.
 - `ModelAttributeResolver` (`src/ModelAttributeResolver.php:487`) calls
   `$ctx['instance']->getTable()` and `getConnection()` again when resolving a column's type.

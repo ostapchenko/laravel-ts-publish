@@ -140,6 +140,24 @@ test('ts:publish writes modular files to namespace-based directories', function 
     expect($invoiceContent)
         ->toContain("from '../enums'")
         ->toContain("from '../../app/models'");
+
+    // The naming-convention branch's first, Resource-suffixed candidate resolves when published.
+    $supplierSummaryCollectionContent = file_get_contents("$outputDir/app/http/resources/supplier-summary-collection.ts");
+    expect($supplierSummaryCollectionContent)
+        ->toContain("import type { SupplierSummaryResource } from '.';")
+        ->toContain('data: SupplierSummaryResource[];');
+
+    // The naming-convention branch falls through to its bare, unsuffixed candidate when published.
+    $adminStoreCollectionContent = file_get_contents("$outputDir/app/http/resources/admin/store-collection.ts");
+    expect($adminStoreCollectionContent)
+        ->toContain("import type { Store } from '.';")
+        ->toContain('data: Store[];');
+
+    // Both candidates exist but are #[TsExclude]d, so the gate rejects both and no import leaks.
+    $ledgerCollectionContent = file_get_contents("$outputDir/app/http/resources/ledger-collection.ts");
+    expect($ledgerCollectionContent)
+        ->toContain('data: unknown;')
+        ->not->toContain('import type');
 });
 
 test('ts:publish --source with enum FQCN runs successfully', function () {

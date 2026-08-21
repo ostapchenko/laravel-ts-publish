@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Tests\Fixtures\InertiaUiTable\InertiaServiceTableController;
 use AbeTwoThree\LaravelTsPublish\Tests\Fixtures\InertiaUiTable\InertiaTableController;
 use Laravel\Ranger\Collectors\Response as ResponseCollector;
@@ -13,6 +14,9 @@ use Workbench\App\Http\Controllers\InertiaResourceSharedTemplate;
 use Workbench\App\Http\Controllers\InertiaSingleResourceController;
 use Workbench\App\Http\Controllers\InertiaTsCastsController;
 use Workbench\App\Http\Controllers\PostInertiaController;
+use Workbench\App\Http\Resources\Ledger;
+use Workbench\App\Http\Resources\LedgerCollection;
+use Workbench\App\Http\Resources\LedgerResource;
 use Workbench\App\Http\Resources\PostCollection;
 use Workbench\App\Http\Resources\PostFlatCollection;
 use Workbench\App\Http\Resources\PostResource;
@@ -167,6 +171,29 @@ test('resolveSingularResourceFqcn returns null for non-naming-convention collect
 
     // A ResourceCollection without $collects and without XCollection→XResource match
     expect($analyzer->expose('Illuminate\\Http\\Resources\\Json\\ResourceCollection'))->toBeNull();
+});
+
+test('resolveSingularResourceFqcn rejects a naming-convention candidate outside the published set', function () {
+    // Non-vacuous: both losing candidates genuinely exist — only #[TsExclude] keeps them out of
+    // the published set, so class_exists() alone would accept either as LedgerCollection's element.
+    expect(class_exists(LedgerResource::class))->toBeTrue()
+        ->and(class_exists(Ledger::class))->toBeTrue();
+
+    PublishedResourceRegistry::register([TeamResource::class]);
+
+    $mock = Mockery::mock(ResponseCollector::class);
+
+    $analyzer = new class($mock) extends InertiaPageAnalyzer
+    {
+        public function expose(string $fqcn): ?string
+        {
+            return $this->resolveSingularResourceFqcn($fqcn);
+        }
+    };
+
+    expect($analyzer->expose(LedgerCollection::class))->toBeNull();
+
+    PublishedResourceRegistry::reset();
 });
 
 // ─── parseTsCastsFromMethod() ─────────────────────────────────────

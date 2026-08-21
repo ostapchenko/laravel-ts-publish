@@ -4803,11 +4803,23 @@
                     "type": "Post | Product | ModelsUser | CrmUser"
                 },
                 {
+                    "name": "reviewable",
+                    "type": "CrmUser | ModelsUser | null"
+                },
+                {
                     "name": "imageable_count",
                     "type": "number"
                 },
                 {
+                    "name": "reviewable_count",
+                    "type": "number"
+                },
+                {
                     "name": "imageable_exists",
+                    "type": "boolean"
+                },
+                {
+                    "name": "reviewable_exists",
                     "type": "boolean"
                 }
             ]
@@ -6657,6 +6669,10 @@
                     "type": "StatusType[]"
                 },
                 {
+                    "name": "latest_status",
+                    "type": "StatusType"
+                },
+                {
                     "name": "owner",
                     "type": "User"
                 },
@@ -7051,7 +7067,7 @@
                 },
                 {
                     "name": "coordinate_data",
-                    "type": "Coordinate | null"
+                    "type": "{ lat: number; lng: number } | null"
                 },
                 {
                     "name": "status",
@@ -7087,7 +7103,7 @@
                 },
                 {
                     "name": "location",
-                    "type": "Coordinate"
+                    "type": "{ lat: number; lng: number }"
                 },
                 {
                     "name": "current_crm_status",
@@ -7667,7 +7683,7 @@
                 },
                 {
                     "name": "latest_payment_excluded",
-                    "type": "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
+                    "type": "Pick<Payment, 'id' | 'created_at' | 'updated_at'> | null",
                     "optional": false
                 }
             ]
@@ -7873,6 +7889,16 @@
                 {
                     "name": "name",
                     "type": "string",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\Admin\\StoreCollection": {
+            "name": "StoreCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "Store[]",
                     "optional": false
                 }
             ]
@@ -8271,6 +8297,16 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\BranchedInlineFqcnResource": {
+            "name": "BranchedInlineFqcnResource",
+            "properties": [
+                {
+                    "name": "regional_hub_contacts",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null } | { manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\CaseSpreadResource": {
             "name": "CaseSpreadResource",
             "properties": [
@@ -8402,6 +8438,26 @@
                 {
                     "name": "posts_with_default",
                     "type": "PostResource[]",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\ChildInlineFqcnResource": {
+            "name": "ChildInlineFqcnResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_contacts",
+                    "type": "{ manager: ModelsUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null; last_checked_by: Image | ModelsUser | null } | null",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_leads",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null",
                     "optional": false
                 }
             ]
@@ -8680,7 +8736,7 @@
                 },
                 {
                     "name": "post_extended",
-                    "type": "Omit<Post, 'created_at' | 'updated_at'> | null",
+                    "type": "Pick<Post, 'id' | 'title' | 'content' | 'user_id' | 'status' | 'published_at' | 'metadata' | 'rating' | 'category' | 'options' | 'deleted_at' | 'category_id' | 'visibility' | 'priority' | 'word_count' | 'reading_time_minutes' | 'featured_image_url' | 'is_pinned'> | null",
                     "optional": false
                 },
                 {
@@ -9550,6 +9606,16 @@
                     "name": "member_role_snapshot",
                     "type": "({ role: RoleType | null })[]",
                     "optional": true
+                },
+                {
+                    "name": "wrapped_status_fallback",
+                    "type": "{ status: AsEnum<typeof Status>[] | StatusType }",
+                    "optional": false
+                },
+                {
+                    "name": "latest_status_or_history",
+                    "type": "AsEnum<typeof Status> | StatusType[]",
+                    "optional": false
                 }
             ]
         },
@@ -9970,6 +10036,11 @@
                     "name": "imageable",
                     "type": "Post | Product | ModelsUser | CrmUser",
                     "optional": false
+                },
+                {
+                    "name": "reviewable",
+                    "type": "CrmUser | ModelsUser | null",
+                    "optional": false
                 }
             ]
         },
@@ -10038,6 +10109,26 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\InheritedInlineFqcnResource": {
+            "name": "InheritedInlineFqcnResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_contacts",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null",
+                    "optional": false
+                },
+                {
+                    "name": "regional_hub_leads",
+                    "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\InlineArrayFqcnResource": {
             "name": "InlineArrayFqcnResource",
             "properties": [
@@ -10048,7 +10139,7 @@
                 },
                 {
                     "name": "payload",
-                    "type": "{ address: AddressResource; items_loaded?: OrderItem[] } | null",
+                    "type": "{ address: Address; items_loaded?: OrderItem[] } | null",
                     "optional": true
                 }
             ]
@@ -10060,6 +10151,16 @@
                     "name": "reportable",
                     "type": "MarketingReportReport | SalesReportReport",
                     "optional": true
+                }
+            ]
+        },
+        "Workbench\\App\\Http\\Resources\\LedgerCollection": {
+            "name": "LedgerCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "unknown",
+                    "optional": false
                 }
             ]
         },
@@ -10467,6 +10568,11 @@
                     "optional": true
                 },
                 {
+                    "name": "members_collection_spread",
+                    "type": "Record<number, User> & { flag: boolean }",
+                    "optional": true
+                },
+                {
                     "name": "members_double_spread",
                     "type": "(Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[]",
                     "optional": true
@@ -10484,6 +10590,16 @@
                 {
                     "name": "members_colliding_spread",
                     "type": "(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_model_then_resource_spread",
+                    "type": "(Omit<User, 'flag' | keyof UserResource | keyof User> & Omit<UserResource, 'flag' | keyof User> & Omit<User, 'flag'> & { flag: boolean })[]",
+                    "optional": true
+                },
+                {
+                    "name": "members_resource_then_model_spread",
+                    "type": "(Omit<UserResource, 'flag' | keyof User | keyof UserResource> & Omit<User, 'flag' | keyof UserResource> & Omit<UserResource, 'flag'> & { flag: boolean })[]",
                     "optional": true
                 }
             ]
@@ -10881,7 +10997,7 @@
                 },
                 {
                     "name": "order_extended",
-                    "type": "Omit<Order, 'created_at' | 'updated_at'>",
+                    "type": "Pick<Order, 'id' | 'ulid' | 'user_id' | 'status' | 'payment_method' | 'currency' | 'subtotal' | 'tax' | 'discount' | 'total' | 'shipping_address' | 'billing_address' | 'notes' | 'placed_at' | 'paid_at' | 'shipped_at' | 'delivered_at' | 'cancelled_at' | 'ip_address' | 'user_agent' | 'deleted_at'>",
                     "optional": false
                 }
             ]
@@ -11808,6 +11924,11 @@
                     "optional": false
                 },
                 {
+                    "name": "ternary_enums_array",
+                    "type": "{ status: AsEnum<typeof Status> | StatusType }",
+                    "optional": false
+                },
+                {
                     "name": "mixed_enums_array",
                     "type": "{ status_type: StatusType; visibility_type: VisibilityType | null; priority_type: PriorityType | null; status_resource_type: StatusType; visibility_resource_type: VisibilityType | null; priority_resource_type: PriorityType | null; status_enum: AsEnum<typeof Status>; visibility_enum: AsEnum<typeof Visibility> | null; priority_enum: AsEnum<typeof Priority> | null }",
                     "optional": false
@@ -12703,6 +12824,16 @@
                 }
             ]
         },
+        "Workbench\\App\\Http\\Resources\\SupplierSummaryCollection": {
+            "name": "SupplierSummaryCollection",
+            "properties": [
+                {
+                    "name": "data",
+                    "type": "SupplierSummaryResource[]",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Http\\Resources\\SupplierSummaryResource": {
             "name": "SupplierSummaryResource",
             "properties": [
@@ -13458,22 +13589,37 @@
                 },
                 {
                     "name": "last_user_activity_by_partial",
-                    "type": "{ id: number; name: string } | null",
+                    "type": "Pick<CrmUser, 'id' | 'name'> | Pick<ModelsUser, 'id' | 'name'> | null",
                     "optional": false
                 },
                 {
                     "name": "last_user_activity_by_mostly",
-                    "type": "{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null",
+                    "type": "Pick<CrmUser, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | Pick<ModelsUser, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null",
                     "optional": false
                 },
                 {
                     "name": "last_checked_by_mostly",
-                    "type": "{ id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null",
+                    "type": "Pick<Image, 'id' | 'imageable_type' | 'imageable_id' | 'url' | 'alt_text' | 'disk' | 'path' | 'mime_type' | 'size_bytes' | 'width' | 'height' | 'sort_order' | 'metadata'> | Pick<ModelsUser, 'id' | 'name' | 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null",
                     "optional": false
                 },
                 {
                     "name": "regional_hub_contacts",
                     "type": "{ primaryContact: CrmUser | null; manager: ModelsUser | null; secondaryContact: CrmUser | null } | null",
+                    "optional": false
+                },
+                {
+                    "name": "probe_nested",
+                    "type": "{ first: CrmUser | ModelsUser | null; second: ModelsUser | null }",
+                    "optional": false
+                },
+                {
+                    "name": "crm_contact_partial",
+                    "type": "{ status: CrmStatusType; images: Image[] } | null",
+                    "optional": false
+                },
+                {
+                    "name": "probe_mixed",
+                    "type": "{ id: number } | Pick<ModelsUser, 'id' | 'phone'> | null",
                     "optional": false
                 }
             ]
@@ -13693,6 +13839,21 @@
                 }
             ]
         },
+        "Workbench\\Crm\\Http\\Resources\\DealEnumInlineResource": {
+            "name": "DealEnumInlineResource",
+            "properties": [
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "summary",
+                    "type": "{ app_status: AsEnum<typeof EnumsStatus>; crm_status: AsEnum<typeof CrmStatus> }",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\Crm\\Http\\Resources\\DealResource": {
             "name": "DealResource",
             "properties": [
@@ -13729,6 +13890,11 @@
                 {
                     "name": "crm_enum",
                     "type": "AsEnum<typeof CrmStatus>",
+                    "optional": false
+                },
+                {
+                    "name": "status_pair",
+                    "type": "{ app: AsEnum<typeof EnumsStatus>; crm: AsEnum<typeof CrmStatus> }",
                     "optional": false
                 },
                 {

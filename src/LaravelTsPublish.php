@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish;
 
 use AbeTwoThree\LaravelTsPublish\Attributes\TsEnum;
+use AbeTwoThree\LaravelTsPublish\Attributes\TsResource;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsType;
 use BackedEnum;
 use Closure;
@@ -64,6 +65,13 @@ class LaravelTsPublish
      * @var array<string, array<string, array{definition: string, class: ReflectionClass<object>}|null>>
      */
     protected array $phpstanTypeAliasCache = [];
+
+    /**
+     * Per-class cache of published resource interface names: FQCN => #[TsResource(name:)] or basename.
+     *
+     * @var array<string, string>
+     */
+    protected array $resourceTypeNames = [];
 
     /** @var list<string> */
     private const array RESERVED_JS_IDENTIFIERS = [
@@ -306,6 +314,23 @@ class LaravelTsPublish
             return $result;
         }
 
+        // 5c. Plain class with typed public properties → inline them; the motivating case lacks a published file,
+        //     though publication is a real axis 5c never tests. Approximates json_encode(), which drops uninitialized
+        //     ones. JsonSerializable overrides that default; Model is subsumed by it, kept for 5a/5a-bis/5b symmetry.
+        if (class_exists($phpType)
+            && ! is_a($phpType, Model::class, true)
+            && ! is_a($phpType, JsonSerializable::class, true)
+            && $this->hasFullyTypedPublicProperties($phpType)
+        ) {
+            $shapeType = $this->publicPropertyShapeType($phpType);
+
+            if ($shapeType !== null) {
+                $result['type'] = $shapeType;
+
+                return $result;
+            }
+        }
+
         // 5. Any other existing class
         if (class_exists($phpType)) {
             /** @var class-string $name */
@@ -492,6 +517,32 @@ class LaravelTsPublish
         }
 
         return $parts === [] ? null : '{ '.implode('; ', $parts).' }';
+    }
+
+    /**
+     * Whether a class declares at least one public, non-static property and every one of them is typed.
+     *
+     * Guards step 5c: an untyped property would inline as `unknown`, which is worse than the class token.
+     *
+     * @param  class-string  $fqcn
+     */
+    protected function hasFullyTypedPublicProperties(string $fqcn): bool
+    {
+        $found = false;
+
+        foreach ((new ReflectionClass($fqcn))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+
+            if (! $property->hasType()) {
+                return false;
+            }
+
+            $found = true;
+        }
+
+        return $found;
     }
 
     /**
@@ -1764,8 +1815,9 @@ class LaravelTsPublish
      * A morph union's occurrence order is the order its FQCN list was built in, so same-basename FQCNs are
      * consumed in source order and the last one covers any further occurrence. No bare token survives.
      *
-     * @param  list<string>  $itemFqcns  one entry per occurrence, in source order — never deduped, since
-     *                                   multiplicity is what lets occurrence N resolve to its own FQCN
+     * @param  list<string>  $itemFqcns  FQCN per occurrence, in source order, never deduped — a caller may
+     *                                   supply more entries than real occurrences (e.g. a merged superset);
+     *                                   aliasPropertyType() consumes only the matching prefix, in order
      * @param  array<string, string>  $nameMap  FQCN => unaliased type name
      * @param  array<string, string>  $aliases  FQCN => alias, for the subset that was aliased
      */
@@ -1800,6 +1852,31 @@ class LaravelTsPublish
 
             return $queues[$name][$cursor];
         }, $type) ?? $type;
+    }
+
+    /**
+     * Resolve the TypeScript interface name a resource class is published under.
+     *
+     * #[TsResource(name:)] renames the emitted interface, so a reference that used class_basename()
+     * instead named a type nothing declares. ResourceTransformer::initReflection() is the same rule.
+     */
+    public function resourceTypeName(string $fqcn): string
+    {
+        if (isset($this->resourceTypeNames[$fqcn])) {
+            return $this->resourceTypeNames[$fqcn];
+        }
+
+        $name = class_basename($fqcn);
+
+        if (class_exists($fqcn)) {
+            $attributes = (new ReflectionClass($fqcn))->getAttributes(TsResource::class);
+
+            if ($attributes !== []) {
+                $name = $attributes[0]->newInstance()->name ?? $name;
+            }
+        }
+
+        return $this->resourceTypeNames[$fqcn] = $name;
     }
 
     /**
@@ -2013,8 +2090,10 @@ class LaravelTsPublish
             $lastDot = strrpos($qualifiedTypeName, '.');
             $bareTypeName = $lastDot === false ? $qualifiedTypeName : substr($qualifiedTypeName, $lastDot + 1);
 
+            // A trailing `[` means the bare arm is array-shaped and the AsEnum arm is not (or vice
+            // versa) — a genuinely different pair, not the redundant same-shaped one this folds.
             $pairPattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>\s*\|\s*'
-                .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
+                .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$\[])/';
             $typeStr = preg_replace($pairPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
 
             // Same pair reversed: the bare alias would be re-qualified afterwards, recreating the duplicate.

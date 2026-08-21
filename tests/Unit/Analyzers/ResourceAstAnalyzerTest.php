@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
+use AbeTwoThree\LaravelTsPublish\Transformers\ResourceTransformer;
 use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
 use Workbench\Accounting\Models\Invoice;
@@ -17,6 +18,8 @@ use Workbench\App\Enums\Status;
 use Workbench\App\Enums\Visibility;
 use Workbench\App\Enums\WeekDays;
 use Workbench\App\Http\Resources\AddressResource;
+use Workbench\App\Http\Resources\Admin\Store as AdminStore;
+use Workbench\App\Http\Resources\Admin\StoreCollection as AdminStoreCollection;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\AttachmentCollection;
 use Workbench\App\Http\Resources\AttachmentResource;
@@ -24,6 +27,7 @@ use Workbench\App\Http\Resources\BareFuncCallResource;
 use Workbench\App\Http\Resources\BareMethodReturnResource;
 use Workbench\App\Http\Resources\BodylessTeamResource;
 use Workbench\App\Http\Resources\BooleanExprResource;
+use Workbench\App\Http\Resources\BranchedInlineFqcnResource;
 use Workbench\App\Http\Resources\CaseSpreadResource;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\ChildSharedResource;
@@ -54,6 +58,9 @@ use Workbench\App\Http\Resources\FluentSelfResource;
 use Workbench\App\Http\Resources\GuardClauseClosureResource;
 use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\InlineArrayFqcnResource;
+use Workbench\App\Http\Resources\Ledger;
+use Workbench\App\Http\Resources\LedgerCollection;
+use Workbench\App\Http\Resources\LedgerResource;
 use Workbench\App\Http\Resources\LocalVarGuardClauseResource;
 use Workbench\App\Http\Resources\LocalVarReassignResource;
 use Workbench\App\Http\Resources\LocalVarRecursionResource;
@@ -105,6 +112,7 @@ use Workbench\App\Http\Resources\SpreadWithGuardClauseClosureResource;
 use Workbench\App\Http\Resources\SpreadWithGuardDoubleClosureReturnResource;
 use Workbench\App\Http\Resources\StaticCallResource;
 use Workbench\App\Http\Resources\SupplierResource;
+use Workbench\App\Http\Resources\SupplierSummaryCollection;
 use Workbench\App\Http\Resources\SupplierSummaryResource;
 use Workbench\App\Http\Resources\TagResource;
 use Workbench\App\Http\Resources\TeamMemberResource;
@@ -143,6 +151,7 @@ use Workbench\Blog\Models\Article;
 use Workbench\Blog\Models\Reaction;
 use Workbench\Crm\Http\Resources\DealResource;
 use Workbench\Crm\Models\Deal;
+use Workbench\Crm\Models\User as CrmUser;
 use Workbench\Shipping\Http\Resources\ShipmentResource;
 use Workbench\Shipping\Http\Resources\TrackingEventResource;
 use Workbench\Shipping\Models\Shipment;
@@ -816,6 +825,14 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
             ->and($this->analysis->inlineEnumFqcns)->toHaveKey('member_role_snapshot')
             ->and($this->analysis->inlineEnumFqcns['member_role_snapshot'])->toContain(Role::class);
     });
+
+    // A mixed ternary nested in an inline array whose arms differ in shape (an array-forcing
+    // EnumResource::collection() wrap vs a scalar direct read): both members stay visible in the
+    // merged union, so only the array-shaped one substitutes — the scalar arm is left bare (Task 14).
+    test('mixed ternary nested in an inline array: a collection-wrapped arm and a scalar direct arm substitute independently', function () {
+        expect($this->props['wrapped_status_fallback']['type'])
+            ->toBe('{ status: AsEnum<typeof Status>[] | StatusType }');
+    });
 });
 
 describe('ResourceAstAnalyzer with ProductResource', function () {
@@ -1124,20 +1141,24 @@ describe('ResourceAstAnalyzer with InvoiceResource', function () {
         );
     });
 
-    test('latest_payment_excluded references the Payment model via Omit', function () {
+    test('latest_payment_excluded references the Payment model via Pick of the complement', function () {
         // Every except() key is also a plain Payment column, so this references the model interface too.
-        // Omit<Payment, ...> targets the bare (columns-only) Payment interface, matching Eloquent's actual
-        // Model::except() runtime behavior — it never returns dueNotice (a mutator) or invoice (a
-        // relation) regardless of the excluded keys, see tests/Feature/ModelOnlyExceptSemanticsTest.php.
+        // Pick<> of the surviving columns matches Model::except()'s real runtime shape — it never
+        // returns dueNotice (a mutator) or invoice, see tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $reflection = new ReflectionClass(InvoiceResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, Invoice::class);
         $analysis = $analyzer->analyze();
 
         $prop = collect($analysis->properties)->firstWhere('name', 'latest_payment_excluded');
+        $type = (string) $prop['type'];
 
-        expect($prop['type'])->toBe(
-            "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
-        );
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $type, $matches);
+        $keys = $matches[1];
+        sort($keys);
+
+        expect($type)->toStartWith('Pick<Payment, ')
+            ->and($type)->toEndWith('> | null')
+            ->and($keys)->toBe(['created_at', 'id', 'updated_at']);
     });
 
     test('Pick/Omit accessor model filters register the Payment modelFqcn for import', function () {
@@ -1269,20 +1290,28 @@ describe('ResourceAstAnalyzer with OrderItemResource', function () {
         expect($orderLimited['type'])->toBe("Pick<Order, 'id' | 'total'> | null");
     });
 
-    test('order_extended except() with all-column keys references the Order model via Omit', function () {
+    test('order_extended except() with all-column keys references the Order model via Pick of the complement', function () {
         // order_extended = $this->order->except('created_at', 'updated_at') — both excluded keys are plain
-        // Order columns, so the emitted type omits them from the (columns-only) Order model interface.
-        // Order also has mutators (item_count, sorted_items, ...) and relations (user, items), but
-        // Model::except() never returns those at runtime regardless — see
-        // tests/Feature/ModelOnlyExceptSemanticsTest.php — so Omit<Order, ...> matches ground truth, and
-        // the old inline expansion (which used to include them) was the inaccurate one.
+        // Order columns; Pick<> of the surviving columns matches ground truth exactly (Order also has
+        // mutators and relations that except() never returns) — see tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $reflection = new ReflectionClass(OrderItemResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, OrderItem::class);
         $analysis = $analyzer->analyze();
 
         $orderExtended = collect($analysis->properties)->firstWhere('name', 'order_extended');
+        $type = (string) $orderExtended['type'];
 
-        expect($orderExtended['type'])->toBe("Omit<Order, 'created_at' | 'updated_at'>");
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $type, $matches);
+        $keys = $matches[1];
+        sort($keys);
+
+        expect($type)->toStartWith('Pick<Order, ')
+            ->and($type)->toEndWith('>')
+            ->and($keys)->toBe([
+                'billing_address', 'cancelled_at', 'currency', 'deleted_at', 'delivered_at', 'discount',
+                'id', 'ip_address', 'notes', 'paid_at', 'payment_method', 'placed_at', 'shipped_at',
+                'shipping_address', 'status', 'subtotal', 'tax', 'total', 'ulid', 'user_agent', 'user_id',
+            ]);
     });
 
     test('Pick/Omit relation filters register the Order modelFqcn for import', function () {
@@ -1309,18 +1338,16 @@ describe('relation filters reference the emitted model interface', function () {
         expect($props['post_limited']['type'])->toBe("Pick<Post, 'id' | 'title'>");
     });
 
-    test('except() on a nullsafe belongsTo with all-column keys emits Omit of the model, nullable', function () {
+    test('except() on a nullsafe belongsTo with all-column keys emits Pick of the complement, nullable', function () {
         // CommentResource: post_extended = $this->post?->except(['created_at', 'updated_at']). Post has
-        // mutators (title_display, excerpt, ...) and relations (author, comments, ...) beyond its columns,
-        // but Omit<Post, ...> targets the (columns-only) Post interface unconditionally — that matches
-        // Eloquent's actual Model::except() runtime behavior, which never returns a mutator or relation
-        // regardless of the excluded keys. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
+        // mutators and relations beyond its columns; Pick<Post, ...> of the surviving columns matches
+        // Model::except()'s real runtime shape. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 
-        expect($props['post_extended']['type'])->toStartWith('Omit<Post, ')
-            ->and($props['post_extended']['type'])->toContain("'created_at'")
-            ->and($props['post_extended']['type'])->toContain("'updated_at'")
+        expect($props['post_extended']['type'])->toStartWith('Pick<Post, ')
+            ->and($props['post_extended']['type'])->not->toContain("'created_at'")
+            ->and($props['post_extended']['type'])->not->toContain("'updated_at'")
             ->and($props['post_extended']['type'])->toEndWith('| null');
     });
 
@@ -1339,7 +1366,7 @@ describe('relation filters reference the emitted model interface', function () {
         $analyzer = new ResourceAstAnalyzer(new ReflectionClass(OrderItemResource::class), OrderItem::class);
         $props = collect($analyzer->analyze()->properties)->keyBy('name');
 
-        expect($props['order_extended']['type'])->toMatch("/^Omit<Order, '[a-z_]+'( \| '[a-z_]+')*>$/");
+        expect($props['order_extended']['type'])->toMatch("/^Pick<Order, '[a-z_]+'( \| '[a-z_]+')*>$/");
     });
 
     test('hasMany relation with all-column only() keys emits Pick with the [] suffix', function () {
@@ -3501,6 +3528,18 @@ describe('ResourceAstAnalyzer with InlineArrayFqcnResource (inline array embedde
         expect($payload)->not->toBeNull()
             ->and($payload['optional'])->toBeTrue();
     });
+
+    test('the inline-array reference names the interface AddressResource is published as', function () {
+        $payload = collect($this->analysis->properties)->firstWhere('name', 'payload');
+
+        // AddressResource carries #[TsResource(name: 'Address')], so the reference must agree with
+        // the published interface name; the class basename would name a type nothing declares.
+        $published = (new ResourceTransformer(AddressResource::class))->resourceName;
+
+        expect($published)->toBe('Address')
+            ->and($payload['type'])->toContain("address: {$published};")
+            ->and($payload['type'])->not->toContain('AddressResource');
+    });
 });
 
 describe('ResourceAstAnalyzer with MergeMultiBranchClosureResource (multi-return merge closure)', function () {
@@ -4597,6 +4636,16 @@ describe('ResourceAstAnalyzer with ResourceWrappedEnumResource — issue #43 $th
             ->and($prop['optional'])->toBeFalse();
     });
 
+    // A same-shaped mixed ternary (EnumResource::make() vs a direct read, both scalar StatusType)
+    // dedupes to one merged token, so expandMixedEnumType() spells the wrapped arm out beside the
+    // bare one — rewriting the single token in place would drop the direct-read arm.
+    test('mixed ternary nested in an inline array: same-shaped arms both stay named in the union', function () {
+        $prop = collect($this->analysis->properties)->firstWhere('name', 'ternary_enums_array');
+
+        expect($prop)->not->toBeNull()
+            ->and($prop['type'])->toBe('{ status: AsEnum<typeof Status> | StatusType }');
+    });
+
     // ── Inline array: enums_array (all EnumResource) ──────────────────────────
 
     test('inline array with only EnumResource::make() values produces AsEnum types when tolki enabled', function () {
@@ -5188,8 +5237,8 @@ test('keeps a hidden column the resource named explicitly', function () {
 
 test('a relation except() drops hidden columns from the derived key list', function () {
     // WarehouseResource::last_user_activity_by_mostly = $this->last_user_activity_by?->except(['id', 'name'])
-    // is a multi-model accessor union (CrmUser|User); the User branch derives its inline shape from
-    // every attribute minus the named keys, so it is implicit — $hidden columns must drop too.
+    // is a multi-model accessor union (CrmUser|User); each arm now references its own model via
+    // Pick<>, whose key set comes from publishedColumnNames() — so $hidden columns drop there too.
     config()->set('ts-publish.models.exclude_hidden', true);
 
     $props = collect(
@@ -5201,7 +5250,46 @@ test('a relation except() drops hidden columns from the derived key list', funct
 
     expect($type)->not->toContain('password')
         ->and($type)->not->toContain('remember_token')
-        ->and($type)->toContain('email: string');
+        ->and($type)->toContain("'email'");
+});
+
+test('a multi-model accessor union references each same-basename arm as its own Pick<>', function () {
+    // Warehouse::lastUserActivityBy is Attribute<CrmUser|User|null, never>. At the analyzer level, before
+    // alias rewriting, both arms render class_basename() as the bare 'User' — they must still stay two
+    // distinct arms, keyed by FQCN, rather than the second being deduped away by its rendered string.
+    $analysis = new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+        ->analyze();
+
+    $type = collect($analysis->properties)->keyBy('name')['last_user_activity_by_mostly']['type'];
+
+    expect(substr_count($type, 'Pick<User, '))->toBe(2)
+        ->and($analysis->inlineModelFqcns['last_user_activity_by_mostly'])->toBe([CrmUser::class, User::class]);
+});
+
+test('a multi-model accessor union of two unrelated models keeps both per-arm FQCNs', function () {
+    // Warehouse::lastCheckedBy is Attribute<Image|User|null, never> — Image and User share no basename,
+    // so this pins the FQCN list still carries both models even without a basename collision to expose it.
+    $analysis = new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+        ->analyze();
+
+    $type = collect($analysis->properties)->keyBy('name')['last_checked_by_mostly']['type'];
+
+    expect($type)->toContain('Pick<Image, ')
+        ->and($type)->toContain('Pick<User, ')
+        ->and($analysis->inlineModelFqcns['last_checked_by_mostly'])->toBe([Image::class, User::class]);
+});
+
+test('a declining arm never registers its own FQCN against an occurrence it did not produce', function () {
+    // probe_mixed filters on 'phone', a column on App\Models\User but not Crm\Models\User: the CrmUser
+    // arm declines Pick<> and falls back to { id: number } — no bare 'User' token — while the other arm
+    // resolves to Pick<User, ...>. Only one FQCN belongs in the queue: one per real occurrence, not per arm.
+    $analysis = new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+        ->analyze();
+
+    $type = collect($analysis->properties)->keyBy('name')['probe_mixed']['type'];
+
+    expect($type)->toBe("{ id: number } | Pick<User, 'id' | 'phone'> | null")
+        ->and($analysis->inlineModelFqcns['probe_mixed'])->toBe([User::class]);
 });
 
 test('relation except() expands to database columns only, matching Model::except() at runtime', function () {
@@ -5238,6 +5326,18 @@ test('relation only() still resolves a named accessor and a named relation, unli
     };
 
     expect($analyzer->expose()['type'])->toBe('{ name: string; initials: string; posts: Post[] }');
+});
+
+test('an inline array member keeps its own per-occurrence FQCNs from a multi-FQCN accessor', function () {
+    // probe_nested = ['first' => $this->last_user_activity_by, 'second' => $this->manager]. first is a
+    // multi-FQCN accessor (CrmUser|User), so its two classFqcns plus second's single one must all
+    // survive in occurrence order — not collapse through the array literal's self-keyed model map.
+    $analysis = new ResourceAstAnalyzer(
+        new ReflectionClass(WarehouseResource::class), Warehouse::class,
+    )->analyze();
+
+    expect($analysis->inlineModelFqcns)->toHaveKey('probe_nested')
+        ->and($analysis->inlineModelFqcns['probe_nested'])->toBe([CrmUser::class, User::class, User::class]);
 });
 
 test('analyzeCoalesce() keeps the surviving operands FQCN channels', function () {
@@ -5484,6 +5584,70 @@ describe('ResourceAstAnalyzer with MerchantResource (toResource()/toResourceColl
     });
 });
 
+describe('collectedResourceClass() naming-convention branch is gated on the published set', function () {
+    test('an empty registry fails open, so a convention guess outside the published set still resolves', function () {
+        expect(PublishedResourceRegistry::isEmpty())->toBeTrue();
+
+        $reflection = new ReflectionClass(LedgerCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('LedgerResource[]')
+            ->and($analysis->nestedResources)->toHaveKey('data', LedgerResource::class);
+    });
+
+    test('the naming convention resolves its first, Resource-suffixed candidate when published', function () {
+        PublishedResourceRegistry::register([SupplierSummaryResource::class]);
+
+        $reflection = new ReflectionClass(SupplierSummaryCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('SupplierSummaryResource[]')
+            ->and($analysis->nestedResources)->toHaveKey('data', SupplierSummaryResource::class);
+
+        PublishedResourceRegistry::reset();
+    });
+
+    test('the naming convention falls through to its bare, unsuffixed candidate when published', function () {
+        // Non-vacuous: Admin\StoreResource does not exist, so only the bare candidate can resolve.
+        expect(class_exists('Workbench\App\Http\Resources\Admin\StoreResource'))->toBeFalse();
+
+        PublishedResourceRegistry::register([AdminStore::class]);
+
+        $reflection = new ReflectionClass(AdminStoreCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('Store[]')
+            ->and($analysis->nestedResources)->toHaveKey('data', AdminStore::class);
+
+        PublishedResourceRegistry::reset();
+    });
+
+    test('both naming-convention candidates are rejected when neither is published', function () {
+        // Non-vacuous: both losing candidates genuinely exist — only #[TsExclude] keeps them
+        // out of the published set, so class_exists() alone would accept either.
+        expect(class_exists(LedgerResource::class))->toBeTrue()
+            ->and(class_exists(Ledger::class))->toBeTrue();
+
+        PublishedResourceRegistry::register([UserResource::class]);
+
+        $reflection = new ReflectionClass(LedgerCollection::class);
+        $analysis = (new ResourceAstAnalyzer($reflection))->analyze();
+        $data = collect($analysis->properties)->firstWhere('name', 'data');
+
+        expect($data)->not->toBeNull()
+            ->and($data['type'])->toBe('unknown')
+            ->and($analysis->nestedResources)->not->toHaveKey('data');
+
+        PublishedResourceRegistry::reset();
+    });
+});
+
 describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-resource inside a nested array)', function () {
     beforeEach(function () {
         $this->analysis = (new ResourceAstAnalyzer(new ReflectionClass(NestedResourceSpreadResource::class), Team::class))
@@ -5514,6 +5678,16 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
             ->and(array_values($this->analysis->modelFqcns))->toContain(User::class);
     });
 
+    test('a to-many whenLoaded param\'s own toArray() spread is a Record<number, Model>, not the element model', function () {
+        // $members is bound in varCollectionBindings (a list), not varModelBindings (one model) —
+        // spreadModelToArrayFqcn() must not fall back to closureRelationModelClass for it. The
+        // spread renumbers the members 0..n, so they key by index beside the literal's 'flag'.
+        expect($this->props['members_collection_spread']['type'])->toBe('Record<number, User> & { flag: boolean }')
+            ->and($this->props['members_collection_spread']['optional'])->toBeTrue()
+            ->and($this->props['members_collection_spread']['type'])->not->toContain('Omit<')
+            ->and($this->analysis->inlineModelFqcns['members_collection_spread'] ?? [])->toBe([User::class]);
+    });
+
     test('two resource spreads plus a sibling key intersect in order, each Omit<>\'d against what later overrides it', function () {
         // 'note' is explicit and wins over both arms; ProfileResource (spread 2nd) wins its own
         // keys over UserResource (spread 1st) — so UserResource's arm excludes both.
@@ -5537,5 +5711,40 @@ describe('ResourceAstAnalyzer with NestedResourceSpreadResource (spread-of-a-res
         expect($this->props['members_colliding_spread']['type'])
             ->toBe('(Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[]')
             ->and($this->props['members_colliding_spread']['optional'])->toBeTrue();
+    });
+
+    test('a model arm, a resource arm, then a model arm again stays in source order across kinds', function () {
+        // Mirror pair with members_resource_then_model_spread below. Both fail if arm collection
+        // is ever grouped by kind instead of source order — a single-kind fixture can't show that.
+        expect($this->props['members_model_then_resource_spread']['type'])->toBe(
+            "(Omit<User, 'flag' | keyof UserResource | keyof User> & ".
+            "Omit<UserResource, 'flag' | keyof User> & ".
+            "Omit<User, 'flag'> & { flag: boolean })[]"
+        )->and($this->props['members_model_then_resource_spread']['optional'])->toBeTrue();
+    });
+
+    test('the mirror order — resource, model, resource — also stays in source order across kinds', function () {
+        expect($this->props['members_resource_then_model_spread']['type'])->toBe(
+            "(Omit<UserResource, 'flag' | keyof User | keyof UserResource> & ".
+            "Omit<User, 'flag' | keyof UserResource> & ".
+            "Omit<UserResource, 'flag'> & { flag: boolean })[]"
+        )->and($this->props['members_resource_then_model_spread']['optional'])->toBeTrue();
+    });
+});
+
+describe('ResourceAstAnalyzer with BranchedInlineFqcnResource (branch union nullability)', function () {
+    beforeEach(function () {
+        $reflection = new ReflectionClass(BranchedInlineFqcnResource::class);
+        $this->analysis = (new ResourceAstAnalyzer($reflection, Warehouse::class))->analyze();
+    });
+
+    // Both branches are `$this->regional_hub?->only([...])`, so each arm arrives already nullable.
+    test('two nullable branch arms union under one trailing null instead of one null per arm', function () {
+        $type = collect($this->analysis->properties)->firstWhere('name', 'regional_hub_contacts')['type'];
+
+        expect($type)->toBe(
+            '{ primaryContact: User | null; manager: User | null }'
+            .' | { manager: User | null; secondaryContact: User | null; primaryContact: User | null } | null'
+        )->and($type)->not->toContain('} | null | {');
     });
 });

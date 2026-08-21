@@ -559,6 +559,26 @@ describe('ModelTransformer import alias resolution for duplicate names', functio
             ->and($allImports)->toContain('User as CrmUser')
             ->and($allImports)->not->toContain('User as ImageableUser');
     });
+
+    test('aliases a Crm-first morph union in type-string order, not importAliases order', function () {
+        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
+
+        // reviewable()'s own @return MorphTo<CrmUser|User, $this> docblock resolves its targets
+        // directly, independent of the reverse map imageable() relies on, so the two relations
+        // disagree on which basename occurrence comes first: Crm, then App.
+        resolve(ModelAttributeResolver::class)->buildMorphTargetMap([
+            User::class,
+            CrmUser::class,
+            Post::class,
+            Product::class,
+            Image::class,
+        ]);
+
+        $data = (new ModelTransformer(Image::class))->data();
+
+        expect($data->relations['reviewable']['type'])->toBe('CrmUser | ModelsUser | null');
+        expect($data->relations['imageable']['type'])->toBe('Post | Product | ModelsUser | CrmUser');
+    });
 });
 
 describe('ModelTransformer import alias resolution for same basename and same parent segment', function () {
@@ -800,19 +820,19 @@ describe('ModelTransformer with Warehouse model', function () {
             ->and($data->columns['phone']['type'])->toBe('string | null');
     });
 
-    test('column cast to CastsAttributes returning a plain class tracks classFqcns', function () {
+    test('column cast to CastsAttributes returning a plain class inlines its shape', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
-        // CoordinateCast::get() returns Coordinate, a class with neither TsType nor CastsAttributes.
+        // CoordinateCast::get() returns Coordinate, a plain class this package publishes no file for.
         expect($data->columns)->toHaveKey('coordinate_data')
-            ->and($data->columns['coordinate_data']['type'])->toBe('Coordinate | null');
+            ->and($data->columns['coordinate_data']['type'])->toBe('{ lat: number; lng: number } | null');
     });
 
-    test('appended attribute returning a plain class tracks classFqcns', function () {
+    test('appended attribute returning a plain class inlines its shape', function () {
         $data = (new ModelTransformer(Warehouse::class))->data();
 
         expect($data->appends)->toHaveKey('location')
-            ->and($data->appends['location']['type'])->toBe('Coordinate');
+            ->and($data->appends['location']['type'])->toBe('{ lat: number; lng: number }');
     });
 
     test('mutator returning a TsType class includes customImports', function () {
@@ -933,6 +953,10 @@ describe('ModelTransformer nullable relations', function () {
             Image::class,
         ]);
 
+        // Image::reviewable() also targets CrmUser via its own docblock, unrelated to this
+        // test's nullability concern — excluded here so 'User' stays unaliased.
+        config()->set('ts-publish.models.excluded', [CrmUser::class]);
+
         $data = (new ModelTransformer(Image::class))->data();
 
         // Image uses morphs('imageable'), whose columns are NOT NULL.
@@ -946,6 +970,10 @@ describe('ModelTransformer nullable relations', function () {
             Product::class,
             Image::class,
         ]);
+
+        // Image::reviewable() also targets CrmUser via its own docblock, unrelated to this
+        // test's import-map concern — excluded here so 'User' stays unaliased.
+        config()->set('ts-publish.models.excluded', [CrmUser::class]);
 
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -988,7 +1016,9 @@ describe('ModelTransformer nullable relations', function () {
             Image::class,
         ]);
 
-        config()->set('ts-publish.models.excluded', [Product::class]);
+        // CrmUser is also excluded so Image::reviewable()'s docblock target — unrelated to
+        // this test's exclusion concern — doesn't force 'User' to alias.
+        config()->set('ts-publish.models.excluded', [Product::class, CrmUser::class]);
 
         $data = (new ModelTransformer(Image::class))->data();
 
@@ -1357,6 +1387,10 @@ describe('Image model @return Attribute<> docblock accessor resolution', functio
     });
 
     test('uploaderFromDocblock resolves model FQCN to User | null', function () {
+        // Image::reviewable() also targets CrmUser via its own docblock, unrelated to this
+        // accessor's concern — excluded here so 'User' stays unaliased.
+        config()->set('ts-publish.models.excluded', [CrmUser::class]);
+
         $data = (new ModelTransformer(Image::class))->data();
 
         expect($data->mutators)->toHaveKey('uploader_from_docblock')

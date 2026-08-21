@@ -12,7 +12,9 @@ use Workbench\App\Http\Resources\Admin\Store as AdminStoreResource;
 use Workbench\App\Http\Resources\ApiPostResource;
 use Workbench\App\Http\Resources\BodylessOrderResource;
 use Workbench\App\Http\Resources\BodylessTeamResource;
+use Workbench\App\Http\Resources\BranchedInlineFqcnResource;
 use Workbench\App\Http\Resources\CategoryResource;
+use Workbench\App\Http\Resources\ChildInlineFqcnResource;
 use Workbench\App\Http\Resources\ChildSharedResource;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\DelegatingWithMixinResource;
@@ -23,6 +25,7 @@ use Workbench\App\Http\Resources\EventLogResource;
 use Workbench\App\Http\Resources\FqcnMixinResource;
 use Workbench\App\Http\Resources\ImageDelegatedResource;
 use Workbench\App\Http\Resources\ImageMorphResource;
+use Workbench\App\Http\Resources\InheritedInlineFqcnResource;
 use Workbench\App\Http\Resources\KpiResource;
 use Workbench\App\Http\Resources\MediaTypeInstanceOfResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
@@ -56,9 +59,69 @@ use Workbench\App\Models\User;
 use Workbench\App\Models\Warehouse;
 use Workbench\App\Resources\DirectResource;
 use Workbench\Blog\Http\Resources\ApiArticleResource;
+use Workbench\Crm\Http\Resources\DealEnumInlineResource;
 use Workbench\Crm\Http\Resources\DealResource;
 use Workbench\Crm\Http\Resources\UserResource as CrmUserResource;
 use Workbench\Crm\Models\User as CrmUser;
+
+/**
+ * Split a union type string on top-level ' | ' only, so a union nested inside a member's own
+ * type (e.g. `role: RoleType | null`) is never mistaken for a top-level arm boundary.
+ *
+ * @return list<string>
+ */
+function splitTopLevelType(string $type): array
+{
+    $arms = [];
+    $current = '';
+    $depth = 0;
+
+    for ($i = 0, $length = strlen($type); $i < $length; $i++) {
+        $char = $type[$i];
+        $depth += (int) ($char === '{' || $char === '<') - (int) ($char === '}' || $char === '>');
+
+        if ($depth === 0 && substr($type, $i, 3) === ' | ') {
+            $arms[] = $current;
+            $current = '';
+            $i += 2;
+
+            continue;
+        }
+
+        $current .= $char;
+    }
+
+    $arms[] = $current;
+
+    return $arms;
+}
+
+/**
+ * Extract member names from one inline-object union arm. Throws on a model reference such as
+ * `Pick<User, …>`, whose member set cannot be derived from the type string: returning an empty
+ * list instead would make the caller's "does not contain member X" assertions pass vacuously.
+ *
+ * @return list<string>
+ */
+function relationFilterArmMembers(string $arm): array
+{
+    $arm = trim($arm);
+
+    if (! str_starts_with($arm, '{')) {
+        throw new RuntimeException("Cannot derive members from a model reference arm: {$arm}");
+    }
+
+    $inner = trim(substr($arm, 1, -1));
+
+    if ($inner === '') {
+        return [];
+    }
+
+    return array_map(
+        fn (string $member): string => trim(explode(':', $member, 2)[0]),
+        explode('; ', $inner)
+    );
+}
 
 describe('ResourceTransformer with PostResource', function () {
     test('resolves model class from @mixin docblock', function () {
@@ -697,12 +760,22 @@ describe('ResourceTransformer imports', function () {
     test('CommentResource has enum imports from inline relation filter (post_extended)', function () {
         $data = (new ResourceTransformer(CommentResource::class))->data();
 
-        // post_extended = $this->post?->except(['created_at', 'updated_at']) now references the Post
-        // model interface via Omit<> instead of an inline enum-casted shape. VisibilityType/PriorityType
-        // were only ever needed by the old inline shape and are gone from this resource's own imports —
-        // Post's own generated file carries them now. StatusType survives because resolvable_status
-        // (unrelated) still annotates a closure return type as Status directly.
-        expect($data->properties['post_extended']['type'])->toBe("Omit<Post, 'created_at' | 'updated_at'> | null");
+        // post_extended = $this->post?->except(['created_at', 'updated_at']) now references the Post model
+        // interface via Pick<> of the surviving columns instead of an inline enum-casted shape. Post's own
+        // generated file carries VisibilityType/PriorityType now; StatusType survives via resolvable_status.
+        $postExtendedType = (string) $data->properties['post_extended']['type'];
+
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $postExtendedType, $postExtendedMatches);
+        $postExtendedKeys = $postExtendedMatches[1];
+        sort($postExtendedKeys);
+
+        expect($postExtendedType)->toStartWith('Pick<Post, ')
+            ->and($postExtendedType)->toEndWith('> | null')
+            ->and($postExtendedKeys)->toBe([
+                'category', 'category_id', 'content', 'deleted_at', 'featured_image_url', 'id', 'is_pinned',
+                'metadata', 'options', 'priority', 'published_at', 'rating', 'reading_time_minutes', 'status',
+                'title', 'user_id', 'visibility', 'word_count',
+            ]);
         expect($data->typeImports)->toHaveKey('../../models');
         expect($data->typeImports['../../models'])->toContain('Post');
         expect($data->typeImports)->toHaveKey('../../enums');
@@ -1331,6 +1404,35 @@ describe('ResourceTransformer import collision deconfliction', function () {
         expect($data->properties['customer_resource']['type'])->toBe('CrmUserResource');
         expect($data->properties['admin_resource']['type'])->toBe('ResourcesUserResource');
     });
+
+    test('aliases both same-named consts wrapped again inside one inline object', function () {
+        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
+        config()->set('ts-publish.enums.use_tolki_package', true);
+
+        $data = (new ResourceTransformer(DealResource::class))->data();
+
+        // Both App\Enums\Status and Crm\Enums\Status are already aliased at top level (the test
+        // above), so status_pair's inline wrap of the same two FQCNs must reuse the same aliases —
+        // not the bare 'Status' const analyzeInlineArray() substitutes before any alias exists.
+        expect($data->properties['status_pair']['type'])
+            ->toBe('{ app: AsEnum<typeof EnumsStatus>; crm: AsEnum<typeof CrmStatus> }');
+    });
+
+    test('registers and aliases consts reachable only through an inline EnumResource wrap', function () {
+        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
+        config()->set('ts-publish.enums.use_tolki_package', true);
+
+        $data = (new ResourceTransformer(DealEnumInlineResource::class))->data();
+
+        $allValueImports = array_merge(...array_values($data->valueImports));
+
+        // Neither enum is read at the top level anywhere in this file, so enumFqcnMap stays empty
+        // and no bare type import is generated — only the two value imports, now distinct.
+        expect($data->typeImports)->toBe([]);
+        expect($allValueImports)->toBe(['Status as EnumsStatus', 'Status as CrmStatus']);
+        expect($data->properties['summary']['type'])
+            ->toBe('{ app_status: AsEnum<typeof EnumsStatus>; crm_status: AsEnum<typeof CrmStatus> }');
+    });
 });
 
 describe('ResourceTransformer with ApiArticleResource (abstract parent + trait spreads)', function () {
@@ -1413,29 +1515,39 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->and($data->typeImports['../../models'])->toContain('User as WorkbenchUser');
     });
 
-    test('accessor union type with ->only() filter produces inline object type', function () {
+    test('accessor union type with ->only() filter references each arm\'s own model', function () {
         $data = (new ResourceTransformer(WarehouseResource::class))->data();
 
+        // 'id' and 'name' are published columns on both models, so each arm becomes its own
+        // Pick<> reference instead of a re-derived inline shape.
         expect($data->properties)->toHaveKey('last_user_activity_by_partial')
-            ->and($data->properties['last_user_activity_by_partial']['type'])->toBe('{ id: number; name: string } | null');
+            ->and($data->properties['last_user_activity_by_partial']['type'])
+            ->toBe("Pick<CrmUser, 'id' | 'name'> | Pick<WorkbenchUser, 'id' | 'name'> | null");
     });
 
-    test('accessor union type with ->except() filter produces inline object union type', function () {
+    test('accessor union type with ->except() filter references each arm\'s own model', function () {
         $data = (new ResourceTransformer(WarehouseResource::class))->data();
 
         expect($data->properties)->toHaveKey('last_user_activity_by_mostly');
 
         $type = $data->properties['last_user_activity_by_mostly']['type'];
 
-        // Each model contributes its own inline object to the union, and Model::except() returns database
-        // columns only: no accessors (initials, is_premium) and no relations (images, posts, …).
-        expect($type)
-            ->not->toBe('unknown')
-            ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null }')
-            ->toContain('{ email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null }')
-            ->not->toContain('images: Image[]')
-            ->not->toContain('initials: string')
-            ->toEndWith('| null');
+        // Every excluded key (id, name) is a published column on both models, so each arm is its own
+        // Pick<> reference to the model interface — never a re-derived inline shape.
+        expect($type)->toBe(
+            "Pick<CrmUser, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | "
+            ."Pick<WorkbenchUser, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | "
+            ."'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | "
+            ."'settings' | 'last_login_at' | 'last_login_ip'> | null"
+        );
+
+        // Member-level, not substring: relationFilterArmMembers() throws on a model-reference arm
+        // instead of returning [] — proving both arms are real Pick<> references, not silently inline.
+        $arms = array_filter(splitTopLevelType($type), fn (string $arm): bool => trim($arm) !== 'null');
+
+        foreach ($arms as $arm) {
+            expect(fn () => relationFilterArmMembers($arm))->toThrow(RuntimeException::class);
+        }
     });
 
     test('accessor returning a union of two enum types produces correct aliased type', function () {
@@ -1468,13 +1580,49 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->toContain('StatusType as WorkbenchStatusType');
     });
 
-    test('inline object from ->except() uses aliased enum name instead of base name', function () {
+    test('inline object from ->only() uses aliased enum name instead of base name', function () {
         $data = (new ResourceTransformer(WarehouseResource::class))->data();
 
-        $type = $data->properties['last_user_activity_by_mostly']['type'];
+        // crm_contact_partial = $this->primaryContact?->only(['status', 'images']): 'images' is a
+        // relation, not a published column, so relationFilterModelReference() rejects the reference
+        // and this falls back to inline expansion, carrying the aliased CrmStatus enum.
+        expect($data->properties)->toHaveKey('crm_contact_partial')
+            ->and($data->properties['crm_contact_partial']['type'])
+            ->toContain('status: CrmStatusType');
+    });
 
-        // The CrmUser inline shape carries a 'status' property cast to the CrmStatus enum.
-        expect($type)->toContain('status: CrmStatusType');
+    test('a declining arm does not misalign the alias queue for the arm that resolves to Pick<>', function () {
+        $data = (new ResourceTransformer(WarehouseResource::class))->data();
+
+        // Only App\Models\User has a 'phone' column, so the CrmUser arm falls back to a plain
+        // { id: number } — no bare model token — while the other arm resolves to Pick<>, which must
+        // alias to WorkbenchUser, not CrmUser via a phantom queue entry from the declining arm.
+        expect($data->properties)->toHaveKey('probe_mixed')
+            ->and($data->properties['probe_mixed']['type'])
+            ->toBe("{ id: number } | Pick<WorkbenchUser, 'id' | 'phone'> | null");
+    });
+});
+
+describe('ResourceTransformer mergePropertyFqcnMaps() overlap guard', function () {
+    test('a property already carrying inline model FQCNs is not re-queued by the accessor pass', function () {
+        $transformer = new ResourceTransformer(WarehouseResource::class);
+
+        $bindMethod = fn (string $method) => (fn () => $this->{$method}())->call($transformer);
+
+        // Simulate a property whose per-occurrence FQCNs are already known — as inline array-literal
+        // analysis supplies — in an order that differs from the accessor's own declared union.
+        (function () {
+            unset($this->propertyModelFqcnsList['last_user_activity_by']);
+            $this->propertyInlineModelFqcns['last_user_activity_by'] = [User::class, CrmUser::class];
+        })->call($transformer);
+
+        $bindMethod('resolveMultiClassAccessorFqcns');
+
+        $merged = (fn () => $this->mergePropertyFqcnMaps())->call($transformer);
+
+        // Without the guard the accessor pass re-adds its own [CrmUser, User] ahead of the inline
+        // entries, producing a 4-entry queue for what is really 2 occurrences and misaligning the prefix.
+        expect($merged['last_user_activity_by'])->toBe([User::class, CrmUser::class]);
     });
 });
 
@@ -1654,25 +1802,29 @@ describe('ResourceTransformer with InvoiceResource', function () {
         $data = (new ResourceTransformer(InvoiceResource::class))->data();
 
         // Both latest_payment_only and latest_payment_excluded (the latest_payment accessor returns
-        // ?Payment) now reference the Payment model interface via Pick<>/Omit<> instead of an inline
-        // shape — Payment's own generated file carries PaymentStatus/PaymentMethod/Currency internally,
-        // so this resource no longer needs to import those enums itself.
+        // ?Payment) reference the Payment model interface via Pick<> — Payment's own generated file
+        // carries PaymentStatus/PaymentMethod/Currency internally, so this resource imports neither.
         expect($data->properties['latest_payment_only']['type'])->toBe(
             "Pick<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
         );
-        expect($data->properties['latest_payment_excluded']['type'])->toBe(
-            "Omit<Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null",
-        );
+
+        $excludedType = (string) $data->properties['latest_payment_excluded']['type'];
+
+        preg_match_all("/'([a-zA-Z0-9_]+)'/", $excludedType, $excludedMatches);
+        $excludedKeys = $excludedMatches[1];
+        sort($excludedKeys);
+
+        expect($excludedType)->toStartWith('Pick<Payment, ')
+            ->and($excludedType)->toEndWith('> | null')
+            ->and($excludedKeys)->toBe(['created_at', 'id', 'updated_at']);
     });
 
     test('has model imports from accessor model filter (latest_payment_excluded)', function () {
         $data = (new ResourceTransformer(InvoiceResource::class))->data();
 
         // The old inline expansion of latest_payment_excluded embedded the Invoice FQCN (via its
-        // 'invoice' relation property); Omit<Payment, ...> only needs Payment itself, so Invoice is no
-        // longer imported here — that relation lives in Payment's own generated file now (and,
-        // separately, was never something Model::except() actually returned at runtime — see
-        // tests/Feature/ModelOnlyExceptSemanticsTest.php).
+        // 'invoice' relation property); Pick<Payment, ...> only needs Payment itself — that relation
+        // lives in Payment's own generated file now. See tests/Feature/ModelOnlyExceptSemanticsTest.php.
         expect($data->typeImports)->toHaveKey('../../models');
         expect($data->typeImports['../../models'])->toContain('Payment');
     });
@@ -1999,6 +2151,17 @@ describe('ResourceTransformer with ResourceWrappedEnumResource — inline array 
             ->toBe('AsEnum<typeof Priority> | PriorityType | null')
             ->and($data->properties['priority_when_not_null_make']['optional'])->toBeFalse();
     });
+
+    // Full-pipeline pin: rewriteEnumResourceTypes() only iterates top-level properties, so it never
+    // touches this nested key — analyzeInlineArray()'s own mixed-arm expansion is what reaches the
+    // emitted file, and the transformer must leave both arms standing.
+    test('ternary_enums_array keeps both mixed arms through the full transformer pipeline', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(ResourceWrappedEnumResource::class))->data();
+
+        expect($data->properties['ternary_enums_array']['type'])
+            ->toBe('{ status: AsEnum<typeof Status> | StatusType }');
+    });
 });
 
 describe('ResourceTransformer with RelationChainResource — EnumResource::make() array-wrapped by a map() chain', function () {
@@ -2119,16 +2282,17 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
             ->and($allValueImports)->toContain('Role');
     });
 
-    // Every property that reads Status goes through substitution now — none keeps the bare
-    // StatusType token — so its type import must be garbage-collected, not just its value import.
-    test('bare StatusType type import is dropped once every Status property is AsEnum-substituted', function () {
+    // No other property in this file keeps a bare StatusType token; it survives only because
+    // wrapped_status_fallback's direct fallback arm genuinely needs it (Task 14) — that property
+    // alone is why this now asserts the opposite of its old name.
+    test('bare StatusType type import survives only because of a genuine direct reader, not stale substitution', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
 
         $statusTypeStillImported = isset($data->typeImports['../../enums'])
             && in_array('StatusType', $data->typeImports['../../enums'], true);
 
-        expect($statusTypeStillImported)->toBeFalse();
+        expect($statusTypeStillImported)->toBeTrue();
     });
 
     // A bare enum read nested inside an inline array must keep its own type import: pins
@@ -2143,6 +2307,31 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
 
         expect($data->typeImports)->toHaveKey('../../enums');
         expect($data->typeImports['../../enums'])->toContain('RoleType');
+    });
+
+    // Full-pipeline pin: the collection-wrapped arm substitutes to AsEnum<typeof Status>[], the
+    // scalar direct arm stays bare StatusType, and that bare token's own type import must survive
+    // since it is genuinely still referenced.
+    test('wrapped_status_fallback substitutes only its array-shaped arm and keeps StatusType imported', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['wrapped_status_fallback']['type'])
+            ->toBe('{ status: AsEnum<typeof Status>[] | StatusType }');
+
+        expect($data->typeImports)->toHaveKey('../../enums');
+        expect($data->typeImports['../../enums'])->toContain('StatusType');
+    });
+
+    // Top-level mirror of wrapped_status_fallback with the array-shaped arm on the *direct* side
+    // instead of the wrapped one: only StatusType, the bare direct-read arm, is actually an array
+    // — AsEnum<typeof Status> | StatusType[], not the old (AsEnum<typeof Status> | StatusType)[].
+    test('latest_status_or_history reconstructs the heterogeneous mixed union without over-arraying it', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['latest_status_or_history']['type'])
+            ->toBe('AsEnum<typeof Status> | StatusType[]');
     });
 });
 
@@ -2241,5 +2430,55 @@ describe('ResourceTransformer import alias resolution for same basename and same
 
         preg_match_all('/as (\w+)/', implode(' ', $allImports), $matches);
         expect($matches[1])->toBe(array_unique($matches[1]));
+    });
+});
+
+describe('ResourceTransformer inline model FQCN multiplicity through analyzer merges', function () {
+    // Warehouse::regionalHub() has two distinct User FQCNs occurrence-ordered by relation name.
+    // mergeReturnBranches() unions each branch's inlineModelFqcns per key; deduping that union loses
+    // branch 2's repeat once the two branch types join into one union string.
+    test('mergeReturnBranches() keeps every branch occurrence aliased to its own FQCN', function () {
+        $data = (new ResourceTransformer(BranchedInlineFqcnResource::class))->data();
+
+        expect($data->properties['regional_hub_contacts']['type'])->toBe(
+            '{ primaryContact: CrmUser | null; manager: WorkbenchUser | null }'
+            .' | { manager: WorkbenchUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null } | null'
+        );
+    });
+
+    // Analyzed directly (not spread), a property's own occurrences are pushed raw with no merge
+    // involved, so this is unaffected by both fixes — a control the two ChildInlineFqcnResource cases
+    // below are compared against.
+    test('InheritedInlineFqcnResource resolves both properties correctly analyzed on its own', function () {
+        $data = (new ResourceTransformer(InheritedInlineFqcnResource::class))->data();
+
+        expect($data->properties['regional_hub_contacts']['type'])
+            ->toBe('{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null')
+            ->and($data->properties['regional_hub_leads']['type'])
+            ->toBe('{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null');
+    });
+
+    // Two-sided: regional_hub_contacts overrides the parent's spread-in property, exercising the
+    // child-overrides-parent unset(); regional_hub_leads passes through unmodified, exercising
+    // syncAnalysisMaps()'s dedupe on its own. Both fixes must land — either alone still fails.
+    test('ChildInlineFqcnResource resolves an overridden and a pass-through property correctly', function () {
+        $data = (new ResourceTransformer(ChildInlineFqcnResource::class))->data();
+
+        expect($data->properties['regional_hub_contacts']['type'])
+            ->toBe('{ manager: WorkbenchUser | null; secondaryContact: CrmUser | null; primaryContact: CrmUser | null; last_checked_by: Image | WorkbenchUser | null } | null')
+            ->and($data->properties['regional_hub_leads']['type'])
+            ->toBe('{ primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null');
+    });
+
+    // WarehouseResource::probe_nested = ['first' => $this->last_user_activity_by, 'second' => $this->manager].
+    // first is itself a multi-FQCN accessor (CrmUser|User); its two arms plus second's single arm must
+    // each alias to their own FQCN, not collapse to one bare 'User' repeated three times.
+    test('an inline array member keeps both arms of a multi-FQCN accessor aliased apart', function () {
+        config()->set('ts-publish.namespace_strip_prefix', 'Workbench\\');
+
+        $data = (new ResourceTransformer(WarehouseResource::class))->data();
+
+        expect($data->properties['probe_nested']['type'])
+            ->toBe('{ first: CrmUser | ModelsUser | null; second: ModelsUser | null }');
     });
 });

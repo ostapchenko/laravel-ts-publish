@@ -8,7 +8,6 @@ import type { HasTimestamps } from '@/types/common';
 import type { StatusType as CrmStatusType } from '../../crm/enums';
 import type { User as CrmUser } from '../../crm/models';
 import type { ColorType, PriorityType, StatusType as EnumsStatusType } from '../enums';
-import type { Coordinate } from '../value-objects';
 import type { Image, User as ManagerUser } from '.';
 
 /** @see Workbench\App\Models\Warehouse */
@@ -19,7 +18,7 @@ export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" |
     name: string;
     /** Write-only accessor on DB column 'phone' — normalizes on set, no get */
     phone: string | null;
-    coordinate_data: Coordinate | null;
+    coordinate_data: { lat: number; lng: number } | null;
     status: EnumsStatusType | null;
     color: ColorType | null;
     priority: PriorityType | null;
@@ -41,7 +40,7 @@ export interface Warehouse extends HasTimestamps, Pick<Auditable, "created_by" |
     review_priority_typed: EnumsStatusType | PriorityType | null;
     review_priority_typed_short: EnumsStatusType | PriorityType | null;
     /** Non-column accessor returning a plain class (Coordinate) */
-    location: Coordinate;
+    location: { lat: number; lng: number };
     /** Non-column accessor returning CRM Status enum — creates name conflict with column 'status' */
     current_crm_status: CrmStatusType | null;
     // Relations

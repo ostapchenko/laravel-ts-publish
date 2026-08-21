@@ -19,5 +19,5 @@ export interface OrderItemResource
     order?: Order;
     options?: Record<string, string | number | boolean> | null;
     order_limited: Pick<Order, 'id' | 'total'> | null;
-    order_extended: Omit<Order, 'created_at' | 'updated_at'>;
+    order_extended: Pick<Order, 'id' | 'ulid' | 'user_id' | 'status' | 'payment_method' | 'currency' | 'subtotal' | 'tax' | 'discount' | 'total' | 'shipping_address' | 'billing_address' | 'notes' | 'placed_at' | 'paid_at' | 'shipped_at' | 'delivered_at' | 'cancelled_at' | 'ip_address' | 'user_agent' | 'deleted_at'>;
 }

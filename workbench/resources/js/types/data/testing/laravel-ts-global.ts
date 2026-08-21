@@ -7,6 +7,7 @@
 export {}
 
 import type { PageMetaType } from '@js/types/page-meta';
+import type { PostAttributes } from '@js/types/posts';
 import type { ProductMetadata, ProductJsonMetaData } from '@js/types/product';
 import type { MenuSettingsType } from '@js/types/settings';
 import type { PostSnapshot } from '@js/types/snapshots';
@@ -18,11 +19,13 @@ import type { HasTimestamps } from '@/types/common';
 import type { GeoBounds, GeoPoint } from '@/types/geo';
 import type { ParentModelInterface } from '@/types/model-parent';
 import type { TraitInterface } from '@/types/model-trait';
+import type { FormRequestBase } from '@/types/requests';
 import type { ResourceRoutes } from '@/types/resources';
 import type { Routable } from '@/types/routing';
 import type { SharedInterface } from '@/types/shared';
 import type { SharedModelInterface } from '@/types/shared-model';
 import type { Timestamps } from '@/types/util';
+import type { HasValidationMeta } from '@/types/validation';
 
 /* prettier-ignore */
 declare global {
@@ -404,6 +407,9 @@ declare global {
             imageable: Post | Product | User | workbench.crm.models.User;
             imageable_count: number;
             imageable_exists: boolean;
+            reviewable: workbench.crm.models.User | User | null;
+            reviewable_count: number;
+            reviewable_exists: boolean;
         }
         export interface Kpi {
             // Columns
@@ -1043,6 +1049,8 @@ declare global {
             /** Number of members */
             member_count: number;
             status_history: workbench.app.enums.StatusType[];
+            /** A single scalar Status, distinct from statusHistory()'s array shape. */
+            latest_status: workbench.app.enums.StatusType;
             // Relations
             /** The user who owns this team */
             owner: User;
@@ -1176,7 +1184,7 @@ declare global {
             name: string;
             /** Write-only accessor on DB column 'phone' — normalizes on set, no get */
             phone: string | null;
-            coordinate_data: Coordinate | null;
+            coordinate_data: { lat: number; lng: number } | null;
             status: workbench.app.enums.StatusType | null;
             color: workbench.app.enums.ColorType | null;
             priority: workbench.app.enums.PriorityType | null;
@@ -1198,7 +1206,7 @@ declare global {
             review_priority_typed: workbench.app.enums.StatusType | workbench.app.enums.PriorityType | null;
             review_priority_typed_short: workbench.app.enums.StatusType | workbench.app.enums.PriorityType | null;
             /** Non-column accessor returning a plain class (Coordinate) */
-            location: Coordinate;
+            location: { lat: number; lng: number };
             /** Non-column accessor returning CRM Status enum — creates name conflict with column 'status' */
             current_crm_status: workbench.crm.enums.StatusType | null;
             // Relations
@@ -1667,7 +1675,7 @@ declare global {
             payments_count?: number;
             notes?: string | null;
             latest_payment_only: Pick<workbench.accounting.models.Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
-            latest_payment_excluded: Omit<workbench.accounting.models.Payment, 'invoice_id' | 'status' | 'method' | 'currency' | 'amount' | 'reference' | 'paid_at'> | null;
+            latest_payment_excluded: Pick<workbench.accounting.models.Payment, 'id' | 'created_at' | 'updated_at'> | null;
         }
         /**
          * Exercises: multiple EnumResource::make from different namespaces (PaymentStatus,
@@ -1831,6 +1839,15 @@ declare global {
             user_bio?: string | null;
         }
         /**
+         * Regression fixture: mergeReturnBranches() unions inlineModelFqcns per property key across branches.
+         * Deduping that union collapses Warehouse::regionalHub()'s real per-occurrence multiplicity, so once
+         * the branch types combine into one union string, an occurrence past the deduped queue's end mistypes.
+         * Both branches are nullsafe, so the merged union carries one trailing `| null`, not one per arm.
+         */
+        export interface BranchedInlineFqcnResource {
+            regional_hub_contacts: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null } | { manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null; primaryContact: workbench.crm.models.User | null } | null;
+        }
+        /**
          * A spread whose call-site casing differs from the declared method. PHP method calls are
          * case-insensitive, so this is valid, runnable code the analyzer must still resolve.
          */
@@ -1866,6 +1883,20 @@ declare global {
             parent_when_resource_self?: CategoryResource;
             children_with_default: workbench.app.models.Category[];
             posts_with_default: PostResource[];
+        }
+        /**
+         * Regression fixture, two-sided:
+         *
+         * - regional_hub_contacts overrides the spread-in parent property with a different occurrence order,
+         * exercising the analyzeReturnArray() unset() that must clear a parent's stale inline FQCNs before
+         * the override's own occurrences are pushed — otherwise the parent's queue leaks into the override.
+         * - regional_hub_leads is spread straight through from the parent with no override, exercising
+         * syncAnalysisMaps()'s dedupe of the merged queue on its own, independent of the unset.
+         */
+        export interface ChildInlineFqcnResource {
+            id: number;
+            regional_hub_contacts: { manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null; primaryContact: workbench.crm.models.User | null; last_checked_by: workbench.app.models.Image | workbench.app.models.User | null } | null;
+            regional_hub_leads: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
         }
         /**
          * Child resource that uses SharedExtendsInterface AND extends a parent that also uses it.
@@ -1956,7 +1987,7 @@ declare global {
             post_new?: PostResource;
             post_direct: PostResource;
             post_limited: Pick<workbench.app.models.Post, 'id' | 'title'>;
-            post_extended: Omit<workbench.app.models.Post, 'created_at' | 'updated_at'> | null;
+            post_extended: Pick<workbench.app.models.Post, 'id' | 'title' | 'content' | 'user_id' | 'status' | 'published_at' | 'metadata' | 'rating' | 'category' | 'options' | 'deleted_at' | 'category_id' | 'visibility' | 'priority' | 'word_count' | 'reading_time_minutes' | 'featured_image_url' | 'is_pinned'> | null;
             post_excerpt_only: { id: number; excerpt: string | null };
             post_title?: string;
             post_content?: string | null;
@@ -2215,6 +2246,8 @@ declare global {
             status_history_when_appended?: workbench.app.enums.StatusType[];
             members_via_var?: workbench.app.enums.RoleType[];
             member_role_snapshot?: ({ role: workbench.app.enums.RoleType | null })[];
+            wrapped_status_fallback: { status: workbench.app.enums.StatusType[] | workbench.app.enums.StatusType };
+            latest_status_or_history: workbench.app.enums.StatusType | workbench.app.enums.StatusType[];
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
         export interface EnumNullFirstResource {
@@ -2351,6 +2384,7 @@ declare global {
             positive_int_accessor: number;
             numeric_string_accessor: string;
             imageable: workbench.app.models.Post | workbench.app.models.Product | workbench.app.models.User | workbench.crm.models.User;
+            reviewable: workbench.crm.models.User | workbench.app.models.User | null;
         }
         /** Exercises a morphTo relation exposed through a resource: the emitted union needs every parent imported. */
         export interface ImageMorphResource {
@@ -2370,6 +2404,16 @@ declare global {
             height?: number;
         }
         /**
+         * Base class for ChildInlineFqcnResource. Both regional_hub_* properties carry Warehouse::regionalHub()'s
+         * per-occurrence FQCN multiplicity (Crm, App, Crm) so a child spreading this analysis in through
+         * syncAnalysisMaps() can lose it if that merge dedupes.
+         */
+        export interface InheritedInlineFqcnResource {
+            id: number;
+            regional_hub_contacts: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
+            regional_hub_leads: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
+        }
+        /**
          * Exercises analyzeInlineArray embeddedModelFqcns and embeddedResourceFqcns
          * (lines 1501, 1508-1510) by returning inline arrays that contain
          * whenLoaded() (model FQCN) and SomeResource::make() (resource FQCN)
@@ -2377,7 +2421,7 @@ declare global {
          */
         export interface InlineArrayFqcnResource {
             id: number;
-            payload?: { address: AddressResource; items_loaded?: workbench.app.models.OrderItem[] } | null;
+            payload?: { address: Address; items_loaded?: workbench.app.models.OrderItem[] } | null;
         }
         /**
          * Fixture: Kpi::reportable() morphs to two Report models sharing basename and parent segment,
@@ -2385,6 +2429,10 @@ declare global {
          */
         export interface KpiResource {
             reportable?: workbench.app.models.marketing.report.Report | workbench.app.models.sales.report.Report;
+        }
+        /** A collection of ledger entries. */
+        export interface LedgerCollection {
+            data: unknown;
         }
         /**
          * Regression fixture (Task 12 review, Critical 2): two TOP-LEVEL assignments to the
@@ -2577,10 +2625,13 @@ declare global {
             members_with_profile?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             members_bare?: UserResource[];
             members_model_spread?: (Omit<workbench.app.models.User, 'flag'> & { flag: boolean })[];
+            members_collection_spread?: Record<number, workbench.app.models.User> & { flag: boolean };
             members_double_spread?: (Omit<UserResource, 'note' | keyof ProfileResource> & Omit<ProfileResource, 'note'> & { note: string })[];
             members_with_profile_untyped?: (Omit<UserResource, 'profile'> & { profile: ProfileResource })[];
             owner_map_untyped?: unknown;
             members_colliding_spread?: (Omit<UserResource, keyof TeamMemberResource> & TeamMemberResource)[];
+            members_model_then_resource_spread?: (Omit<workbench.app.models.User, 'flag' | keyof UserResource | keyof workbench.app.models.User> & Omit<UserResource, 'flag' | keyof workbench.app.models.User> & Omit<workbench.app.models.User, 'flag'> & { flag: boolean })[];
+            members_resource_then_model_spread?: (Omit<UserResource, 'flag' | keyof workbench.app.models.User | keyof UserResource> & Omit<workbench.app.models.User, 'flag' | keyof UserResource> & Omit<UserResource, 'flag'> & { flag: boolean })[];
         }
         export interface NonArrayReturnResource {
         }
@@ -2693,7 +2744,7 @@ declare global {
             order?: workbench.app.models.Order;
             options?: Record<string, string | number | boolean> | null;
             order_limited: Pick<workbench.app.models.Order, 'id' | 'total'> | null;
-            order_extended: Omit<workbench.app.models.Order, 'created_at' | 'updated_at'>;
+            order_extended: Pick<workbench.app.models.Order, 'id' | 'ulid' | 'user_id' | 'status' | 'payment_method' | 'currency' | 'subtotal' | 'tax' | 'discount' | 'total' | 'shipping_address' | 'billing_address' | 'notes' | 'placed_at' | 'paid_at' | 'shipped_at' | 'delivered_at' | 'cancelled_at' | 'ip_address' | 'user_agent' | 'deleted_at'>;
         }
         /** Exercises ...$this->only([...]) spread with additional manual keys. */
         export interface OrderOnlyResource {
@@ -2975,6 +3026,7 @@ declare global {
             status_ternary_both: workbench.app.enums.StatusType;
             status_or_visibility_ternary: workbench.app.enums.StatusType | workbench.app.enums.VisibilityType | null;
             enums_array: { status: workbench.app.enums.StatusType; visibility: workbench.app.enums.VisibilityType | null; priority: workbench.app.enums.PriorityType | null };
+            ternary_enums_array: { status: workbench.app.enums.StatusType };
             mixed_enums_array: { status_type: workbench.app.enums.StatusType; visibility_type: workbench.app.enums.VisibilityType | null; priority_type: workbench.app.enums.PriorityType | null; status_resource_type: workbench.app.enums.StatusType; visibility_resource_type: workbench.app.enums.VisibilityType | null; priority_resource_type: workbench.app.enums.PriorityType | null; status_enum: workbench.app.enums.StatusType; visibility_enum: workbench.app.enums.VisibilityType | null; priority_enum: workbench.app.enums.PriorityType | null };
             merged_status?: workbench.app.enums.StatusType;
             merged_visibility?: workbench.app.enums.VisibilityType | null;
@@ -3213,6 +3265,10 @@ declare global {
         export interface SupplierResource {
             id: number;
         }
+        /** A collection of supplier summaries. */
+        export interface SupplierSummaryCollection {
+            data: SupplierSummaryResource[];
+        }
         /**
          * The resource SupplierCollection actually collects — must win over the bare SupplierResource
          * fallback when toResourceCollection() resolves a Supplier[] collection by naming convention.
@@ -3439,16 +3495,23 @@ declare global {
             last_user_activity_by: workbench.crm.models.User | workbench.app.models.User | null;
             last_user_activity_by_typed: workbench.crm.models.User | workbench.app.models.User | null;
             last_user_activity_by_typed_short: workbench.crm.models.User | workbench.app.models.User | null;
-            last_user_activity_by_partial: { id: number; name: string } | null;
-            last_user_activity_by_mostly: { email: string; company: string | null; status: workbench.crm.enums.StatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: workbench.app.enums.RoleType | null; membership_level: workbench.app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
-            last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: workbench.app.enums.RoleType | null; membership_level: workbench.app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
+            last_user_activity_by_partial: Pick<workbench.crm.models.User, 'id' | 'name'> | Pick<workbench.app.models.User, 'id' | 'name'> | null;
+            last_user_activity_by_mostly: Pick<workbench.crm.models.User, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | Pick<workbench.app.models.User, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null;
+            last_checked_by_mostly: Pick<workbench.app.models.Image, 'id' | 'imageable_type' | 'imageable_id' | 'url' | 'alt_text' | 'disk' | 'path' | 'mime_type' | 'size_bytes' | 'width' | 'height' | 'sort_order' | 'metadata'> | Pick<workbench.app.models.User, 'id' | 'name' | 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null;
             regional_hub_contacts: { primaryContact: workbench.crm.models.User | null; manager: workbench.app.models.User | null; secondaryContact: workbench.crm.models.User | null } | null;
+            probe_nested: { first: workbench.crm.models.User | workbench.app.models.User | null; second: workbench.app.models.User | null };
+            crm_contact_partial: { status: workbench.crm.enums.StatusType; images: workbench.app.models.Image[] } | null;
+            probe_mixed: { id: number } | Pick<workbench.app.models.User, 'id' | 'phone'> | null;
         }
     }
     export namespace workbench.app.http.resources.admin {
         export interface Store {
             id: number;
             name: string;
+        }
+        /** A collection of admin stores. */
+        export interface StoreCollection {
+            data: Store[];
         }
     }
     export namespace workbench.blog.http.resources {
@@ -3510,10 +3573,19 @@ declare global {
     }
     export namespace workbench.crm.http.resources {
         /**
+         * Exercises two same-named enum consts reachable only through an inline EnumResource
+         * wrap, with no top-level reader of either enum anywhere else in the file.
+         */
+        export interface DealEnumInlineResource {
+            id: number;
+            summary: { app_status: workbench.app.enums.StatusType; crm_status: workbench.crm.enums.StatusType };
+        }
+        /**
          * Exercises: dual enum conflict — $this->status (App\Enums\Status direct access)
          * vs EnumResource::make($this->crm_status) (Crm\Enums\Status), whenLoaded bare
          * with two different User models (Crm\User + App\User), when conditional,
-         * resource wrapping with colliding resource names, dual EnumResource::make.
+         * resource wrapping with colliding resource names, dual EnumResource::make,
+         * both same-named consts wrapped again inside one inline object (status_pair).
          */
         export interface DealResource {
             id: number;
@@ -3523,6 +3595,7 @@ declare global {
             status_enum: workbench.app.enums.StatusType;
             crm_status: workbench.crm.enums.StatusType;
             crm_enum: workbench.crm.enums.StatusType;
+            status_pair: { app: workbench.app.enums.StatusType; crm: workbench.crm.enums.StatusType };
             customer?: workbench.crm.models.User;
             admin?: workbench.app.models.User;
             customer_resource?: UserResource;

@@ -24,7 +24,7 @@ use ReflectionClass;
  * @phpstan-import-type RelationInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  * @phpstan-import-type TypesImportMap from \AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable
  *
- * @phpstan-type ModelAttributeTypeResult = array{type: string, enumFqcn: class-string|null}
+ * @phpstan-type ModelAttributeTypeResult = array{type: string, enumFqcn: class-string|null, classFqcns: list<class-string>}
  * @phpstan-type ModelRelationTypeResult = array{type: string, modelFqcn: class-string<\Illuminate\Database\Eloquent\Model>|null, morphFqcns: list<class-string>}
  */
 trait ResolvesModelTypes
@@ -58,14 +58,14 @@ trait ResolvesModelTypes
     }
 
     /**
-     * Resolve the TypeScript type and optional enum FQCN for a model attribute.
+     * Resolve the TypeScript type, optional enum FQCN, and any class FQCNs for a model attribute.
      *
      * @return ModelAttributeTypeResult
      */
     protected function resolveModelAttributeTypeInfo(string $attributeName): array
     {
         if ($this->modelClass === null || $this->modelAttributes === null) {
-            return ['type' => 'unknown', 'enumFqcn' => null];
+            return ['type' => 'unknown', 'enumFqcn' => null, 'classFqcns' => []];
         }
 
         $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->modelClass, $attributeName);
@@ -73,7 +73,7 @@ trait ResolvesModelTypes
         /** @var class-string|null $enumFqcn */
         $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
 
-        return ['type' => $tsInfo['type'], 'enumFqcn' => $enumFqcn];
+        return ['type' => $tsInfo['type'], 'enumFqcn' => $enumFqcn, 'classFqcns' => $tsInfo['classFqcns']];
     }
 
     /**

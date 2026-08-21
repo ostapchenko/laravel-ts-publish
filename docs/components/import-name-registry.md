@@ -25,14 +25,17 @@ climbs only as far as needed:
    `ts-publish.namespace_strip_prefix` is stripped from the namespace before segments are
    read. If every segment is skip-listed (e.g. `App\Models\Order`), the unfiltered segments
    are used instead so the alias can still be built.
-3. **Extend one segment deeper per round.** Every member of a colliding group — same type
-   name registered more than once, or a type name that is reserved — advances *together*,
-   each round: a colliding preferred alias drops to the one-segment prefix; a colliding
-   prefix extends one segment further into the namespace (`MailPrice` →
-   `EngineeringMailPrice` → `CustomerEngineeringMailPrice`). Advancing the whole group each
-   round, rather than only the newest collider, means no member is ever left holding a
-   shallow alias that merely happens to look unique against the *other* member's *previous*
-   candidate.
+3. **Extend one segment deeper per round.** A group is one type name registered more than
+   once, or a type name that is reserved. Each round recounts the group's current candidates
+   and advances only the members whose own candidate still collides: a colliding preferred
+   alias drops to the one-segment prefix; a colliding prefix extends one segment further into
+   the namespace (`MailPrice` → `EngineeringMailPrice` → `CustomerEngineeringMailPrice`). A
+   member already unique against both its group-mates and the reserved set is skipped and
+   keeps the alias it holds — register `A\B\Foo`, `C\Foo` and `D\C\Foo` together and
+   `A\B\Foo` stays on the depth-1 `BFoo` while the other two resolve to `CFoo` and `DCFoo`.
+   Advancing every *still-colliding* member in the same round, rather than only the newest
+   collider, is what stops a member being left on a shallow alias that merely looks unique
+   against another member's *previous* candidate.
 4. **Numeric suffix**, as the final tiebreak, for any member that exhausts its namespace
    (or two FQCNs that are otherwise identical past the root) — `2`, `3`, … in FQCN-sorted
    order, the first member keeping the unsuffixed name.
@@ -52,38 +55,53 @@ climbs only as far as needed:
 ## Rewriting aliased type references
 
 `applyResolvedImportNames()` records an FQCN in `$importAliases` only when its resolved local name
-differs from its type name, then calls the transformer's `rewriteTypeReferences()` once. Each
-transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
-`$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns` in `ModelTransformer`, `$propertyFqcns` in
-`BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`
-**one entry per occurrence, in registration order**. Callers must neither sort nor dedupe that list:
-multiplicity and order together *are* the contract. `ModelTransformer` satisfies it by construction
-(`$columnFqcns[$name][] = $fqcn` and its two siblings are plain appends);
-`ResourceTransformer::mergePropertyFqcnMaps()` and
-`BroadcastEventTransformer`'s `$propertyFqcns` assignment each used to end in
-`array_values(array_unique(...))`, and dropping both is what lets a property naming the same model
-twice resolve both occurrences to it. The `array_unique` calls that remain in those two classes are
-on import-building paths — `enumPropertyFqcns()` and `buildTypeImports()` — where one entry per
-import is what you want.
+differs from its type name, then calls the transformer's `rewriteTypeReferences()` once.
 
-**One upstream producer still dedupes, and the transformers cannot undo it.**
-`ResourceAstAnalyzer` `array_unique`s `inlineModelFqcns` per property key in *both* of its merge
-paths: `syncAnalysisMaps()`, which folds a parent/trait/merge sub-analysis into the running maps, and
-`mergeReturnBranches()`, which unions multiple `return [...]` branches. `ResourceTransformer` copies
-that map straight into `$propertyInlineModelFqcns`, one of the four list maps
-`mergePropertyFqcnMaps()` concatenates. So for a **merged or inherited** resource, the list reaching
-`aliasPropertyType()` is already deduped and the per-occurrence contract holds only up to the
-analyzer, not through it — a property whose inline shape names the same model twice across branches
-falls back to the queue-shorter-than-occurrences clamp above. A resource whose property is analyzed on
-the single-branch path is unaffected. This is the same defect the two transformer `array_unique`s had,
-one layer further upstream, and is a standing follow-up rather than something the caller can fix.
+It handles `$constImportAliases` in two passes. The first walks `$resolved` (the type registry's
+own output) and cross-references `$constNames` by the same FQCN — the case where a const's FQCN
+also carries a bare type import, true for every enum every consumer registers today except one.
+The second is a leftover pass over `$constNames` alone, for any FQCN present there but absent
+from `$typeNames`: `ResourceTransformer` is the one consumer with such FQCNs — an enum reached
+only through an inline `EnumResource::make()` wrap never needs a bare type import, so it never
+reaches the first pass. The second pass is a proven no-op for the other two consumers rather than
+dead code kept "just in case": `ModelTransformer`'s const registry is populated only by mirroring
+`$enumFqcnMap`, so its `$constNames` is always a subset of `$typeNames`'s keys, and
+`BroadcastEventTransformer` never passes `$constNames` at all. Generalizing this into the shared
+method — rather than a second, transformer-local pass over `$constRegistry->resolve()` — is what
+lets `ResourceTransformer::resolveImportConflicts()` stay a single call to
+`applyResolvedImportNames()`; see its own section below.
+
+Each transformer walks its own per-item FQCN map — `mergePropertyFqcnMaps()` in `ResourceTransformer`,
+`$columnFqcns`/`$mutatorFqcns`/`$appendsFqcns`/`$relationFqcns` in `ModelTransformer`, `$propertyFqcns`
+in `BroadcastEventTransformer` — and hands each item's list to `LaravelTsPublish::aliasPropertyType()`.
+Callers must neither sort nor dedupe that list: multiplicity and order together *are* the contract.
+`ModelTransformer` and `BroadcastEventTransformer` supply **one entry per occurrence, in registration
+order**, exactly: `ModelTransformer` by construction (`$columnFqcns[$name][] = $fqcn` and two of its
+three siblings are plain appends — `$relationFqcns[$name]` is assigned once, wholesale, from the same
+`$morphTargets`/`[$relation['related']]` list that built the relation's type string, so it is
+per-occurrence by construction too), `BroadcastEventTransformer` by dropping the
+`array_values(array_unique(...))` its `$propertyFqcns` assignment used to end in.
+
+`ResourceTransformer::mergePropertyFqcnMaps()` promises less. It concatenates seven per-property maps
+group by group, so a property registered in more than one of them carries every map's entries in
+sequence — a **superset-in-order, prefix-aligned** queue, not an exact per-occurrence one. Dropping
+its own `array_unique(...)` call is what lets a property naming the same model twice resolve both
+occurrences to it; a property a *second* map also registers carries that map's entries too, past the
+real occurrence count, and the third clamp below is what keeps that surplus harmless.
+`resolveMultiClassAccessorFqcns()` guards the one specific overlap that is cheap to close at the
+source — a property `$propertyInlineModelFqcns` already covers is skipped rather than re-queued — but
+the general superset case remains the contract callers rely on, not an exception routed around it.
+
+The `array_unique` calls that remain in `ResourceTransformer` and `BroadcastEventTransformer` are on
+import-building paths — `enumPropertyFqcns()` and `buildTypeImports()` — where one entry per import
+is what you want.
 
 `aliasPropertyType()` builds one queue of aliases per type name, in FQCN source order, then walks
 the type string's occurrences left to right with `preg_replace_callback`, so occurrence N takes
 FQCN N. When the list is per-occurrence the queue is exact and every occurrence resolves to its own
 model — including the interleaved case `Crm, App, Crm`, where the repeat is *not* the trailing FQCN.
 
-Two clamps sit underneath that:
+Three clamps sit underneath that:
 
 - **One FQCN owns the name.** The queue has length 1, so every occurrence is provably it and every
   one is rewritten — the widened-container case, `User[] | Record<string, User>` from a single
@@ -92,6 +110,10 @@ Two clamps sit underneath that:
   backstop against a bare token, not the mechanism: any caller that supplies true multiplicity never
   reaches it. It cannot recover the right model — deduping `Crm, App, Crm` to `Crm, App` retypes the
   third occurrence as `App`, which is why the dedupe was removed rather than compensated for.
+- **A queue longer than the occurrence count.** `ResourceTransformer::mergePropertyFqcnMaps()`'s
+  superset case lands here: a property two of its seven merged maps both register carries every
+  map's entries, so the queue outgrows the real occurrence count. The prefix the occurrences do
+  consume is unaffected — the surplus past it is simply never read.
 
 Occurrence order *is* FQCN source order by construction, not by luck. `mergeTypeScriptInfos()`
 appends to `$types` and `$orderedClassFqcns` inside the same loop iteration and then returns
@@ -108,10 +130,7 @@ including `a longer registered name is not shadowed by a shorter one that prefix
 
 **Invariant: no bare colliding token survives `aliasPropertyType()`.** Every name that reaches a
 queue is rewritten at every occurrence, because the cursor clamps to the queue's last entry rather
-than running off the end. The invariant is scoped to this helper on purpose:
-`ModelTransformer::rewriteTypeReferences()` aliases a *morph relation* union through its own
-`$relationAliases` walk, which has no such clamp — when `isset($nameToAliases[$bare][$idx])` fails
-it leaves the member bare. That channel is a known gap, not part of this invariant.
+than running off the end.
 The invariant is what
 [the unimportable-token gate](../testing/type-inference-gates.md) depends on — a bare `User` left
 in a file that imports only `User as ModelsUser` and `User as CrmUser` is a `TS2304`. The
@@ -172,6 +191,17 @@ with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
   relation-derived preference the way `ModelTransformer`'s models do.
 - **Const-alias mirroring.** Identical to `ModelTransformer`: a sibling registry (same skip
   list) resolves enum const aliases independently of the type aliases.
+- **Inline-only consts.** An enum reached only through `EnumResource::make()` nested inside an
+  inline array literal (`analyzeInlineArray()`'s tolki branch) never enters `enumFqcnMap` — no
+  bare type import is needed for it, only a value import for its const — so the loop that mirrors
+  `enumFqcnMap` into the const registry never sees it. A second loop registers every
+  `enumConstMap` FQCN the first loop skipped, guarded by `! isset($this->enumFqcnMap[$fqcn])` so
+  it only ever adds the leftovers; the guard does not itself change `$constRegistry`'s output
+  (`register()` keeps an already-registered FQCN's original slot, so re-registering it would be a
+  harmless no-op), but it keeps the loop legible as "leftovers only." This is what lets two
+  same-named consts that are *both* inline-only, or one inline-only and one already registered by
+  the first loop, resolve to distinct names instead of colliding as two identical, unaliased value
+  imports from different files — a `TS2300`.
 - **Applying the result.** `applyResolvedImportNames($registry->resolve(), $this->enumFqcnMap +
   $this->resourceFqcnMap + $this->modelFqcnMap, $constRegistry->resolve())` — the three-way
   union is safe because no FQCN is written into more than one of the three maps. `resourceFqcnMap`
@@ -183,6 +213,17 @@ with `new ImportNameRegistry(['Models', 'Enums', 'Http', 'Resources', 'App'])`:
   respectively. This is a property of *where these maps are populated from*, not something PHP's
   type system enforces (a class extending both `Model` and `JsonResource` is technically
   possible; nothing in this codebase creates or expects one).
+
+  This single call is also what resolves the inline-only const's alias — no separate
+  transformer-local step is needed. See [Rewriting aliased type references](#rewriting-aliased-type-references)
+  above for `applyResolvedImportNames()`'s own leftover pass, which is what makes that work.
+- **Substituting the inline wrap's own token.** Aliasing the import is not enough on its own — the
+  property's *type string* still needs the corrected const name substituted into its
+  `AsEnum<typeof {const}>` occurrence. That happens later, in `rewriteEnumResourceTypes()`, not
+  here: see [ResourceAstAnalyzer § The inline wrap's own const token is aliased by the transformer,
+  not here](resource-ast-analyzer.md#the-inline-wraps-own-const-token-is-aliased-by-the-transformer-not-here)
+  for why it has to be a separate `aliasPropertyType()` call keyed on the const maps, rather than
+  reusing `rewriteTypeReferences()`.
 
 ### `BroadcastEventTransformer`
 

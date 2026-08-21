@@ -28,6 +28,8 @@ export interface Team
     /** Number of members */
     member_count: number;
     status_history: StatusType[];
+    /** A single scalar Status, distinct from statusHistory()'s array shape. */
+    latest_status: StatusType;
     // Relations
     /** The user who owns this team */
     owner: User;
@@ -45,8 +47,9 @@ export interface Team
     members_exists: boolean;
 }
 
-export interface TeamResource extends Omit<Team, 'week_days' | 'status_history'>
+export interface TeamResource extends Omit<Team, 'week_days' | 'status_history' | 'latest_status'>
 {
     week_days: AsEnum<typeof WeekDays>[] | null;
     status_history: AsEnum<typeof Status>[];
+    latest_status: AsEnum<typeof Status>;
 }

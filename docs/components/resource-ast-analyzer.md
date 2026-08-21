@@ -17,12 +17,14 @@ multi-model accessor union such as `Attribute<ModelA|ModelB, never>`), the analy
 object shape — the model interface already carries `#[TsCasts]` overrides and `@property`
 docblock refinements that a from-scratch recompute loses.
 
-### When a Pick/Omit reference is emitted
+### When a Pick reference is emitted
 
-`relationFilterModelReference()` builds `Pick<Model, 'a' | 'b'>` (for `only()`) or
-`Omit<Model, 'a' | 'b'>` (for `except()`) — `[]`-suffixed for many-relations, `| null`-suffixed
-for nullsafe calls — whenever **every filter key is a column the model interface actually
-declares**, per `ModelAttributeResolver::publishedColumnNames()`.
+`relationFilterModelReference()` builds `Pick<Model, 'a' | 'b'>` — `[]`-suffixed for
+many-relations, `| null`-suffixed for nullsafe calls — whenever **every filter key is a column
+the model interface actually declares**, per `ModelAttributeResolver::publishedColumnNames()`.
+For `only()` the picked keys are the caller's own list, verbatim. For `except()` they are the
+**complement**: `publishedColumnNames()` minus the named keys, in schema order — so the emitted
+type always names what the property actually contains, not what it excludes.
 
 That gate has to match the *emitted* interface, not just the schema. The raw schema listing
 (`databaseColumnNames()`) is a superset only when `ts-publish.models.exclude_hidden` is enabled:
@@ -35,55 +37,54 @@ runtime). The setting defaults to `false`, so by default hidden columns are publ
 `publishedColumnNames()` includes them like any other column — see
 [ModelAttributeResolver § `publishedColumnNames()` and the `exclude_hidden`
 coupling](model-attribute-resolver.md#publishedcolumnnames-and-the-exclude_hidden-coupling).
-`Omit<T, K>` does not constrain `K`, so it would compile either way; the same gate is
-applied to both for one rule rather than two. A key that is an accessor, mutator, or relation
-name falls back to the inline expansion unchanged —
-`only()` can legitimately request those (Eloquent's `Model::only()` resolves through
-`getAttribute()`, which reaches accessors and relations too), but the analyzer only optimizes
-the plain-column case and leaves everything else to the existing inline path.
+The `keyof` constraint binds both branches identically now: `except()`'s complement is computed
+by subtracting the named keys from that same already-gated column list, so every picked key is a
+`keyof Model` member by construction, the same guarantee `only()`'s verbatim list gets from the
+gate above it. A key that is an accessor, mutator, or relation name falls back to the inline
+expansion unchanged — `only()` can legitimately request those (Eloquent's `Model::only()`
+resolves through `getAttribute()`, which reaches accessors and relations too), but the analyzer
+only optimizes the plain-column case and leaves everything else to the existing inline path.
 
-Both wrappers name the model's **own** interface (`Omit<Order, ...>`, `Pick<Order, ...>`) —
-never `{Model}All`, never a mutators/relations interface — and they do so unconditionally, with
-the same text emitted regardless of which model template is configured. What that name *means*
-is template-dependent, so the correctness argument below is scoped to
-`ts-publish.models.template`:
+The reference names the model's **own** interface (`Pick<Order, ...>`) — never `{Model}All`,
+never a mutators/relations interface — and it is **template-independent by construction**: the
+picked key set comes only from `publishedColumnNames()`, so the text is identical whether
+`ts-publish.models.template` is `model-split` (the package default, where the bare `{Model}`
+already carries columns only) or `model-full` (one interface per model carrying everything —
+`workbench/resources/js/types/data/full-template-example/app/models/order.ts`'s `Order` also has
+`item_count`, `formatted_total`, `user`, `items`, `items_count`, `user_exists`, … on top of the
+same columns). Naming the *excluded* keys instead — `Omit<Order, 'created_at' | 'updated_at'>`,
+the shape this analyzer used to emit — would have inherited whatever `keyof Order` is under the
+active template, re-widening back to every member `keyof Order` carries under `model-full` — columns,
+mutators, relations, counts and exists alike — even though
+`Model::except()` never returns any of them. Naming the *surviving* keys explicitly cannot
+re-widen, regardless of how many other members the base interface carries. The regenerated
+fixtures confirm this directly: the `order_extended`/`post_extended`/`latest_payment_excluded`
+properties are byte-identical text across the `default-example`, `full-template-example`, and
+`split-template-example` trees.
 
-- **Under `model-split`** (the package default) `{Model}` is columns only; mutators, relations,
-  counts, and exists live in `{Model}Mutators`/`{Model}Relations`, which only `{Model}All`
-  unions back together. `Omit<Model, keys>` is therefore a columns-minus-keys type, which is
-  exactly the argument that follows.
-- **Under `model-full`** there is one interface per model carrying all of it. In
-  `workbench/resources/js/types/data/full-template-example/app/models/order.ts`, `Order` holds
-  the columns *and* `item_count`, `formatted_total`, `user`, `items`, `items_count`,
-  `user_exists`, … So the `Omit<Order, 'created_at' | 'updated_at'>` in
-  `.../full-template-example/app/http/resources/order-item-resource.ts` — byte-identical to the
-  one in the `split-template-example` tree — spans all of those too, and describes a value with
-  mutators and relations on it that `Model::except()` does not return at runtime. That is the
-  inaccuracy the inline expansion used to share (see the end of this section, where it is now
-  fixed); under `model-full` the Omit reference still carries it. It still compiles — `Omit<T, K>` does not
-  constrain `K` — and it is still a superset of the truth rather than a wrong-typed property, but
-  it is not the tight match the split template gives.
+This is also why the reference is a `Pick<>` of survivors rather than an `Omit<>` of the excluded
+keys, independent of the template argument above: `Omit<T, K>` does not constrain `K`, so it
+compiles regardless of what `T` actually has, and its member set is not derivable from the type
+string alone — reading it off requires already knowing `T`'s full member list elsewhere.
+`Pick<T, K>`'s member set *is* `K`, so recomputing `K` as the complement reproduces
+`Model::except()`'s real key set directly and leaves it legible without cross-referencing
+anything else — a property the ground-truth test described just below depends on.
 
-`Pick<>` is unaffected by the template: its keys are gated on `publishedColumnNames()`, so they
-are columns either way and the picked type is the same under both.
-
-The `model-split` argument itself initially looked unsafe for `Omit<>` specifically — the bare
-`{Model}`'s `keyof` doesn't span mutators or relations, which would make `Omit<Model, keys>`
-narrower than the *old* inline expansion for a model with any mutator or relation. That
-comparison is the wrong baseline, though:
-`Illuminate\Database\Eloquent\Concerns\HasAttributes::except()` iterates
-only `$this->getAttributes()` (the raw attribute array) — it never reads `$this->relations` at
-all, and `mergeAttributeFromAttributeCasts()` explicitly refuses to merge a get-only `Attribute`
-cast's value back into `$attributes` (`if ($attribute->get && ! $attribute->set) { return; }`),
-so a get-only accessor can never surface even once it has been accessed. **At runtime,
+`Illuminate\Database\Eloquent\Concerns\HasAttributes::except()` iterates only
+`$this->getAttributes()` (the raw attribute array) — it never reads `$this->relations` at all, and
+`mergeAttributeFromAttributeCasts()` explicitly refuses to merge a get-only `Attribute` cast's
+value back into `$attributes` (`if ($attribute->get && ! $attribute->set) { return; }`), so a
+get-only accessor can never surface even once it has been accessed. **At runtime,
 `Model::except()` only ever returns database columns** — verified empirically in
-`tests/Feature/ModelOnlyExceptSemanticsTest.php` against a real, DB-fetched `Post` instance with
-a loaded relation and both get-only accessors (`excerpt`, `readingTime`) touched beforehand; the
+`tests/Feature/ModelOnlyExceptSemanticsTest.php` against a real, DB-fetched `Post` instance with a
+loaded relation and both get-only accessors (`excerpt`, `readingTime`) touched beforehand; the
 result was identical to an untouched instance, and neither the relation nor either accessor
-appeared. Under `model-split`, the bare-model `Omit<Model, keys>` this analyzer emits matches that
-ground truth exactly. The *old* inline expansion's `except()` branch — which unioned every
-attribute name (columns **and** accessors) with every relation name and subtracted the excluded
-keys — was the one that disagreed: it showed relations and accessors `Model::except()` never
+appeared. That same file also parses the `Pick<>` reference's key list back out of a live analyzer
+run and diffs it, member for member, against `$post->except([...])`'s real output — a check
+`Omit<>`'s type string could never support, since its excluded-key list is not the emitted member
+set. The *old* inline expansion's `except()` branch — which unioned every attribute name (columns
+**and** accessors) with every relation name and subtracted the excluded keys — was the one that
+disagreed with this ground truth: it showed relations and accessors `Model::except()` never
 actually returns at runtime. That is fixed; see **Relations half fixed too** below.
 
 **Mutator half fixed in a later pass:** `buildModelDelegatedAnalysis()`'s own property set — used
@@ -171,14 +172,22 @@ Two touch points implement the implicit side. `buildModelDelegatedAnalysis()`
 select an explicitly-named hidden column from, so the method takes a `bool $excludeHidden = true`
 parameter instead of filtering unconditionally: `analyzeOnlyFilter()` is the one caller that
 passes `false`. `resolveFilteredRelationType()`'s except branch has no such sharing problem — it
-builds its key list fresh per call — so it filters unconditionally there; `WarehouseResource`'s
-`last_user_activity_by_mostly` (a multi-model accessor union reaching the `except()` branch through
-`analyzeRelationFilter()`'s accessor-union loop) is the fixture that pins this touch point against
-`User::$hidden`. Three sites are
-deliberately left untouched because each already takes the caller's request verbatim rather than
-deriving it from the full attribute list: `filterAnalysisByKeys()`, the include branch of
-`resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()` (the
-single-attribute resolution that `only()` and `whenHas()` both end up calling).
+builds its key list fresh per call — so it filters unconditionally there. `WarehouseResource`'s own
+union-accessor `except()` calls (`last_user_activity_by_mostly`, `last_checked_by_mostly`) no
+longer reach this branch: every excluded key there is a non-hidden published column, so each arm
+resolves through `relationFilterModelReference()` instead — see [Multi-model accessor unions
+reference each arm's own model](#multi-model-accessor-unions-reference-each-arms-own-model) below.
+`ModelAttributeResolver::publishedColumnNames()` is `relationFilterModelReference()`'s own
+`$hidden` gate, and it is still pinned directly — `PostAttachmentFilterResource::$attachment_hidden`
+under `exclude_hidden` — but no fixture currently drives a hidden column through this specific
+except-branch subtraction end to end: the only two workbench models with a `protected $hidden`
+property are `Attachment` (exercised only via `only()`, never reaching this branch) and `App\Models\User`
+(whose `except()` calls above now resolve through `Pick<>` instead). This is a test-coverage gap,
+not a behavior gap — the subtraction logic itself already agrees with `Model::except()`'s runtime
+behavior. Three sites are deliberately left untouched because each already takes the caller's
+request verbatim rather than deriving it from the full attribute list: `filterAnalysisByKeys()`,
+the include branch of `resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()`
+(the single-attribute resolution that `only()` and `whenHas()` both end up calling).
 
 ## Import dispatch rules
 
@@ -196,10 +205,16 @@ resolvable `import` statement somewhere in the dispatch chain.
 | Multiple enums (`Status\|Priority`) | yes | `embeddedEnumFqcns` (per-property inline-enum import plumbing) |
 | Single `Model` subclass | yes | `modelFqcn` |
 | Multiple / mixed `Model` subclasses | yes | `embeddedModelFqcns` |
-| `Model` + enum union (`Order\|Status`) | yes | `modelFqcn`/`embeddedModelFqcns` *and* `directEnumFqcn`/`embeddedEnumFqcns` together — both channels fire off the same result |
+| `Model` + enum union (`Order\|Status`) | yes | `embeddedEnumFqcns` *and* `embeddedModelFqcns` together — always the multi-entry channels, never the single-entry ones, whatever each kind's count |
 | `#[TsType(import: ...)]`-annotated class | yes | `customImports`, merged into `ResourceAnalysis::$customImports` and consumed by `ResourceTransformer::mergeCustomImports()` |
 | Any non-`Model` class (DTO, value object, cast class without `#[TsType]`) | **no** — degrades to `unknown` | none; this package generates no published file for an arbitrary class, so there is nothing to import |
 | `void` / `never` / `mixed`'s reflected `unknown \| null` / empty type | **no** — degrades to `unknown` | none; these carry no meaningful TypeScript shape |
+
+"Always the multi-entry channels" in that last row is structural, not a convention.
+`acceptReflectedTypeInfo()` sets `directEnumFqcn` only when `count($enumFqcns) === 1 && $classFqcns === []`,
+and `modelFqcn` only when `count($classFqcns) === 1 && $enumFqcns === []`. A union carrying both kinds
+fails both tests, so the single-entry channels are unreachable for it even when each kind contributes
+exactly one FQCN — which is why that row does not contradict the two above it.
 
 The non-`Model`-class rejection is a single guard checked before any channel is populated:
 `Order|Status` and `Order|SomeDto` are structurally similar (`classFqcns` and `enumFqcns` both
@@ -217,18 +232,23 @@ the `$isMixed` check is key-sensitive, testing whether a property name is a key 
 the other two — both import-garbage-collection loops — compare values only and work correctly for
 both entry kinds. `substituteEnumResourceType()` never reads this map at all.
 
+`analyzeInlineArray()` runs the identical `$isMixed` check for a *nested* key, against its own
+method-local `ResourceAnalysis` rather than `ResourceTransformer`'s instance maps — see
+[A mixed ternary inside an inline array](#a-mixed-ternary-inside-an-inline-array) below.
+
 ### The tolki `AsEnum` wrap substitutes a token; it never rebuilds the type
 
 An `EnumResource::make()`-wrapped property reaches the `enumResources` channel carrying the
 analyzer's own type string, in which the enum appears as its bare TS type name (`RoleType` —
 `TypeScriptTypeInfo::$enumTypes[0]`, i.e. the `#[TsEnum]` name or the class basename, suffixed
 `Type`). With `enums.use_tolki_package` on, **both** rewrite paths turn that into
-`AsEnum<typeof Role>` by *substituting the bare token in place*:
+`AsEnum<typeof Role>` by *substituting the bare token in place*, for the ordinary (non-mixed) case:
 `ResourceTransformer::substituteEnumResourceType()` for a top-level property, and
 `ResourceAstAnalyzer::substituteEnumType()` for one nested inside an inline array literal.
 Both use the same word-boundary pattern — the lookbehind excludes `.` so a namespace-qualified
 `foo.RoleType` is left alone, the lookahead stops `RoleType` matching the prefix of
-`RoleTypeExtra`.
+`RoleTypeExtra`. A nested key whose ternary is *mixed* — wrapped in one arm, read directly in the
+other — instead goes through `ResourceAstAnalyzer::expandMixedEnumType()`; see the next section.
 
 Substitution matters because the analyzer's type is often richer than `X`/`X[]`, and the corpus
 pins two such shapes:
@@ -252,42 +272,208 @@ every arm that names the enum and leaving the rest of the union untouched.
 `RelationChainResource::$member_role_resources_filtered` (top level) and `$wrapped_filtered`
 (inline array) pin the two paths against the identical PHP shape — they must never disagree.
 
-### Multi-model accessor unions are untouched
+### The inline wrap's own const token is aliased by the transformer, not here
 
-The other branch of `analyzeRelationFilter()` — an accessor typed as a union of two or more
-Eloquent models, e.g. `Attribute<CrmUser|User, never>` — is left on the pre-existing inline
-expansion entirely. Nothing *rejects* a union: `relationFilterModelReference()` is only called
-below the `$modelFqcn === null` guard, and that guard is precisely what diverts a multi-model
-receiver into the accessor-union loop. The `Pick`/`Omit` builder is unreachable from that
-branch rather than declined by it.
+Both substitution paths above embed the enum's **bare** const name (`Role`, not whatever alias it
+may need) into `AsEnum<typeof {const}>`, because neither one can do otherwise:
+`ResourceAstAnalyzer::substituteEnumType()` runs during analysis (`runAstAnalysis()`, step 6 of
+`ResourceTransformer::transform()`), before `resolveImportConflicts()` (step 10) has computed any
+alias at all. For a top-level property this is invisible: `rewriteEnumResourceTypes()` reads
+`$constImportAliases` itself and builds the *already-aliased* string directly
+(`$constName = $this->constImportAliases[$fqcn] ?? $this->enumConstMap[$fqcn]`), so the bare-const
+string the analyzer might otherwise have produced is never actually built for that case.
 
-Staying inline costs real fidelity, so this is a gap rather than a preference. The inline path
-re-derives each column's type and loses the `#[TsCasts]` refinements a model reference keeps by
-construction: `WarehouseResource::$last_user_activity_by_mostly` emits `options: unknown[] | null`
-and `settings: unknown[] | null` where the `User` model interface declares
-`Record<string, unknown> | null` and a full `{ theme; notifications; locale }` object shape.
+For a wrap nested inside an inline array, the bare-const string *is* what leaves the analyzer —
+`analyzeInlineArray()`'s substituted type string travels out flat, keyed by the *outer* property
+name, with no alias information attached. `ResourceTransformer::rewriteEnumResourceTypes()`
+corrects it in a dedicated final pass, after `resolveImportConflicts()` has run: for each property
+in `$propertyInlineEnumResourceFqcns` it calls `LaravelTsPublish::aliasPropertyType()`, keyed on
+`$this->enumConstMap` (the unaliased name) and `$this->constImportAliases` (the alias, when one
+exists), walking the FQCN list in the same order `analyzeInlineArray()` built it in. That order
+matters: two inline members can wrap *different* FQCNs that happen to share one bare const name —
+two distinct `Status` enums, say — and a naive per-FQCN global substitution would let the second
+FQCN's replacement clobber the first FQCN's own occurrence. `aliasPropertyType()`'s per-name queue,
+consumed left to right, is what keeps each occurrence pinned to its own FQCN.
+`DealResource::$status_pair` pins it: both arms wrap an already-top-level-aliased `Status` enum
+(`App\Enums\Status` and `Crm\Enums\Status`), and each occurrence must keep its own alias rather than
+both collapsing to whichever FQCN's alias is looked up first.
 
-What blocks the fix is **not** import plumbing — an earlier version of this section said it was,
-and that was never accurate. `embeddedModelFqcns` is accumulated per property name by
-`analyzeRelationFilter()`'s caller, and `LaravelTsPublish::aliasPropertyType()` already rewrites
-each same-basename occurrence within a single property. The real obstacles are three:
+`rewriteTypeReferences()` cannot be reused for this: its `$nameMap` is built from `enumFqcnMap +
+resourceFqcnMap + modelFqcnMap` only, so `enumConstMap` — the only map an inline-only EnumResource
+FQCN ever populates — is invisible to it. See
+[ImportNameRegistry § ResourceTransformer](import-name-registry.md#resourcetransformer) for the
+matching registration-side half: an enum reached *only* through an inline wrap never enters
+`enumFqcnMap` at all, so it needs its own path onto the const registry too.
 
-- **`Omit<Model, …>` is template-dependent; the inline expansion is not.** Under the `model-full`
-  template the bare model interface also carries mutators, relations, counts and exists, so a
-  reference re-widens exactly what the runtime-faithful `except()` expansion narrowed to database
-  columns. A model declaring `$appends` has the same problem under every template.
-- **The test pinning "columns only" would stop testing it.** `ResourceTransformerTest` asserts
-  `not->toContain('images: Image[]')` against the emitted type *string*. `Omit<User, 'id' | 'name'>`
-  names no members, so that assertion passes vacuously while the type genuinely spans them — the
-  guarantee would retire silently instead of failing.
-- **The union loop dedupes by rendered type.** `relationFilterModelReference()` renders
-  `class_basename()`, so two models sharing a basename collapse to one string and the dedupe drops
-  the second arm — together with the FQCN push that would have registered its import.
+### A mixed ternary inside an inline array
 
-`only()` is a separate case with nothing to gain: `Pick<A, K> | Pick<B, K>` is type-identical to
-the inline object the union loop already emits. Only `except()` would benefit, and only once the
-template-dependence is resolved. Tracked with a full fix shape in the analyzer-followups plan's
-Out of Scope section.
+`ResourceTransformer::rewriteEnumResourceTypes()`'s top-level `$isMixed` branch synthesizes
+`AsEnum<typeof Const> | EnumTypeName` from scratch whenever a property is both EnumResource-wrapped
+and directly enum-read — it never trusts the analyzer's own merged type string. `analyzeInlineArray()`
+cannot do the same for a *nested* key: its `ResourceAnalysis` is method-local, and only flat property
+lists leave the method, keyed by the array literal's own (outer) property name, so the transformer
+has no way to know which inner key was mixed. The fix has to stay analyzer-side, in
+`expandMixedEnumType()`, working from the merged type string plus the one out-of-band signal the
+analyzer does keep — `$isMixed`.
+
+Two shapes reach this code, and the merged type string carries different information for each:
+
+- **Homogeneous** — both ternary arms produce the identical type string (e.g. `EnumResource::make($this->status)`
+  vs `$this->status`, both `StatusType`). `analyzeClosureUnion()` deduplicates identical strings
+  before `mergeUnionChannels()` ever joins them, so by the time `analyzeInlineArray()` sees it there
+  is exactly one `StatusType` token — no per-member signal survives to say "this token stands for
+  two arms, only one of which was wrapped." `$isMixed` is the signal that survives instead:
+  `mergeUnionChannels()` sets *both* `enumFqcn` and `directEnumFqcn` only when one arm wrapped and
+  another read directly, so its presence alone proves a wrapped arm exists that the single token does
+  not show. `expandMixedEnumType()` therefore spells that arm out beside the bare one rather than
+  substituting the token in place. `ResourceWrappedEnumResource::$ternary_enums_array` pins it:
+  `{ status: AsEnum<typeof Status> | StatusType }`. Both halves are load-bearing and were measured
+  separately — substituting in place (the pre-fix blanket `substituteEnumType()` path, reached because
+  the call site used to gate `expandMixedEnumType()` behind `count($members) > 1`) emitted
+  `{ status: AsEnum<typeof Status> }`, dropping the direct-read arm; removing that gate without
+  teaching `expandMixedEnumType()` the collapsed shape emitted `{ status: StatusType }`, dropping the
+  wrapped arm instead. This now matches the top-level `$isMixed` rewrite, which reconstructs
+  `AsEnum<typeof Const> | EnumTypeName` from the FQCN maps regardless of what the analyzer's own
+  merged string says — a same-shaped top-level mixed pair (`status_when_not_null_arrow`, below) and
+  this nested one both get the full union. (`status_ternary_both`, elsewhere in the same fixture,
+  looks similar but is not this case at all — both of its arms are EnumResource-wrapped, so
+  `mergeUnionChannels()` never sets `directEnumFqcn` for it; its single `AsEnum<typeof Status>` is
+  the ordinary, correct wrapped-only substitution, not a dropped arm.)
+- **Heterogeneous** — the two arms produce *different* type strings because one is forced into an
+  array shape and the other is not (e.g. `EnumResource::collection($this->status_history)`, already
+  array-shaped, vs a direct scalar read of a different accessor sharing the same enum — `StatusType[]`
+  vs `StatusType`). Those two strings are not identical, so `analyzeClosureUnion()` keeps both and the
+  merged type string is a genuine two-member union, each member's own shape still visible.
+  `expandMixedEnumType()` substitutes
+  only the member matching `{bareTypeName}[]` — the one `EnumResource::collection()` actually
+  produced — and leaves any other member untouched; the presence of that array-shaped member is also
+  what tells it the arms are already distinguishable, so it does not additionally spell out the
+  wrapped arm the way the homogeneous case needs. `EnumCollectionResource::$wrapped_status_fallback`
+  pins it: `{ status: AsEnum<typeof Status>[] | StatusType }`. Before this fix, the same blanket
+  `substituteEnumType()` call used for the homogeneous case matched *both* members (the word-boundary
+  regex does not stop at `[`), wrongly producing `AsEnum<typeof Status>[] | AsEnum<typeof Status>`.
+
+Before Task 16, this deliberately did **not** mirror `rewriteEnumResourceTypes()`'s `isCollection`
+reconstruction, which wrapped the *entire* mixed union in `()[]`
+(`(AsEnum<typeof Const> | EnumTypeName)[]`) whenever the top-level property's pre-rewrite type
+happened to end in `[]` — a shape that is only correct when *both* arms are arrays, and wrong
+(`(A | B)[]` where the truth is `A | B[]`) for exactly this heterogeneous case. Task 16 fixed the
+top-level rewrite to match: it now array-suffixes only the bare arm
+(`AsEnum<typeof Const> | EnumTypeName[]`) instead of wrapping the whole union, the same principle
+`expandMixedEnumType()` already applied — an array-shaped arm keeps its own `[]`, a scalar arm
+never gains one it didn't earn — even though the two reach it by different means: this section's
+member-position matching versus the top-level rewrite's fixed convention that the wrapped arm is
+always scalar and the direct arm is the one that can be array-shaped, since it still has no
+per-member signal from the analyzer's own (collapsed-when-same-shaped) merged string to inspect.
+`EnumCollectionResource::$latest_status_or_history` pins the corrected top-level shape:
+`AsEnum<typeof Status> | StatusType[]`.
+
+In the globals tree, `LaravelTsPublish::rewriteAsEnumToType()`'s pair pattern folds an *exact*
+`AsEnum<typeof Const> | EnumTypeName` adjacency — no `[]` anywhere in that span, neither between
+the two names nor trailing the bare one — to a single qualified reference —
+`status_when_not_null_arrow`'s top-level homogeneous pair collapses to one `StatusType` reference,
+and `ternary_enums_array`'s nested one folds the same way inside its inline object — the bare name is
+followed by a space and `}`, which the lookahead allows — so the globals tree kept
+`{ status: app.enums.StatusType }` byte-identical across this fix.
+`wrapped_status_fallback`'s heterogeneous `AsEnum<typeof Status>[] | StatusType` does
+not match (the `[]` sits between the two names), and neither does `latest_status_or_history`'s
+`AsEnum<typeof Status> | StatusType[]` (the `[]` trails the bare name instead) — both render as two
+independently-qualified references, correct, since the two members mean different things despite
+sharing a base name. The trailing-`[]` exclusion is also from Task 16: before it, the pair
+pattern's lookahead rejected only a following word character, so it still matched the
+`AsEnum<typeof Const> | EnumTypeName` prefix of `AsEnum<typeof Status> | StatusType[]` and folded
+it to a single qualified reference with the array arm's `[]` left dangling after — `StatusType[]`
+alone, silently dropping the scalar arm.
+
+### Multi-model accessor unions reference each arm's own model
+
+`analyzeRelationFilter()`'s other branch handles an accessor typed as a union of two or more
+Eloquent models, e.g. `Attribute<CrmUser|User, never>`. The `$modelFqcn === null` guard diverts
+this receiver into a loop over `resolveAccessorModelFqcns()`'s FQCN list — one arm per model — and,
+like the single-model path just above, that loop now tries `relationFilterModelReference()` for
+each arm *first*, falling back to `resolveFilteredRelationType()`'s inline expansion only when a
+filter key is not one of that arm's own published columns (an accessor, mutator, or relation name).
+Every filter key on `WarehouseResource::$last_user_activity_by_mostly` (`except(['id', 'name'])`)
+and `$last_checked_by_mostly` (`except(['created_at', 'updated_at'])`) is a plain column on both
+models in the union, so both arms now resolve to `Pick<>` references:
+
+`last_user_activity_by_mostly`'s emitted type, before Task 12:
+
+```ts
+{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null
+```
+
+After:
+
+```ts
+Pick<CrmUser, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | Pick<ModelsUser, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null
+```
+
+The inline path re-derived each column's type from scratch and lost the `#[TsCasts]` refinements a
+model reference keeps by construction: the old `options`/`settings` came out as `unknown[] | null`
+where the `User` model interface itself declares `Record<string, unknown> | null` and a full
+`{ theme; notifications; locale }` object shape respectively. The `Pick<>` reference carries those
+refinements for free, the same benefit the single-model path already had.
+
+Three things had to change together to make each arm reachable, not just one:
+
+- **The single-model reference had to stop being template-dependent first.** It used to emit
+  `Omit<Model, …>`, which re-widened under `ts-publish.models.template = model-full` (the bare
+  model interface there also carries mutators, relations, counts and exists). It now emits
+  `Pick<Model, …>` of the complement instead — template-independent by construction, and immune to
+  `$appends` too, since its key universe is `publishedColumnNames()` (schema columns) rather than
+  `keyof Model` — see [When a Pick reference is emitted](#when-a-pick-reference-is-emitted) above.
+  Reusing the same builder per arm would otherwise have carried that re-widening into every
+  multi-model union too.
+- **The regression test had to stop passing vacuously first.** `ResourceTransformerTest` used to
+  assert `not->toContain('images: Image[]')` against the emitted type *string*, which a `Pick<>`
+  arm passes trivially — no member names, so the check never fails. It now splits the union with
+  `splitTopLevelType()` and reads each arm's members through `relationFilterArmMembers()`, which
+  **throws** on a model-reference arm instead of returning `[]` — so a future `Pick<>` arm fails
+  the test loudly the moment it appears, forcing an honest update instead of a silent pass.
+- **The union loop's own dedupe was keyed on the wrong thing.** It skipped an arm once its
+  *rendered string* repeated, and `relationFilterModelReference()` renders `class_basename($fqcn)`
+  — so two FQCNs sharing a basename render identically even when they are different models.
+  `WarehouseResource::$last_user_activity_by_partial` (`only(['id', 'name'])`) is the fixture that
+  shows the failure mode was not cosmetic: `CrmUser`'s and `ModelsUser`'s picked `{id, name}` shapes
+  are structurally identical, so the string-keyed dedupe collapsed two real arms into the single
+  merged type `{ id: number; name: string } | null` — the second model's arm, and the FQCN push
+  that would have registered its import, were silently dropped. The loop now tracks a `$seenFqcns`
+  list and dedupes on the arm's own FQCN instead, so same-basename models never collide, and it
+  emits `Pick<CrmUser, 'id' | 'name'> | Pick<ModelsUser, 'id' | 'name'> | null` — two arms, matching
+  the two real models. The FQCN push into `embeddedModelFqcns` also moved outside the
+  "type accepted" guard it used to share with the string dedupe, and the returned list is no longer
+  passed through `array_unique()`: `LaravelTsPublish::aliasPropertyType()` consumes that list
+  positionally against left-to-right occurrences of each basename in the rendered type — its own
+  docblock in `LaravelTsPublish.php` states the contract directly: never dedupe it, since a caller
+  may need more entries than real occurrences, and the method only ever consumes the matching
+  prefix. A real repeated occurrence has to survive as a repeat, not collapse to one entry.
+
+A filter key that is not a published column on one of the union's models still falls back to that
+arm's inline expansion, same as the single-model path: `WarehouseResource::$crm_contact_partial`
+(`$this->primaryContact?->only(['status', 'images'])`) exercises this directly — `images` is a
+`MorphMany` relation on `Crm\Models\User`, not a column, so `relationFilterModelReference()`
+declines and the property falls back to `{ status: CrmStatusType; images: Image[] } | null`. That
+fixture is also what keeps an aliased-enum inline shape in the corpus at all: without it, nothing
+in `WarehouseResource` would still spell out `CrmStatusType` inline, `Workbench\Crm\Enums\Status`
+would stop colliding with `Workbench\App\Enums\Status`, and `review_priority`'s own enum would
+render as the unaliased `StatusType` instead of `EnumsStatusType` — a change to an unrelated
+property caused entirely by an import that stopped being needed elsewhere in the same file.
+
+A declining arm's own FQCN must never reach `embeddedModelFqcns`, precisely because it declined:
+its inline `{ ... }` expansion spells out member types, never a bare reference to the model's own
+name, so there is no occurrence in the rendered text for that FQCN to align against.
+`WarehouseResource::$probe_mixed` (`$this->last_user_activity_by?->only(['id', 'phone'])`) pins
+this — `phone` is a column on `App\Models\User` but not on `Crm\Models\User`, so the `CrmUser`
+arm declines and falls back to `{ id: number }` while the other arm resolves to `Pick<User, 'id' |
+'phone'>`. The emitted type has exactly one bare `User` occurrence, so exactly one FQCN belongs in
+the queue. Pushing the declining arm's FQCN anyway — as an earlier version of this fix briefly did
+— left two entries queued against one occurrence: `aliasPropertyType()` consumed the first (`CrmUser`)
+for the arm that was really `App\Models\User`'s, emitting `Pick<CrmUser, 'id' | 'phone'>`, silently
+wrong. Only `$filterResult['modelFqcns']` — FQCNs nested *inside* a fallback arm's own inline
+expansion, from a relation the arm's shape happens to reference — belong in the list from that
+branch, mirroring the single-model path's `'embeddedModelFqcns' => $filterResult['modelFqcns']`
+just above (never the arm's own FQCN there either).
 
 ## Variable bindings
 
@@ -309,10 +495,14 @@ degrading to `unknown`. It is populated from three sources, each scoped to the b
 
 ### Scoping and shadowing
 
-Every writer follows the same save/restore discipline as `$closureRelationModelClass`: snapshot
-the map (or the one key being overwritten), mutate it for the nested body's analysis, then restore
-the snapshot — so a closure parameter that shadows an outer variable of the same name resolves
-against its **own** binding and can never leak into, or be leaked into by, the outer scope. See
+The two closure writers follow the same save/restore discipline as `$closureRelationModelClass`:
+snapshot the map (or the one key being overwritten), mutate it for the nested body's analysis, then
+restore the snapshot. The third writer does not. `bindForeachLoopVariables()` assigns
+`$this->varModelBindings[$stmt->valueVar->name]` outright, with no snapshot and no restore, because its
+binding is method-wide by design — the third bullet above says so. The shadowing guarantee survives that
+exception: a closure parameter that shadows an outer variable of the same name still resolves against its
+**own** binding and can never leak into, or be leaked into by, the outer scope, because it is the closure
+writers' own snapshots that restore over whatever the `foreach` binding left behind. See
 `ClosureParamShadowResource` in the workbench: a top-level `$member` and a `map(fn ($member) =>
 $member)` closure param share a name, and each site resolves independently.
 
@@ -402,7 +592,10 @@ the workbench and the corresponding test in `ResourceAstAnalyzerTest` for the tr
 `analyzeSelfReturningResourceMethodCall()` handles `new self($x)->method()`, `self::make($x)->method()`
 and chains of both. When `methodPreservesReceiverType()` says the method hands the same instance back —
 a native `static`/`self`/the resource class, or a docblock-only `@return $this` — the receiver's own
-resolved result is returned unchanged. When it says otherwise, the expression has stopped being the
+resolved result is returned, with one adjustment. A nullable method return appends `| null` to it first
+(`if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null'))`), so
+`FluentSelfResource::whenAuthorized(): ?static` widens the receiver's type rather than passing it
+through; `parent_fluent_nullable` pins that. When it says otherwise, the expression has stopped being the
 resource, and the method's *body* is resolved through `analyzeThisMethodSpread()` instead of degrading
 to `unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
 `buildInlineObjectType()` — the same helper `analyzeInlineArray()` assembles its `{ … }` arm with.
@@ -447,15 +640,44 @@ An inline array literal that spreads a named type alongside its own keys —
 `[...UserResource::make($m)->resolve($request), 'profile' => new ProfileResource($m->profile)]` —
 emits an intersection rather than flattening the spread's keys inline. `analyzeInlineArray()`
 collects the arms via `collectInlineArraySpreadArms()` and builds each one with
-`buildSpreadArmTypes()`. Two arm kinds are recognised, both handled identically once collected:
+`buildSpreadArmTypes()`. Three arm kinds are recognised:
 
 - **A resource arm** — a spread whose value resolves to a *bare* named resource (not an array or
   collection of one). The guard is that the result carries a `resourceFqcn` *and* its emitted type
   is exactly that resource's basename, so `UserResource[]` never becomes an arm.
-- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model, resolved by
-  `spreadModelToArrayFqcn()` against `$varModelBindings`, falling back to
-  `$closureRelationModelClass` for an untyped closure param. `$this->toArray()` is excluded by name:
-  it is the resource's own method and `isKnownArraySpreadShape()` already flattens it.
+- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model. `spreadModelToArrayFqcn()`
+  checks `$varModelBindings` first, then returns `null` for a `$var` bound only in
+  `$varCollectionBindings` — a to-many `whenLoaded` param holding the whole collection, not one
+  model — else falls back to `$closureRelationModelClass`.
+  Every `->map()` closure element actually resolves through that fallback, typed or not:
+  `analyzeVariableMapCall()` sets only `$closureRelationModelClass` for the element and never
+  populates `$varModelBindings` (`members_model_spread` pins the fallback path, not the explicit-
+  binding one). `$this->toArray()` is excluded by name: it is the resource's own method and
+  `isKnownArraySpreadShape()` already flattens it.
+- **A collection arm** — the `null` `spreadModelToArrayFqcn()` returns for a `$varCollectionBindings`
+  name is a *decline*, not a drop: `spreadCollectionToArrayFqcn()` picks the same expression up and
+  resolves it to the binding's element model. It emits `Record<number, {Model}>`.
+  `members_collection_spread` pins both halves — the decline and the Record.
+
+Resource and model arms are handled identically once collected. A collection arm is not, for the
+reason the next section gives.
+
+### Why a collection arm is a `Record<number, {Model}>`
+
+Spreading a *collection* is not spreading a *model*. `[...$members->toArray(), 'flag' => true]`
+renumbers the collection's elements, so the members land under `0..n` and the sibling string key
+rides alongside them — the payload is `{"0":{…},"1":{…},"flag":true}`, not one member's columns
+merged with `flag`. Typing that arm as `Omit<User, 'flag'>` would claim one user's columns at the
+top level, which the JSON contradicts; typing it as nothing at all would assert the object has
+*only* `flag`, hiding every member. `Record<number, {Model}>` is what the payload actually is.
+
+The element type carries the same honest-floor caveat a model arm does — `Collection::toArray()`
+calls each member's `toArray()`, so the value is the model's attribute map, and bare `{Model}` is
+the floor for that. See "What a model arm's bare `{Model}` does not say" below.
+
+`Record<…>` is the house idiom for a key-typed object here — 564 occurrences in the committed trees
+before this arm existed, against zero index signatures (`grep -E '\[[A-Za-z_]\w*\s*:\s*(string|number|symbol)\s*\]\s*:'`
+over `workbench/resources/js/types` returns nothing). `Record<number, …>` itself is new with this arm.
 
 Model detection is deliberately **local to the collector**. `analyzeValueExpression()` still types a
 bare `$member->toArray()` as `unknown[]` everywhere else, because giving it a `modelFqcn` generally
@@ -469,17 +691,41 @@ TypeScript's `&` does not — it intersects both, collapsing a colliding key to 
 types disagree. Subtracting the overridden keys from the earlier arm is what makes the emitted type
 mean what the PHP means.
 
-The subtraction is **unconditional**: an explicit key is Omitted whether or not the arm actually
-declares it. `Omit<T, K>` does not require `K extends keyof T`, so this is well-typed either way,
+A collection arm is the one exception, in both directions: it is never `Omit<>`'d, and it is never
+subtracted from an earlier arm. Its members key by index; every sibling key and every other arm's
+keys are strings, so the two cannot collide, and `Omit<T, number>` on a string-keyed `T` would
+subtract nothing anyway.
+
+The shape that *would* collide is a numeric explicit sibling key — `[...$members->toArray(), 5 => 'x']`
+puts `5` in both halves. It is unreachable rather than unhandled: `resolveKeyName()`
+(`src/Analyzers/Concerns/InspectsAstNodes.php:116`) returns a name only for a `String_` key, and
+`analyzeReturnArray()` skips every item whose key resolves to `null`, so a numeric key never becomes
+a property in the first place. `QuirkyResource` pins that independently — it writes `42 => $this->total`
+and `42 => 'number_keyed'`, and the generated `QuirkyResource` interface has no `42` member. So the
+collision cannot be constructed while numeric keys are dropped wholesale; a change that started
+emitting them would have to revisit this arm.
+
+For every other arm the subtraction is **unconditional**: an explicit key is Omitted whether or not
+the arm actually declares it. `Omit<T, K>` does not require `K extends keyof T`, so this is well-typed either way,
 and it lets `buildSpreadArmTypes()` work from `class_basename()` alone — a later arm's own shape
 never has to be resolved, only its name, for `keyof`. `NestedResourceSpreadResource` pins both
 sides of that: `members_double_spread` Omits `'note'` from `UserResource`, which has no `note` key,
 and `members_model_spread` Omits `'flag'` from `User`, which has no `flag` column.
 
-Arm order is source order, because the subtraction reads every arm *after* the current index. The
-two kinds are tracked together for that reason, and split only when the imports are dispatched:
-resource arms travel `embeddedResourceFqcns`, model arms `embeddedModelFqcns`, or the emitted token
-would be looked up in the wrong channel and never resolve to an import.
+Arm order is source order, because the subtraction reads every arm *after* the current index. All
+three kinds are tracked in one list for that reason, and split only when the imports are dispatched:
+resource arms travel `embeddedResourceFqcns`; model *and* collection arms travel
+`embeddedModelFqcns`, both naming a model, or the emitted token would be looked up in the wrong
+channel and never resolve to an import.
+
+That guarantee holds today only because `collectInlineArraySpreadArms()` appends to one list as it
+walks `$array->items`, never splitting the kinds into separate lists that get
+concatenated afterward — a plausible-looking refactor that would silently regroup arms by kind and
+subtract against the wrong later arm. `members_model_then_resource_spread` and
+`members_resource_then_model_spread` on `NestedResourceSpreadResource` pin this directly: each
+spreads model and resource arms in alternating order (`M, R, M` and its mirror `R, M, R`), the
+minimum shape where a by-kind grouping in *either* direction reorders both fixtures rather than
+coincidentally matching one of them.
 
 ### What a model arm's bare `{Model}` does not say
 
@@ -495,7 +741,7 @@ match for `toArray()`'s runtime output. `Model::toArray()` is
   `{Model}Mutators` holds `$data->mutators`, which is the accessors a model did *not* append.
 - **`relationsToArray()` — the real gap.** Bare `{Model}` omits it, so a relation loaded on
   `$member` before the spread is in the JSON payload but not in the type. Unknowable statically;
-  the same trade-off `Omit<Model, keys>` already makes for relation filters. Under `model-split`
+  the same trade-off `Pick<Model, columns>` already makes for relation filters. Under `model-split`
   relations live in `{Model}Relations`, which the arm does not reference.
 
 One gap runs the other way: `$hidden` columns are stripped at runtime (`attributesToArray()` goes
@@ -785,10 +1031,12 @@ excluded as unreachable anywhere else in the family.
 
 ## `#[Collects]` resolution is Laravel-version-guarded
 
-`collectedResourceClass()` checks for `Illuminate\Http\Resources\Attributes\Collects` behind
-`class_exists()` rather than a `use` import, because the package still supports Laravel 12 releases
-that don't ship the attribute. See [Version-guarded Laravel
-classes](../laravel-version-guards.md) for the full registry and when this guard can be removed.
+`InspectsAstNodes::resolveCollectedResourceClass()` — the shared resolver `collectedResourceClass()`
+and `resolveSingularResourceFqcn()` both delegate to — checks for
+`Illuminate\Http\Resources\Attributes\Collects` behind `class_exists()` rather than a `use` import,
+because the package still supports Laravel 12 releases that don't ship the attribute. See
+[Version-guarded Laravel classes](../laravel-version-guards.md) for the full registry and when this
+guard can be removed.
 
 ## `toResource()` convention guesses are gated on the published set
 
@@ -801,39 +1049,72 @@ resource this package never writes a file for. `ResourceTransformer` would then 
 string transformation and never touches the filesystem, so the import names a module that does not exist.
 
 `PublishedResourceRegistry` holds the resource classes the current run will actually emit.
-`isPublishedResourceClass()` is `isResourceClass()` plus that membership test, and it is used at exactly
-three convention sites:
+`isPublishedResourceClass()` is `isResourceClass()` plus that membership test, and it gates every site
+that invents a candidate class name, four in total:
 
 | Site | Candidates it can now reject |
 | --- | --- |
 | `resolveResourceForModel()`'s candidate loop | `{Model}Resource`, then bare `{Model}` |
 | `resolveResourceCollectionForModel()`'s `{Guessed}Collection` loop | `{Model}ResourceCollection`, then `{Model}Collection` — the inline `class_exists()`/`is_a()` pair gained a third `PublishedResourceRegistry::isPublished()` conjunct |
 | `resolveResourceCollectionForModel()`'s bare-candidate loop | the `{Model}Resource` fallback |
+| `InspectsAstNodes::resolveCollectedResourceClass()`'s naming-convention branch | `{X}Resource`, then bare `{X}` — shared by `ResourceAstAnalyzer::collectedResourceClass()` and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` (see below) |
 
 **`isResourceClass()` itself is unchanged.** Every branch that reads a class the developer wrote down
 stays ungated on purpose — an explicitly named resource is a declaration, not a guess:
 
 - the explicit-argument arms of `analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`
 - `resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
-- `collectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the `$collects`
-  property default
+- `resolveCollectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the
+  `$collects` property default
+- `ControllerPaginatorAnalyzer::resolvePaginatedResourceConstructorProps()`'s `new $resourceFqcn(...)`
+  resolution (`ControllerPaginatorAnalyzer.php:258`) — the class name comes from an explicit `new`
+  expression in the analyzed source, not an invented candidate, so it stays ungated on the same basis
 
-`collectedResourceClass()`'s **third** branch is the exception to that rule, and a known gap rather
-than a declaration. The `{X}Collection` → `{X}Resource` naming-convention step *invents* a name — the
-exact property this section opens by attributing to convention branches alone — and is **not** gated on
-`PublishedResourceRegistry`. Being rooted in a collection class the caller already accepted says
-nothing about whether the guessed *element* resource is one this run will emit, so it can still name a
-third-party or `#[TsExclude]`d class and produce the TS2307 this section exists to prevent. Gating it
-is a recorded follow-up; it is called out here so the ungated set is not misread as three deliberate
-declarations.
+### One resolver, not two — `collectedResourceClass()` and `resolveSingularResourceFqcn()` share it
+
+`ResourceAstAnalyzer::collectedResourceClass()` and `InertiaPageAnalyzer::resolveSingularResourceFqcn()`
+used to be near-verbatim copies of the same `#[Collects]` / `$collects` / naming-convention resolution
+order, including the same third, naming-convention branch — the one gap this section used to carry as a
+recorded follow-up rather than a fix. Both methods are now one-line delegations to
+`InspectsAstNodes::resolveCollectedResourceClass()`, the only place that logic exists; its naming-convention
+branch is gated on `PublishedResourceRegistry` exactly like the three sites above. Two call sites can no
+longer drift apart on this resolution order, because there is only one implementation left to diverge from.
 
 ### The registry fails open, and `RunnerForSource` depends on it
 
 An empty registry means "no information", so `isPublished()` returns `true` for every class. That is a
 contract, not a convenience: `RunnerForSource` handles a single FQCN and never resolves a collector, so it
-never reaches `PublishedResourceRegistry::register()` and a `ts:publish --source=…` regeneration analyzes
-with the registry empty. Failing closed there would silently strip every nested resource reference out of
-the regenerated file.
+never reaches `PublishedResourceRegistry::register()`. A `ts:publish --source=…` regeneration must still
+analyze against an empty registry even in the same process as an earlier full run — otherwise a leftover
+set from that run narrows this run's own convention guess and a real type silently collapses to `unknown`.
+Failing closed there would also silently strip the regenerated file's *convention-guessed* nested resource
+references. Only those. The registry is consulted at four candidate-inventing sites:
+`ResourceAstAnalyzer.php:2247`, `:2293` and `:2304`, plus the naming-convention branch of
+`InspectsAstNodes::resolveCollectedResourceClass()`, which tries two candidates (`:203`, `:209`). An
+explicitly named reference never reaches it and would survive — `SomeResource::make()` and
+`::collection()` (`ResourceAstAnalyzer.php:1705`, `:1719`) test `isResourceClass()` rather than
+`isPublishedResourceClass()`, and so do the explicit-argument arms of `analyzeToResourceCall()` and
+`analyzeToResourceCollectionCall()`.
+
+### Both runners reset the registry at the top of `run()`, once per run
+
+`PublishedResourceRegistry` means *this run*, not "every run since the process started". Both concrete
+runners enforce that as the first statement of `run()`: `Runner::run()` calls
+`PublishedResourceRegistry::reset()` before doing anything else, and `RunnerForSource::run()` does the
+same — its own reset, not a side effect of skipping `register()`.
+
+Placement matters. `Runner::generateResources()` returns early, before it would otherwise call
+`register()`, whenever `shouldPublishResources` is `false` (see "Populated once, before the generate
+loop" below). A reset placed next to that `register()` call would never run on a resources-disabled run,
+so the registry would still hold the *previous* run's set — the wrong kind of narrowing, not the
+intended "allow everything" of an empty registry. Resetting at the top of `run()` instead means a
+resources-disabled run reaches every convention-guessed resource unfiltered, exactly like the
+single-FQCN `RunnerForSource` path above, rather than being gated by stale state.
+
+This also closes the other direction: two full `Runner::run()` calls in one process, the second with a
+narrower `ts-publish.resources.excluded`, no longer leave the first run's classes registered — a
+resource the second run does not emit is no longer imported by that run's output, which would otherwise
+name a symbol `BarrelWriter::writeModular()`'s rebuilt `index.ts` does not export.
 
 ### Populated once, before the generate loop
 
@@ -848,13 +1129,66 @@ The registry is process-static, in the shape of `DependencyRecorder` and `Output
 collector is `resolve()`d per call rather than bound as a singleton (the service provider registers only
 `ModelAttributeResolver` and `CacheRepository`) and constructor plumbing would have to cross four hops
 from `Runner` down to the analyzer. `Tests\TestCase::setUp()` resets all three, since process-static
-state otherwise leaks across a parallel Pest run.
+state otherwise leaks across a parallel Pest run — that reset stays even though both runners now reset
+`PublishedResourceRegistry` themselves, because it also protects tests that never construct a runner at
+all. A consuming application gets no such per-test hook, which is why both runners reset on entry too.
 
-Neither CI gate can catch a regression here — an import of an unpublished resource surfaces as TS2307,
-which `unimportable-token-gate.sh` does not count. See
+CI catches some regressions here and misses others, and the axis is **not** namespace. A resource file's
+references to other published classes are written as relative *directory* specifiers, cross-namespace ones
+included (`'../../../crm/http/resources'`), so relativeness alone decides nothing. What decides the
+diagnostic is whether the package writes a barrel into the target directory **at all**.
+
+Scope that claim to resource files, because the tree as a whole is mixed. Measured across the committed
+trees (`import ... from` lines only, excluding barrel `export ... from` re-exports): **1816** import
+specifiers, of which **620 are bare** — `@tolki/ts` (364, emitted under this package's own shipped
+`'use_tolki_package' => true` default, so not an app-side escape hatch), `@tolki/types` (24) and 232
+`@/types/*`, `@js/types/*` and `@workbench/types` aliases. Of the **1196** relative ones, 1068 resolve to
+a directory and 128 to a single file — `broadcast-events.ts` and `echo-broadcast-events.d.ts` (56 each,
+`'./app/events/OrderShipped'` and friends) plus 16 controller-to-request imports such as
+`'../requests/store-post-request'`. None resolves to nothing any more: the four `'../value-objects'`
+imports that did, one per tree, went away when `toTsType()` step 5c started inlining `Coordinate`'s
+property shape instead of emitting a class token for it. Inside
+generated resource files specifically, excluding their barrels, **all 680 relative imports resolve to a
+directory**; that is the enumerated set the paragraph below is about.
+
+If it never writes that directory, the specifier resolves to nothing, tsc reports TS2307, and
+`unimportable-token-gate.sh`'s relative-specifier sub-gate counts it — CI runs that armed
+(`.github/workflows/run-tests.yml` invokes `unimportable-token-gate.sh 10 0`). The corpus's one live
+instance was exactly this shape until step 5c removed it: `warehouse.ts` imported `'../value-objects'`,
+and `default-example/app/value-objects/` does not exist. The sub-gate's baseline is `0` now, so nothing in
+the corpus exercises its failure path — see
+[Type inference gates](../testing/type-inference-gates.md#its-negative-control-had-to-be-replaced).
+
+If the directory *is* written, its `index.ts` resolves and only the symbol is missing, so tsc reports
+TS2305 "has no exported member" — or **TS2724** when the barrel happens to export a near-miss name — and
+neither gate counts either code. That is the shape of the `AttachmentResource`/`AttachmentCollection`
+fixtures below, and it does not depend on their sharing a namespace with `MerchantResource`: importing an
+unpublished symbol *cross*-namespace out of `crm/http/resources` fails the same way. Reproduced against
+this repo's tsc, importing both `#[TsExclude]`d fixtures from the 124-export `app/http/resources` barrel
+gives TS2724 for `AttachmentResource` ("Did you mean 'CommentResource'?") and TS2305 for
+`AttachmentCollection`.
+
+Which gate sees it therefore depends on the output flavor, and the package emits both into the same tree.
+In the **modular** files a leaked resource is an *import*, so it lands in the TS2305/TS2724 hole above and
+neither gate counts it. In `laravel-ts-global.ts` the same resource is referenced by **bare name** inside a
+nested namespace, with no import at all — the file's only imports are 20 bare app-side aliases — so an
+unresolvable one is a missing *name*, which `unimportable-token-gate.sh` **does** count. The corpus carried
+one live instance of that split until `AddressResource`'s `#[TsResource(name: 'Address')]` rename started
+being honored by analyzer-derived references; it produced `TS2552` in the global flavor and `TS2724` in the
+modular one, and both went away together. Nothing in the generated tree exercises the split now — tsc
+reports no TS2305 and no TS2724 over it — so the split has to be synthesized to be seen. Injecting the leak
+into a scratch copy of the global file confirms both codes it can take, and both are in the gate's grep:
+`unpublished_guess?: AttachmentResource` gives `TS2552: Cannot find name 'AttachmentResource'. Did you mean
+'CommentResource'?`, and a name with no near neighbor gives plain `TS2304`. So the same defect is gated in
+the global flavor and ungated in the modular one. See
 [Type inference gates](../testing/type-inference-gates.md). The coverage is instead the published-set
 tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentResource` and
-`AttachmentCollection` workbench fixtures.
+`AttachmentCollection` workbench fixtures, plus a matching pair for `resolveCollectedResourceClass()`'s
+own naming-convention branch: `SupplierSummaryCollection` and `Admin\StoreCollection` prove the two
+positive candidates (Resource-suffixed and bare) still resolve when published, and `LedgerCollection`
+with `#[TsExclude]`d `LedgerResource`/`Ledger` proves both are rejected when neither is. The same
+`LedgerCollection` fixture backs the equivalent test in `InertiaPageAnalyzerTest.php` for
+`resolveSingularResourceFqcn()`, so both call sites onto the shared resolver are covered.
 
 ## `#[PreserveKeys]`/`$preserveKeys` flip a collection's element type to `Record<string, R>`
 
@@ -865,28 +1199,46 @@ version). Either one makes Laravel keep the collection's original keys, so the p
 object instead — `collectionPreservesKeys()` checks both, and `wrapCollectionElementType()` is the
 single point that turns that boolean into `Record<string, R>` instead of `R[]`.
 
-Every collection-typing call site routes through `wrapCollectionElementType()`, at six emission
-points across two paths:
+Every collection-typing call site routes through `wrapCollectionElementType()`. There are **seven**,
+across three paths, and `grep -n 'wrapCollectionElementType(' src/Analyzers/ResourceAstAnalyzer.php` is
+the check:
 
 - **`SomeResource::collection(...)` / `SomeCollection::make()`/`::collection()` / `new
-  SomeCollection(...)`, referenced inside another resource's `toArray()`** — three sites, in
+  SomeCollection(...)`, referenced inside another resource's `toArray()`** — three calls, in
   `analyzeStaticCall()` (two: the named-collection branch and the plain-resource branch) and
   `analyzeNewResource()` (one).
-- **A `ResourceCollection` with no `toArray()` override, delegating to `$this->collection`** —
-  three sites, in `buildCollectionDelegatedAnalysis()` (the `flatTypeAlias` branch and the
-  wrapped-`data`-key branch, which share one computed element type) and `analyzeCollectionProperty()`
-  (the `$this->collection` property read).
+- **`$collection->toResourceCollection()`** — two calls, both in `analyzeToResourceCollectionCall()`:
+  the explicit-argument arm (`toResourceCollection(SomeResource::class)`) and the arm that resolves a
+  collection through `resolveResourceCollectionForModel()`. They reflect on different classes; see the
+  note below.
+- **A `ResourceCollection` with no `toArray()` override, delegating to `$this->collection`** — two
+  calls, in `buildCollectionDelegatedAnalysis()` (one call whose element type feeds both the
+  `flatTypeAlias` branch and the wrapped-`data`-key branch) and `analyzeCollectionProperty()` (the
+  `$this->collection` property read).
 
 That count is exactly what a future change to any of these methods is liable to get wrong — a site
 that's missed silently keeps emitting `R[]`, and nothing catches it until a fixture exercises that
-exact call shape with `#[PreserveKeys]` or `$preserveKeys` set.
+exact call shape with `#[PreserveKeys]` or `$preserveKeys` set. The list has already been wrong once
+in that exact way: it read "six" and omitted `analyzeToResourceCollectionCall()` altogether.
 
 The reflection target passed to `wrapCollectionElementType()` differs by site to match what Laravel
-itself reflects on at runtime: for `SomeResource::collection(...)`, Laravel's `JsonResource::collection()`
-checks `static::class` — the singular resource being called on, not a separate collection class — so
-that site reflects on the resource. Every other site reflects on the `ResourceCollection` subclass
-itself, since that's what Laravel instantiates and reflects on for `make()`, `new`, and the
-collection-delegated path.
+itself reflects on at runtime. Two sites reflect on the *resource*. One is `SomeResource::collection(...)`,
+where Laravel's `JsonResource::collection()` checks `static::class` — the singular resource being called
+on, not a separate collection class. The other is `toResourceCollection(SomeResource::class)`, because
+`TransformsToResourceCollection::toResourceCollection()` returns `$resourceClass::collection($this)` and
+so lands in that same method. The remaining sites reflect on whatever class Laravel instantiates — the
+`ResourceCollection` subclass for `make()`, `new`, and the collection-delegated path. The argument-less
+`toResourceCollection()` arm (site 1924) is the one that varies: it reflects on
+`resolveResourceCollectionForModel()`'s `collectionFqcn`, and that is only sometimes a collection class.
+Of the method's four value-returning arms, the two that resolve *through a collection class*
+(`#[UseResourceCollection]`, and the `{Guessed}Collection` naming branch) set it to that class; the two
+that find **no collection class at all** — the `#[UseResource]` arm and the naming-convention fallback
+over `guessResourceNames()` — set `collectionFqcn` to the plain resource, because the resource is what
+stands in for the collection. Vendor does the same in both: `guessResourceCollection()` returns
+`$resourceClass::collection($this)` for each. Probing the resolver on `Workbench\App\Models\TrackingEvent`
+(`#[UseResource(EventLogResource::class)]`) returns `collectionFqcn === resourceFqcn === EventLogResource`,
+a plain `JsonResource`. So read the rule as "reflect on whatever Laravel instantiates", not "always the
+collection class".
 
 ### Inertia props
 
@@ -924,6 +1276,68 @@ per property key, exactly like `syncAnalysisMaps()`. Missing this union silently
 only enum/model reference when that reference sits inside an inline array literal in one branch,
 emitting a type token with no import.
 
+**`inlineModelFqcns` unions per occurrence; the two enum inline maps still dedupe.** Both merge
+paths used to `array_unique` all three inline maps, which lost real multiplicity whenever a merged
+or branched property named the same model twice — `aliasPropertyType()`'s per-occurrence queue then
+fell back to its shorter-than-occurrence-count clamp and mistyped the missing occurrence.
+`BranchedInlineFqcnResource` pins the branch-merge case; `ChildInlineFqcnResource` pins the
+`syncAnalysisMaps()` case.
+
+`inlineEnumFqcns` and `inlineEnumResourceFqcns` stay deduped **even though they feed the same
+per-occurrence queue**, so this is an asymmetry the code has, not a difference in what the maps are
+for. Both reach `aliasPropertyType()`: `inlineEnumResourceFqcns` becomes
+`ResourceTransformer::$propertyInlineEnumResourceFqcns` and is walked directly by
+`rewriteEnumResourceTypes()`, and `inlineEnumFqcns` becomes `$propertyInlineEnumFqcns`, which
+`mergePropertyFqcnMaps()` folds into the list `rewriteTypeReferences()` passes to the same helper —
+and `mergePropertyFqcnMaps()`'s own docblock ends "never dedupe it". Task 14 dropped `array_unique`
+from `inlineModelFqcns` only, and left the two enum maps as they were.
+
+What makes the dedupe safe today is the corpus, not the design. The exact rule, established by invoking
+`aliasPropertyType()` directly rather than by reading it: **dropping duplicates is lossless if and only if
+the queue is its distinct FQCNs in first-appearance order followed only by repeats of the last one.**
+Everything else mistypes an occurrence. The trailing run is free because the
+`min($cursor + 1, count($queues[$name]) - 1)` clamp keeps re-serving the final entry. Run against the real
+function, the rule agrees with observed behavior on every shape tried: `[A, B]`, `[A, A, A]`, `[A, B, B]`
+and `[A, B, B, B]` are lossless; `[A, A, B]`, `[A, B, A]`, `[B, A, B]`, `[A, B, A, B]` and `[A, A, B, B]`
+are not.
+
+**Two** corpus properties meet the precondition for that to bite — one property naming two distinct
+members of a same-basename FQCN group — and both are lossless. The corpus has exactly one such group
+(`Workbench\App\Enums\Status`, `Workbench\Crm\Enums\Status`, `Workbench\Shipping\Enums\Status`).
+Enumerating every generated property line whose *type* side names two distinct members of it, and
+collapsing each enum's const and type names together, returns exactly two property names, each in all four
+example trees: `DealResource::$status_pair` and `DealEnumInlineResource::$summary`. Both are the on-point
+shape rather than a curiosity — both are inline `EnumResource::make()` wraps, so both populate
+`inlineEnumResourceFqcns`, the map this paragraph is about. Both name each FQCN exactly once, so each
+queue is `[d1, d2]` and there is no multiplicity to lose. (`EnumCollectionResource::$wrapped_status_fallback`
+is a near-miss, not a third: its `Status` and `StatusType` tokens are the const and type names of the
+*same* FQCN, both imported from `'../../enums'`.)
+
+Treat the two `array_unique` calls as a latent bug with no current trigger rather than a decision to
+preserve — the plan's Out of Scope section records the fixture that would be needed to fix it.
+
+**A single inline array member's own multi-FQCN accessor now contributes its own arms too.** The three
+fixes above only cover *merging* an already-populated queue across branches or inheritance. A member whose
+own value is a multi-FQCN accessor (`Attribute<CrmUser|User, never>`) never populated that queue at all:
+`resolveModelAttributeTypeInfo()` discarded `classFqcns`, so `analyzeThisProperty()` had nothing to attach
+as `embeddedModelFqcns`, and separately `analyzeInlineArray()` built the array literal's own
+`embeddedModelFqcns` from the self-keyed, deduplicated `$analysis->modelFqcns` map rather than
+`$analysis->inlineModelFqcns`, which would have collapsed any remaining multiplicity anyway. Both are
+fixed: `resolveModelAttributeTypeInfo()` now carries `classFqcns` through, `analyzeThisProperty()` attaches
+it as `embeddedModelFqcns` whenever there is more than one, and `analyzeInlineArray()` walks
+`$analysis->properties` in declaration order, preferring each member's `inlineModelFqcns` entry over
+`modelFqcns`. `WarehouseResource::$probe_nested` (`['first' => $this->last_user_activity_by, 'second' =>
+$this->manager]`) pins the fix: `first` keeps its `CrmUser`/`ModelsUser` arms aliased apart instead of
+rendering `User | User` and losing the CRM arm entirely in `laravel-ts-global.ts`, where it used to
+collapse to `app.models.User | app.models.User`.
+
+`analyzeReturnArray()`'s child-overrides-parent `unset()` now clears all three inline maps for the
+overridden key, not just the five non-inline maps it always cleared. Without that, a
+`...parent::toArray()` spread's stale inline-model entries for a key the child then overrides
+survive into the child's own push, so the child's occurrences consume the parent's leftover queue
+instead of their own — `ChildInlineFqcnResource`'s `regional_hub_contacts` pins this; its
+`regional_hub_leads`, spread through with no override, pins the dedupe removal on its own.
+
 It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `syncAnalysisMaps()` never
 touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule, and the
 argument has to cover **both** callers. `analyzeAllReturnBranches()` builds its branches with
@@ -932,6 +1346,34 @@ merges a multi-return closure's branches — builds its own with `extractPropert
 builder ever sets either field, so every branch reaching this method already has both null. Only
 `buildCollectionDelegatedAnalysis()` sets them, and it returns directly without going through branch
 merging.
+
+**The branch type union hoists a single top-level `| null`.** Each key's per-branch type strings are
+deduped whole (`array_unique` over the strings) and then joined. Two branches that differ in shape but
+are both nullable — `$this->regional_hub?->only(['primaryContact', 'manager'])` against
+`->only(['manager', 'secondaryContact', 'primaryContact'])` — survive that dedupe as two distinct
+strings, so a plain `implode(' | ', …)` repeated the nullable marker once per arm: `A | null | B | null`.
+`unionBranchTypes()` splits every arm on its top-level `|` via `LaravelTsPublish::splitTopLevelUnion()`
+(depth-aware over `{`, `(`, `<` and `[`, and it skips single-quoted literals whole), drops the top-level
+`null` members, and appends one trailing `| null` if any arm carried one. A nested null — `| null` on a
+member inside `{ … }` — sits inside a group, so the splitter never yields it and it is left alone. Arm
+order is otherwise preserved, which is load-bearing: `aliasPropertyType()` consumes `inlineModelFqcns`
+positionally against the type-name tokens in the rendered string, and moving only `null` members leaves
+every type-name token where it was.
+
+The duplicate it removed was cosmetic — TypeScript normalizes duplicate union members, so
+`A | null | B | null` and `A | B | null` denote the same type, and the token gate's `tsc` baselines
+(10 duplicate/unfindable identifiers, 0 relative-specifier `TS2307`s) were unmoved by the fix. A brace-aware
+scan of all four generated trees (counting `| null` only outside `{}`, `()` and `[]`) found exactly
+eight lines carrying a top-level duplicate before the fix, all of them
+`BranchedInlineFqcnResource::$regional_hub_contacts` — the four per-tree resource files plus the four
+`laravel-ts-global.ts` files — and zero after. The 176 lines that carry two or more `| null` in total are
+unchanged: those are nested member nulls, which is what a nullable member inside an object shape should
+look like.
+
+`analyzeClosureUnion()`, the ternary/Elvis union, has the same repetition and is **not** covered by this
+helper: it collapses only a standalone `'null'` member against arms that already carry one, so two arms
+each ending in `| null` still double. No corpus property reaches it; the plan's Out of Scope section
+records it.
 
 ## Resource inheritance: a subclass with no `toArray()` of its own
 
@@ -968,7 +1410,60 @@ returns are `$this->collection->map->…->all()` — neither an array literal no
 analyzer can read — so the recursion yields no properties and body-less collections such as
 `PostCollection` and `PreserveKeysCollection` still reach `buildCollectionDelegatedAnalysis()`.
 
-### An inherited shape needs an inherited model
+### A body-less `ResourceCollection` stacked on another inherits its parent's `$collects` — not its own
+
+Two body-less `ResourceCollection` subclasses stacked on each other (`LeafCollection extends
+MidCollection extends ResourceCollection`, neither declaring `toArray()`) do not each resolve
+`$collects` independently. `LeafCollection::analyze()` finds no own-file `toArray()` and calls
+`analyzeParentToArray()`, which builds `new self($midClass, $this->modelClass)` and analyzes *that*.
+`MidCollection` is itself body-less, so its own `analyzeParentToArray()` walks up again to the real
+`ResourceCollection::toArray()`, which — per the guard above — yields no usable properties, so
+`MidCollection::analyze()` falls through to its **own** `buildCollectionDelegatedAnalysis()`, resolving
+`$collects` from `MidCollection`'s own reflection. If `MidCollection` doesn't declare `$wrap` (or
+declares a non-null one), that call returns a non-empty `properties` array — the wrapped `{ data: … }`
+shape. Back in `LeafCollection::analyze()`, the `properties !== []` guard passes on that inherited
+result and returns it unchanged: `LeafCollection`'s own `#[Collects]`/`$collects` is never consulted,
+even when it names a different resource than `MidCollection`'s.
+
+No corpus fixture has this shape, so this was verified with a throwaway two-class probe outside the
+workbench tree rather than asserted from a trace: `MidCollection` (`#[Collects(PostResource::class)]`,
+default `$wrap`) and `LeafCollection extends MidCollection` (`#[Collects(UserResource::class)]`, no
+`$wrap` of its own) both analyze to `{ data: PostResource[] }` — `LeafCollection` emits its parent's
+collected type, not its own.
+
+**The carve-out: a parent with `$wrap === null` breaks the inheritance.**
+`buildCollectionDelegatedAnalysis()` returns `new ResourceAnalysis(flatTypeAlias: $elementType,
+flatTypeAliasFqcn: $singular)` when `$wrap` resolves `null`/empty — `properties` stays at its `[]`
+default, which *fails* the `properties !== []` guard. `LeafCollection::analyze()` then falls through
+instead of returning the parent's result, reaches `isResourceCollection()`, and calls its **own**
+`buildCollectionDelegatedAnalysis()` — this time resolving `$collects` from `LeafCollection`'s own
+reflection, so its own override *is* honoured here.
+
+That recomputation does not inherit the parent's `$wrap = null`, though.
+`buildCollectionDelegatedAnalysis()` only reads `$wrap` when `ReflectionProperty::getDeclaringClass()`
+is the class currently being analyzed (`Read $wrap declared on this class only`). Since `LeafCollection`
+doesn't redeclare `$wrap` itself, its declaring class resolves to `MidCollection`, not `LeafCollection`,
+so that check fails and `$wrapKey` falls back to the method's hardcoded `'data'` default. The same
+probe's `$wrap = null` variant (`MidCollection` declares `public static $wrap = null;`,
+`LeafCollection` does not) confirms it: `LeafCollection` analyzes to `{ data: UserResource[] }`, the
+wrapped shape, not the flat `UserResource[]` its parent's `$wrap = null` would suggest. A body-less
+child only reproduces an ancestor's flat shape if it redeclares `$wrap = null` itself.
+
+### The explicit `parent::toArray($request)` forms are unchanged
+
+Writing the call out by hand remains fully supported and is still the idiomatic form. Both spellings
+route through the same `analyzeParentToArray()`:
+
+- `...parent::toArray($request)` spread inside an array literal — `analyzeReturnArray()` matches the
+  unpacked item with `isParentToArrayCall()`, then merges the parent analysis in through
+  `syncAnalysisMaps()`. `ApiPostResource` pins this one.
+- a bare `return parent::toArray($request);` — the non-array fallback in `analyze()` matches the
+  `Return_` expression with `isParentToArrayCall()`. `PreserveKeysTeamResource` pins this one.
+
+Because both classes declare a `toArray()`, the own-file lookup succeeds and the new walk is never
+reached for them.
+
+## An inherited shape needs an inherited model
 
 `ResourceTransformer::resolveModelClass()` used to read the docblock of the resource itself only. A
 body-less child with no docblock of its own resolved no model, and the inherited analysis degraded
@@ -995,17 +1490,3 @@ before falling through to the `$resource` property and the naming convention. Th
 right scope, since an ancestor's `@mixin` describes the same model either way, and it moved nothing
 in the generated trees; but read the precedence list above as the whole rule, not as a body-less
 special case.
-
-### The explicit `parent::toArray($request)` forms are unchanged
-
-Writing the call out by hand remains fully supported and is still the idiomatic form. Both spellings
-route through the same `analyzeParentToArray()`:
-
-- `...parent::toArray($request)` spread inside an array literal — `analyzeReturnArray()` matches the
-  unpacked item with `isParentToArrayCall()`, then merges the parent analysis in through
-  `syncAnalysisMaps()`. `ApiPostResource` pins this one.
-- a bare `return parent::toArray($request);` — the non-array fallback in `analyze()` matches the
-  `Return_` expression with `isParentToArrayCall()`. `PreserveKeysTeamResource` pins this one.
-
-Because both classes declare a `toArray()`, the own-file lookup succeeds and the new walk is never
-reached for them.

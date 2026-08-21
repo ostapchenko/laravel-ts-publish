@@ -63,6 +63,18 @@ class NestedResourceSpreadResource extends JsonResource
                 fn (User $member) => [...$member->toArray(), 'flag' => true]
             )),
 
+            // Direct spread of the whenLoaded closure param itself, not a ->map() element. $members
+            // is a to-many param — bound in varCollectionBindings, not varModelBindings — so
+            // spreadModelToArrayFqcn() must not fall back to closureRelationModelClass here: this is
+            // a list of member arrays, not one User.
+            //
+            // Declining that fallback must not drop the arm, though. Spreading a collection renumbers
+            // its elements 0..n and the sibling string key rides alongside them, so the payload is
+            // {"0":{...},"1":{...},"flag":true} — emitted as Record<number, User> & { flag: boolean }
+            // by spreadCollectionToArrayFqcn(). The Record arm takes no Omit<>: its members key by
+            // index, so nothing string-keyed in the literal can ever collide with them.
+            'members_collection_spread' => $this->whenLoaded('members', fn ($members) => [...$members->toArray(), 'flag' => true]),
+
             // Two resource spreads plus a sibling key — intersect each in order.
             'members_double_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
                 fn (User $member) => [
@@ -102,6 +114,29 @@ class NestedResourceSpreadResource extends JsonResource
                 fn (User $member) => [
                     ...UserResource::make($member)->resolve($request),
                     ...TeamMemberResource::make($member)->resolve($request),
+                ]
+            )),
+
+            // Mirror-image pair: the combined arm list must stay in SOURCE order across kinds, not
+            // grouped model-arms-first or resource-arms-first, or the Omit<>'d array_slice() in
+            // buildSpreadArmTypes() would subtract the wrong later-arm keys. A model/resource/model
+            // (and its resource/model/resource mirror) is the minimum shape where any single by-kind
+            // grouping — either direction — reorders both, so a coincidental match can't hide the bug.
+            'members_model_then_resource_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
+                fn (User $member) => [
+                    ...$member->toArray(),
+                    ...UserResource::make($member)->resolve($request),
+                    ...$member->toArray(),
+                    'flag' => true,
+                ]
+            )),
+
+            'members_resource_then_model_spread' => $this->whenLoaded('members', fn ($members) => $members->map(
+                fn (User $member) => [
+                    ...UserResource::make($member)->resolve($request),
+                    ...$member->toArray(),
+                    ...UserResource::make($member)->resolve($request),
+                    'flag' => true,
                 ]
             )),
         ];
