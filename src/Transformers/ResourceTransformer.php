@@ -654,14 +654,13 @@ class ResourceTransformer extends CoreTransformer
                 // Mixed ternary: one branch wraps the enum, the other reads it directly. The
                 // analyzer collapses both to a single deduped bare type name, so substitution can't
                 // tell the arms apart here — synthesize the union explicitly instead.
-                $type = 'AsEnum<typeof '.$constName.'> | '.$enumTypeName;
+                $wrappedTypeName = 'AsEnum<typeof '.$constName.'>';
 
-                if ($info['isCollection']) {
-                    // Unpinned: no workbench fixture exercises a mixed same-FQCN wrap/direct
-                    // pairing inside a map-wrapped (array) context. Leave the parenthesization
-                    // in regardless — dropping it would mis-parse if this shape is ever produced.
-                    $type = '('.$type.')[]';
-                }
+                // EnumResource::make() is always scalar; isCollection reflects only the direct
+                // arm's own shape, so the array suffix belongs on the bare type name alone.
+                $directTypeName = $info['isCollection'] ? $enumTypeName.'[]' : $enumTypeName;
+
+                $type = $wrappedTypeName.' | '.$directTypeName;
 
                 if ($info['nullable']) {
                     $type .= ' | null';

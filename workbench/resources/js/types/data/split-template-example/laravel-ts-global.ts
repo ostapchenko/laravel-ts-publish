@@ -2243,6 +2243,7 @@ declare global {
             members_via_var?: app.enums.RoleType[];
             member_role_snapshot?: ({ role: app.enums.RoleType | null })[];
             wrapped_status_fallback: { status: app.enums.StatusType[] | app.enums.StatusType };
+            latest_status_or_history: app.enums.StatusType | app.enums.StatusType[];
         }
         /** Resource for testing @var null|Type docblock ordering (null-first convention). */
         export interface EnumNullFirstResource {

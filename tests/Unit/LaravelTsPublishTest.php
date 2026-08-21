@@ -2318,6 +2318,18 @@ describe('rewriteAsEnumToType', function () {
 
         expect($result)->toBe('foo.StatusType | app.enums.StatusType');
     });
+
+    // A heterogeneous mixed union — ResourceTransformer::rewriteEnumResourceTypes()'s isCollection
+    // branch (Task 16) — is not the redundant same-shaped pair the fold exists for: the trailing
+    // `[]` makes the two members genuinely different, so both must survive, not collapse to one.
+    test('does not fold a pair whose bare arm is itself array-shaped', function () {
+        $result = $this->service->rewriteAsEnumToType(
+            'AsEnum<typeof Status> | StatusType[]',
+            ['Status' => 'enums.StatusType'],
+        );
+
+        expect($result)->toBe('enums.StatusType | StatusType[]');
+    });
 });
 
 describe('splitTopLevelUnion', function () {

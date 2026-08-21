@@ -24,4 +24,5 @@ export interface EnumCollectionResource
     members_via_var?: AsEnum<typeof Role>[];
     member_role_snapshot?: ({ role: RoleType | null })[];
     wrapped_status_fallback: { status: AsEnum<typeof Status>[] | StatusType };
+    latest_status_or_history: AsEnum<typeof Status> | StatusType[];
 }

@@ -82,6 +82,14 @@ class EnumCollectionResource extends JsonResource
                     ? EnumResource::collection($this->status_history)
                     : $this->latest_status,
             ],
+
+            // Top-level counterpart to wrapped_status_fallback, roles swapped: EnumResource::make()
+            // (scalar) first, the array-shaped status_history read directly second — same Status
+            // FQCN, outside any inline array. Exercises ResourceTransformer::rewriteEnumResourceTypes()'s
+            // own $isMixed reconstruction (Task 16), not analyzeInlineArray()'s.
+            'latest_status_or_history' => $this->is_active
+                ? EnumResource::make($this->latest_status)
+                : $this->status_history,
         ];
     }
 }

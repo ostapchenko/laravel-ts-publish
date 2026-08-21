@@ -338,20 +338,34 @@ Two shapes reach this code, and the merged type string carries different informa
   `substituteEnumType()` call used for the homogeneous case matched *both* members (the word-boundary
   regex does not stop at `[`), wrongly producing `AsEnum<typeof Status>[] | AsEnum<typeof Status>`.
 
-This deliberately does **not** mirror `rewriteEnumResourceTypes()`'s `isCollection` reconstruction,
-which wraps the *entire* mixed union in `()[]` (`(AsEnum<typeof Const> | EnumTypeName)[]`) when the
-top-level property's pre-rewrite type happened to end in `[]` — a shape that is only correct when
-*both* arms are arrays, and wrong (`(A | B)[]` where the truth is `A | B[]`) for exactly this
-heterogeneous case. `expandMixedEnumType()` instead reconstructs each member independently, so an
-array-shaped arm keeps its own `[]` and a scalar arm never gains one it didn't earn.
+Before Task 16, this deliberately did **not** mirror `rewriteEnumResourceTypes()`'s `isCollection`
+reconstruction, which wrapped the *entire* mixed union in `()[]`
+(`(AsEnum<typeof Const> | EnumTypeName)[]`) whenever the top-level property's pre-rewrite type
+happened to end in `[]` — a shape that is only correct when *both* arms are arrays, and wrong
+(`(A | B)[]` where the truth is `A | B[]`) for exactly this heterogeneous case. Task 16 fixed the
+top-level rewrite to match: it now array-suffixes only the bare arm
+(`AsEnum<typeof Const> | EnumTypeName[]`) instead of wrapping the whole union, the same principle
+`expandMixedEnumType()` already applied — an array-shaped arm keeps its own `[]`, a scalar arm
+never gains one it didn't earn — even though the two reach it by different means: this section's
+member-position matching versus the top-level rewrite's fixed convention that the wrapped arm is
+always scalar and the direct arm is the one that can be array-shaped, since it still has no
+per-member signal from the analyzer's own (collapsed-when-same-shaped) merged string to inspect.
+`EnumCollectionResource::$latest_status_or_history` pins the corrected top-level shape:
+`AsEnum<typeof Status> | StatusType[]`.
 
-In the globals tree, `LaravelTsPublish::rewriteAsEnumToType()`'s pair pattern only folds an
-*exact* `AsEnum<typeof Const> | EnumTypeName` adjacency (no `[]` between the two) to a single
-qualified reference — `status_when_not_null_arrow`'s top-level homogeneous pair collapses to one
-`StatusType` reference, for example. `wrapped_status_fallback`'s heterogeneous
-`AsEnum<typeof Status>[] | StatusType` does not match that adjacency (the `[]` sits between them),
-so it renders as two independently-qualified references, `StatusType[] | StatusType` — correct,
-since the two members mean different things despite sharing a base name.
+In the globals tree, `LaravelTsPublish::rewriteAsEnumToType()`'s pair pattern folds an *exact*
+`AsEnum<typeof Const> | EnumTypeName` adjacency — no `[]` anywhere in that span, neither between
+the two names nor trailing the bare one — to a single qualified reference —
+`status_when_not_null_arrow`'s top-level homogeneous pair collapses to one `StatusType` reference,
+for example. `wrapped_status_fallback`'s heterogeneous `AsEnum<typeof Status>[] | StatusType` does
+not match (the `[]` sits between the two names), and neither does `latest_status_or_history`'s
+`AsEnum<typeof Status> | StatusType[]` (the `[]` trails the bare name instead) — both render as two
+independently-qualified references, correct, since the two members mean different things despite
+sharing a base name. The trailing-`[]` exclusion is also from Task 16: before it, the pair
+pattern's lookahead rejected only a following word character, so it still matched the
+`AsEnum<typeof Const> | EnumTypeName` prefix of `AsEnum<typeof Status> | StatusType[]` and folded
+it to a single qualified reference with the array arm's `[]` left dangling after — `StatusType[]`
+alone, silently dropping the scalar arm.
 
 ### Multi-model accessor unions reference each arm's own model
 

@@ -2014,8 +2014,10 @@ class LaravelTsPublish
             $lastDot = strrpos($qualifiedTypeName, '.');
             $bareTypeName = $lastDot === false ? $qualifiedTypeName : substr($qualifiedTypeName, $lastDot + 1);
 
+            // A trailing `[` means the bare arm is array-shaped and the AsEnum arm is not (or vice
+            // versa) — a genuinely different pair, not the redundant same-shaped one this folds.
             $pairPattern = '/AsEnum<typeof\s+'.preg_quote($constAlias, '/').'\s*>\s*\|\s*'
-                .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$])/';
+                .preg_quote($bareTypeName, '/').'(?![A-Za-z0-9_$\[])/';
             $typeStr = preg_replace($pairPattern, $qualifiedTypeName, $typeStr) ?? $typeStr;
 
             // Same pair reversed: the bare alias would be re-qualified afterwards, recreating the duplicate.

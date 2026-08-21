@@ -9601,6 +9601,11 @@
                     "name": "wrapped_status_fallback",
                     "type": "{ status: AsEnum<typeof Status>[] | StatusType }",
                     "optional": false
+                },
+                {
+                    "name": "latest_status_or_history",
+                    "type": "AsEnum<typeof Status> | StatusType[]",
+                    "optional": false
                 }
             ]
         },

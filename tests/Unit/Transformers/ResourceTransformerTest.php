@@ -2322,6 +2322,18 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
         expect($data->typeImports)->toHaveKey('../../enums');
         expect($data->typeImports['../../enums'])->toContain('StatusType');
     });
+
+    // Top-level mirror of wrapped_status_fallback with the array-shaped arm on the *direct* side
+    // instead of the wrapped one: only StatusType, the bare direct-read arm, is actually an array
+    // — AsEnum<typeof Status> | StatusType[], not the old (AsEnum<typeof Status> | StatusType)[]
+    // which falsely claimed the wrapped scalar arm was array-shaped too.
+    test('latest_status_or_history reconstructs the heterogeneous mixed union without over-arraying it', function () {
+        config()->set('ts-publish.enums.use_tolki_package', true);
+        $data = (new ResourceTransformer(EnumCollectionResource::class))->data();
+
+        expect($data->properties['latest_status_or_history']['type'])
+            ->toBe('AsEnum<typeof Status> | StatusType[]');
+    });
 });
 
 describe('ResourceTransformer with PostFlatCollection (typeAlias)', function () {
