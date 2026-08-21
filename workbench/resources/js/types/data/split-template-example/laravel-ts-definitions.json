@@ -13540,17 +13540,17 @@
                 },
                 {
                     "name": "last_user_activity_by_partial",
-                    "type": "{ id: number; name: string } | null",
+                    "type": "Pick<CrmUser, 'id' | 'name'> | Pick<ModelsUser, 'id' | 'name'> | null",
                     "optional": false
                 },
                 {
                     "name": "last_user_activity_by_mostly",
-                    "type": "{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null",
+                    "type": "Pick<CrmUser, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | Pick<ModelsUser, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null",
                     "optional": false
                 },
                 {
                     "name": "last_checked_by_mostly",
-                    "type": "{ id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null",
+                    "type": "Pick<Image, 'id' | 'imageable_type' | 'imageable_id' | 'url' | 'alt_text' | 'disk' | 'path' | 'mime_type' | 'size_bytes' | 'width' | 'height' | 'sort_order' | 'metadata'> | Pick<ModelsUser, 'id' | 'name' | 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null",
                     "optional": false
                 },
                 {
@@ -13561,6 +13561,11 @@
                 {
                     "name": "probe_nested",
                     "type": "{ first: CrmUser | ModelsUser | null; second: ModelsUser | null }",
+                    "optional": false
+                },
+                {
+                    "name": "crm_contact_partial",
+                    "type": "{ status: CrmStatusType; images: Image[] } | null",
                     "optional": false
                 }
             ]

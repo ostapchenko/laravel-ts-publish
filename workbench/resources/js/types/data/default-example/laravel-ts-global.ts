@@ -3478,11 +3478,12 @@ declare global {
             last_user_activity_by: crm.models.User | app.models.User | null;
             last_user_activity_by_typed: crm.models.User | app.models.User | null;
             last_user_activity_by_typed_short: crm.models.User | app.models.User | null;
-            last_user_activity_by_partial: { id: number; name: string } | null;
-            last_user_activity_by_mostly: { email: string; company: string | null; status: crm.enums.StatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
-            last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: app.enums.RoleType | null; membership_level: app.enums.MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
+            last_user_activity_by_partial: Pick<crm.models.User, 'id' | 'name'> | Pick<app.models.User, 'id' | 'name'> | null;
+            last_user_activity_by_mostly: Pick<crm.models.User, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | Pick<app.models.User, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null;
+            last_checked_by_mostly: Pick<app.models.Image, 'id' | 'imageable_type' | 'imageable_id' | 'url' | 'alt_text' | 'disk' | 'path' | 'mime_type' | 'size_bytes' | 'width' | 'height' | 'sort_order' | 'metadata'> | Pick<app.models.User, 'id' | 'name' | 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null;
             regional_hub_contacts: { primaryContact: crm.models.User | null; manager: app.models.User | null; secondaryContact: crm.models.User | null } | null;
             probe_nested: { first: crm.models.User | app.models.User | null; second: app.models.User | null };
+            crm_contact_partial: { status: crm.enums.StatusType; images: app.models.Image[] } | null;
         }
     }
     export namespace app.http.resources.admin {

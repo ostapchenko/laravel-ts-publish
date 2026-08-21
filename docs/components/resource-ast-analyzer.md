@@ -171,13 +171,19 @@ Two touch points implement the implicit side. `buildModelDelegatedAnalysis()`
 select an explicitly-named hidden column from, so the method takes a `bool $excludeHidden = true`
 parameter instead of filtering unconditionally: `analyzeOnlyFilter()` is the one caller that
 passes `false`. `resolveFilteredRelationType()`'s except branch has no such sharing problem — it
-builds its key list fresh per call — so it filters unconditionally there; `WarehouseResource`'s
-`last_user_activity_by_mostly` (a multi-model accessor union reaching the `except()` branch through
-`analyzeRelationFilter()`'s accessor-union loop) is the fixture that pins this touch point against
-`User::$hidden`. Three sites are
-deliberately left untouched because each already takes the caller's request verbatim rather than
-deriving it from the full attribute list: `filterAnalysisByKeys()`, the include branch of
-`resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()` (the
+builds its key list fresh per call — so it filters unconditionally there. Since Task 12
+(`docs/superpowers/plans/2026-08-20-analyzer-backlog.md`), `WarehouseResource`'s own
+union-accessor `except()` calls (`last_user_activity_by_mostly`, `last_checked_by_mostly`) no
+longer reach this branch: every excluded key there is a non-hidden published column, so each arm
+resolves through `relationFilterModelReference()` instead — see [Multi-model accessor unions
+reference each arm's own model](#multi-model-accessor-unions-reference-each-arms-own-model) below.
+`ModelAttributeResolver::publishedColumnNames()` is `relationFilterModelReference()`'s own
+`$hidden` gate, and it is still pinned directly — `PostAttachmentFilterResource::$attachment_hidden`
+under `exclude_hidden` — but no fixture currently drives a hidden column through this specific
+except-branch subtraction end to end; see **Out of Scope** in the analyzer-backlog plan. Three
+sites are deliberately left untouched because each already takes the caller's request verbatim
+rather than deriving it from the full attribute list: `filterAnalysisByKeys()`, the include branch
+of `resolveFilteredRelationType()`, and `ModelAttributeResolver::resolveAttribute()` (the
 single-attribute resolution that `only()` and `whenHas()` both end up calling).
 
 ## Import dispatch rules
@@ -252,49 +258,80 @@ every arm that names the enum and leaving the rest of the union untouched.
 `RelationChainResource::$member_role_resources_filtered` (top level) and `$wrapped_filtered`
 (inline array) pin the two paths against the identical PHP shape — they must never disagree.
 
-### Multi-model accessor unions are untouched
+### Multi-model accessor unions reference each arm's own model
 
-The other branch of `analyzeRelationFilter()` — an accessor typed as a union of two or more
-Eloquent models, e.g. `Attribute<CrmUser|User, never>` — is left on the pre-existing inline
-expansion entirely. Nothing *rejects* a union: `relationFilterModelReference()` is only called
-below the `$modelFqcn === null` guard, and that guard is precisely what diverts a multi-model
-receiver into the accessor-union loop. The `Pick` builder is unreachable from that
-branch rather than declined by it.
+`analyzeRelationFilter()`'s other branch handles an accessor typed as a union of two or more
+Eloquent models, e.g. `Attribute<CrmUser|User, never>`. The `$modelFqcn === null` guard diverts
+this receiver into a loop over `resolveAccessorModelFqcns()`'s FQCN list — one arm per model — and,
+like the single-model path just above, that loop now tries `relationFilterModelReference()` for
+each arm *first*, falling back to `resolveFilteredRelationType()`'s inline expansion only when a
+filter key is not one of that arm's own published columns (an accessor, mutator, or relation name).
+Every filter key on `WarehouseResource::$last_user_activity_by_mostly` (`except(['id', 'name'])`)
+and `$last_checked_by_mostly` (`except(['created_at', 'updated_at'])`) is a plain column on both
+models in the union, so both arms now resolve to `Pick<>` references:
 
-Staying inline costs real fidelity, so this is a gap rather than a preference. The inline path
-re-derives each column's type and loses the `#[TsCasts]` refinements a model reference keeps by
-construction: `WarehouseResource::$last_user_activity_by_mostly` emits `options: unknown[] | null`
-and `settings: unknown[] | null` where the `User` model interface declares
-`Record<string, unknown> | null` and a full `{ theme; notifications; locale }` object shape.
+`last_user_activity_by_mostly`'s emitted type, before Task 12:
 
-What blocks the fix is **not** import plumbing — an earlier version of this section said it was,
-and that was never accurate. `embeddedModelFqcns` is accumulated per property name by
-`analyzeRelationFilter()`'s caller, and `LaravelTsPublish::aliasPropertyType()` already rewrites
-each same-basename occurrence within a single property. The real obstacles are three:
+```ts
+{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null
+```
 
-- **Resolved for the single-model path, still open here.** The single-model reference used to emit
-  `Omit<Model, …>`, which was template-dependent for exactly the reason this bullet used to give:
-  under `model-full` the bare model interface also carries mutators, relations, counts and exists,
-  so the reference re-widened what `except()` narrowed to columns. It now emits `Pick<Model, …>`
-  of the complement instead — template-independent by construction, and immune to `$appends` too,
-  since its key universe is `publishedColumnNames()` (schema columns) rather than `keyof Model` —
-  see [When a Pick reference is emitted](#when-a-pick-reference-is-emitted) above. That removes
-  this obstacle for the single-model path; extending the same reference into the union loop below
-  is Task 12 in the analyzer-backlog plan, and is still blocked by the next two bullets.
-- **Resolved: the test pinning "columns only" no longer retires silently.** `ResourceTransformerTest`
-  used to assert `not->toContain('images: Image[]')` against the emitted type *string*, which
-  `Omit<User, 'id' | 'name'>` passes vacuously — no member names, so the check never fails. It now
-  splits the union with `splitTopLevelType()` and reads each arm's members through
-  `relationFilterArmMembers()`, which **throws** on a model-reference arm instead of returning `[]`.
-  A future `Pick<>`/`Omit<>` arm fails the test loudly, forcing an update, not a silent pass.
-- **The union loop dedupes by rendered type.** `relationFilterModelReference()` renders
-  `class_basename()`, so two models sharing a basename collapse to one string and the dedupe drops
-  the second arm — together with the FQCN push that would have registered its import.
+After:
 
-`only()` is a separate case with nothing to gain: `Pick<A, K> | Pick<B, K>` is type-identical to
-the inline object the union loop already emits. `except()` is the one that would benefit, and its
-template-dependence and test-vacuity blockers are now resolved (see above) — the remaining dedupe
-obstacle is Task 12 in `docs/superpowers/plans/2026-08-20-analyzer-backlog.md`.
+```ts
+Pick<CrmUser, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | Pick<ModelsUser, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null
+```
+
+The inline path re-derived each column's type from scratch and lost the `#[TsCasts]` refinements a
+model reference keeps by construction: the old `options`/`settings` came out as `unknown[] | null`
+where the `User` model interface itself declares `Record<string, unknown> | null` and a full
+`{ theme; notifications; locale }` object shape respectively. The `Pick<>` reference carries those
+refinements for free, the same benefit the single-model path already had.
+
+Three things had to change together to make each arm reachable, not just one:
+
+- **The single-model reference had to stop being template-dependent first.** It used to emit
+  `Omit<Model, …>`, which re-widened under `ts-publish.models.template = model-full` (the bare
+  model interface there also carries mutators, relations, counts and exists). It now emits
+  `Pick<Model, …>` of the complement instead — template-independent by construction, and immune to
+  `$appends` too, since its key universe is `publishedColumnNames()` (schema columns) rather than
+  `keyof Model` — see [When a Pick reference is emitted](#when-a-pick-reference-is-emitted) above.
+  Reusing the same builder per arm would otherwise have carried that re-widening into every
+  multi-model union too.
+- **The regression test had to stop passing vacuously first.** `ResourceTransformerTest` used to
+  assert `not->toContain('images: Image[]')` against the emitted type *string*, which a `Pick<>`
+  arm passes trivially — no member names, so the check never fails. It now splits the union with
+  `splitTopLevelType()` and reads each arm's members through `relationFilterArmMembers()`, which
+  **throws** on a model-reference arm instead of returning `[]` — so a future `Pick<>` arm fails
+  the test loudly the moment it appears, forcing an honest update instead of a silent pass.
+- **The union loop's own dedupe was keyed on the wrong thing.** It skipped an arm once its
+  *rendered string* repeated, and `relationFilterModelReference()` renders `class_basename($fqcn)`
+  — so two FQCNs sharing a basename render identically even when they are different models.
+  `WarehouseResource::$last_user_activity_by_partial` (`only(['id', 'name'])`) is the fixture that
+  shows the failure mode was not cosmetic: `CrmUser`'s and `ModelsUser`'s picked `{id, name}` shapes
+  are structurally identical, so the string-keyed dedupe collapsed two real arms into the single
+  merged type `{ id: number; name: string } | null` — the second model's arm, and the FQCN push
+  that would have registered its import, were silently dropped. The loop now tracks a `$seenFqcns`
+  list and dedupes on the arm's own FQCN instead, so same-basename models never collide, and it
+  emits `Pick<CrmUser, 'id' | 'name'> | Pick<ModelsUser, 'id' | 'name'> | null` — two arms, matching
+  the two real models. The FQCN push into `embeddedModelFqcns` also moved outside the
+  "type accepted" guard it used to share with the string dedupe, and the returned list is no longer
+  passed through `array_unique()`: `LaravelTsPublish::aliasPropertyType()` consumes that list
+  positionally against left-to-right occurrences of each basename in the rendered type — its own
+  docblock in `LaravelTsPublish.php` states the contract directly: never dedupe it, since a caller
+  may need more entries than real occurrences, and the method only ever consumes the matching
+  prefix. A real repeated occurrence has to survive as a repeat, not collapse to one entry.
+
+A filter key that is not a published column on one of the union's models still falls back to that
+arm's inline expansion, same as the single-model path: `WarehouseResource::$crm_contact_partial`
+(`$this->primaryContact?->only(['status', 'images'])`) exercises this directly — `images` is a
+`MorphMany` relation on `Crm\Models\User`, not a column, so `relationFilterModelReference()`
+declines and the property falls back to `{ status: CrmStatusType; images: Image[] } | null`. That
+fixture is also what keeps an aliased-enum inline shape in the corpus at all: without it, nothing
+in `WarehouseResource` would still spell out `CrmStatusType` inline, `Workbench\Crm\Enums\Status`
+would stop colliding with `Workbench\App\Enums\Status`, and `review_priority`'s own enum would
+render as the unaliased `StatusType` instead of `EnumsStatusType` — a change to an unrelated
+property caused entirely by an import that stopped being needed elsewhere in the same file.
 
 ## Variable bindings
 

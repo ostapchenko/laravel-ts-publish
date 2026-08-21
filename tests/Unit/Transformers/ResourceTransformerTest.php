@@ -1485,36 +1485,38 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->and($data->typeImports['../../models'])->toContain('User as WorkbenchUser');
     });
 
-    test('accessor union type with ->only() filter produces inline object type', function () {
+    test('accessor union type with ->only() filter references each arm\'s own model', function () {
         $data = (new ResourceTransformer(WarehouseResource::class))->data();
 
+        // 'id' and 'name' are published columns on both models, so each arm becomes its own
+        // Pick<> reference instead of a re-derived inline shape.
         expect($data->properties)->toHaveKey('last_user_activity_by_partial')
-            ->and($data->properties['last_user_activity_by_partial']['type'])->toBe('{ id: number; name: string } | null');
+            ->and($data->properties['last_user_activity_by_partial']['type'])
+            ->toBe("Pick<CrmUser, 'id' | 'name'> | Pick<WorkbenchUser, 'id' | 'name'> | null");
     });
 
-    test('accessor union type with ->except() filter produces inline object union type', function () {
+    test('accessor union type with ->except() filter references each arm\'s own model', function () {
         $data = (new ResourceTransformer(WarehouseResource::class))->data();
 
         expect($data->properties)->toHaveKey('last_user_activity_by_mostly');
 
         $type = $data->properties['last_user_activity_by_mostly']['type'];
 
-        // Each model contributes its own inline object to the union, and Model::except() returns database
-        // columns only: no accessors (initials, is_premium) and no relations (images, posts, …).
-        expect($type)
-            ->not->toBe('unknown')
-            ->toContain('{ email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null }')
-            ->toContain('{ email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null }')
-            ->toEndWith('| null');
+        // Every excluded key (id, name) is a published column on both models, so each arm is its own
+        // Pick<> reference to the model interface — never a re-derived inline shape.
+        expect($type)->toBe(
+            "Pick<CrmUser, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | "
+            ."Pick<WorkbenchUser, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | "
+            ."'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | "
+            ."'settings' | 'last_login_at' | 'last_login_ip'> | null"
+        );
 
         // Member-level, not substring: relationFilterArmMembers() throws on a model-reference arm
-        // instead of returning [], so a future Pick<>/Omit<> arm fails this loudly, not silently.
+        // instead of returning [] — proving both arms are real Pick<> references, not silently inline.
         $arms = array_filter(splitTopLevelType($type), fn (string $arm): bool => trim($arm) !== 'null');
 
         foreach ($arms as $arm) {
-            expect(relationFilterArmMembers($arm))
-                ->not->toContain('images')
-                ->not->toContain('initials');
+            expect(fn () => relationFilterArmMembers($arm))->toThrow(RuntimeException::class);
         }
     });
 
@@ -1548,13 +1550,15 @@ describe('ResourceTransformer with union model accessor types', function () {
             ->toContain('StatusType as WorkbenchStatusType');
     });
 
-    test('inline object from ->except() uses aliased enum name instead of base name', function () {
+    test('inline object from ->only() uses aliased enum name instead of base name', function () {
         $data = (new ResourceTransformer(WarehouseResource::class))->data();
 
-        $type = $data->properties['last_user_activity_by_mostly']['type'];
-
-        // The CrmUser inline shape carries a 'status' property cast to the CrmStatus enum.
-        expect($type)->toContain('status: CrmStatusType');
+        // crm_contact_partial = $this->primaryContact?->only(['status', 'images']): 'images' is a
+        // relation, not a published column, so relationFilterModelReference() rejects the reference
+        // and this falls back to inline expansion, carrying the aliased CrmStatus enum.
+        expect($data->properties)->toHaveKey('crm_contact_partial')
+            ->and($data->properties['crm_contact_partial']['type'])
+            ->toContain('status: CrmStatusType');
     });
 });
 

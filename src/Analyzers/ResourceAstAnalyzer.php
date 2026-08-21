@@ -3779,18 +3779,43 @@ class ResourceAstAnalyzer
             $embeddedModelFqcns = [];
             /** @var ImportMapType $embeddedCustomImports */
             $embeddedCustomImports = [];
+            /** @var list<class-string<Model>> $seenFqcns */
+            $seenFqcns = [];
 
+            // Dedupe on the arm's own FQCN, not the rendered string: relationFilterModelReference()
+            // renders class_basename($fqcn), so two different FQCNs sharing a basename (e.g. two
+            // "User" models) would otherwise render identically and the second arm would be dropped.
             foreach ($modelFqcns as $fqcn) {
+                if (in_array($fqcn, $seenFqcns, true)) {
+                    continue;
+                }
+
+                $seenFqcns[] = $fqcn;
+
+                // Every filter key is a plain DB column: reference the arm's own model interface so
+                // its #[TsCasts]/@property refinements stay authoritative, same as the single-model path.
+                $modelReference = $this->relationFilterModelReference($fqcn, $keys, $include);
+
+                if ($modelReference !== null) {
+                    $inlineTypes[] = $modelReference;
+                    $embeddedModelFqcns[] = $fqcn;
+
+                    continue;
+                }
+
                 $filterResult = $this->resolveFilteredRelationType($fqcn, $keys, $include);
 
-                if ($filterResult['type'] !== 'unknown' && ! in_array($filterResult['type'], $inlineTypes, true)) {
-                    $inlineTypes[] = $filterResult['type'];
-                    array_push($embeddedEnumFqcns, ...$filterResult['enumFqcns']);
-                    array_push($embeddedModelFqcns, ...$filterResult['modelFqcns']);
+                if ($filterResult['type'] === 'unknown') {
+                    continue;
+                }
 
-                    foreach ($filterResult['customImports'] as $path => $names) {
-                        $embeddedCustomImports[$path] = [...($embeddedCustomImports[$path] ?? []), ...$names];
-                    }
+                $inlineTypes[] = $filterResult['type'];
+                $embeddedModelFqcns[] = $fqcn;
+                array_push($embeddedEnumFqcns, ...$filterResult['enumFqcns']);
+                array_push($embeddedModelFqcns, ...$filterResult['modelFqcns']);
+
+                foreach ($filterResult['customImports'] as $path => $names) {
+                    $embeddedCustomImports[$path] = [...($embeddedCustomImports[$path] ?? []), ...$names];
                 }
             }
 
@@ -3808,7 +3833,9 @@ class ResourceAstAnalyzer
                 ...$result,
                 'type' => $inlineType,
                 'embeddedEnumFqcns' => array_values(array_unique($embeddedEnumFqcns)),
-                'embeddedModelFqcns' => array_values(array_unique($embeddedModelFqcns)),
+                // Never deduped: aliasPropertyType() walks this list positionally against left-to-right
+                // occurrences of each basename in $inlineType, so a real repeat must survive as a repeat.
+                'embeddedModelFqcns' => $embeddedModelFqcns,
                 'customImports' => $embeddedCustomImports,
             ];
         }

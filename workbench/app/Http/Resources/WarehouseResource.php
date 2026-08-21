@@ -48,6 +48,11 @@ class WarehouseResource extends RoutableResource
             // relation: proves an inline object member keeps its own per-occurrence FQCNs rather than
             // losing them to the array literal's self-keyed, deduplicated model FQCN map.
             'probe_nested' => ['first' => $this->last_user_activity_by, 'second' => $this->manager],
+            // 'images' is a relation, not a published column, so relationFilterModelReference() rejects the
+            // reference and this falls back to inline expansion — keeping an inline arm with an aliased
+            // enum (status: CrmStatusType) alive now that the multi-model accessor arms above reference
+            // their models directly instead of expanding inline.
+            'crm_contact_partial' => $this->primaryContact?->only(['status', 'images']),
         ];
     }
 }

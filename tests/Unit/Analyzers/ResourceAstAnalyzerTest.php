@@ -5199,8 +5199,8 @@ test('keeps a hidden column the resource named explicitly', function () {
 
 test('a relation except() drops hidden columns from the derived key list', function () {
     // WarehouseResource::last_user_activity_by_mostly = $this->last_user_activity_by?->except(['id', 'name'])
-    // is a multi-model accessor union (CrmUser|User); the User branch derives its inline shape from
-    // every attribute minus the named keys, so it is implicit — $hidden columns must drop too.
+    // is a multi-model accessor union (CrmUser|User); each arm now references its own model via
+    // Pick<>, whose key set comes from publishedColumnNames() — so $hidden columns drop there too.
     config()->set('ts-publish.models.exclude_hidden', true);
 
     $props = collect(
@@ -5212,7 +5212,33 @@ test('a relation except() drops hidden columns from the derived key list', funct
 
     expect($type)->not->toContain('password')
         ->and($type)->not->toContain('remember_token')
-        ->and($type)->toContain('email: string');
+        ->and($type)->toContain("'email'");
+});
+
+test('a multi-model accessor union references each same-basename arm as its own Pick<>', function () {
+    // Warehouse::lastUserActivityBy is Attribute<CrmUser|User|null, never>. At the analyzer level, before
+    // alias rewriting, both arms render class_basename() as the bare 'User' — they must still stay two
+    // distinct arms, keyed by FQCN, rather than the second being deduped away by its rendered string.
+    $analysis = new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+        ->analyze();
+
+    $type = collect($analysis->properties)->keyBy('name')['last_user_activity_by_mostly']['type'];
+
+    expect(substr_count($type, 'Pick<User, '))->toBe(2)
+        ->and($analysis->inlineModelFqcns['last_user_activity_by_mostly'])->toBe([CrmUser::class, User::class]);
+});
+
+test('a multi-model accessor union of two unrelated models keeps both per-arm FQCNs', function () {
+    // Warehouse::lastCheckedBy is Attribute<Image|User|null, never> — Image and User share no basename,
+    // so this pins the FQCN list still carries both models even without a basename collision to expose it.
+    $analysis = new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class)
+        ->analyze();
+
+    $type = collect($analysis->properties)->keyBy('name')['last_checked_by_mostly']['type'];
+
+    expect($type)->toContain('Pick<Image, ')
+        ->and($type)->toContain('Pick<User, ')
+        ->and($analysis->inlineModelFqcns['last_checked_by_mostly'])->toBe([Image::class, User::class]);
 });
 
 test('relation except() expands to database columns only, matching Model::except() at runtime', function () {

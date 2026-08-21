@@ -4,8 +4,8 @@ import type { Routable } from '@/types/routing';
 import type { Timestamps } from '@/types/util';
 import type { StatusType as CrmStatusType } from '../../../crm/enums';
 import type { User as CrmUser } from '../../../crm/models';
-import type { ColorType, MembershipLevelType, PriorityType, RoleType, StatusType as WorkbenchStatusType } from '../../enums';
-import type { User as WorkbenchUser } from '../../models';
+import type { ColorType, PriorityType, StatusType as WorkbenchStatusType } from '../../enums';
+import type { Image, User as WorkbenchUser } from '../../models';
 
 /**
  * Resource with no @mixin or TsResource — tests convention-based model guess.
@@ -27,9 +27,10 @@ export interface WarehouseResource extends BaseResource, ExtendableInterface, Om
     last_user_activity_by: CrmUser | WorkbenchUser | null;
     last_user_activity_by_typed: CrmUser | WorkbenchUser | null;
     last_user_activity_by_typed_short: CrmUser | WorkbenchUser | null;
-    last_user_activity_by_partial: { id: number; name: string } | null;
-    last_user_activity_by_mostly: { email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
-    last_checked_by_mostly: { id: number; imageable_type: string; imageable_id: number; url: string; alt_text: string | null; disk: string; path: string; mime_type: string; size_bytes: number; width: number | null; height: number | null; sort_order: number; metadata: unknown[] | null } | { id: number; name: string; email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null;
+    last_user_activity_by_partial: Pick<CrmUser, 'id' | 'name'> | Pick<WorkbenchUser, 'id' | 'name'> | null;
+    last_user_activity_by_mostly: Pick<CrmUser, 'email' | 'company' | 'status' | 'created_at' | 'updated_at'> | Pick<WorkbenchUser, 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'created_at' | 'updated_at' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null;
+    last_checked_by_mostly: Pick<Image, 'id' | 'imageable_type' | 'imageable_id' | 'url' | 'alt_text' | 'disk' | 'path' | 'mime_type' | 'size_bytes' | 'width' | 'height' | 'sort_order' | 'metadata'> | Pick<WorkbenchUser, 'id' | 'name' | 'email' | 'email_verified_at' | 'password' | 'options' | 'remember_token' | 'role' | 'membership_level' | 'phone' | 'avatar' | 'bio' | 'settings' | 'last_login_at' | 'last_login_ip'> | null;
     regional_hub_contacts: { primaryContact: CrmUser | null; manager: WorkbenchUser | null; secondaryContact: CrmUser | null } | null;
     probe_nested: { first: CrmUser | WorkbenchUser | null; second: WorkbenchUser | null };
+    crm_contact_partial: { status: CrmStatusType; images: Image[] } | null;
 }
