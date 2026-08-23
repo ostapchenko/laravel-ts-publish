@@ -2,6 +2,43 @@
 
 All notable changes to `laravel-ts-publish` will be documented in this file.
 
+## v2.4.0 - 2026-08-23
+
+### What's Changed
+
+Two rounds of analyzer work, both aimed at the same thing: resource types that match the JSON Laravel actually sends. The `except()` and `only()` renderings changed shape, several properties that resolved to `unknown` now resolve properly, and four type tokens TypeScript could not import are gone.
+
+One output change worth reading before you upgrade. Relation `except()` now emits `Pick<Model, kept>` instead of `Omit<Model, excluded>`. The new type is narrower and matches the response, but any frontend code leaning on the old shape needs updating.
+
+### API resources
+
+- Relation `except()` emits the complement as a `Pick`, so `Omit<Post, 'created_at' | 'updated_at'>` becomes `Pick<Post, 'id' | 'title' | ...>`. `Omit` left mutators, relations, counts and `exists` flags in the type. The response only ever contains columns.
+- A multi-model accessor filtered with `only()` references each arm's own model. `{ id: number; name: string } | null` becomes `Pick<crm.models.User, 'id' | 'name'> | Pick<app.models.User, 'id' | 'name'> | null`.
+- Spreading a model inside an inline array intersects its `toArray()` with the sibling keys. `{ flag: boolean }[]` becomes `(Omit<app.models.User, 'flag'> & { flag: boolean })[]`.
+- A to-many `whenLoaded()` parameter's spread types as `Record<number, Model>` instead of collapsing to the single element model.
+- A resource subclass that declares no `toArray()` inherits the parent's body instead of generating an empty interface.
+- A method called on a resource receiver that returns something other than `static`, `self` or `$this` resolves its real return shape. `parent_summary?: unknown` becomes `parent_summary?: { id: number }`.
+- Enum resources inside inline array literals are substituted rather than rebuilt, so both arms of a mixed wrap/direct ternary survive: `{ status: app.enums.StatusType[] | app.enums.StatusType }`.
+- Resources guessed by naming convention (`FooCollection` to `FooResource`) now have to be in the published set. A third-party or `#[TsExclude]`d class can no longer be named in a type that has no file to import. The Inertia page analyzer shares the same gate.
+
+### Imports and naming
+
+- Every occurrence of a same-basename type in one property is aliased, not just the first: `status_pair: { app: app.enums.StatusType; crm: crm.enums.StatusType }`.
+- Morph relations in `ModelTransformer` go through the shared aliasing path instead of their own copy of it.
+- `#[TsResource(name: 'Address')]` is honoured when the analyzer derives the reference, not only when the resource is transformed directly.
+- Form request custom type imports now reach the globals file.
+- A plain value object whose public properties are all typed inlines its shape. `location: Coordinate`, which nothing could import, becomes `location: { lat: number; lng: number }`.
+
+### Inertia and form requests
+
+- A paginator called inline in the `render()` props array is detected with no intermediate variable, so `Inertia::render('Teams/Index', ['teams' => new TeamCollection(Team::query()->paginate(10))])` still types as a paginator.
+- `digits` and `decimal` count as numeric when coercing `in:` values. `['digits:1', 'in:1,2,3']` gives `1 | 2 | 3` instead of `'1' | '2' | '3'`.
+
+* Feat/analyzer followups by @abetwothree in https://github.com/abetwothree/laravel-ts-publish/pull/62
+* Feat/analyzer backlog by @abetwothree in https://github.com/abetwothree/laravel-ts-publish/pull/64
+
+**Full Changelog**: https://github.com/abetwothree/laravel-ts-publish/compare/v2.3.0...v2.4.0
+
 ## v2.3.0 - 2026-08-16
 
 ### What's Changed
