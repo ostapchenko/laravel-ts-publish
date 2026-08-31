@@ -9,6 +9,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\CallChainWalker;
 use AbeTwoThree\LaravelTsPublish\Ast\CallMatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\InertiaRenderLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
+use AbeTwoThree\LaravelTsPublish\Ast\TsCastsReader;
 use AbeTwoThree\LaravelTsPublish\Cache\CacheBootstrap;
 use AbeTwoThree\LaravelTsPublish\Cache\Contracts\CacheRepository;
 use AbeTwoThree\LaravelTsPublish\Commands\TsPublishCommand;
@@ -32,6 +33,7 @@ class LaravelTsPublishServiceProvider extends PackageServiceProvider
         $this->app->singleton(CallMatcher::class);
         $this->app->singleton(InertiaRenderLocator::class);
         $this->app->singleton(CallChainWalker::class);
+        $this->app->singleton(TsCastsReader::class);
 
         $this->app->bind(CacheRepository::class, fn () => CacheBootstrap::repository());
     }

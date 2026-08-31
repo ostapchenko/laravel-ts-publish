@@ -7,6 +7,7 @@ namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
+use AbeTwoThree\LaravelTsPublish\Ast\TsCastsReader;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
@@ -21,6 +22,8 @@ use Throwable;
 
 /**
  * Detects Inertia::render() calls in controller actions and extracts component names and page-prop types.
+ *
+ * @phpstan-import-type TsCastsUnpacked from TsCastsReader
  *
  * @phpstan-type PageTypeResult = array{type: string, fqcns: list<class-string>, externalImports: array<string, list<string>>}
  * @phpstan-type InertiaPageData = array{
@@ -570,27 +573,10 @@ class InertiaPageAnalyzer
             return ['overrides' => [], 'importMap' => []];
         }
 
-        /** @var TsCasts $tsCasts */
-        $tsCasts = $attrs[0]->newInstance();
+        /** @var TsCastsUnpacked $unpacked */
+        $unpacked = resolve(TsCastsReader::class)->unpack([$attrs[0]->newInstance()]);
 
-        $overrides = [];
-        $importMap = [];
-
-        foreach ($tsCasts->types as $prop => $value) {
-            if (is_array($value)) {
-                $overrides[$prop] = $value['type'];
-
-                if (isset($value['import'])) {
-                    foreach (LaravelTsPublish::extractImportableTypes($value['type']) as $typeName) {
-                        $importMap[$value['import']][] = $typeName;
-                    }
-                }
-            } else {
-                $overrides[$prop] = $value;
-            }
-        }
-
-        return ['overrides' => $overrides, 'importMap' => $importMap];
+        return ['overrides' => $unpacked['overrides'], 'importMap' => $unpacked['importMap']];
     }
 
     /**

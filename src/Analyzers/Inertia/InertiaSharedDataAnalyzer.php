@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
+use AbeTwoThree\LaravelTsPublish\Ast\TsCastsReader;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\Support\TsCastsImportResolver;
@@ -15,6 +16,8 @@ use ReflectionClass;
 use Spatie\StructureDiscoverer\Discover;
 
 /**
+ * @phpstan-import-type TsCastsUnpacked from TsCastsReader
+ *
  * @phpstan-type TsCastsParseResult = array{
  *     overrides: array<string, string>,
  *     importPaths: array<string, string>,
@@ -131,35 +134,22 @@ class InertiaSharedDataAnalyzer
         /** @var ReflectionClass<object> $reflection */
         $reflection = new ReflectionClass($className);
 
-        $classOverrides = [];
-        $methodOverrides = [];
+        $attributes = [];
 
         foreach ($reflection->getAttributes(TsCasts::class) as $attr) {
-            $classOverrides = array_merge($classOverrides, $attr->newInstance()->types);
+            $attributes[] = $attr->newInstance();
         }
 
         if ($reflection->hasMethod('share')) {
             foreach ($reflection->getMethod('share')->getAttributes(TsCasts::class) as $attr) {
-                $methodOverrides = array_merge($methodOverrides, $attr->newInstance()->types);
+                $attributes[] = $attr->newInstance();
             }
         }
 
-        $merged = array_merge($classOverrides, $methodOverrides);
+        /** @var TsCastsUnpacked $unpacked */
+        $unpacked = resolve(TsCastsReader::class)->unpack($attributes);
 
-        $overrides = [];
-        $importPaths = [];
-
-        foreach ($merged as $key => $value) {
-            if (is_array($value)) {
-                /** @var array{type: string, import: string} $value */
-                $overrides[$key] = $value['type'];
-                $importPaths[$key] = $value['import'];
-            } else {
-                $overrides[$key] = $value;
-            }
-        }
-
-        return ['overrides' => $overrides, 'importPaths' => $importPaths];
+        return ['overrides' => $unpacked['overrides'], 'importPaths' => $unpacked['importPaths']];
     }
 
     /**
