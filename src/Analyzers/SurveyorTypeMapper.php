@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers;
 
-use InvalidArgumentException;
 use Laravel\Surveyor\Types;
 use Laravel\Surveyor\Types\Contracts\Type;
 
@@ -33,19 +32,21 @@ class SurveyorTypeMapper
      */
     public static function convert(Type $type): string
     {
-        return match (get_class($type)) {
-            Types\ArrayType::class => self::convertArray($type),
-            Types\ArrayShapeType::class => self::convertArrayShape($type),
-            Types\BoolType::class => self::convertBool($type),
-            Types\ClassType::class => self::convertClass($type),
-            Types\IntType::class, Types\FloatType::class, Types\NumberType::class => self::decorate('number', $type),
-            Types\IntersectionType::class => self::convertCompound($type->types, '&'),
-            Types\MixedType::class => 'unknown',
-            Types\NullType::class => 'null',
-            Types\StringType::class => self::decorate('string', $type),
-            Types\UnionType::class => self::convertCompound($type->types, '|'),
-            Types\CallableType::class => self::convert($type->returnType),
-            default => throw new InvalidArgumentException('Unsupported Surveyor type: '.get_class($type)),
+        return match (true) {
+            $type instanceof Types\ArrayShapeType => self::convertArrayShape($type),
+            $type instanceof Types\ArrayType => self::convertArray($type),
+            $type instanceof Types\BoolType => self::convertBool($type),
+            $type instanceof Types\IntType,
+            $type instanceof Types\FloatType,
+            $type instanceof Types\NumberType => self::decorate('number', $type),
+            $type instanceof Types\IntersectionType => self::convertCompound($type->types, '&'),
+            $type instanceof Types\UnionType => self::convertCompound($type->types, '|'),
+            $type instanceof Types\CallableType => self::convert($type->returnType),
+            $type instanceof Types\MixedType => 'unknown',
+            $type instanceof Types\NullType => 'null',
+            $type instanceof Types\StringType => self::decorate('string', $type),
+            $type instanceof Types\ClassType => self::convertClass($type),
+            default => 'unknown',
         };
     }
 

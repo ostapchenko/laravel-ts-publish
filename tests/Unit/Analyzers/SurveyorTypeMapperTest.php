@@ -235,11 +235,15 @@ test('converts CallableType with no return type to unknown', function () {
 
 // ─── convert() unsupported type ───────────────────────────────────
 
-test('throws InvalidArgumentException for unsupported type', function () {
-    $type = new Types\VoidType;
+test('degrades an unsupported Surveyor type to unknown instead of throwing', function () {
+    expect(SurveyorTypeMapper::convert(new Types\VoidType))->toBe('unknown');
+});
 
-    SurveyorTypeMapper::convert($type);
-})->throws(InvalidArgumentException::class, 'Unsupported Surveyor type');
+test('routes ClassType subclasses through the class converter', function () {
+    $subclass = new class('Workbench\App\Models\Post') extends Types\ClassType {};
+
+    expect(SurveyorTypeMapper::convert($subclass))->toBe('Workbench.App.Models.Post');
+});
 
 // ─── objectToTypeString() ─────────────────────────────────────────
 
