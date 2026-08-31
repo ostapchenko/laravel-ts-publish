@@ -310,6 +310,30 @@ test('no overrides applied when middleware has no TsCasts', function () {
         ->and($result['importStatements'])->toBe([]);
 });
 
+// ─── discoverMiddlewareClass() filesystem discovery ───────────────
+
+test('discovers the Inertia middleware class from app paths', function () {
+    $data = new ArrayType([
+        'appName' => new MixedType,
+    ]);
+
+    $component = new SharedDataComponent($data, false);
+
+    $collector = Mockery::mock(InertiaSharedDataCollector::class);
+    $collector->shouldReceive('setAppPaths')->once();
+    $collector->shouldReceive('collect')->andReturn(collect([$component]));
+
+    $analyzer = new InertiaSharedDataAnalyzer($collector);
+    $analyzer->setAppPaths(__DIR__.'/Fixtures/Discovery');
+
+    $result = $analyzer->analyze();
+
+    // Only DiscoverableMiddleware's #[TsCasts] can produce this override — proves the
+    // fixture directory's lone Inertia\Middleware subclass was the one discovered.
+    expect($result)->not->toBeNull()
+        ->and($result['sharedPageProps'])->toBe('{ appName: DiscoveredAppName }');
+});
+
 // ─── @return docblock fallback ───────────────────────────────────
 
 test('docblock @return array shape provides type overrides when no TsCasts present', function () {

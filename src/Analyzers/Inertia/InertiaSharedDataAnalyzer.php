@@ -9,11 +9,11 @@ use AbeTwoThree\LaravelTsPublish\Ast\TsCastsReader;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\Support\TsCastsImportResolver;
+use Composer\ClassMapGenerator\ClassMapGenerator;
 use Laravel\Ranger\Collectors\InertiaSharedData as InertiaSharedDataCollector;
 use Laravel\Ranger\Components\InertiaSharedData as SharedDataComponent;
 use Laravel\Surveyor\Types\Contracts\Type;
 use ReflectionClass;
-use Spatie\StructureDiscoverer\Discover;
 
 /**
  * @phpstan-import-type TsCastsUnpacked from TsCastsReader
@@ -79,13 +79,17 @@ class InertiaSharedDataAnalyzer
             return null;
         }
 
-        $discovered = Discover::in(...$this->appPaths)
-            ->classes()
-            ->extending('Inertia\\Middleware')
-            ->get();
+        foreach ($this->appPaths as $path) {
+            $classes = array_keys(ClassMapGenerator::createMap($path));
 
-        /** @var class-string|null */
-        return $discovered[0] ?? null;
+            foreach ($classes as $class) {
+                if (class_exists($class) && is_subclass_of($class, 'Inertia\Middleware')) {
+                    return $class;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
