@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
+use AbeTwoThree\LaravelTsPublish\Ast\CallMatcher;
+use AbeTwoThree\LaravelTsPublish\Ast\InertiaRenderLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
@@ -15,9 +17,7 @@ use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
-use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
-use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
@@ -68,14 +68,14 @@ class InertiaTableAnalyzer
             return null;
         }
 
-        ['method' => $method, 'finder' => $finder] = $context;
-        $renderCall = $this->findInertiaRenderCall($method, $finder);
+        $locator = resolve(InertiaRenderLocator::class);
+        $renderCall = $locator->findRenderCall($context['method']);
 
         if ($renderCall === null) {
             return null;
         }
 
-        return $this->resolveComponentName($renderCall);
+        return $locator->componentName($renderCall);
     }
 
     /**
@@ -100,7 +100,7 @@ class InertiaTableAnalyzer
             return false;
         }
 
-        ['reflection' => $reflection, 'method' => $method, 'finder' => $finder] = $context;
+        ['reflection' => $reflection, 'method' => $method] = $context;
 
         $controllerFile = $reflection->getFileName();
 
@@ -118,25 +118,24 @@ class InertiaTableAnalyzer
             return true;
         }
 
-        $renderCall = $this->findInertiaRenderCall($method, $finder);
+        $locator = resolve(InertiaRenderLocator::class);
+        $renderCall = $locator->findRenderCall($method);
 
         if ($renderCall === null) {
             return false;
         }
 
-        $secondArg = $renderCall->args[1] ?? null;
+        $call = $locator->propsArg($renderCall);
 
-        if (! $secondArg instanceof Node\Arg || ! $secondArg->value instanceof MethodCall) {
+        if (! $call instanceof MethodCall) {
             return false;
         }
-
-        $call = $secondArg->value;
 
         if (! $call->name instanceof Identifier) {
             return false;
         }
 
-        $resourceClass = $this->resolveThisPropertyClass($reflection, $call->var);
+        $resourceClass = resolve(CallMatcher::class)->resolveThisPropertyClass($reflection, $call->var);
 
         if ($resourceClass === null) {
             return false;
@@ -257,14 +256,16 @@ class InertiaTableAnalyzer
             return null;
         }
 
-        ['reflection' => $reflection, 'method' => $method, 'finder' => $finder] = $context;
-        $renderCall = $this->findInertiaRenderCall($method, $finder);
+        ['reflection' => $reflection, 'method' => $method] = $context;
+
+        $locator = resolve(InertiaRenderLocator::class);
+        $renderCall = $locator->findRenderCall($method);
 
         if ($renderCall === null) {
             return null;
         }
 
-        $component = $this->resolveComponentName($renderCall);
+        $component = $locator->componentName($renderCall);
 
         if ($component === null) {
             return null;
@@ -330,41 +331,6 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Find the first Inertia::render(...) call in a method.
-     */
-    protected function findInertiaRenderCall(ClassMethod $method, NodeFinder $finder): ?StaticCall
-    {
-        if ($method->stmts === null) {
-            return null;
-        }
-
-        /** @var StaticCall|null $call */
-        $call = $finder->findFirst($method->stmts, function (Node $node): bool {
-            return $node instanceof StaticCall
-                && $node->class instanceof Name
-                && str_ends_with($node->class->toString(), 'Inertia')
-                && $node->name instanceof Identifier
-                && $node->name->toString() === 'render';
-        });
-
-        return $call;
-    }
-
-    /**
-     * Resolve the component string from Inertia::render('Component', ...).
-     */
-    protected function resolveComponentName(StaticCall $renderCall): ?string
-    {
-        $firstArg = $renderCall->args[0] ?? null;
-
-        if (! $firstArg instanceof Node\Arg || ! $firstArg->value instanceof String_) {
-            return null;
-        }
-
-        return $firstArg->value->value;
-    }
-
-    /**
      * Resolve table props from the second argument of Inertia::render(...).
      *
      * @param  ReflectionClass<object>  $controllerReflection
@@ -372,13 +338,13 @@ class InertiaTableAnalyzer
      */
     protected function resolvePropsFromRenderCall(ReflectionClass $controllerReflection, StaticCall $renderCall): array
     {
-        $secondArg = $renderCall->args[1] ?? null;
+        $propsExpr = resolve(InertiaRenderLocator::class)->propsArg($renderCall);
 
-        if (! $secondArg instanceof Node\Arg) {
+        if ($propsExpr === null) {
             return [];
         }
 
-        return $this->resolvePropsExpression($controllerReflection, $secondArg->value);
+        return $this->resolvePropsExpression($controllerReflection, $propsExpr);
     }
 
     /**
@@ -437,7 +403,7 @@ class InertiaTableAnalyzer
             return [];
         }
 
-        $serviceClass = $this->resolveThisPropertyClass($controllerReflection, $call->var);
+        $serviceClass = resolve(CallMatcher::class)->resolveThisPropertyClass($controllerReflection, $call->var);
 
         if ($serviceClass === null) {
             return [];
@@ -456,44 +422,6 @@ class InertiaTableAnalyzer
         }
 
         return [];
-    }
-
-    /**
-     * Resolve the class of a `$this->property` reference from its typed property declaration.
-     *
-     * @param  ReflectionClass<object>  $reflection
-     * @return class-string|null
-     */
-    protected function resolveThisPropertyClass(ReflectionClass $reflection, Expr $expr): ?string
-    {
-        if (! $expr instanceof PropertyFetch || ! $expr->var instanceof Variable || $expr->var->name !== 'this') {
-            return null;
-        }
-
-        if (! $expr->name instanceof Identifier) {
-            return null;
-        }
-
-        $property = $expr->name->toString();
-
-        if (! $reflection->hasProperty($property)) {
-            return null;
-        }
-
-        $type = $reflection->getProperty($property)->getType();
-
-        if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
-            return null;
-        }
-
-        $class = $type->getName();
-
-        if (! class_exists($class)) {
-            return null;
-        }
-
-        /** @var class-string $class */
-        return $class;
     }
 
     /**

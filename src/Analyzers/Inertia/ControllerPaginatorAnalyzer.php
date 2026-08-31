@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
+use AbeTwoThree\LaravelTsPublish\Ast\InertiaRenderLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -163,26 +164,16 @@ class ControllerPaginatorAnalyzer
      */
     private function resolvePaginatedResourceConstructorProps(ClassMethod $method, NodeFinder $finder, array $varModelMap): array
     {
-        if ($method->stmts === null) {
-            return []; // @codeCoverageIgnore
-        }
+        $locator = resolve(InertiaRenderLocator::class);
+        $renderCall = $locator->findRenderCall($method);
 
-        /** @var StaticCall|null $renderCall */
-        $renderCall = $finder->findFirst($method->stmts, function (Node $node): bool {
-            return $node instanceof StaticCall
-                && $node->class instanceof Name
-                && str_ends_with($node->class->toString(), 'Inertia')
-                && $node->name instanceof Identifier
-                && $node->name->toString() === 'render';
-        });
-
-        if (! $renderCall instanceof StaticCall || count($renderCall->args) < 2) {
+        if ($renderCall === null) {
             return [];
         }
 
-        $secondArg = $renderCall->args[1];
+        $propsArray = $locator->propsArray($renderCall);
 
-        if (! $secondArg instanceof Node\Arg || ! $secondArg->value instanceof Array_) {
+        if ($propsArray === null) {
             return [];
         }
 
@@ -190,7 +181,7 @@ class ControllerPaginatorAnalyzer
         $map = [];
 
         /** @var array<Expr\ArrayItem> $items */
-        $items = $secondArg->value->items;
+        $items = $propsArray->items;
 
         foreach ($items as $item) {
             if (! $item->key instanceof String_) {
@@ -344,30 +335,20 @@ class ControllerPaginatorAnalyzer
      */
     private function resolvePropVariables(ClassMethod $method, NodeFinder $finder): array
     {
-        if ($method->stmts === null) {
-            return []; // @codeCoverageIgnore
-        }
+        $locator = resolve(InertiaRenderLocator::class);
+        $renderCall = $locator->findRenderCall($method);
 
-        /** @var StaticCall|null $renderCall */
-        $renderCall = $finder->findFirst($method->stmts, function (Node $node): bool {
-            return $node instanceof StaticCall
-                && $node->class instanceof Name
-                && str_ends_with($node->class->toString(), 'Inertia')
-                && $node->name instanceof Identifier
-                && $node->name->toString() === 'render';
-        });
-
-        if (! $renderCall instanceof StaticCall || count($renderCall->args) < 2) {
+        if ($renderCall === null) {
             return [];
         }
 
-        $secondArg = $renderCall->args[1];
+        $propsExpr = $locator->propsArg($renderCall);
 
-        if (! $secondArg instanceof Node\Arg) {
+        if ($propsExpr === null) {
             return [];
         }
 
-        return $this->extractPropVarMap($secondArg->value);
+        return $this->extractPropVarMap($propsExpr);
     }
 
     /**
@@ -418,26 +399,16 @@ class ControllerPaginatorAnalyzer
      */
     private function resolveStaticCollectionProps(ClassMethod $method, NodeFinder $finder, array $varModelMap = []): array
     {
-        if ($method->stmts === null) {
-            return ['nonPaginated' => [], 'paginated' => []]; // @codeCoverageIgnore
-        }
+        $locator = resolve(InertiaRenderLocator::class);
+        $renderCall = $locator->findRenderCall($method);
 
-        /** @var StaticCall|null $renderCall */
-        $renderCall = $finder->findFirst($method->stmts, function (Node $node): bool {
-            return $node instanceof StaticCall
-                && $node->class instanceof Name
-                && str_ends_with($node->class->toString(), 'Inertia')
-                && $node->name instanceof Identifier
-                && $node->name->toString() === 'render';
-        });
-
-        if (! $renderCall instanceof StaticCall || count($renderCall->args) < 2) {
+        if ($renderCall === null) {
             return ['nonPaginated' => [], 'paginated' => []];
         }
 
-        $secondArg = $renderCall->args[1];
+        $propsArray = $locator->propsArray($renderCall);
 
-        if (! $secondArg instanceof Node\Arg || ! $secondArg->value instanceof Array_) {
+        if ($propsArray === null) {
             return ['nonPaginated' => [], 'paginated' => []];
         }
 
@@ -448,7 +419,7 @@ class ControllerPaginatorAnalyzer
         $paginated = [];
 
         /** @var array<Expr\ArrayItem> $items */
-        $items = $secondArg->value->items;
+        $items = $propsArray->items;
 
         foreach ($items as $item) {
             if (! $item->key instanceof String_) {
