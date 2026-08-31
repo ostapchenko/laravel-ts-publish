@@ -64,8 +64,8 @@ final class CoalesceHandler implements ExpressionHandler
      * Drop a top-level `| null` arm from a type string — a guarded success path proves it unreachable.
      * Nested null members (inside object shapes, generics, or array element types) are kept.
      *
-     * Duplicated from ResourceAstAnalyzer::stripNullArm() (still needed there by other not-yet-extracted
-     * guards); Task 17 is expected to fold both copies into one shared home.
+     * Duplicated here — a standalone handler can't call the analyzer's `protected` helpers. Task 20
+     * (Slice S7) moves stripNullArm() to its S7 home and repoints this handler there.
      */
     private function stripNullArm(string $type): string
     {
@@ -83,8 +83,9 @@ final class CoalesceHandler implements ExpressionHandler
      *
      * Shared by the ternary/closure union and by coalesce, which computes its own member list.
      *
-     * Duplicated from ResourceAstAnalyzer::mergeUnionChannels() (still needed there by ternary/whenXxx/
-     * closure union, not yet extracted); Task 17 lands the single shared copy as ValueResult::mergeUnion().
+     * Duplicated here for the same reason (a standalone handler can't call the analyzer's `protected`
+     * helpers), and because the ValueResult::mergeUnion() target takes one param, not two, so S3 can't
+     * shape it blind. Task 17 repoints this handler at ValueResult::mergeUnion() once it lands.
      *
      * @param  list<string>  $types
      * @param  list<ValueExpressionResult>  $branchResults
