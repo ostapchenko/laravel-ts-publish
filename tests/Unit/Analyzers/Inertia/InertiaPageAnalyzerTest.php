@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
+use AbeTwoThree\LaravelTsPublish\Support\AnalysisWarnings;
 use AbeTwoThree\LaravelTsPublish\Tests\Fixtures\InertiaUiTable\InertiaServiceTableController;
 use AbeTwoThree\LaravelTsPublish\Tests\Fixtures\InertiaUiTable\InertiaTableController;
 use Laravel\Ranger\Collectors\Response as ResponseCollector;
@@ -80,6 +81,27 @@ test('returns null when collector returns only non-string responses', function (
     $analyzer = new InertiaPageAnalyzer($mock);
 
     expect($analyzer->analyze(['uses' => 'Foo@bar']))->toBeNull();
+});
+
+// ─── analyze() exception boundary ─────────────────────────────────
+
+test('analyze() degrades to null and records a warning when parseResponse() throws', function () {
+    $mock = Mockery::mock(ResponseCollector::class);
+    $mock->shouldReceive('parseResponse')->andThrow(
+        new TypeError('addComponent(): Argument #2 must be of type ArrayType')
+    );
+
+    $analyzer = new InertiaPageAnalyzer($mock);
+
+    $result = $analyzer->analyze(['uses' => 'App\Http\Controllers\X@index']);
+
+    expect($result)->toBeNull();
+
+    $warnings = AnalysisWarnings::all();
+
+    expect($warnings)->toHaveCount(1)
+        ->and($warnings[0]['subject'])->toBe('App\Http\Controllers\X@index')
+        ->and($warnings[0]['message'])->toContain('TypeError');
 });
 
 // ─── rewriteResourceCollections() ────────────────────────────────

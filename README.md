@@ -559,6 +559,7 @@ Key capabilities:
 - **Route-linked page props** — a related but separate piece: a controller action's `Inertia::render()` call gets its own page-prop type that intersects with `Inertia.SharedData`, threaded into that route's generated file automatically. See [Inertia Integration](https://tolki.abe.dev/ts/routing.html#inertia-integration) in the Routing docs.
 - **Preserve-keys resource collections** — a paginated `Inertia::render()` prop backed by a `#[PreserveKeys]`/`$preserveKeys` resource collection types its `data` member as `Record<string, T>`, matching Laravel's key-preserving JSON shape instead of the default array.
 - **Inline paginators** — a paginator called directly inside the render array (`'teams' => new TeamCollection(Team::query()->paginate(10))`) is typed as a paginator, with no intermediate variable needed. `paginate()`, `simplePaginate()`, and `cursorPaginate()` are all recognised, in both the `new SomeCollection(...)` and `SomeResource::collection(...)` forms — see [Paginating Inline in the Render Call](https://tolki.abe.dev/ts/inertia.html#paginating-inline-in-the-render-call).
+- **Degrades instead of aborting** — an action whose props can't be analyzed is reported as a warning after the run and typed as `Inertia.SharedData` alone, rather than failing the whole `ts:publish` run.
 
 For the full middleware discovery rules, the type-override priority order, and the generated file anatomy, see the full [Inertia documentation](https://tolki.abe.dev/ts/inertia.html).
 

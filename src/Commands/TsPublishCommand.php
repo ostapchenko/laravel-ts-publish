@@ -13,6 +13,7 @@ use AbeTwoThree\LaravelTsPublish\Generators\ResourceGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\RouteGenerator;
 use AbeTwoThree\LaravelTsPublish\Runners\Runner;
 use AbeTwoThree\LaravelTsPublish\Runners\RunnerForSource;
+use AbeTwoThree\LaravelTsPublish\Support\AnalysisWarnings;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
@@ -39,6 +40,9 @@ use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 
+/**
+ * @phpstan-import-type AnalysisWarning from AnalysisWarnings
+ */
 class TsPublishCommand extends Command
 {
     protected float $startedAt = 0.0;
@@ -601,18 +605,33 @@ class TsPublishCommand extends Command
             $content[] = Element::bulletedList($extraLines);
         }
 
-        if ($content === []) {
+        if ($content !== []) {
+            $elapsed = number_format(microtime(true) - $this->startedAt, 2);
+            $total = $this->totalFilesWritten($runner);
+
+            callout(
+                label: 'Published TypeScript files',
+                content: $content,
+                info: Str::plural('file', $total, prependCount: true)." · {$elapsed}s",
+            );
+        }
+
+        $this->renderAnalysisWarnings();
+    }
+
+    /**
+     * Print each action degraded by the analysis exception boundary, respecting --quiet.
+     */
+    protected function renderAnalysisWarnings(): void
+    {
+        if ($this->output->isQuiet()) {
             return;
         }
 
-        $elapsed = number_format(microtime(true) - $this->startedAt, 2);
-        $total = $this->totalFilesWritten($runner);
-
-        callout(
-            label: 'Published TypeScript files',
-            content: $content,
-            info: Str::plural('file', $total, prependCount: true)." · {$elapsed}s",
-        );
+        foreach (AnalysisWarnings::all() as $entry) {
+            /** @var AnalysisWarning $entry */
+            warning("{$entry['subject']}: {$entry['message']}");
+        }
     }
 
     protected function createVerboseFilesList(Runner|RunnerForSource $runner): void

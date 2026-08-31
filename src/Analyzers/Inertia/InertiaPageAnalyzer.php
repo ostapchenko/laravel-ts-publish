@@ -11,6 +11,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\TsCastsReader;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use AbeTwoThree\LaravelTsPublish\Support\AnalysisWarnings;
 use Illuminate\Http\Resources\Json\ResourceCollection as LaravelResourceCollection;
 use Illuminate\Support\Str;
 use Laravel\Ranger\Collectors\InertiaComponents;
@@ -94,30 +95,37 @@ class InertiaPageAnalyzer
             return null;
         }
 
-        // InertiaComponents keeps a static registry that accumulates props across calls rendering the
-        // same component name; reset it so this method sees only its own props.
-        $componentsProperty = (new ReflectionClass(InertiaComponents::class))->getProperty('components');
-        $componentsProperty->setValue(null, []);
+        try {
+            // InertiaComponents keeps a static registry that accumulates props across calls rendering the
+            // same component name; reset it so this method sees only its own props.
+            $componentsProperty = (new ReflectionClass(InertiaComponents::class))->getProperty('components');
+            $componentsProperty->setValue(null, []);
 
-        // Ranger's parseResponse() returns component name strings, despite its docblock claiming InertiaResponse.
-        /** @var list<string|mixed> $responses */
-        $responses = $this->responseCollector->parseResponse($action);
+            // Ranger's parseResponse() returns component name strings, despite its docblock claiming InertiaResponse.
+            /** @var list<string|mixed> $responses */
+            $responses = $this->responseCollector->parseResponse($action);
 
-        /** @var list<string> $componentNames */
-        $componentNames = array_values(array_filter(
-            $responses,
-            fn (mixed $response): bool => is_string($response),
-        ));
+            /** @var list<string> $componentNames */
+            $componentNames = array_values(array_filter(
+                $responses,
+                fn (mixed $response): bool => is_string($response),
+            ));
 
-        if ($componentNames === []) {
+            if ($componentNames === []) {
+                return null;
+            }
+
+            /** @var list<InertiaResponse> $inertiaResponses */
+            $inertiaResponses = array_map(
+                fn (string $name): InertiaResponse => InertiaComponents::getComponent($name),
+                $componentNames,
+            );
+        } catch (Throwable $e) {
+            // A malformed action must degrade to "no page type", not abort the whole ts:publish run.
+            AnalysisWarnings::add($action['uses'], $e::class.': '.$e->getMessage());
+
             return null;
         }
-
-        /** @var list<InertiaResponse> $inertiaResponses */
-        $inertiaResponses = array_map(
-            fn (string $name): InertiaResponse => InertiaComponents::getComponent($name),
-            $componentNames,
-        );
 
         $methodOverrides = [];
         $methodImportMap = [];
