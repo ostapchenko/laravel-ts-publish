@@ -26,18 +26,16 @@ final class ConstFetchHandler implements ExpressionHandler
     /** @return ValueExpressionResult|null */
     public function resolve(Expr $expr, AnalysisScope $scope, ExpressionEngine $engine): ?array
     {
-        if (! $expr instanceof ConstFetch) {
-            return null;
-        }
+        if ($expr instanceof ConstFetch) {
+            $constName = $expr->name->toLowerString();
 
-        $constName = $expr->name->toLowerString();
+            if ($constName === 'null') {
+                return ['type' => 'null', 'optional' => false];
+            }
 
-        if ($constName === 'null') {
-            return ['type' => 'null', 'optional' => false];
-        }
-
-        if (in_array($constName, ['true', 'false'], true)) {
-            return ['type' => 'boolean', 'optional' => false];
+            if (in_array($constName, ['true', 'false'], true)) {
+                return ['type' => 'boolean', 'optional' => false];
+            }
         }
 
         // A user-defined constant name — the legacy chain never resolved these either.
