@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish;
 
+use AbeTwoThree\LaravelTsPublish\Ast\AstParser;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsEnum;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsResource;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsType;
@@ -20,6 +21,10 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
 use JsonSerializable;
+use PhpParser\Node;
+use PhpParser\Node\Stmt\GroupUse;
+use PhpParser\Node\Stmt\Use_;
+use PhpParser\NodeFinder;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionFunction;
@@ -72,6 +77,13 @@ class LaravelTsPublish
      * @var array<string, string>
      */
     protected array $resourceTypeNames = [];
+
+    /**
+     * Per-file cache of resolved `use`-statement short-name → FQCN maps, keyed by file path.
+     *
+     * @var array<string, array<string, class-string>>
+     */
+    protected array $useStatementsCache = [];
 
     /** @var list<string> */
     private const array RESERVED_JS_IDENTIFIERS = [
@@ -1571,10 +1583,13 @@ class LaravelTsPublish
     /**
      * Parse use statements from a class's source file into a short-name → FQCN map.
      *
+     * Class imports only: `use function` and `use const` (plain or inside a group use)
+     * are excluded so they can never leak into docblock type resolution.
+     *
      * @template T of object
      *
      * @param  ReflectionClass<T>  $class
-     * @return array<string, string>
+     * @return array<string, class-string>
      */
     public function parseFileUseStatements(ReflectionClass $class): array
     {
@@ -1584,24 +1599,65 @@ class LaravelTsPublish
             return []; // @codeCoverageIgnore
         }
 
-        $source = (string) file_get_contents($fileName);
-        $map = [];
-
-        preg_match_all(
-            '/^use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;/m',
-            $source,
-            $matches,
-            PREG_SET_ORDER,
-        );
-
-        foreach ($matches as $match) {
-            $fqcn = $match[1];
-            $alias = $match[2] ?? '';
-            $short = $alias !== '' ? $alias : class_basename($fqcn);
-            $map[$short] = $fqcn;
+        if (isset($this->useStatementsCache[$fileName])) {
+            return $this->useStatementsCache[$fileName];
         }
 
-        return $map;
+        $stmts = resolve(AstParser::class)->parseFile($fileName);
+        $finder = new NodeFinder;
+        $map = [];
+
+        foreach ($finder->find($stmts, fn (Node $n) => $n instanceof Use_ || $n instanceof GroupUse) as $node) {
+            if ($node instanceof GroupUse) {
+                $this->addGroupUseClassImports($node, $map);
+            } elseif ($node instanceof Use_) {
+                $this->addUseClassImports($node, $map);
+            }
+        }
+
+        return $this->useStatementsCache[$fileName] = $map;
+    }
+
+    /**
+     * Add a plain `use` statement's class-import members to the map; function/const imports are skipped.
+     *
+     * @param  array<string, class-string>  $map
+     */
+    protected function addUseClassImports(Use_ $use, array &$map): void
+    {
+        if ($use->type !== Use_::TYPE_NORMAL) {
+            return;
+        }
+
+        foreach ($use->uses as $item) {
+            $alias = $item->alias !== null ? $item->alias->toString() : $item->name->getLast();
+            /** @var class-string $fqcn */
+            $fqcn = $item->name->toString();
+            $map[$alias] = $fqcn;
+        }
+    }
+
+    /**
+     * Add a group `use` statement's class-import members to the map, honoring each item's own type.
+     *
+     * @param  array<string, class-string>  $map
+     */
+    protected function addGroupUseClassImports(GroupUse $use, array &$map): void
+    {
+        $prefix = $use->prefix->toString();
+
+        foreach ($use->uses as $item) {
+            $type = $item->type !== Use_::TYPE_UNKNOWN ? $item->type : $use->type;
+
+            if ($type !== Use_::TYPE_NORMAL) {
+                continue;
+            }
+
+            $alias = $item->alias !== null ? $item->alias->toString() : $item->name->getLast();
+            /** @var class-string $fqcn */
+            $fqcn = $prefix.'\\'.$item->name->toString();
+            $map[$alias] = $fqcn;
+        }
     }
 
     public function validJsObjectKey(string $key): string

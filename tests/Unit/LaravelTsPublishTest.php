@@ -1450,6 +1450,32 @@ describe('resolveReflectionType', function () {
     });
 });
 
+describe('parseFileUseStatements', function () {
+    test('resolves plain and aliased group-use members and excludes function/const imports', function () {
+        require_once __DIR__.'/../Fixtures/GroupUseFixture.php.stub';
+
+        $map = $this->service->parseFileUseStatements(new ReflectionClass(GroupUseFixture::class));
+
+        expect($map)->toHaveCount(4)
+            ->toHaveKey('Post', 'App\Models\Post')
+            ->toHaveKey('Person', 'App\Models\User')
+            ->toHaveKey('Widget', 'App\Support\Widget')
+            ->toHaveKey('Reporter', 'App\Services\Reporting');
+    });
+
+    test('excludes a function import from the use-statement map', function () {
+        // Guards the trap this task exists to avoid: a `use function` import must never
+        // enter the map, or a docblock type could silently resolve to a function FQCN.
+        require_once __DIR__.'/../Fixtures/GroupUseFixture.php.stub';
+
+        $map = $this->service->parseFileUseStatements(new ReflectionClass(GroupUseFixture::class));
+
+        expect($map)->not->toHaveKey('warning')
+            ->and($map)->not->toHaveKey('helperFunction')
+            ->and($map)->not->toContain('Laravel\Prompts\warning');
+    });
+});
+
 describe('validJsObjectKey', function () {
     test('validJsObjectKey returns valid identifiers as-is', function () {
         expect($this->service->validJsObjectKey('myKey'))->toBe('myKey')
