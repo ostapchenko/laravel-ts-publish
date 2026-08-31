@@ -17,6 +17,7 @@ use ReflectionClass;
  *
  * Delegates the "accessor → cast → DB type" waterfall to ModelAttributeResolver
  * and provides thin wrappers that preserve the return shapes expected by callers.
+ * Requires the host to expose `AnalysisScope $scope`.
  *
  * @phpstan-import-type ResourcePropertyInfoList from MethodAnalysis
  * @phpstan-import-type ClassMapType from MethodAnalysis

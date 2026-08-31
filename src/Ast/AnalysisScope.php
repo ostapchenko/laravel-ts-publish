@@ -17,12 +17,6 @@ use ReflectionClass;
  * @phpstan-type VarModelBindingsMap array<string, class-string<Model>>
  * @phpstan-type VarCollectionBindingsMap array<string, array{type: string, modelFqcn: class-string<Model>}>
  * @phpstan-type LocalVarBindingsMap array<string, Expr>
- * @phpstan-type BindingSnapshot array{
- *     ClosureParamExprBindingsMap,
- *     VarModelBindingsMap,
- *     VarCollectionBindingsMap,
- *     LocalVarBindingsMap,
- * }
  */
 final class AnalysisScope
 {
@@ -99,34 +93,4 @@ final class AnalysisScope
         public ReflectionClass $subjectReflection,
         public ?string $modelClass = null,
     ) {}
-
-    /**
-     * Snapshot the four binding maps together, for a caller that clears and restores them as one unit.
-     *
-     * @return BindingSnapshot
-     */
-    public function snapshotBindings(): array
-    {
-        return [
-            $this->closureParamExprBindings,
-            $this->varModelBindings,
-            $this->varCollectionBindings,
-            $this->localVarBindings,
-        ];
-    }
-
-    /**
-     * Restore the four binding maps from a prior snapshotBindings() call; other fields are untouched.
-     *
-     * @param  BindingSnapshot  $snapshot
-     */
-    public function restoreBindings(array $snapshot): void
-    {
-        [
-            $this->closureParamExprBindings,
-            $this->varModelBindings,
-            $this->varCollectionBindings,
-            $this->localVarBindings,
-        ] = $snapshot;
-    }
 }

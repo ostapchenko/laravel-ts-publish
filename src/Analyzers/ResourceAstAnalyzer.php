@@ -154,8 +154,8 @@ class ResourceAstAnalyzer
     }
 
     /**
-     * Reflect a class by name without carrying over a caller's more specific generic type — every
-     * AnalysisScope holds a subjectReflection generic across future AST subjects, not just JsonResource.
+     * `ReflectionClass`'s template is invariant, so a caller's `ReflectionClass<JsonResource>` cannot
+     * be assigned into `AnalysisScope`'s `<object>` slot; re-reflecting by name erases the generic.
      *
      * @param  class-string  $className
      * @return ReflectionClass<object>

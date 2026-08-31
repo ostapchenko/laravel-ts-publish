@@ -621,14 +621,14 @@ already restores `$localVarBindings`/`$resolvingLocalVars`/`$varModelBindings`.
 
 ### Scope boundary: a foreign resource class receiver still degrades to `unknown`
 
-`analyzeThisMethodSpread()` is hard-bound to `$this->resourceReflection` — it looks the method up with
-`$this->resourceReflection->hasMethod()` and `->getMethod()` — so it can only resolve methods declared
-on (or inherited by) the class the analyzer was constructed for. For `new self($x)` the receiver class
-*is* that class, which is what makes reusing it sound.
+`analyzeThisMethodSpread()` is hard-bound to `$this->scope->subjectReflection` — it looks the method up
+with `$this->scope->subjectReflection->hasMethod()` and `->getMethod()` — so it can only resolve
+methods declared on (or inherited by) the class the analyzer was constructed for. For `new self($x)`
+the receiver class *is* that class, which is what makes reusing it sound.
 
 `SomeOtherResource::make($x)->summary()` would need a second analyzer instance built on that other
 class, which this does not do. So the hook guards on receiver identity — `$resourceFqcn !==
-$this->resourceReflection->getName()` returns `null` — and the property keeps the `unknown` floor.
+$this->scope->subjectReflection->getName()` returns `null` — and the property keeps the `unknown` floor.
 Without that guard the analyzer would resolve *its own* same-named method and emit a shape belonging
 to a different class.
 
