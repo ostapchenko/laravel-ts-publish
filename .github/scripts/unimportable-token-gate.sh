@@ -17,11 +17,15 @@
 # expected to declare). The gate compares against that baseline rather than
 # demanding zero.
 #
-# Usage: unimportable-token-gate.sh [BASELINE_COUNT] [TS2307_BASELINE]
-#        With no argument it prints the current count and the offending names. TS2307_BASELINE
-#        gates every "Cannot find module" (TS2307) diagnostic - both a relative specifier (a module
-#        this package itself writes) and a bare one (an app-side alias, e.g. @/types/geo, that the
-#        consuming app is expected to declare).
+# Usage: unimportable-token-gate.sh [BASELINE_COUNT] [RELATIVE_BASELINE] [BARE_BASELINE]
+#        With no argument it prints the current counts and the offending names. RELATIVE_BASELINE
+#        gates TS2307s whose specifier is relative (./ or ../) - a module this package itself writes,
+#        and should always be passed as 0: unlike the other two baselines, it has no legitimate
+#        non-zero cause, so it is never appropriate to raise it. BARE_BASELINE gates every other
+#        TS2307 - a bare specifier such as @/types/geo, an app-side alias the consuming app is
+#        expected to declare, the same kind of escape hatch as the BASELINE_COUNT family below.
+#        Each argument activates its own gate; passing fewer leaves the rest report-only, same as
+#        BASELINE_COUNT and RELATIVE_BASELINE already did before BARE_BASELINE existed.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -45,15 +49,26 @@ count=$(printf '%s' "$errs" | grep -c . || true)
 echo "TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: $count"
 printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier) '([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
 
-# Every TS2307 counts here now, relative or bare: a relative specifier (./ or ../) only ever
-# resolves against a file this package itself writes, and a bare one (e.g. @/types/geo) is the
-# same kind of app-side escape hatch as the TS2304 baseline above - the consuming app is expected
-# to declare it, and this package has no file of its own to point the import at either way.
-ts2307_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" || true)
-ts2307_count=$(printf '%s' "$ts2307_errs" | grep -c . || true)
+# A relative specifier (./ or ../) only ever resolves against a file this package itself writes,
+# so an unresolved one is never the app-side escape hatch behind the baselines above/below - it is
+# always the failure mode PublishedResourceRegistry exists to prevent. Kept as its own zero-tolerance
+# count rather than folded into the bare one below: pooling the two would let a new broken relative
+# import hide inside ordinary bare-alias churn, invisible until the combined total crossed baseline.
+rel_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" | grep -E "Cannot find module '\.{1,2}/" || true)
+rel_count=$(printf '%s' "$rel_errs" | grep -c . || true)
 
-echo "TS2307 (cannot find module) in generated tree: $ts2307_count"
-printf '%s\n' "$ts2307_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
+echo "TS2307 (cannot find module) with a relative specifier in generated tree: $rel_count"
+printf '%s\n' "$rel_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
+
+# Everything else with TS2307: a bare specifier such as @/types/geo. The module lives in the
+# consuming app, not in this package or its workbench, so this package cannot make it resolve -
+# the same kind of app-side escape hatch as the TS2300/2304/2344/2552 baseline below, just reached
+# through an import rather than a bare name.
+bare_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" | grep -vE "Cannot find module '\.{1,2}/" || true)
+bare_count=$(printf '%s' "$bare_errs" | grep -c . || true)
+
+echo "TS2307 (cannot find module) with a bare specifier in generated tree: $bare_count"
+printf '%s\n' "$bare_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
 
 if [ $# -ge 1 ]; then
   baseline=$1
@@ -65,12 +80,22 @@ if [ $# -ge 1 ]; then
   echo "PASS - no new unimportable or colliding tokens (baseline $baseline)"
 
   if [ $# -ge 2 ]; then
-    ts2307_baseline=$2
-    if [ "$ts2307_count" -gt "$ts2307_baseline" ]; then
-      echo "FAIL - TS2307 count rose from $ts2307_baseline to $ts2307_count: an import points at a module nothing declares"
-      printf '%s\n' "$ts2307_errs"
+    relative_baseline=$2
+    if [ "$rel_count" -gt "$relative_baseline" ]; then
+      echo "FAIL - relative-specifier TS2307 count rose from $relative_baseline to $rel_count: an import points at a file this package never writes"
+      printf '%s\n' "$rel_errs"
       exit 1
     fi
-    echo "PASS - no new TS2307s (baseline $ts2307_baseline)"
+    echo "PASS - no new relative-specifier TS2307s (baseline $relative_baseline)"
+
+    if [ $# -ge 3 ]; then
+      bare_baseline=$3
+      if [ "$bare_count" -gt "$bare_baseline" ]; then
+        echo "FAIL - bare-specifier TS2307 count rose from $bare_baseline to $bare_count: an import points at a module nothing declares"
+        printf '%s\n' "$bare_errs"
+        exit 1
+      fi
+      echo "PASS - no new bare-specifier TS2307s (baseline $bare_baseline)"
+    fi
   fi
 fi
