@@ -58,7 +58,7 @@ class AstParser
         }
 
         if ($stmts === null) {
-            return [];
+            return []; // @codeCoverageIgnore
         }
 
         $traverser = new NodeTraverser;

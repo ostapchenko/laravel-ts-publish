@@ -18,12 +18,14 @@ it('parses source with resolved names', function () {
         ->and($class->extends?->toString())->toBe('B\C');
 });
 
-it('parses a file, caches it, and records it as a dependency', function () {
+it('parses a file, caches it, and records it as a dependency even on a cache hit', function () {
     $parser = new AstParser;
     $file = (new ReflectionClass(AstParser::class))->getFileName();
 
     DependencyRecorder::start();
     $first = $parser->parseFile($file);
+    DependencyRecorder::reset();
+    DependencyRecorder::start();
     $second = $parser->parseFile($file);
     $paths = DependencyRecorder::paths();
     DependencyRecorder::stop();
@@ -35,4 +37,8 @@ it('parses a file, caches it, and records it as a dependency', function () {
 
 it('returns an empty array for unparseable source', function () {
     expect(new AstParser()->parseSource(''))->toBe([]);
+});
+
+it('returns an empty array for syntactically invalid source', function () {
+    expect(new AstParser()->parseSource('<?php class {'))->toBe([]);
 });
