@@ -10,6 +10,7 @@ use AbeTwoThree\LaravelTsPublish\Generators\ResourceGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\RouteGenerator;
 use AbeTwoThree\LaravelTsPublish\Runners\Runner;
 use AbeTwoThree\LaravelTsPublish\Runners\RunnerForSource;
+use AbeTwoThree\LaravelTsPublish\Support\AnalysisWarnings;
 use Illuminate\Filesystem\Filesystem;
 
 use function Orchestra\Testbench\workbench_path;
@@ -207,4 +208,13 @@ test('a --source run clears a full run\'s stale registry instead of narrowing ag
     expect($sourceRunner->resourceGenerators->first()->content)
         ->toContain('owner_via_closure?: UserResource;')
         ->not->toContain('owner_via_closure?: unknown;');
+});
+
+test('a --source run clears a leftover AnalysisWarnings entry instead of leaking it', function () {
+    AnalysisWarnings::add('Some\Stale\Controller@index', 'stale warning from an earlier run');
+
+    $runner = new RunnerForSource('Workbench\App\Enums\Status');
+    $runner->run();
+
+    expect(AnalysisWarnings::all())->toBe([]);
 });

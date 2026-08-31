@@ -13,6 +13,7 @@ use AbeTwoThree\LaravelTsPublish\Generators\FormRequestGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\ModelGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\ResourceGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\RouteGenerator;
+use AbeTwoThree\LaravelTsPublish\Support\AnalysisWarnings;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use InvalidArgumentException;
@@ -55,10 +56,13 @@ class RunnerForSource extends BaseRunner
      *
      * Resets PublishedResourceRegistry first: a leftover set from an earlier full run in the
      * same process must not gate this run's own convention-guessed resource resolution.
+     * AnalysisWarnings is reset for the same reason: a warning recorded by an earlier run must
+     * not leak into this run's summary output.
      */
     public function run(): void
     {
         PublishedResourceRegistry::reset();
+        AnalysisWarnings::reset();
 
         $fqcn = $this->resolveSourceToFqcn();
 
