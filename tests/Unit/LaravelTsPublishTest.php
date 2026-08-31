@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Attributes\TsType;
+use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
@@ -1473,6 +1474,25 @@ describe('parseFileUseStatements', function () {
         expect($map)->not->toHaveKey('warning')
             ->and($map)->not->toHaveKey('helperFunction')
             ->and($map)->not->toContain('Laravel\Prompts\warning');
+    });
+
+    test('records the file as a cache dependency even on a cache hit', function () {
+        // Guards the same cache-hit-must-still-record contract AstParserTest pins for AstParser:
+        // useStatementsCache sits above it and must not swallow the recording on a hit.
+        require_once __DIR__.'/../Fixtures/GroupUseFixture.php.stub';
+
+        $reflection = new ReflectionClass(GroupUseFixture::class);
+        $file = (string) $reflection->getFileName();
+
+        DependencyRecorder::start();
+        $this->service->parseFileUseStatements($reflection);
+        DependencyRecorder::reset();
+        $this->service->parseFileUseStatements($reflection);
+        $paths = DependencyRecorder::paths();
+        DependencyRecorder::stop();
+        DependencyRecorder::reset();
+
+        expect($paths)->toContain($file);
     });
 });
 

@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\AstParser;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsEnum;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsResource;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsType;
+use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use BackedEnum;
 use Closure;
 use Composer\ClassMapGenerator\PhpFileParser;
@@ -1598,6 +1599,8 @@ class LaravelTsPublish
         if ($fileName === false) {
             return []; // @codeCoverageIgnore
         }
+
+        DependencyRecorder::record($fileName);
 
         if (isset($this->useStatementsCache[$fileName])) {
             return $this->useStatementsCache[$fileName];
