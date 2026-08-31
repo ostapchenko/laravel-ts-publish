@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Concerns;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
@@ -16,8 +17,8 @@ use PhpParser\Node\Scalar\String_;
  * Handles $this->only([...]), $this->except([...]) and other attribute filter
  * patterns in JsonResource toArray() methods.
  *
- * @phpstan-import-type ResourcePropertyInfoList from ResourceAnalysis
- * @phpstan-import-type ClassMapType from ResourceAnalysis
+ * @phpstan-import-type ResourcePropertyInfoList from MethodAnalysis
+ * @phpstan-import-type ClassMapType from MethodAnalysis
  */
 trait FiltersModelAttributes
 {

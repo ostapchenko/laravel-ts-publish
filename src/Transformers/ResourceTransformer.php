@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Transformers;
 
-use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsResource;
 use AbeTwoThree\LaravelTsPublish\Collectors\ModelsCollector;
 use AbeTwoThree\LaravelTsPublish\Concerns\ParsesTsCasts;
@@ -30,8 +30,8 @@ use ReflectionClass;
  * @phpstan-import-type PropertiesList from TsResourceDto
  * @phpstan-import-type TypesImportMap from TsResourceDto
  * @phpstan-import-type ValuesImportMap from TsResourceDto
- * @phpstan-import-type ResourcePropertyInfo from ResourceAnalysis
- * @phpstan-import-type ImportMapType from ResourceAnalysis
+ * @phpstan-import-type ResourcePropertyInfo from MethodAnalysis
+ * @phpstan-import-type ImportMapType from MethodAnalysis
  *
  * @extends CoreTransformer<JsonResource>
  */

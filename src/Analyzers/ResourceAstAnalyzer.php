@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
@@ -87,12 +88,12 @@ use UnitEnum;
 /**
  * Analyzes a JsonResource's toArray() body to extract property names, types, and optional markers via AST.
  *
- * @phpstan-import-type ResourcePropertyInfoList from ResourceAnalysis
- * @phpstan-import-type ClassMapType from ResourceAnalysis
- * @phpstan-import-type ImportMapType from ResourceAnalysis
- * @phpstan-import-type InlineEnumFqcnsMap from ResourceAnalysis
- * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
- * @phpstan-import-type MultiEnumFqcnsMap from ResourceAnalysis
+ * @phpstan-import-type ResourcePropertyInfoList from MethodAnalysis
+ * @phpstan-import-type ClassMapType from MethodAnalysis
+ * @phpstan-import-type ImportMapType from MethodAnalysis
+ * @phpstan-import-type InlineEnumFqcnsMap from MethodAnalysis
+ * @phpstan-import-type InlineModelFqcnsMap from MethodAnalysis
+ * @phpstan-import-type MultiEnumFqcnsMap from MethodAnalysis
  * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
  * @phpstan-import-type TypesImportMap from Datable
  *
@@ -420,26 +421,7 @@ class ResourceAstAnalyzer
      */
     protected function analyzeReturnArray(Array_ $array): ResourceAnalysis
     {
-        /** @var ResourcePropertyInfoList $properties */
-        $properties = [];
-        /** @var ClassMapType $enumResources */
-        $enumResources = [];
-        /** @var ClassMapType $nestedResources */
-        $nestedResources = [];
-        /** @var ClassMapType $directEnumFqcns */
-        $directEnumFqcns = [];
-        /** @var ClassMapType $modelFqcns */
-        $modelFqcns = [];
-        /** @var ImportMapType $customImports */
-        $customImports = [];
-        /** @var InlineEnumFqcnsMap $inlineEnumFqcns */
-        $inlineEnumFqcns = [];
-        /** @var InlineModelFqcnsMap $inlineModelFqcns */
-        $inlineModelFqcns = [];
-        /** @var MultiEnumFqcnsMap $multiEnumResourceFqcns */
-        $multiEnumResourceFqcns = [];
-        /** @var InlineEnumFqcnsMap $inlineEnumResourceFqcns */
-        $inlineEnumResourceFqcns = [];
+        $analysis = new ResourceAnalysis;
 
         foreach ($array->items as $item) {
             // Handle ...parent::toArray($request) spread
@@ -447,12 +429,7 @@ class ResourceAstAnalyzer
                 $parentAnalysis = $this->analyzeParentToArray();
 
                 if ($parentAnalysis !== null) {
-                    $this->syncAnalysisMaps(
-                        $properties, $enumResources, $nestedResources,
-                        $directEnumFqcns, $modelFqcns, $customImports,
-                        $parentAnalysis, $inlineEnumFqcns, $inlineModelFqcns, $multiEnumResourceFqcns,
-                        $inlineEnumResourceFqcns,
-                    );
+                    $analysis->merge($parentAnalysis);
                 }
 
                 continue;
@@ -468,12 +445,7 @@ class ResourceAstAnalyzer
                 $filterAnalysis = $this->analyzeThisAttributeFilter($item->value);
 
                 if ($filterAnalysis !== null) {
-                    $this->syncAnalysisMaps(
-                        $properties, $enumResources, $nestedResources,
-                        $directEnumFqcns, $modelFqcns, $customImports,
-                        $filterAnalysis, $inlineEnumFqcns, $inlineModelFqcns, $multiEnumResourceFqcns,
-                        $inlineEnumResourceFqcns,
-                    );
+                    $analysis->merge($filterAnalysis);
                 }
 
                 continue;
@@ -488,12 +460,7 @@ class ResourceAstAnalyzer
                 $spreadAnalysis = $this->analyzeThisMethodSpread($item->value->name->toString());
 
                 if ($spreadAnalysis !== null) {
-                    $this->syncAnalysisMaps(
-                        $properties, $enumResources, $nestedResources,
-                        $directEnumFqcns, $modelFqcns, $customImports,
-                        $spreadAnalysis, $inlineEnumFqcns, $inlineModelFqcns, $multiEnumResourceFqcns,
-                        $inlineEnumResourceFqcns,
-                    );
+                    $analysis->merge($spreadAnalysis);
                 }
 
                 continue;
@@ -511,12 +478,7 @@ class ResourceAstAnalyzer
                         $spreadAnalysis = $this->analyzeThisMethodSpread($funcName);
 
                         if ($spreadAnalysis !== null) {
-                            $this->syncAnalysisMaps(
-                                $properties, $enumResources, $nestedResources,
-                                $directEnumFqcns, $modelFqcns, $customImports,
-                                $spreadAnalysis, $inlineEnumFqcns, $inlineModelFqcns, $multiEnumResourceFqcns,
-                                $inlineEnumResourceFqcns,
-                            );
+                            $analysis->merge($spreadAnalysis);
                         }
                     }
                 }
@@ -528,12 +490,7 @@ class ResourceAstAnalyzer
             if ($item->key === null && $item->value instanceof MethodCall) {
                 $mergeResult = $this->analyzeMergeExpression($item->value);
 
-                $this->syncAnalysisMaps(
-                    $properties, $enumResources, $nestedResources,
-                    $directEnumFqcns, $modelFqcns, $customImports,
-                    $mergeResult, $inlineEnumFqcns, $inlineModelFqcns, $multiEnumResourceFqcns,
-                    $inlineEnumResourceFqcns,
-                );
+                $analysis->merge($mergeResult);
 
                 continue;
             }
@@ -552,107 +509,41 @@ class ResourceAstAnalyzer
 
             // When a child key overrides a parent spread key, clear stale parent tracking
             unset(
-                $enumResources[$keyName], $nestedResources[$keyName], $directEnumFqcns[$keyName],
-                $modelFqcns[$keyName], $multiEnumResourceFqcns[$keyName], $inlineEnumFqcns[$keyName],
-                $inlineModelFqcns[$keyName], $inlineEnumResourceFqcns[$keyName],
+                $analysis->enumResources[$keyName], $analysis->nestedResources[$keyName], $analysis->directEnumFqcns[$keyName],
+                $analysis->modelFqcns[$keyName], $analysis->multiEnumResourceFqcns[$keyName], $analysis->inlineEnumFqcns[$keyName],
+                $analysis->inlineModelFqcns[$keyName], $analysis->inlineEnumResourceFqcns[$keyName],
             );
 
-            $properties[] = [
+            $analysis->properties[] = [
                 'name' => $keyName,
                 'type' => $result['type'],
                 'optional' => $result['optional'],
                 'description' => '',
             ];
 
-            $this->dispatchFqcnResults($keyName, $result, $enumResources, $directEnumFqcns, $nestedResources, $modelFqcns, $multiEnumResourceFqcns);
+            $this->dispatchFqcnResults(
+                $keyName, $result, $analysis->enumResources, $analysis->directEnumFqcns,
+                $analysis->nestedResources, $analysis->modelFqcns, $analysis->multiEnumResourceFqcns,
+            );
 
             foreach ($result['embeddedEnumFqcns'] ?? [] as $fqcn) {
-                $inlineEnumFqcns[$keyName][] = $fqcn;
+                $analysis->inlineEnumFqcns[$keyName][] = $fqcn;
             }
 
             foreach ($result['embeddedEnumResourceFqcns'] ?? [] as $fqcn) {
-                $inlineEnumResourceFqcns[$keyName][] = $fqcn;
+                $analysis->inlineEnumResourceFqcns[$keyName][] = $fqcn;
             }
 
             foreach ($result['embeddedModelFqcns'] ?? [] as $fqcn) {
-                $inlineModelFqcns[$keyName][] = $fqcn;
+                $analysis->inlineModelFqcns[$keyName][] = $fqcn;
             }
 
             foreach ($result['customImports'] ?? [] as $path => $types) {
-                $customImports[$path] = [...($customImports[$path] ?? []), ...$types];
+                $analysis->customImports[$path] = [...($analysis->customImports[$path] ?? []), ...$types];
             }
         }
 
-        return new ResourceAnalysis(
-            $properties,
-            $enumResources,
-            $nestedResources,
-            customImports: $customImports,
-            directEnumFqcns: $directEnumFqcns,
-            modelFqcns: $modelFqcns,
-            inlineEnumFqcns: $inlineEnumFqcns,
-            inlineModelFqcns: $inlineModelFqcns,
-            multiEnumResourceFqcns: $multiEnumResourceFqcns,
-            inlineEnumResourceFqcns: $inlineEnumResourceFqcns,
-        );
-    }
-
-    /**
-     * Merge a ResourceAnalysis result into the running accumulator arrays.
-     *
-     * inlineModelFqcns unions per occurrence; the enum inline maps still dedupe, though all three feed
-     * aliasPropertyType(). Lossless only while a queue is its distinct FQCNs then repeats of the last.
-     *
-     * @param  ResourcePropertyInfoList  $properties
-     * @param  ClassMapType  $enumResources
-     * @param  ClassMapType  $nestedResources
-     * @param  ClassMapType  $directEnumFqcns
-     * @param  ClassMapType  $modelFqcns
-     * @param  ImportMapType  $customImports
-     * @param  InlineEnumFqcnsMap  $inlineEnumFqcns
-     * @param  InlineModelFqcnsMap  $inlineModelFqcns
-     * @param  MultiEnumFqcnsMap  $multiEnumResourceFqcns
-     * @param  InlineEnumFqcnsMap  $inlineEnumResourceFqcns
-     */
-    protected function syncAnalysisMaps(
-        array &$properties,
-        array &$enumResources,
-        array &$nestedResources,
-        array &$directEnumFqcns,
-        array &$modelFqcns,
-        array &$customImports,
-        ResourceAnalysis $source,
-        array &$inlineEnumFqcns = [],
-        array &$inlineModelFqcns = [],
-        array &$multiEnumResourceFqcns = [],
-        array &$inlineEnumResourceFqcns = [],
-    ): void {
-        $properties = [...$properties, ...$source->properties];
-        $enumResources = [...$enumResources, ...$source->enumResources];
-        $nestedResources = [...$nestedResources, ...$source->nestedResources];
-        $directEnumFqcns = [...$directEnumFqcns, ...$source->directEnumFqcns];
-        $modelFqcns = [...$modelFqcns, ...$source->modelFqcns];
-        $multiEnumResourceFqcns = [...$multiEnumResourceFqcns, ...$source->multiEnumResourceFqcns];
-
-        foreach ($source->customImports as $path => $types) {
-            $customImports[$path] = [...($customImports[$path] ?? []), ...$types];
-        }
-
-        foreach ($source->inlineEnumFqcns as $propName => $fqcns) {
-            $inlineEnumFqcns[$propName] = array_values(array_unique(
-                [...($inlineEnumFqcns[$propName] ?? []), ...$fqcns]
-            ));
-        }
-
-        foreach ($source->inlineModelFqcns as $propName => $fqcns) {
-            $inlineModelFqcns[$propName] = [...($inlineModelFqcns[$propName] ?? []), ...$fqcns];
-        }
-
-        foreach ($source->inlineEnumResourceFqcns as $propName => $fqcns) {
-            $inlineEnumResourceFqcns[$propName] = array_values(array_unique(
-                [...($inlineEnumResourceFqcns[$propName] ?? []), ...$fqcns]
-            ));
-        }
+        return $analysis;
     }
 
     /**
@@ -3403,12 +3294,28 @@ class ResourceAstAnalyzer
                     unset($prop);
                 }
 
-                $this->syncAnalysisMaps(
+                $accumulator = new ResourceAnalysis(
                     $properties, $enumResources, $nestedResources,
-                    $directEnumFqcns, $modelFqcns, $customImports,
-                    $baseAnalysis, $inlineEnumFqcns, $inlineModelFqcns, $multiEnumResourceFqcns,
-                    $inlineEnumResourceFqcns,
+                    customImports: $customImports,
+                    directEnumFqcns: $directEnumFqcns,
+                    modelFqcns: $modelFqcns,
+                    inlineEnumFqcns: $inlineEnumFqcns,
+                    inlineModelFqcns: $inlineModelFqcns,
+                    multiEnumResourceFqcns: $multiEnumResourceFqcns,
+                    inlineEnumResourceFqcns: $inlineEnumResourceFqcns,
                 );
+                $accumulator->merge($baseAnalysis);
+
+                $properties = $accumulator->properties;
+                $enumResources = $accumulator->enumResources;
+                $nestedResources = $accumulator->nestedResources;
+                $directEnumFqcns = $accumulator->directEnumFqcns;
+                $modelFqcns = $accumulator->modelFqcns;
+                $customImports = $accumulator->customImports;
+                $inlineEnumFqcns = $accumulator->inlineEnumFqcns;
+                $inlineModelFqcns = $accumulator->inlineModelFqcns;
+                $multiEnumResourceFqcns = $accumulator->multiEnumResourceFqcns;
+                $inlineEnumResourceFqcns = $accumulator->inlineEnumResourceFqcns;
 
                 continue;
             }

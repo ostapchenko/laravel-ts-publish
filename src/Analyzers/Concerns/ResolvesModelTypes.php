@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Concerns;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\RelationNullable;
 use Illuminate\Database\Eloquent\Model;
@@ -17,9 +18,9 @@ use ReflectionClass;
  * Delegates the "accessor → cast → DB type" waterfall to ModelAttributeResolver
  * and provides thin wrappers that preserve the return shapes expected by callers.
  *
- * @phpstan-import-type ResourcePropertyInfoList from ResourceAnalysis
- * @phpstan-import-type ClassMapType from ResourceAnalysis
- * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
+ * @phpstan-import-type ResourcePropertyInfoList from MethodAnalysis
+ * @phpstan-import-type ClassMapType from MethodAnalysis
+ * @phpstan-import-type InlineModelFqcnsMap from MethodAnalysis
  * @phpstan-import-type AttributeInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  * @phpstan-import-type RelationInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  * @phpstan-import-type TypesImportMap from \AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable
