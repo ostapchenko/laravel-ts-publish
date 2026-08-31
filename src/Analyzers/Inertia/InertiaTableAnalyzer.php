@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
+use AbeTwoThree\LaravelTsPublish\Ast\CallChainWalker;
 use AbeTwoThree\LaravelTsPublish\Ast\CallMatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\InertiaRenderLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
@@ -14,7 +15,6 @@ use Illuminate\Database\Eloquent\Model;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
-use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\StaticCall;
@@ -431,25 +431,12 @@ class InertiaTableAnalyzer
      */
     protected function resolveModelFromTableExpression(Expr $expr): ?string
     {
-        if ($expr instanceof MethodCall) {
-            return $this->resolveModelFromTableExpression($expr->var);
-        }
+        $tableFqcn = resolve(CallChainWalker::class)
+            ->resolveRootClass($expr, self::TABLE_BASE, allowNew: true, recordDependency: true);
 
-        $tableFqcn = null;
-
-        if ($expr instanceof StaticCall && $expr->class instanceof Name) {
-            $tableFqcn = $expr->class->toString();
-        }
-
-        if ($expr instanceof New_ && $expr->class instanceof Name) {
-            $tableFqcn = $expr->class->toString();
-        }
-
-        if (! is_string($tableFqcn) || ! class_exists($tableFqcn) || ! is_a($tableFqcn, self::TABLE_BASE, true)) {
+        if ($tableFqcn === null) {
             return null;
         }
-
-        DependencyRecorder::recordClass($tableFqcn);
 
         return $this->resolveTableModel($tableFqcn);
     }
@@ -538,33 +525,8 @@ class InertiaTableAnalyzer
      */
     protected function resolveModelFromQueryExpression(Expr $expr): ?string
     {
-        if ($expr instanceof MethodCall) {
-            return $this->resolveModelFromQueryExpression($expr->var);
-        }
-
-        if ($expr instanceof StaticCall && $expr->class instanceof Name) {
-            $fqcn = $expr->class->toString();
-
-            if (class_exists($fqcn) && is_a($fqcn, Model::class, true)) {
-                /** @var class-string<Model> $fqcn */
-                DependencyRecorder::recordClass($fqcn);
-
-                return $fqcn;
-            }
-        }
-
-        if ($expr instanceof ClassConstFetch && $expr->class instanceof Name && $expr->name instanceof Identifier && $expr->name->toString() === 'class') {
-            $fqcn = $expr->class->toString();
-
-            if (class_exists($fqcn) && is_a($fqcn, Model::class, true)) {
-                /** @var class-string<Model> $fqcn */
-                DependencyRecorder::recordClass($fqcn);
-
-                return $fqcn;
-            }
-        }
-
-        return null;
+        return resolve(CallChainWalker::class)
+            ->resolveRootClass($expr, Model::class, allowClassConst: true, recordDependency: true);
     }
 
     /**

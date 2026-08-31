@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
+use AbeTwoThree\LaravelTsPublish\Ast\CallChainWalker;
 use AbeTwoThree\LaravelTsPublish\Ast\InertiaRenderLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use Illuminate\Database\Eloquent\Model;
@@ -302,30 +303,14 @@ class ControllerPaginatorAnalyzer
     /**
      * Walk a method call chain back to its root StaticCall and return its Eloquent Model FQCN.
      *
+     * Does not record a cache dependency: the controller file is already recorded via AstParser,
+     * and recording the model class here would be an unmeasured second behavior change.
+     *
      * @return class-string<Model>|null
      */
     private function resolveModelFromChain(Expr $node): ?string
     {
-        if ($node instanceof MethodCall) {
-            return $this->resolveModelFromChain($node->var);
-        }
-
-        if (! $node instanceof StaticCall) {
-            return null;
-        }
-
-        if (! $node->class instanceof Name) {
-            return null;
-        }
-
-        $fqcn = $node->class->toString();
-
-        if (! class_exists($fqcn) || ! is_a($fqcn, Model::class, true)) {
-            return null;
-        }
-
-        /** @var class-string<Model> $fqcn */
-        return $fqcn;
+        return resolve(CallChainWalker::class)->resolveRootClass($node, Model::class, recordDependency: false);
     }
 
     /**

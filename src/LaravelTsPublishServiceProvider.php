@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish;
 
 use AbeTwoThree\LaravelTsPublish\Ast\AstParser;
+use AbeTwoThree\LaravelTsPublish\Ast\CallChainWalker;
 use AbeTwoThree\LaravelTsPublish\Ast\CallMatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\InertiaRenderLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
@@ -30,6 +31,7 @@ class LaravelTsPublishServiceProvider extends PackageServiceProvider
         $this->app->singleton(MethodLocator::class);
         $this->app->singleton(CallMatcher::class);
         $this->app->singleton(InertiaRenderLocator::class);
+        $this->app->singleton(CallChainWalker::class);
 
         $this->app->bind(CacheRepository::class, fn () => CacheBootstrap::repository());
     }
