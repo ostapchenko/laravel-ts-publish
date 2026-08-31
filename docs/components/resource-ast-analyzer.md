@@ -787,8 +787,8 @@ type alone — instead of `string | number, required`. The fix was checked again
 braces, parens, angle brackets, and square brackets, and filters out a member equal to exactly `'null'`.
 Only a union member sitting at depth zero is ever removed — `(string | null)[]` and `{ a: string; b: number
 | null }` both keep their nested `| null` untouched, since neither nested `null` is a top-level member of
-the outer type. `analyzeCoalesce()` calls the same `stripNullArm()` helper to strip the left operand of
-`??`, so the two call sites can't drift out of sync. One consequence: a left operand of exactly `null`
+the outer type. `CoalesceHandler` carries its own copy of this helper to strip the left operand of `??`
+(a not-yet-consolidated duplicate — see its docblock). One consequence: a left operand of exactly `null`
 (`null ?? $x`) strips to `'unknown'` and falls through to the right arm, since `null ?? $x` always
 evaluates to `$x`.
 
@@ -868,7 +868,7 @@ The `unknown`-filtering is recorded here explicitly because it is easy to mistak
 and simplify away in a later refactor — it is load-bearing. It fires whenever `analyzeValueExpression()`
 fails to resolve **either** arm, and it has two justifications, not one:
 
-- **Precedent.** `analyzeCoalesce()` already treats an `unknown` operand as "no information" rather than a
+- **Precedent.** `CoalesceHandler` already treats an `unknown` operand as "no information" rather than a
   real union member, and `analyzeClosureUnion()` does the same for an `unknown` return branch. Unioning
   `unknown` in literally here would be the odd one out.
 - **`T | unknown` collapses to `unknown` in TypeScript.** The honest-looking alternative — emitting the raw,
@@ -951,7 +951,7 @@ It covers both directions of an `'unknown'` arm, which reach the same result for
 
 - **The default resolves to `unknown`** (an unanalyzable expression or closure body). There is no type to
   union, so the value arm's own type stands alone — the `'unknown'` arm is dropped rather than unioned in
-  literally, the same treatment `analyzeCoalesce()` gives an `'unknown'` operand. Unioning it in would
+  literally, the same treatment `CoalesceHandler` gives an `'unknown'` operand. Unioning it in would
   collapse the whole property to `unknown`, which the no-type-regressions-to-`unknown` discipline exists to
   prevent.
 - **The value arm is `unknown`.** `unknown` already admits every value the default can produce, so the

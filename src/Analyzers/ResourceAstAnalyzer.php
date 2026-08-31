@@ -15,8 +15,10 @@ use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\BinaryOpHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClassConstantHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CoalesceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
@@ -504,6 +506,8 @@ class ResourceAstAnalyzer implements ExpressionEngine
             new ConstFetchHandler,
             new ClassConstantHandler,
             new BinaryOpHandler,
+            new CoalesceHandler,
+            new KnownFunctionCallHandler,
         ];
     }
 
@@ -529,18 +533,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         $result = $this->unknownResult();
-
-        if ($expr instanceof BinaryOp\Coalesce) {
-            return $this->analyzeCoalesce($expr);
-        }
-
-        if ($expr instanceof FuncCall && $expr->name instanceof Name) {
-            $tsType = $this->resolveKnownFunctionCallType($expr->name->getLast());
-
-            if ($tsType !== null) {
-                return ['type' => $tsType, 'optional' => false];
-            }
-        }
 
         // Closures / arrow functions — body analysis first, return-type annotation as the fallback.
         $closureReturns = $this->resolveClosureReturnExpressions($expr);
@@ -967,50 +959,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return $result;
-    }
-
-    /**
-     * Resolve a PHP built-in function name to its TypeScript return type, or null when unresolvable.
-     */
-    private function resolveKnownFunctionCallType(string $name): ?string
-    {
-        $tsInfo = LaravelTsPublish::nativePhpFunctionReturnedTypes($name);
-
-        return ! str_contains($tsInfo['type'], 'unknown') ? $tsInfo['type'] : null;
-    }
-
-    /**
-     * Analyze a null-coalescing expression (`$left ?? $right`).
-     *
-     * Doesn't delegate to analyzeClosureUnion(): that would leave `null` in twice (`Order | null | Order`).
-     * Only operands contributing a result member get their FQCN/import channels merged.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeCoalesce(BinaryOp\Coalesce $expr): array
-    {
-        $leftResult = $this->analyzeValueExpression($expr->left);
-        $rightResult = $this->analyzeValueExpression($expr->right);
-
-        $leftType = $leftResult['type'];
-        $rightType = $rightResult['type'];
-
-        // Strip `| null` from the left: with a non-null fallback, null is never the final result.
-        $leftType = $this->stripNullArm($leftType);
-
-        if ($leftType === 'unknown' || $leftType === '') {
-            return $this->mergeUnionChannels([$rightType], [$rightResult]);
-        }
-
-        if ($rightType === 'unknown') {
-            return $this->mergeUnionChannels([$leftType], [$leftResult]);
-        }
-
-        if ($leftType === $rightType) {
-            return $this->mergeUnionChannels([$leftType], [$leftResult, $rightResult]);
-        }
-
-        return $this->mergeUnionChannels([$leftType, $rightType], [$leftResult, $rightResult]);
     }
 
     /**
