@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish;
 
 use AbeTwoThree\LaravelTsPublish\Ast\AstParser;
+use AbeTwoThree\LaravelTsPublish\Ast\CallMatcher;
+use AbeTwoThree\LaravelTsPublish\Ast\InertiaRenderLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Cache\CacheBootstrap;
 use AbeTwoThree\LaravelTsPublish\Cache\Contracts\CacheRepository;
@@ -26,6 +28,8 @@ class LaravelTsPublishServiceProvider extends PackageServiceProvider
         $this->app->singleton(ModelAttributeResolver::class);
         $this->app->singleton(AstParser::class);
         $this->app->singleton(MethodLocator::class);
+        $this->app->singleton(CallMatcher::class);
+        $this->app->singleton(InertiaRenderLocator::class);
 
         $this->app->bind(CacheRepository::class, fn () => CacheBootstrap::repository());
     }
