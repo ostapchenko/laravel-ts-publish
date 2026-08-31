@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
+use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
@@ -132,70 +133,8 @@ class ResourceAstAnalyzer
     /** Nesting-depth cap for a class constant's array before it bails to unknown; see constantArrayWithinLimits(). */
     private const int MAX_CONSTANT_ARRAY_DEPTH = 5;
 
-    /**
-     * Wrapped class from an `instanceof` guard in toArray(); fallback when resolveClassOnProperty() returns null.
-     *
-     * @var class-string|null
-     */
-    protected ?string $instanceOfWrappedClass = null;
-
-    /**
-     * Related model set while analyzing a whenLoaded closure, so `$variable->prop`/`->method()` inside it resolve.
-     *
-     * @var class-string<Model>|null
-     */
-    protected ?string $closureRelationModelClass = null;
-
-    /**
-     * Closure parameter names bound to the `$this->prop` expression found in the surrounding `when()`
-     * condition, so `EnumResource::make($status)` resolves like `EnumResource::make($this->status)`.
-     *
-     * @var array<string, Expr>
-     */
-    protected array $closureParamExprBindings = [];
-
-    /**
-     * Closure params / loop vars bound to a model class (whenLoaded params, relation-chain
-     * map params, foreach over a many-relation), so `$var`, `$var->prop`, `$var->method()`
-     * resolve against that model. Scoped: writers save and restore around the body.
-     *
-     * @var array<string, class-string<Model>>
-     */
-    protected array $varModelBindings = [];
-
-    /**
-     * Closure params bound to a whole relation collection rather than one element — a to-many
-     * `whenLoaded` param. Read for a bare return of the param, and as the element-model fallback
-     * for an untyped `->map()` closure param.
-     *
-     * @var array<string, array{type: string, modelFqcn: class-string<Model>}>
-     */
-    protected array $varCollectionBindings = [];
-
-    /**
-     * Top-level `$var = expr;` bindings for the method last analyzed, so a bare `Variable` value
-     * expression resolves through its bound expression instead of degrading to unknown. Only variables
-     * written exactly once are recorded; analyzeThisMethodSpread() saves and restores this per method.
-     *
-     * @var array<string, Expr>
-     */
-    protected array $localVarBindings = [];
-
-    /**
-     * Re-entrancy guard: variable names currently mid-resolution, so a self- or mutually-referential
-     * binding (e.g. `$a = $b; $b = $a;`) resolves as unknown instead of recursing forever.
-     *
-     * @var array<string, true>
-     */
-    protected array $resolvingLocalVars = [];
-
-    /**
-     * Spread methods currently on the analysis stack, so a method that spreads itself — directly or
-     * through a cycle — degrades to an empty analysis instead of recursing until memory runs out.
-     *
-     * @var array<string, true>
-     */
-    protected array $visitedSpreadMethods = [];
+    /** Carries the subject reflection, model class, and all closure/spread bindings; see AnalysisScope. */
+    protected AnalysisScope $scope;
 
     /**
      * Create an analyzer for a resource class and its optional backing model.
@@ -204,12 +143,26 @@ class ResourceAstAnalyzer
      * @param  class-string<Model>|null  $modelClass
      */
     public function __construct(
-        protected ReflectionClass $resourceReflection,
-        protected ?string $modelClass = null,
+        ReflectionClass $resourceReflection,
+        ?string $modelClass = null,
     ) {
-        if ($this->modelClass !== null) {
+        $this->scope = new AnalysisScope(self::genericReflection($resourceReflection->getName()), $modelClass);
+
+        if ($this->scope->modelClass !== null) {
             $this->loadModelInspectorData();
         }
+    }
+
+    /**
+     * Reflect a class by name without carrying over a caller's more specific generic type — every
+     * AnalysisScope holds a subjectReflection generic across future AST subjects, not just JsonResource.
+     *
+     * @param  class-string  $className
+     * @return ReflectionClass<object>
+     */
+    private static function genericReflection(string $className): ReflectionClass
+    {
+        return new ReflectionClass($className);
     }
 
     /**
@@ -217,11 +170,11 @@ class ResourceAstAnalyzer
      */
     public function analyze(): ResourceAnalysis
     {
-        if ($this->modelClass !== null) {
-            DependencyRecorder::recordClass($this->modelClass);
+        if ($this->scope->modelClass !== null) {
+            DependencyRecorder::recordClass($this->scope->modelClass);
         }
 
-        $context = resolve(MethodLocator::class)->locateOwn($this->resourceReflection->getName(), 'toArray');
+        $context = resolve(MethodLocator::class)->locateOwn($this->scope->subjectReflection->getName(), 'toArray');
         $toArrayMethod = $context?->method;
 
         if ($toArrayMethod === null || $toArrayMethod->stmts === null) {
@@ -241,15 +194,15 @@ class ResourceAstAnalyzer
 
         $finder = new NodeFinder;
 
-        $this->instanceOfWrappedClass = $this->resolveInstanceOfType($toArrayMethod, $finder);
+        $this->scope->instanceOfWrappedClass = $this->resolveInstanceOfType($toArrayMethod, $finder);
 
         $this->collectLocalVarBindings($toArrayMethod->stmts);
 
         $branchAnalysis = $this->analyzeAllReturnBranches($toArrayMethod->stmts);
 
         if ($branchAnalysis !== null) {
-            if ($this->resourceReflection->hasMethod('toArray')) {
-                $this->applyTsCastsFromMethod($this->resourceReflection->getMethod('toArray'), $branchAnalysis);
+            if ($this->scope->subjectReflection->hasMethod('toArray')) {
+                $this->applyTsCastsFromMethod($this->scope->subjectReflection->getMethod('toArray'), $branchAnalysis);
             }
 
             return $branchAnalysis;
@@ -311,7 +264,7 @@ class ResourceAstAnalyzer
                 && is_string($stmt->expr->var->name)
                 && ($writeCounts[$stmt->expr->var->name] ?? 0) === 1
             ) {
-                $this->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
+                $this->scope->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
             }
         }
 
@@ -340,7 +293,7 @@ class ResourceAstAnalyzer
             $relationInfo = $this->resolveModelRelationTypeInfo($stmt->expr->name->toString());
 
             if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
-                $this->varModelBindings[$stmt->valueVar->name] = $relationInfo['modelFqcn'];
+                $this->scope->varModelBindings[$stmt->valueVar->name] = $relationInfo['modelFqcn'];
             }
         }
     }
@@ -474,7 +427,7 @@ class ResourceAstAnalyzer
                 if ($funcCallName instanceof Name) {
                     $funcName = $funcCallName->getLast();
 
-                    if ($this->resourceReflection->hasMethod($funcName)) {
+                    if ($this->scope->subjectReflection->hasMethod($funcName)) {
                         $spreadAnalysis = $this->analyzeThisMethodSpread($funcName);
 
                         if ($spreadAnalysis !== null) {
@@ -679,12 +632,12 @@ class ResourceAstAnalyzer
         if ($closureReturns !== []) {
             // A param merely shadows a same-named outer local for this body — it must not resolve
             // through the outer binding just because no scoped binding (e.g. whenLoaded) claimed it.
-            $previousLocalVarBindings = $this->localVarBindings;
+            $previousLocalVarBindings = $this->scope->localVarBindings;
 
             if ($expr instanceof ArrowFunction || $expr instanceof ClosureExpr) {
                 foreach ($expr->params as $param) {
                     if ($param->var instanceof Variable && is_string($param->var->name)) {
-                        unset($this->localVarBindings[$param->var->name]);
+                        unset($this->scope->localVarBindings[$param->var->name]);
                     }
                 }
             }
@@ -706,7 +659,7 @@ class ResourceAstAnalyzer
 
                 return $bodyResult;
             } finally {
-                $this->localVarBindings = $previousLocalVarBindings;
+                $this->scope->localVarBindings = $previousLocalVarBindings;
             }
         }
 
@@ -793,7 +746,7 @@ class ResourceAstAnalyzer
 
         // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
         // handler, which only matches class-name receivers.
-        if ($this->closureRelationModelClass !== null
+        if ($this->scope->closureRelationModelClass !== null
             && $expr instanceof StaticCall
             && $expr->class instanceof Variable
             && is_string($expr->class->name)
@@ -853,7 +806,7 @@ class ResourceAstAnalyzer
             && $expr->name instanceof Identifier
         ) {
             /** @var class-string<Model>|null $closureModelClass */
-            $closureModelClass = $this->closureRelationModelClass;
+            $closureModelClass = $this->scope->closureRelationModelClass;
 
             if ($closureModelClass !== null) {
                 return $this->analyzeRelatedModelMethodCall($expr->name->toString());
@@ -917,7 +870,7 @@ class ResourceAstAnalyzer
                 $info = $this->analyzeWrappedModelResourceProperty($expr);
             }
 
-            if ($info['type'] === 'unknown' && $this->closureRelationModelClass !== null && $expr->name instanceof Identifier) {
+            if ($info['type'] === 'unknown' && $this->scope->closureRelationModelClass !== null && $expr->name instanceof Identifier) {
                 $info = $this->analyzeRelatedModelProperty($expr->name->toString());
             }
 
@@ -957,7 +910,7 @@ class ResourceAstAnalyzer
             $info = $this->analyzeWrappedResourceMethodCall($expr);
 
             /** @var class-string<Model>|null $closureModelClass */
-            $closureModelClass = $this->closureRelationModelClass;
+            $closureModelClass = $this->scope->closureRelationModelClass;
 
             if ($info['type'] === 'unknown' && $closureModelClass !== null) {
                 $info = $this->analyzeRelatedModelMethodCall($expr->name->toString());
@@ -984,7 +937,7 @@ class ResourceAstAnalyzer
             && $expr->name instanceof Identifier
         ) {
             /** @var class-string<Model>|null $boundModel */
-            $boundModel = $this->varModelBindings[$expr->var->name] ?? $this->closureRelationModelClass;
+            $boundModel = $this->scope->varModelBindings[$expr->var->name] ?? $this->scope->closureRelationModelClass;
 
             if ($boundModel !== null) {
                 return $this->analyzeRelatedModelProperty($expr->name->toString(), $boundModel);
@@ -1009,7 +962,7 @@ class ResourceAstAnalyzer
         }
 
         // $variable->pluck('field') — resolve to an array of the field's type
-        if ($this->closureRelationModelClass !== null
+        if ($this->scope->closureRelationModelClass !== null
             && $expr instanceof MethodCall
             && $expr->var instanceof Variable
             && is_string($expr->var->name)
@@ -1029,7 +982,7 @@ class ResourceAstAnalyzer
             && $expr->name instanceof Identifier
         ) {
             /** @var class-string<Model>|null $boundModel */
-            $boundModel = $this->varModelBindings[$expr->var->name] ?? $this->closureRelationModelClass;
+            $boundModel = $this->scope->varModelBindings[$expr->var->name] ?? $this->scope->closureRelationModelClass;
 
             if ($boundModel !== null) {
                 return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $boundModel);
@@ -1043,8 +996,8 @@ class ResourceAstAnalyzer
         // Bare variable bound to a model class (whenLoaded param, chain map param, foreach value var) —
         // resolves to the model's own type. Checked before closure-param/local-var expression bindings,
         // which resolve through a *different* expression rather than naming a model directly.
-        if ($expr instanceof Variable && is_string($expr->name) && isset($this->varModelBindings[$expr->name])) {
-            $modelFqcn = $this->varModelBindings[$expr->name];
+        if ($expr instanceof Variable && is_string($expr->name) && isset($this->scope->varModelBindings[$expr->name])) {
+            $modelFqcn = $this->scope->varModelBindings[$expr->name];
 
             return [
                 ...$this->unknownResult(),
@@ -1056,8 +1009,8 @@ class ResourceAstAnalyzer
 
         // Bare variable bound to a whole relation collection (to-many whenLoaded param) — resolves to
         // the collection type, e.g. `User[]`, never the singular element model.
-        if ($expr instanceof Variable && is_string($expr->name) && isset($this->varCollectionBindings[$expr->name])) {
-            $binding = $this->varCollectionBindings[$expr->name];
+        if ($expr instanceof Variable && is_string($expr->name) && isset($this->scope->varCollectionBindings[$expr->name])) {
+            $binding = $this->scope->varCollectionBindings[$expr->name];
 
             return [
                 ...$this->unknownResult(),
@@ -1071,17 +1024,17 @@ class ResourceAstAnalyzer
         // top-level local assignment (collectLocalVarBindings). Closure-param bindings win, being the
         // narrower scope; the re-entrancy guard makes a cyclic binding resolve as unknown.
         if ($expr instanceof Variable && is_string($expr->name)) {
-            $boundExpr = $this->closureParamExprBindings[$expr->name]
-                ?? $this->localVarBindings[$expr->name]
+            $boundExpr = $this->scope->closureParamExprBindings[$expr->name]
+                ?? $this->scope->localVarBindings[$expr->name]
                 ?? null;
 
-            if ($boundExpr !== null && ! isset($this->resolvingLocalVars[$expr->name])) {
-                $this->resolvingLocalVars[$expr->name] = true;
+            if ($boundExpr !== null && ! isset($this->scope->resolvingLocalVars[$expr->name])) {
+                $this->scope->resolvingLocalVars[$expr->name] = true;
 
                 try {
                     return $this->analyzeValueExpression($boundExpr);
                 } finally {
-                    unset($this->resolvingLocalVars[$expr->name]);
+                    unset($this->scope->resolvingLocalVars[$expr->name]);
                 }
             }
         }
@@ -1220,12 +1173,12 @@ class ResourceAstAnalyzer
         if (count($args) >= 2) {
             $valueExpr = $args[1]->value;
 
-            $previousBindings = $this->closureParamExprBindings;
+            $previousBindings = $this->scope->closureParamExprBindings;
             $this->bindClosureParamsFromCondition($args[0]->value, $valueExpr);
 
             $inner = $this->analyzeValueExpression($valueExpr);
 
-            $this->closureParamExprBindings = $previousBindings;
+            $this->scope->closureParamExprBindings = $previousBindings;
 
             return $this->applyConditionalDefault($inner, $call, 2);
         }
@@ -1388,16 +1341,16 @@ class ResourceAstAnalyzer
 
         if (count($args) >= 2) {
             // Resolve the related model so accesses on local variables inside the closure can be typed.
-            $previousRelationModel = $this->closureRelationModelClass;
-            $previousVarModelBindings = $this->varModelBindings;
-            $previousVarCollectionBindings = $this->varCollectionBindings;
+            $previousRelationModel = $this->scope->closureRelationModelClass;
+            $previousVarModelBindings = $this->scope->varModelBindings;
+            $previousVarCollectionBindings = $this->scope->varCollectionBindings;
             $relationInfo = null;
 
             if ($args[0]->value instanceof String_) {
                 $relationInfo = $this->resolveModelRelationTypeInfo($args[0]->value->value);
 
                 if ($relationInfo['modelFqcn'] !== null) {
-                    $this->closureRelationModelClass = $relationInfo['modelFqcn'];
+                    $this->scope->closureRelationModelClass = $relationInfo['modelFqcn'];
                 }
             }
 
@@ -1411,21 +1364,21 @@ class ResourceAstAnalyzer
                 $paramName = $args[1]->value->params[0]->var->name;
 
                 if (str_ends_with($relationInfo['type'], '[]')) {
-                    $this->varCollectionBindings[$paramName] = [
+                    $this->scope->varCollectionBindings[$paramName] = [
                         'type' => $relationInfo['type'],
                         'modelFqcn' => $relationInfo['modelFqcn'],
                     ];
                 } else {
-                    $this->varModelBindings[$paramName] = $relationInfo['modelFqcn'];
+                    $this->scope->varModelBindings[$paramName] = $relationInfo['modelFqcn'];
                 }
             }
 
             try {
                 $inner = $this->analyzeValueExpression($args[1]->value);
             } finally {
-                $this->closureRelationModelClass = $previousRelationModel;
-                $this->varModelBindings = $previousVarModelBindings;
-                $this->varCollectionBindings = $previousVarCollectionBindings;
+                $this->scope->closureRelationModelClass = $previousRelationModel;
+                $this->scope->varModelBindings = $previousVarModelBindings;
+                $this->scope->varCollectionBindings = $previousVarCollectionBindings;
             }
 
             return $this->applyConditionalDefault($inner, $call, 2);
@@ -1465,12 +1418,12 @@ class ResourceAstAnalyzer
             $valueExpr = $args[0]->value;
             $callbackExpr = $args[1]->value;
 
-            $previousBindings = $this->closureParamExprBindings;
+            $previousBindings = $this->scope->closureParamExprBindings;
             $this->bindClosureParamsFromCondition($valueExpr, $callbackExpr);
 
             $inner = $this->analyzeValueExpression($callbackExpr);
 
-            $this->closureParamExprBindings = $previousBindings;
+            $this->scope->closureParamExprBindings = $previousBindings;
 
             // transform()'s default runs through the global transform() helper's $default($value) — one
             // argument — unlike the rest of the family's zero-argument value($default).
@@ -1558,7 +1511,7 @@ class ResourceAstAnalyzer
 
         // Resolve `self`/`static` so those calls are treated identically to ClassName::*() calls.
         if ($className === 'self' || $className === 'static') {
-            $className = $this->resourceReflection->getName();
+            $className = $this->scope->subjectReflection->getName();
         }
 
         // EnumResource::make($this->prop)
@@ -1664,7 +1617,7 @@ class ResourceAstAnalyzer
         // needs the receiver's own analyzer, so only the analyzer's own class is in scope — a foreign
         // resource class returns null and keeps the `unknown` floor rather than claiming its keys.
         if (! $this->methodPreservesReceiverType($method, $resourceFqcn)) {
-            if ($resourceFqcn !== $this->resourceReflection->getName()) {
+            if ($resourceFqcn !== $this->scope->subjectReflection->getName()) {
                 return null;
             }
 
@@ -1827,9 +1780,9 @@ class ResourceAstAnalyzer
     protected function resolveToResourceReceiverModel(Expr $receiver): ?string
     {
         if ($receiver instanceof Variable && is_string($receiver->name)) {
-            return $this->varModelBindings[$receiver->name]
-                ?? $this->varCollectionBindings[$receiver->name]['modelFqcn']
-                ?? $this->closureRelationModelClass;
+            return $this->scope->varModelBindings[$receiver->name]
+                ?? $this->scope->varCollectionBindings[$receiver->name]['modelFqcn']
+                ?? $this->scope->closureRelationModelClass;
         }
 
         if ($receiver instanceof PropertyFetch && $this->isThisPropertyFetch($receiver) && $receiver->name instanceof Identifier) {
@@ -1881,9 +1834,9 @@ class ResourceAstAnalyzer
         // Resolve self/static/parent so a constant declared on the resource (or its parent) is
         // readable, matching how analyzeNewResource()/analyzeStaticCall() treat those keywords.
         if ($className === 'self' || $className === 'static') {
-            $className = $this->resourceReflection->getName();
+            $className = $this->scope->subjectReflection->getName();
         } elseif ($className === 'parent') {
-            $parentReflection = $this->resourceReflection->getParentClass();
+            $parentReflection = $this->scope->subjectReflection->getParentClass();
 
             if ($parentReflection === false) {
                 return null; // @codeCoverageIgnore — every JsonResource subclass has a parent
@@ -2340,7 +2293,7 @@ class ResourceAstAnalyzer
 
         // Resolve `self`/`static` so `new self(...)` is treated identically to `new ClassName(...)`.
         if ($className === 'self' || $className === 'static') {
-            $className = $this->resourceReflection->getName();
+            $className = $this->scope->subjectReflection->getName();
         }
 
         // new EnumResource($this->prop)
@@ -2462,7 +2415,7 @@ class ResourceAstAnalyzer
         if (! $this->isThisPropertyFetch($argExpr)) {
             // A bare $variable may be a closure parameter bound to $this->prop by a when() condition.
             if ($argExpr instanceof Variable && is_string($argExpr->name)) {
-                $boundExpr = $this->closureParamExprBindings[$argExpr->name] ?? null;
+                $boundExpr = $this->scope->closureParamExprBindings[$argExpr->name] ?? null;
 
                 if ($boundExpr !== null) {
                     return $this->resolveEnumFromPropertyArg($boundExpr);
@@ -2474,10 +2427,10 @@ class ResourceAstAnalyzer
                 $argExpr instanceof PropertyFetch
                 && $argExpr->var instanceof Variable
                 && $argExpr->name instanceof Identifier
-                && $this->closureRelationModelClass !== null
+                && $this->scope->closureRelationModelClass !== null
             ) {
                 $propName = $argExpr->name->toString();
-                $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->closureRelationModelClass, $propName);
+                $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->scope->closureRelationModelClass, $propName);
 
                 /** @var class-string|null $enumFqcn */
                 $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
@@ -2712,7 +2665,7 @@ class ResourceAstAnalyzer
      */
     protected function analyzeParentToArray(): ?ResourceAnalysis
     {
-        $parentClass = $this->resourceReflection->getParentClass();
+        $parentClass = $this->scope->subjectReflection->getParentClass();
 
         if ($parentClass === false || ! is_a($parentClass->getName(), JsonResource::class, true)) {
             return null; // @codeCoverageIgnore
@@ -2724,7 +2677,7 @@ class ResourceAstAnalyzer
 
         $parentAnalyzer = new self(
             $parentClass,
-            $this->modelClass,
+            $this->scope->modelClass,
         );
 
         return $parentAnalyzer->analyze();
@@ -2738,18 +2691,18 @@ class ResourceAstAnalyzer
      */
     protected function analyzeThisMethodSpread(string $methodName): ?ResourceAnalysis
     {
-        if (! $this->resourceReflection->hasMethod($methodName)) {
+        if (! $this->scope->subjectReflection->hasMethod($methodName)) {
             return null; // @codeCoverageIgnore
         }
 
-        if (isset($this->visitedSpreadMethods[$methodName])) {
+        if (isset($this->scope->visitedSpreadMethods[$methodName])) {
             return null;
         }
 
-        $this->visitedSpreadMethods[$methodName] = true;
+        $this->scope->visitedSpreadMethods[$methodName] = true;
 
-        $method = $this->resourceReflection->getMethod($methodName);
-        $context = resolve(MethodLocator::class)->locate($this->resourceReflection->getName(), $methodName);
+        $method = $this->scope->subjectReflection->getMethod($methodName);
+        $context = resolve(MethodLocator::class)->locate($this->scope->subjectReflection->getName(), $methodName);
         $targetMethod = $context?->method;
 
         if ($targetMethod === null || $targetMethod->stmts === null) {
@@ -2758,12 +2711,12 @@ class ResourceAstAnalyzer
 
         $finder = new NodeFinder;
 
-        $previousLocalVarBindings = $this->localVarBindings;
-        $previousResolvingLocalVars = $this->resolvingLocalVars;
-        $previousVarModelBindings = $this->varModelBindings;
-        $this->localVarBindings = [];
-        $this->resolvingLocalVars = [];
-        $this->varModelBindings = [];
+        $previousLocalVarBindings = $this->scope->localVarBindings;
+        $previousResolvingLocalVars = $this->scope->resolvingLocalVars;
+        $previousVarModelBindings = $this->scope->varModelBindings;
+        $this->scope->localVarBindings = [];
+        $this->scope->resolvingLocalVars = [];
+        $this->scope->varModelBindings = [];
         $this->collectLocalVarBindings($targetMethod->stmts);
 
         try {
@@ -2790,10 +2743,10 @@ class ResourceAstAnalyzer
                 $analysis = new ResourceAnalysis;
             }
         } finally {
-            $this->localVarBindings = $previousLocalVarBindings;
-            $this->resolvingLocalVars = $previousResolvingLocalVars;
-            $this->varModelBindings = $previousVarModelBindings;
-            unset($this->visitedSpreadMethods[$methodName]);
+            $this->scope->localVarBindings = $previousLocalVarBindings;
+            $this->scope->resolvingLocalVars = $previousResolvingLocalVars;
+            $this->scope->varModelBindings = $previousVarModelBindings;
+            unset($this->scope->visitedSpreadMethods[$methodName]);
         }
 
         $docTypes = $this->parseReturnArrayShape($method);
@@ -2866,7 +2819,7 @@ class ResourceAstAnalyzer
         }
 
         /** @var class-string<Model>|null $currentModel */
-        $currentModel = $this->closureRelationModelClass ?? $this->modelClass;
+        $currentModel = $this->scope->closureRelationModelClass ?? $this->scope->modelClass;
 
         if ($currentModel === null) {
             return $this->unknownResult();
@@ -2895,7 +2848,7 @@ class ResourceAstAnalyzer
         // relation model (`$this->user` in `whenLoaded('user', fn() => $this->user?->name)`) — skip it.
         $startIndex = 0;
 
-        if ($this->closureRelationModelClass !== null && $count >= 2) {
+        if ($this->scope->closureRelationModelClass !== null && $count >= 2) {
             $firstRelation = $resolver->resolveRelation($currentModel, $chain[0]['name']);
 
             if ($firstRelation['type'] === 'unknown') {
@@ -2980,7 +2933,7 @@ class ResourceAstAnalyzer
         }
 
         /** @var class-string<Model>|null $currentModel */
-        $currentModel = $this->closureRelationModelClass ?? $this->modelClass;
+        $currentModel = $this->scope->closureRelationModelClass ?? $this->scope->modelClass;
 
         if ($currentModel === null) {
             return $this->unknownResult();
@@ -3007,7 +2960,7 @@ class ResourceAstAnalyzer
         // relation model (`$this->categoryRel` in `whenLoaded('categoryRel', ...)`) — skip it.
         $startIndex = 0;
 
-        if ($this->closureRelationModelClass !== null) {
+        if ($this->scope->closureRelationModelClass !== null) {
             $firstRelation = $resolver->resolveRelation($currentModel, $chain[0]['name']);
 
             if ($firstRelation['type'] === 'unknown') {
@@ -3494,7 +3447,7 @@ class ResourceAstAnalyzer
      */
     protected function isResourceCollection(): bool
     {
-        return $this->resourceReflection->isSubclassOf(ResourceCollection::class);
+        return $this->scope->subjectReflection->isSubclassOf(ResourceCollection::class);
     }
 
     /**
@@ -3506,7 +3459,7 @@ class ResourceAstAnalyzer
     protected function resolveSingularResourceClass(): ?string
     {
         /** @var class-string $ownFqcn */
-        $ownFqcn = $this->resourceReflection->getName();
+        $ownFqcn = $this->scope->subjectReflection->getName();
 
         return $this->collectedResourceClass($ownFqcn);
     }
@@ -3528,16 +3481,16 @@ class ResourceAstAnalyzer
         // Read $wrap declared on this class only — inherited, JsonResource's static default is 'data'.
         $wrapKey = 'data';
 
-        if ($this->resourceReflection->hasProperty('wrap')) {
-            $wrapProp = $this->resourceReflection->getProperty('wrap');
+        if ($this->scope->subjectReflection->hasProperty('wrap')) {
+            $wrapProp = $this->scope->subjectReflection->getProperty('wrap');
 
-            if ($wrapProp->getDeclaringClass()->getName() === $this->resourceReflection->getName()) {
+            if ($wrapProp->getDeclaringClass()->getName() === $this->scope->subjectReflection->getName()) {
                 /** @var string|null $wrapKey */
                 $wrapKey = $wrapProp->getDefaultValue();
             }
         }
 
-        $elementType = $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $this->resourceReflection);
+        $elementType = $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $this->scope->subjectReflection);
 
         if ($wrapKey === null || $wrapKey === '') {
             return new ResourceAnalysis(flatTypeAlias: $elementType, flatTypeAliasFqcn: $singular);
@@ -3573,7 +3526,7 @@ class ResourceAstAnalyzer
 
         return [
             ...$result,
-            'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $this->resourceReflection),
+            'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $this->scope->subjectReflection),
             'resourceFqcn' => $singular,
         ];
     }
@@ -3806,9 +3759,9 @@ class ResourceAstAnalyzer
     {
         if ($receiver instanceof Variable
             && is_string($receiver->name)
-            && isset($this->varCollectionBindings[$receiver->name])
+            && isset($this->scope->varCollectionBindings[$receiver->name])
         ) {
-            return $this->varCollectionBindings[$receiver->name]['modelFqcn'];
+            return $this->scope->varCollectionBindings[$receiver->name]['modelFqcn'];
         }
 
         if ($receiver instanceof PropertyFetch
@@ -4165,18 +4118,18 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        if (isset($this->varModelBindings[$varName])) {
-            return $this->varModelBindings[$varName];
+        if (isset($this->scope->varModelBindings[$varName])) {
+            return $this->scope->varModelBindings[$varName];
         }
 
         // A to-many whenLoaded param holds the whole collection, not one element — its toArray()
         // is a list of member arrays, never a single model's shape. spreadCollectionToArrayFqcn()
         // picks it up instead.
-        if (isset($this->varCollectionBindings[$varName])) {
+        if (isset($this->scope->varCollectionBindings[$varName])) {
             return null;
         }
 
-        return $this->closureRelationModelClass;
+        return $this->scope->closureRelationModelClass;
     }
 
     /**
@@ -4189,7 +4142,7 @@ class ResourceAstAnalyzer
     {
         $varName = $this->spreadToArrayVarName($expr);
 
-        return $varName === null ? null : ($this->varCollectionBindings[$varName]['modelFqcn'] ?? null);
+        return $varName === null ? null : ($this->scope->varCollectionBindings[$varName]['modelFqcn'] ?? null);
     }
 
     /**
@@ -4347,10 +4300,10 @@ class ResourceAstAnalyzer
             if ($accepted !== null) {
                 return $accepted;
             }
-        } elseif ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
+        } elseif ($this->scope->modelClass !== null && method_exists($this->scope->modelClass, $methodName)) {
             // @mixin-style resources: `$this->resource->commentsCount()` lives on the model.
             /** @var class-string $modelClass */
-            $modelClass = $this->modelClass;
+            $modelClass = $this->scope->modelClass;
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
             $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
@@ -4362,8 +4315,8 @@ class ResourceAstAnalyzer
         // On a date-cast receiver (e.g. `created_at`) the method is a Carbon instance method reached
         // through the cast, not declared on the model — reflect it on Carbon/CarbonImmutable instead.
         if ($expr->var instanceof PropertyFetch && $expr->var->name instanceof Identifier) {
-            $receiverAttr = $this->modelClass !== null
-                ? resolve(ModelAttributeResolver::class)->getAttributes($this->modelClass)
+            $receiverAttr = $this->scope->modelClass !== null
+                ? resolve(ModelAttributeResolver::class)->getAttributes($this->scope->modelClass)
                     ?->firstWhere('name', $expr->var->name->toString())
                 : null;
 
@@ -4448,11 +4401,11 @@ class ResourceAstAnalyzer
      */
     protected function resolveModelRelationTypeInfo(string $name): array
     {
-        if ($this->modelClass === null) {
+        if ($this->scope->modelClass === null) {
             return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
-        return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $name);
+        return resolve(ModelAttributeResolver::class)->resolveRelation($this->scope->modelClass, $name);
     }
 
     /**
@@ -4575,13 +4528,13 @@ class ResourceAstAnalyzer
                 return null;
             }
 
-            $previousContext = $this->closureRelationModelClass;
-            $this->closureRelationModelClass = $elementModel;
+            $previousContext = $this->scope->closureRelationModelClass;
+            $this->scope->closureRelationModelClass = $elementModel;
 
             try {
                 $pluckResult = $this->analyzeVariablePluckCall($pluckNode);
             } finally {
-                $this->closureRelationModelClass = $previousContext;
+                $this->scope->closureRelationModelClass = $previousContext;
             }
 
             // analyzeVariablePluckCall() degrades an unresolved field to 'unknown[]'; normalize to null
@@ -4619,22 +4572,22 @@ class ResourceAstAnalyzer
             return null;
         }
 
-        $previousContext = $this->closureRelationModelClass;
-        $previousVarModelBindings = $this->varModelBindings;
-        $this->closureRelationModelClass = $elementModel;
+        $previousContext = $this->scope->closureRelationModelClass;
+        $previousVarModelBindings = $this->scope->varModelBindings;
+        $this->scope->closureRelationModelClass = $elementModel;
 
         if ($mapArg->params !== []
             && $mapArg->params[0]->var instanceof Variable
             && is_string($mapArg->params[0]->var->name)
         ) {
-            $this->varModelBindings[$mapArg->params[0]->var->name] = $elementModel;
+            $this->scope->varModelBindings[$mapArg->params[0]->var->name] = $elementModel;
         }
 
         try {
             $bodyResult = $this->analyzeValueExpression($mapArg);
         } finally {
-            $this->closureRelationModelClass = $previousContext;
-            $this->varModelBindings = $previousVarModelBindings;
+            $this->scope->closureRelationModelClass = $previousContext;
+            $this->scope->varModelBindings = $previousVarModelBindings;
         }
 
         if ($bodyResult['type'] === 'unknown') {
@@ -4779,11 +4732,11 @@ class ResourceAstAnalyzer
                 && $expr->var->name instanceof Identifier
                 && $expr->var->name->toString() === 'resource';
 
-            if (! $isResourceReceiver || $this->modelClass === null) {
+            if (! $isResourceReceiver || $this->scope->modelClass === null) {
                 return null;
             }
 
-            $instance = resolve(ModelAttributeResolver::class)->getInstance($this->modelClass);
+            $instance = resolve(ModelAttributeResolver::class)->getInstance($this->scope->modelClass);
 
             $type = $instance?->getKeyType() === 'int' ? 'number' : 'string';
 
@@ -4839,9 +4792,9 @@ class ResourceAstAnalyzer
             }
         }
 
-        if ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
+        if ($this->scope->modelClass !== null && method_exists($this->scope->modelClass, $methodName)) {
             /** @var class-string $modelClass */
-            $modelClass = $this->modelClass;
+            $modelClass = $this->scope->modelClass;
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
             $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
@@ -4864,7 +4817,7 @@ class ResourceAstAnalyzer
      */
     protected function analyzeRelatedModelProperty(string $propertyName, ?string $modelFqcn = null): array
     {
-        $modelFqcn ??= $this->closureRelationModelClass;
+        $modelFqcn ??= $this->scope->closureRelationModelClass;
 
         if ($modelFqcn === null) {
             return $this->unknownResult(); // @codeCoverageIgnore
@@ -4899,7 +4852,7 @@ class ResourceAstAnalyzer
      */
     protected function analyzeRelatedModelMethodCall(string $methodName, ?string $modelFqcn = null): array
     {
-        $modelFqcn ??= $this->closureRelationModelClass;
+        $modelFqcn ??= $this->scope->closureRelationModelClass;
 
         if ($modelFqcn === null) {
             return $this->unknownResult(); // @codeCoverageIgnore
@@ -4939,8 +4892,8 @@ class ResourceAstAnalyzer
      */
     protected function analyzeThisMethodCall(string $methodName): array
     {
-        if ($this->resourceReflection->hasMethod($methodName)) {
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes($this->resourceReflection, $methodName);
+        if ($this->scope->subjectReflection->hasMethod($methodName)) {
+            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes($this->scope->subjectReflection, $methodName);
             $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
             if ($accepted !== null) {
@@ -4960,9 +4913,9 @@ class ResourceAstAnalyzer
             }
         }
 
-        if ($this->modelClass !== null && method_exists($this->modelClass, $methodName)) {
+        if ($this->scope->modelClass !== null && method_exists($this->scope->modelClass, $methodName)) {
             /** @var class-string $modelClass */
-            $modelClass = $this->modelClass;
+            $modelClass = $this->scope->modelClass;
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
             $accepted = $this->acceptReflectedTypeInfo($tsInfo);
 
@@ -5252,7 +5205,7 @@ class ResourceAstAnalyzer
      */
     protected function resolveWrappedClass(): ?string
     {
-        return $this->resolveClassOnProperty($this->resourceReflection) ?? $this->instanceOfWrappedClass;
+        return $this->resolveClassOnProperty($this->scope->subjectReflection) ?? $this->scope->instanceOfWrappedClass;
     }
 
     /**
@@ -5486,8 +5439,8 @@ class ResourceAstAnalyzer
         }
 
         /** @var class-string<Model> $paramClass */
-        $previousRelationModel = $this->closureRelationModelClass;
-        $this->closureRelationModelClass = $paramClass;
+        $previousRelationModel = $this->scope->closureRelationModelClass;
+        $this->scope->closureRelationModelClass = $paramClass;
 
         $returnExprs = $this->resolveClosureReturnExpressions($closureArg);
 
@@ -5497,7 +5450,7 @@ class ResourceAstAnalyzer
             default => $this->analyzeClosureUnion($returnExprs),
         };
 
-        $this->closureRelationModelClass = $previousRelationModel;
+        $this->scope->closureRelationModelClass = $previousRelationModel;
 
         if ($bodyResult === null || $bodyResult['type'] === 'unknown') {
             return null;
@@ -5563,7 +5516,7 @@ class ResourceAstAnalyzer
         }
 
         if ($firstParam->var instanceof Variable && is_string($firstParam->var->name)) {
-            $this->closureParamExprBindings[$firstParam->var->name] = $thisPropExpr;
+            $this->scope->closureParamExprBindings[$firstParam->var->name] = $thisPropExpr;
         }
     }
 

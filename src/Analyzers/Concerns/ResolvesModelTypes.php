@@ -45,17 +45,17 @@ trait ResolvesModelTypes
 
     protected function loadModelInspectorData(): void
     {
-        if ($this->modelClass === null || ! class_exists($this->modelClass)) {
+        if ($this->scope->modelClass === null || ! class_exists($this->scope->modelClass)) {
             return;
         }
 
         $resolver = resolve(ModelAttributeResolver::class);
 
-        $this->modelAttributes = $resolver->getAttributes($this->modelClass);
-        $this->modelRelations = $resolver->getRelations($this->modelClass);
-        $this->modelInstance = $resolver->getInstance($this->modelClass);
-        $this->modelReflection = $resolver->getReflection($this->modelClass);
-        $this->relationNullable = $resolver->getRelationNullable($this->modelClass);
+        $this->modelAttributes = $resolver->getAttributes($this->scope->modelClass);
+        $this->modelRelations = $resolver->getRelations($this->scope->modelClass);
+        $this->modelInstance = $resolver->getInstance($this->scope->modelClass);
+        $this->modelReflection = $resolver->getReflection($this->scope->modelClass);
+        $this->relationNullable = $resolver->getRelationNullable($this->scope->modelClass);
     }
 
     /**
@@ -65,11 +65,11 @@ trait ResolvesModelTypes
      */
     protected function resolveModelAttributeTypeInfo(string $attributeName): array
     {
-        if ($this->modelClass === null || $this->modelAttributes === null) {
+        if ($this->scope->modelClass === null || $this->modelAttributes === null) {
             return ['type' => 'unknown', 'enumFqcn' => null, 'classFqcns' => []];
         }
 
-        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->modelClass, $attributeName);
+        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->scope->modelClass, $attributeName);
 
         /** @var class-string|null $enumFqcn */
         $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
@@ -82,11 +82,11 @@ trait ResolvesModelTypes
      */
     protected function resolveModelRelationTypeInfo(string $relationName): array
     {
-        if ($this->modelClass === null || $this->modelRelations === null) {
+        if ($this->scope->modelClass === null || $this->modelRelations === null) {
             return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
         }
 
-        return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $relationName);
+        return resolve(ModelAttributeResolver::class)->resolveRelation($this->scope->modelClass, $relationName);
     }
 
     /**
@@ -98,11 +98,11 @@ trait ResolvesModelTypes
      */
     protected function resolveAccessorModelFqcn(string $propName): ?string
     {
-        if ($this->modelClass === null) {
+        if ($this->scope->modelClass === null) {
             return null; // @codeCoverageIgnore
         }
 
-        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcn($this->modelClass, $propName);
+        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcn($this->scope->modelClass, $propName);
     }
 
     /**
@@ -113,11 +113,11 @@ trait ResolvesModelTypes
      */
     protected function resolveAccessorModelFqcns(string $propName): array
     {
-        if ($this->modelClass === null) {
+        if ($this->scope->modelClass === null) {
             return []; // @codeCoverageIgnore
         }
 
-        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcns($this->modelClass, $propName);
+        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcns($this->scope->modelClass, $propName);
     }
 
     /**
@@ -127,12 +127,12 @@ trait ResolvesModelTypes
      */
     protected function buildModelDelegatedAnalysis(bool $excludeHidden = true): ?ResourceAnalysis
     {
-        if ($this->modelAttributes === null || $this->modelClass === null) {
+        if ($this->modelAttributes === null || $this->scope->modelClass === null) {
             return null;
         }
 
         /** @var class-string $modelClass */
-        $modelClass = $this->modelClass;
+        $modelClass = $this->scope->modelClass;
         $resolver = resolve(ModelAttributeResolver::class);
         $dropHidden = $excludeHidden && $resolver->excludeHiddenAttributes();
         $dbColumns = $resolver->databaseColumnNames($modelClass);

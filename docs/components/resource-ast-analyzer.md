@@ -477,36 +477,39 @@ just above (never the arm's own FQCN there either).
 
 ## Variable bindings
 
-`$varModelBindings` (`array<string, class-string<Model>>`) maps a local variable name to a model
-class, so `$var`, `$var->prop`, and `$var->method()` resolve against that model instead of
-degrading to `unknown`. It is populated from three sources, each scoped to the body it binds:
+`AnalysisScope::$varModelBindings` (`array<string, class-string<Model>>`) maps a local variable
+name to a model class, so `$var`, `$var->prop`, and `$var->method()` resolve against that model
+instead of degrading to `unknown`. The analyzer reaches it as `$this->scope->varModelBindings`; it
+is populated from three sources, each scoped to the body it binds:
 
 - **`whenLoaded('relation', fn ($x) => ...)`** — when `relation` resolves to a *single*-model
   relation, `$x` is bound to that model for the closure body. A to-many relation's closure param
   is deliberately **not** bound this way: the param holds the whole collection, not one element,
   so binding it to the element model would resolve a bare `$x` to a wrong-but-plausible singular
   type (e.g. `OrderItem` instead of `OrderItem[]`) — `$x->pluck(...)`/`$x->map(...)` already
-  resolve via the older `$closureRelationModelClass` mechanism, unaffected by this guard.
+  resolve via the older `AnalysisScope::$closureRelationModelClass` mechanism, unaffected by this guard.
 - **A relation-chain `map()`** (`$this->{manyRelation}->take(5)->map(fn ($m) => ...)`) — `$m` is
   bound to the relation's element model for the map closure's body.
 - **A top-level `foreach ($this->{manyRelation} as $item) { ... }`** — `$item` is bound to the
-  relation's element model for the rest of the method's analysis (mirrors `$localVarBindings`'
-  method-wide scope, restored around a `...$this->method()` spread the same way).
+  relation's element model for the rest of the method's analysis (mirrors
+  `AnalysisScope::$localVarBindings`' method-wide scope, restored around a `...$this->method()`
+  spread the same way).
 
 ### Scoping and shadowing
 
 The two closure writers follow the same save/restore discipline as `$closureRelationModelClass`:
 snapshot the map (or the one key being overwritten), mutate it for the nested body's analysis, then
 restore the snapshot. The third writer does not. `bindForeachLoopVariables()` assigns
-`$this->varModelBindings[$stmt->valueVar->name]` outright, with no snapshot and no restore, because its
-binding is method-wide by design — the third bullet above says so. The shadowing guarantee survives that
-exception: a closure parameter that shadows an outer variable of the same name still resolves against its
-**own** binding and can never leak into, or be leaked into by, the outer scope, because it is the closure
-writers' own snapshots that restore over whatever the `foreach` binding left behind. See
-`ClosureParamShadowResource` in the workbench: a top-level `$member` and a `map(fn ($member) =>
-$member)` closure param share a name, and each site resolves independently.
+`$this->scope->varModelBindings[$stmt->valueVar->name]` outright, with no snapshot and no restore,
+because its binding is method-wide by design — the third bullet above says so. The shadowing
+guarantee survives that exception: a closure parameter that shadows an outer variable of the same
+name still resolves against its **own** binding and can never leak into, or be leaked into by, the
+outer scope, because it is the closure writers' own snapshots that restore over whatever the
+`foreach` binding left behind. See `ClosureParamShadowResource` in the workbench: a top-level
+`$member` and a `map(fn ($member) => $member)` closure param share a name, and each site resolves
+independently.
 
-### Closure params vs. `$localVarBindings`
+### Closure params vs. `AnalysisScope::$localVarBindings`
 
 `collectWrittenVariableNames()` used to count every closure/arrow-function *parameter* as a write
 to the enclosing name pool, so a top-level `$member = $this->slug;` reused as a `map(fn ($member)
@@ -521,9 +524,10 @@ local, inside a construct with no scoped binding for it (none of the three `$var
 sources above, e.g. `when()`'s condition isn't a `$this->prop` test), would resolve through the
 outer `$localVarBindings` entry when analyzing the closure body — turning an honest `unknown` into
 a confidently wrong `string`. To prevent that, the generic closure/arrow-function descent in
-`analyzeValueExpression()` saves `$localVarBindings`, unsets any entry whose name matches one of the
-closure's own parameters, analyzes the body, and restores the snapshot in a `finally` — so a param
-with no binding of its own degrades to `unknown` inside the closure, never the outer local's value.
+`analyzeValueExpression()` saves `$this->scope->localVarBindings`, unsets any entry whose name
+matches one of the closure's own parameters, analyzes the body, and restores the snapshot in a
+`finally` — so a param with no binding of its own degrades to `unknown` inside the closure, never
+the outer local's value.
 
 `ShadowedClosureParamResource` in the workbench exists to hold that second half of the fix: its
 `$slug = $this->slug;` followed by `$this->when($request->user() !== null, fn ($slug) => $slug)`
