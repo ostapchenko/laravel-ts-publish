@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\ControllerPaginatorAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\ControllerWithCompact;
 use Workbench\App\Http\Controllers\InertiaCollectionsController;
 use Workbench\App\Http\Controllers\InertiaNamedCollectionsController;
@@ -174,4 +175,19 @@ test('analyzePaginatedStaticCollectionProps detects a paginator called inline as
     $analyzer = new ControllerPaginatorAnalyzer(InertiaPreserveKeysController::class, 'anonymousInlinePaginated');
 
     expect($analyzer->analyzePaginatedStaticCollectionProps())->toBe(['teams' => PreserveKeysTeamResource::class]);
+});
+
+// ─── cache dependency recording ────────────────────────────────────
+
+it('records the controller file as a cache dependency', function () {
+    $controller = InertiaCollectionsController::class;
+    $method = 'lengthAware';
+
+    DependencyRecorder::start();
+    (new ControllerPaginatorAnalyzer($controller, $method))->analyze();
+    $paths = DependencyRecorder::paths();
+    DependencyRecorder::stop();
+    DependencyRecorder::reset();
+
+    expect($paths)->toContain((new ReflectionClass($controller))->getFileName());
 });

@@ -1377,12 +1377,12 @@ records it.
 
 ## Resource inheritance: a subclass with no `toArray()` of its own
 
-`analyze()` looks up `toArray` in the **subclass's own file only**. It reads
-`$this->resourceReflection->getFileName()`, parses that source, and finds the method with a
-`NodeFinder` search for a `ClassMethod` whose `name` is `toArray`. Reflection is never consulted for
-the lookup, so a method the subclass merely *inherits* is invisible to it — declaring no
-`toArray()` used to mean falling straight to model or collection delegation, which produced an empty
-interface whenever no model resolved either.
+`analyze()` looks up `toArray` in the **subclass's own file only**, via `MethodLocator::locateOwn()`:
+it reflects the class, parses its own file through `AstParser` (recording that file as a cache
+dependency), and matches the method by exact name in that file's AST. Reflection only confirms the
+method exists somewhere in the hierarchy — the own-file, exact-name AST match is what makes an
+*inherited* `toArray()` a miss, so declaring no `toArray()` of its own still falls straight to model
+or collection delegation, which produced an empty interface whenever no model resolved either.
 
 ### The ancestor walk and its `properties !== []` termination
 

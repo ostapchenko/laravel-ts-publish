@@ -32,8 +32,11 @@ class-string, not a `ReflectionClass` — and exposes three methods, all consume
 
 All three share one method context: the parsed `ClassMethod` AST, a `NodeFinder`, and `$varModelMap`
 — the variable-name => model FQCN map built once by `resolveVariableModels()`. `buildMethodContext()`
-constructs it and caches nothing; the caching lives in `getMethodContext()`, which memoises the result
-in `$resolvedMethodContext` behind a `$methodContextBuilt` flag so a `null` context is cached too.
+resolves the controller's own-file declaration through `MethodLocator::locateOwn()`, which parses the
+file via `AstParser` and records it as a cache dependency — so a controller change now correctly busts
+any cached output derived from it. `buildMethodContext()` itself caches nothing; the caching lives in
+`getMethodContext()`, which memoises the result in `$resolvedMethodContext` behind a
+`$methodContextBuilt` flag so a `null` context is cached too.
 
 ## `PAGINATOR_METHODS`
 

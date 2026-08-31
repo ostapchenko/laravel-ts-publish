@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
+use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Support\PackageJson;
@@ -312,39 +313,20 @@ class InertiaTableAnalyzer
     }
 
     /**
-     * Reflect a class method, record its file as a cache dependency, and parse its name-resolved AST.
+     * Locate a class method's own-file declaration via MethodLocator, recording its file dependency.
      *
      * @param  class-string  $class
      * @return array{reflection: ReflectionClass<object>, method: ClassMethod, finder: NodeFinder}|null
      */
     protected function methodContext(string $class, string $methodName): ?array
     {
-        /** @var ReflectionClass<object> $reflection */
-        $reflection = new ReflectionClass($class);
+        $context = resolve(MethodLocator::class)->locateOwn($class, $methodName);
 
-        if (! $reflection->hasMethod($methodName)) {
+        if ($context === null) {
             return null;
         }
 
-        $file = $reflection->getFileName();
-
-        if ($file === false) {
-            return null; // @codeCoverageIgnore
-        }
-
-        DependencyRecorder::record((string) $file);
-
-        $stmts = $this->parseAndResolveAst((string) file_get_contents($file));
-        $finder = new NodeFinder;
-
-        /** @var ClassMethod|null $method */
-        $method = $finder->findFirst($stmts, fn (Node $node): bool => $node instanceof ClassMethod && $node->name->toString() === $methodName);
-
-        if (! $method instanceof ClassMethod || $method->stmts === null) {
-            return null;
-        }
-
-        return ['reflection' => $reflection, 'method' => $method, 'finder' => $finder];
+        return ['reflection' => $context->reflection, 'method' => $context->method, 'finder' => new NodeFinder];
     }
 
     /**

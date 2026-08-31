@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
-use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use PhpParser\Node;
@@ -21,15 +21,12 @@ use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
-use ReflectionClass;
 
 /**
  * Analyzes a controller method body to infer paginator-model relationships.
  */
 class ControllerPaginatorAnalyzer
 {
-    use ResolvesClassNames;
-
     /**
      * @var list<string>
      */
@@ -146,40 +143,16 @@ class ControllerPaginatorAnalyzer
      */
     private function buildMethodContext(): ?array
     {
-        if (! class_exists($this->controllerClass)) {
+        $context = resolve(MethodLocator::class)->locateOwn($this->controllerClass, $this->methodName);
+
+        if ($context === null) {
             return null;
         }
-
-        $reflection = new ReflectionClass($this->controllerClass);
-
-        if (! $reflection->hasMethod($this->methodName)) {
-            return null;
-        }
-
-        $fileName = $reflection->getFileName();
-
-        if ($fileName === false) {
-            return null; // @codeCoverageIgnore
-        }
-
-        $source = (string) file_get_contents($fileName);
-        $stmts = $this->parseAndResolveAst($source);
 
         $finder = new NodeFinder;
+        $varModelMap = $this->resolveVariableModels($context->method, $finder);
 
-        /** @var ClassMethod|null $method */
-        $method = $finder->findFirst($stmts, function (Node $node): bool {
-            return $node instanceof ClassMethod
-                && $node->name->toString() === $this->methodName;
-        });
-
-        if (! $method instanceof ClassMethod || $method->stmts === null) {
-            return null; // @codeCoverageIgnore
-        }
-
-        $varModelMap = $this->resolveVariableModels($method, $finder);
-
-        return ['method' => $method, 'finder' => $finder, 'varModelMap' => $varModelMap];
+        return ['method' => $context->method, 'finder' => $finder, 'varModelMap' => $varModelMap];
     }
 
     /**

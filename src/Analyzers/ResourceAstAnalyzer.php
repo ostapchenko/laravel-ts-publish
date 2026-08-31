@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
@@ -219,17 +220,10 @@ class ResourceAstAnalyzer
             DependencyRecorder::recordClass($this->modelClass);
         }
 
-        $filePath = (string) $this->resourceReflection->getFileName();
-        $source = (string) file_get_contents($filePath);
+        $context = resolve(MethodLocator::class)->locateOwn($this->resourceReflection->getName(), 'toArray');
+        $toArrayMethod = $context?->method;
 
-        $stmts = $this->parseAndResolveAst($source);
-
-        $finder = new NodeFinder;
-        $toArrayMethod = $finder->findFirst($stmts, function (Node $node): bool {
-            return $node instanceof ClassMethod && $node->name->toString() === 'toArray';
-        });
-
-        if (! $toArrayMethod instanceof ClassMethod || $toArrayMethod->stmts === null) {
+        if ($toArrayMethod === null || $toArrayMethod->stmts === null) {
             $inherited = $this->analyzeParentToArray();
 
             // An empty result means no ancestor declared a toArray() either, so keep delegating.
@@ -243,6 +237,8 @@ class ResourceAstAnalyzer
 
             return $this->buildModelDelegatedAnalysis() ?? new ResourceAnalysis;
         }
+
+        $finder = new NodeFinder;
 
         $this->instanceOfWrappedClass = $this->resolveInstanceOfType($toArrayMethod, $finder);
 
@@ -2862,23 +2858,14 @@ class ResourceAstAnalyzer
         $this->visitedSpreadMethods[$methodName] = true;
 
         $method = $this->resourceReflection->getMethod($methodName);
-        $filePath = $method->getFileName();
+        $context = resolve(MethodLocator::class)->locate($this->resourceReflection->getName(), $methodName);
+        $targetMethod = $context?->method;
 
-        if ($filePath === false) {
+        if ($targetMethod === null || $targetMethod->stmts === null) {
             return null; // @codeCoverageIgnore
         }
-
-        $source = (string) file_get_contents($filePath);
-        $stmts = $this->parseAndResolveAst($source);
 
         $finder = new NodeFinder;
-        $targetMethod = $finder->findFirst($stmts, function (Node $node) use ($methodName): bool {
-            return $node instanceof ClassMethod && strcasecmp($node->name->toString(), $methodName) === 0;
-        });
-
-        if (! $targetMethod instanceof ClassMethod || $targetMethod->stmts === null) {
-            return null; // @codeCoverageIgnore
-        }
 
         $previousLocalVarBindings = $this->localVarBindings;
         $previousResolvingLocalVars = $this->resolvingLocalVars;
