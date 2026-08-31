@@ -9,8 +9,12 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
+use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
+use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
@@ -97,21 +101,8 @@ use UnitEnum;
  * @phpstan-import-type MultiEnumFqcnsMap from MethodAnalysis
  * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
  * @phpstan-import-type TypesImportMap from Datable
+ * @phpstan-import-type ValueExpressionResult from ExpressionHandler
  *
- * @phpstan-type ValueExpressionResult = array{
- *      type: string,
- *      optional: bool,
- *      enumFqcn?: class-string,
- *      directEnumFqcn?: class-string,
- *      resourceFqcn?: class-string,
- *      modelFqcn?: class-string,
- *      embeddedEnumFqcns?: list<class-string>,
- *      embeddedEnumResourceFqcns?: list<class-string>,
- *      embeddedModelFqcns?: list<class-string>,
- *      embeddedResourceFqcns?: list<class-string>,
- *      multiEnumResourceFqcns?: list<class-string>,
- *      customImports?: TypesImportMap
- * }
  * @phpstan-type ClosureAnnotationResult = array{
  *      type: string,
  *      directEnumFqcn?: class-string,
@@ -119,7 +110,7 @@ use UnitEnum;
  * }
  * @phpstan-type InlineSpreadArm = array{fqcn: class-string, isModel: bool, isCollection: bool}
  */
-class ResourceAstAnalyzer
+class ResourceAstAnalyzer implements ExpressionEngine
 {
     use ChecksPreserveKeys;
     use FiltersModelAttributes;
@@ -135,6 +126,9 @@ class ResourceAstAnalyzer
 
     /** Carries the subject reflection, model class, and all closure/spread bindings; see AnalysisScope. */
     protected AnalysisScope $scope;
+
+    /** Built once per instance by dispatcher(), so the handler-candidate memo survives across dispatches. */
+    protected ?ExpressionDispatcher $dispatcher = null;
 
     /**
      * Create an analyzer for a resource class and its optional backing model.
@@ -238,6 +232,16 @@ class ResourceAstAnalyzer
         }
 
         return new ResourceAnalysis;
+    }
+
+    /**
+     * Resolve a single expression to its TypeScript type. ExpressionEngine entry point for handlers.
+     *
+     * @return ValueExpressionResult
+     */
+    public function resolve(Expr $expr): array
+    {
+        return $this->analyzeValueExpression($expr);
     }
 
     /**
@@ -500,12 +504,36 @@ class ResourceAstAnalyzer
     }
 
     /**
+     * Extracted expression handlers, tried before the legacy chain, in dispatch order.
+     *
+     * @return list<ExpressionHandler>
+     */
+    protected function handlers(): array
+    {
+        return [];
+    }
+
+    /**
+     * Lazily build the dispatcher once per instance — a per-call rebuild would defeat its memo.
+     */
+    protected function dispatcher(): ExpressionDispatcher
+    {
+        return $this->dispatcher ??= new ExpressionDispatcher($this->handlers());
+    }
+
+    /**
      * Analyze a value expression and return its type + optional status.
      *
      * @return ValueExpressionResult
      */
     protected function analyzeValueExpression(Expr $expr): array
     {
+        $dispatched = $this->dispatcher()->dispatch($expr, $this->scope, $this);
+
+        if ($dispatched !== null) {
+            return $dispatched;
+        }
+
         $result = $this->unknownResult();
 
         // First-class callables (e.g. $this->when(...)) have no args — bail early
@@ -5568,6 +5596,6 @@ class ResourceAstAnalyzer
      */
     protected function unknownResult(): array
     {
-        return ['type' => 'unknown', 'optional' => false];
+        return ValueResult::unknown();
     }
 }
