@@ -8,6 +8,9 @@ They exist because **a green test suite does not prove the generated types are r
 pass against an inner helper while the pipeline still emits a wrong type, and a fixture can pass while
 emitting TypeScript that does not compile. These gates check the committed output itself.
 
+Types are gated here; speed is gated separately — see
+[`performance-gate.md`](performance-gate.md) for the publish-speed A/B gate.
+
 | Script                       | Catches                                                                      |
 | ---------------------------- | ---------------------------------------------------------------------------- |
 | `unknown-regression-gate.py` | A property that had a real type now emits `unknown`                          |

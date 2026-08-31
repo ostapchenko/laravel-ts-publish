@@ -68,6 +68,7 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse --verbose --ansi",
         "test": "php -d memory_limit=-1 vendor/bin/pest --parallel --tia --passthru-php=\"'-d' 'memory_limit=-1'\"",
+        "bench": "bash .github/scripts/publish-bench.sh --local",
         "test-update-shards": "php -d memory_limit=-1 vendor/bin/pest --parallel --update-shards --passthru-php=\"'-d' 'memory_limit=-1'\"",
         "test-cov": "export XDEBUG_MODE=coverage && php -d memory_limit=-1 vendor/bin/pest --parallel --tia --coverage --coverage-clover coverage.xml --passthru-php=\"'-d' 'memory_limit=-1'\"",
         "test-cov-html": "export XDEBUG_MODE=coverage && php -d memory_limit=-1 vendor/bin/pest --parallel --tia --coverage-html coverage --passthru-php=\"'-d' 'memory_limit=-1'\"",
