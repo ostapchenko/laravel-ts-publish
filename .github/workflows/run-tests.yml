@@ -145,7 +145,7 @@ jobs:
           echo "PASS - @tolki/ts types resolve"
 
       - name: Gate - no type token emitted without its import
-        run: .github/scripts/unimportable-token-gate.sh 10 0
+        run: .github/scripts/unimportable-token-gate.sh 10 61
 
       - name: Gate - unknown-regression-gate parser self-test
         run: python3 .github/scripts/unknown-regression-gate.py --parsetest
@@ -158,6 +158,40 @@ jobs:
           fi
           echo "Comparing $base..HEAD"
           python3 .github/scripts/unknown-regression-gate.py "$base" HEAD
+
+  upstream-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    name: upstream drift (surveyor/ranger latest)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction
+
+      # This job is EXPECTED TO BE RED. It installs laravel/surveyor and laravel/ranger at their
+      # latest tags, unpinned from composer.json's frozen ^0.1 carets (see
+      # docs/decisions/2026-08-31-surveyor-staged-exit.md), so upstream drift shows up here on the
+      # dashboard instead of staying masked behind the caret. Do not "fix" this job by pinning it
+      # back down or deleting it - it goes away on its own once a later phase removes both packages.
+      - name: Install latest laravel/surveyor and laravel/ranger
+        run: composer require laravel/surveyor:'*' laravel/ranger:'*' --with-all-dependencies --no-interaction --prefer-dist
+
+      - name: Static analysis
+        run: composer analyse
+
+      - name: Execute Surveyor-touching tests
+        run: php -d memory_limit=-1 vendor/bin/pest tests/Unit/Transformers/BroadcastEventTransformerTest.php tests/Unit/Analyzers/SurveyorTypeMapperTest.php tests/Unit/Analyzers/Inertia/InertiaPageAnalyzerTest.php tests/Unit/Analyzers/Inertia/InertiaSharedDataAnalyzerTest.php tests/Unit/Writers/BroadcastEventWriterTest.php
 
   publish-bench:
     runs-on: ubuntu-latest

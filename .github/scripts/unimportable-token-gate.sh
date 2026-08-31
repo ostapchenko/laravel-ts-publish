@@ -17,9 +17,11 @@
 # expected to declare). The gate compares against that baseline rather than
 # demanding zero.
 #
-# Usage: unimportable-token-gate.sh [BASELINE_COUNT] [RELATIVE_BASELINE]
-#        With no argument it prints the current count and the offending names. RELATIVE_BASELINE
-#        gates TS2307s whose specifier is relative (./ or ../) - a module this package itself writes.
+# Usage: unimportable-token-gate.sh [BASELINE_COUNT] [TS2307_BASELINE]
+#        With no argument it prints the current count and the offending names. TS2307_BASELINE
+#        gates every "Cannot find module" (TS2307) diagnostic - both a relative specifier (a module
+#        this package itself writes) and a bare one (an app-side alias, e.g. @/types/geo, that the
+#        consuming app is expected to declare).
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -43,13 +45,15 @@ count=$(printf '%s' "$errs" | grep -c . || true)
 echo "TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: $count"
 printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier) '([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
 
-# A relative specifier (./ or ../) only ever resolves against a file this package itself writes,
-# so an unresolved one is never the app-side custom_ts_mappings escape hatch behind the baseline above.
-rel_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" | grep -E "Cannot find module '\.{1,2}/" || true)
-rel_count=$(printf '%s' "$rel_errs" | grep -c . || true)
+# Every TS2307 counts here now, relative or bare: a relative specifier (./ or ../) only ever
+# resolves against a file this package itself writes, and a bare one (e.g. @/types/geo) is the
+# same kind of app-side escape hatch as the TS2304 baseline above - the consuming app is expected
+# to declare it, and this package has no file of its own to point the import at either way.
+ts2307_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" || true)
+ts2307_count=$(printf '%s' "$ts2307_errs" | grep -c . || true)
 
-echo "TS2307 (cannot find module) with a relative specifier in generated tree: $rel_count"
-printf '%s\n' "$rel_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
+echo "TS2307 (cannot find module) in generated tree: $ts2307_count"
+printf '%s\n' "$ts2307_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
 
 if [ $# -ge 1 ]; then
   baseline=$1
@@ -61,12 +65,12 @@ if [ $# -ge 1 ]; then
   echo "PASS - no new unimportable or colliding tokens (baseline $baseline)"
 
   if [ $# -ge 2 ]; then
-    relative_baseline=$2
-    if [ "$rel_count" -gt "$relative_baseline" ]; then
-      echo "FAIL - relative-specifier TS2307 count rose from $relative_baseline to $rel_count: an import points at a file this package never writes"
-      printf '%s\n' "$rel_errs"
+    ts2307_baseline=$2
+    if [ "$ts2307_count" -gt "$ts2307_baseline" ]; then
+      echo "FAIL - TS2307 count rose from $ts2307_baseline to $ts2307_count: an import points at a module nothing declares"
+      printf '%s\n' "$ts2307_errs"
       exit 1
     fi
-    echo "PASS - no new relative-specifier TS2307s (baseline $relative_baseline)"
+    echo "PASS - no new TS2307s (baseline $ts2307_baseline)"
   fi
 fi

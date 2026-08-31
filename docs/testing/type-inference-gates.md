@@ -11,6 +11,10 @@ emitting TypeScript that does not compile. These gates check the committed outpu
 Types are gated here; speed is gated separately — see
 [`performance-gate.md`](performance-gate.md) for the publish-speed A/B gate.
 
+A third, non-blocking CI job — [`upstream-drift`](#the-upstream-drift-job) — runs alongside these two. It is
+not a script under `.github/scripts/` and it does not gate a merge; it watches for a different kind of
+silent failure, upstream API drift in two frozen dependencies, and is documented separately below.
+
 | Script                       | Catches                                                                      |
 | ---------------------------- | ---------------------------------------------------------------------------- |
 | `unknown-regression-gate.py` | A property that had a real type now emits `unknown`                          |
@@ -143,17 +147,20 @@ interface omits `$hidden` ones, so `K extends keyof T` failed. See
 ```bash
 .github/scripts/unimportable-token-gate.sh          # report only
 .github/scripts/unimportable-token-gate.sh 10       # fail if the count exceeds 10
-.github/scripts/unimportable-token-gate.sh 10 0     # also fail if the relative-specifier TS2307 sub-gate exceeds 0
+.github/scripts/unimportable-token-gate.sh 10 61    # also fail if the TS2307 sub-gate exceeds 61
 ```
 
 ```
 TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: 10
    8   CustomObject
    2   ExtendableInterface
-TS2307 (cannot find module) with a relative specifier in generated tree: 0
+TS2307 (cannot find module) in generated tree: 61
+  @/types/geo
+  @js/types/settings
+  ... (21 distinct module names, truncated here)
 
 PASS - no new unimportable or colliding tokens (baseline 10)
-PASS - no new relative-specifier TS2307s (baseline 0)
+PASS - no new TS2307s (baseline 61)
 ```
 
 ### The baseline
@@ -214,59 +221,83 @@ entries above each sat in this bucket looking like one.
 
 `10` is a current count, not a target. It was `14` until `toTsType()` gained step 5c, which inlines a plain
 value object's property shape instead of emitting a class token for it; that removed the two `Coordinate`
-TS2304s and, in the same change, took the relative-specifier sub-gate below from `1` to `0`. It fell to `11`
-when `GlobalsWriter` gained its form-request import loop, and to `10` when analyzer-derived resource
-references started honoring `#[TsResource(name:)]`. Lowering a baseline once the defect behind it is
-actually gone is the point; defending the number is not.
+TS2304s and, in the same change, took the TS2307 sub-gate below — then scoped to relative specifiers only —
+from `1` to `0`. It fell to `11` when `GlobalsWriter` gained its form-request import loop, and to `10` when
+analyzer-derived resource references started honoring `#[TsResource(name:)]`. Lowering a baseline once the
+defect behind it is actually gone is the point; defending the number is not.
 
-### The relative-specifier sub-gate
+### The TS2307 sub-gate
 
-A second, optional argument gates TS2307 ("Cannot find module") diagnostics whose specifier is relative
-(`./` or `../`). Unlike a bare specifier such as `@js/types/settings`, a relative one can only resolve
-against a file *this package itself writes* — it is never the app-side `custom_ts_mappings` escape hatch
-behind the baseline above, so it gets its own count and its own baseline instead of being folded into it.
+A second, optional argument gates every TS2307 ("Cannot find module") diagnostic — both flavors:
+
+- **Relative** (`./` or `../`). This can only resolve against a file *this package itself writes*, so an
+  unresolved one is never the app-side `custom_ts_mappings` escape hatch behind the baseline above — it is
+  always the failure mode `PublishedResourceRegistry` exists to prevent (see
+  [below](#what-the-gates-do-not-cover)).
+- **Bare** (e.g. `@js/types/settings`, `@/types/geo`). The token is imported and the specifier is well-formed,
+  but the module it names lives in the *consuming app*, not in this package or its workbench — the same kind
+  of app-side escape hatch as the TS2304 baseline above, just reached through an import rather than a bare
+  name.
+
+Both used to be tracked separately — this sub-gate originally counted only the relative half, leaving bare
+TS2307s an unenumerated footnote (see [below](#what-the-gates-do-not-cover)) — but a bare specifier is exactly
+as blind a spot as a relative one: nothing stops the annotation machinery from emitting a bare import to a
+module that does not exist, and only a live `tsc` run over the generated tree would ever have caught it. The
+sub-gate was widened to close that gap; it gets its own count and its own baseline rather than being folded
+into the main one, because it is a structurally different failure (an unresolved *module*, not an unresolved
+*name*) with its own set of legitimate app-side escape hatches.
 
 ```bash
-.github/scripts/unimportable-token-gate.sh 10        # unchanged: no relative-specifier check runs
-.github/scripts/unimportable-token-gate.sh 10 0      # gate the relative-specifier count too
+.github/scripts/unimportable-token-gate.sh 10        # unchanged: no TS2307 check runs
+.github/scripts/unimportable-token-gate.sh 10 61     # gate the TS2307 count too
 ```
 
-The baseline is **0**. It was `1` while
+The baseline is **61**, all of it bare specifiers — the relative half is currently `0`. It was `1` while
 `workbench/resources/js/types/data/default-example/app/models/warehouse.ts` imported `Coordinate` from
 `'../value-objects'` — the unpublished `Workbench\App\ValueObjects\Coordinate`. `toTsType()` step 5c now
-inlines that class's property shape, so no import is emitted and the measured count is `0`.
+inlines that class's property shape, so no relative import is emitted and that half of the count stays `0`.
 
-#### Its negative control had to be replaced
+The 61 bare specifiers span **21 distinct module names**, every one an app-side alias namespace the consuming
+app is expected to declare: `@/types/*` (14 names, 40 diagnostics), `@js/types/*` (6 names, 20) and
+`@workbench/types` (1). None are unresolved npm packages — this repo's own `@tolki/ts` and `@tolki/types`
+dependencies are installed and resolve cleanly, and no diagnostic here names an npm-style package outside
+this package's own alias conventions. Re-measure before quoting 61; it moves whenever a fixture's imports
+change, the same way the TS2304 baseline above does. `npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error
+TS2307"` reproduces it directly.
 
-That single instance was also the sub-gate's negative control: `14 0` used to fail, because the count was
-1. With the count at `0`, `10 0` passes, so that invocation is no longer a control at all. Two replacements
-exist, and they prove different things — prefer the first.
+#### Its negative control had to be replaced once already
+
+The sub-gate's original negative control relied on the relative-only count sitting at exactly `1`: `14 0`
+used to fail, because the count was 1. When `toTsType()` step 5c inlined `Coordinate`, that count dropped to
+`0` and `10 0` started passing, so that invocation stopped being a control at all. Two replacements exist —
+both still work after the widening, since neither depends on the relative/bare split — and they prove
+different things; prefer the first.
 
 **Detection control (synthesize an offending import).** This is the one that proves the sub-gate still
-*finds* an unresolvable relative specifier, not merely that its comparison arithmetic works. The main gate
-passes first, so the `exit 1` is the sub-gate's own:
+*finds* an unresolvable module, not merely that its comparison arithmetic works. The main gate passes first,
+so the `exit 1` is the sub-gate's own:
 
 ```bash
-printf "import type { Nope } from './deliberately-missing';\nexport type Control = Nope;\n" > tests/types/relative-subgate-control.ts
-.github/scripts/unimportable-token-gate.sh 10 0   # exit 1: "relative-specifier TS2307 count rose from 0 to 1"
-rm tests/types/relative-subgate-control.ts
+printf "import type { Nope } from './deliberately-missing';\nexport type Control = Nope;\n" > tests/types/ts2307-subgate-control.ts
+.github/scripts/unimportable-token-gate.sh 10 61   # exit 1: "TS2307 count rose from 61 to 62"
+rm tests/types/ts2307-subgate-control.ts
 ```
 
 Delete the scratch file afterwards: `tests/types/` has its own CI step that fails on any diagnostic there.
 
-**Comparison control (no setup).** A negative baseline makes `rel_count -gt relative_baseline` true at a
-count of `0`, so this fails against the committed tree with nothing to clean up:
+**Comparison control (no setup).** A negative baseline makes `ts2307_count -gt ts2307_baseline` true no
+matter the committed count, so this fails against the committed tree with nothing to clean up:
 
 ```bash
-.github/scripts/unimportable-token-gate.sh 10 -1   # exit 1: "relative-specifier TS2307 count rose from -1 to 0"
+.github/scripts/unimportable-token-gate.sh 10 -1   # exit 1: "TS2307 count rose from -1 to 61"
 ```
 
-It only exercises the threshold branch — the grep and the relative-specifier regex above it are not under
-test — so it is a weaker check than the synthesized import, not a substitute for it.
+It only exercises the threshold branch — the grep above it is not under test — so it is a weaker check than
+the synthesized import, not a substitute for it.
 
 The gate's **main** count still has a live control of its own, since that count is 10 rather than 0:
-`.github/scripts/unimportable-token-gate.sh 9 0` exits 1. It returns before the sub-gate block ever runs,
-so it controls the main baseline only.
+`.github/scripts/unimportable-token-gate.sh 9 61` exits 1. It returns before the sub-gate block ever runs, so
+it controls the main baseline only.
 
 Passing a single argument leaves this sub-gate off entirely — CI passes two arguments, but any other caller
 that still passes one behaves exactly as it did before this sub-gate existed.
@@ -350,12 +381,44 @@ diagnostic under `tests/types/`. Locally:
 npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print nothing
 ```
 
+## The `upstream-drift` job
+
+`.github/workflows/run-tests.yml`'s `upstream-drift` job runs after `type-inference-gates` on every push.
+It installs `laravel/surveyor:'*'` and `laravel/ranger:'*'` — their latest tags, unpinned from
+`composer.json`'s frozen `^0.1` carets — then runs `composer analyse` and the five test files that exercise
+the Surveyor-backed pipeline still in use today:
+
+```text
+tests/Unit/Transformers/BroadcastEventTransformerTest.php
+tests/Unit/Analyzers/SurveyorTypeMapperTest.php
+tests/Unit/Analyzers/Inertia/InertiaPageAnalyzerTest.php
+tests/Unit/Analyzers/Inertia/InertiaSharedDataAnalyzerTest.php
+tests/Unit/Writers/BroadcastEventWriterTest.php
+```
+
+**It is expected to be RED**, and that is the point, not a bug to fix. `composer.json` deliberately freezes
+`laravel/surveyor` at `^0.1.10` and `laravel/ranger` at `^0.1.12` — see
+[`docs/decisions/2026-08-31-surveyor-staged-exit.md`](../decisions/2026-08-31-surveyor-staged-exit.md). That
+ADR exists because a measured bump to surveyor v0.3.0 / ranger v0.5.0 regressed 12 committed `.ts` files (the
+two packages renamed `ClassResult` to `ClassLikeResult`, among other breaks) and the `^0.1` caret hides that
+kind of drift from ordinary CI entirely. `upstream-drift` installs the unpinned latest inside its own job
+only — it does not touch `composer.json` — so the drift is visible on the CI dashboard as a standing red job
+instead of silently accumulating behind the caret until someone bumps it by hand.
+
+`continue-on-error: true` keeps it non-blocking: a red `upstream-drift` never fails the workflow or blocks a
+merge. Do not "fix" it by pinning its `composer require` back to the frozen versions, deleting the job, or
+loosening the assertions in the five tests it runs — a green `upstream-drift` would mean upstream stopped
+drifting, and the job's only job is to notice if that ever becomes true. It goes away on its own, deliberately,
+once a later phase in the unified-AST-engine plan moves broadcast events, then Inertia shared data, then page
+props onto the native `AstEngine` and removes both packages (`docs/decisions/2026-08-31-surveyor-staged-exit.md`'s
+"Exit gates"). Until then, red is the expected, informative state.
+
 ## Running both
 
 ```bash
 composer test -- --passthru-php="-d memory_limit=1024M"   # regenerates the trees
 python3 .github/scripts/unknown-regression-gate.py
-.github/scripts/unimportable-token-gate.sh 10 0
+.github/scripts/unimportable-token-gate.sh 10 61
 ```
 
 Run the suite first — both gates read the committed trees, so they check whatever the last test run wrote.
@@ -373,19 +436,19 @@ When changing `unknown-regression-gate.py` itself, also run its
   adding an inference path, add a fixture for the hazardous shape too — several real defects were found
   only by constructing a fixture and regenerating, never by reading the code or running the suite.
 
-- **TS2307 (`Cannot find module`) is only partly counted.** `unimportable-token-gate.sh`'s main count
-  greps only TS2300/TS2304/TS2344/TS2552, and an unresolved *module* is not an existing property degrading
-  to `unknown`, so the regression gate is structurally blind to it too.
-  [The relative-specifier sub-gate](#the-relative-specifier-sub-gate) above is the one place any TS2307
-  is counted, and it counts only the relative ones. That diagnostic is the signature of an import of a
-  class the package never writes a file for — the failure mode `PublishedResourceRegistry` exists to
-  prevent, documented under
+- **TS2307 (`Cannot find module`) is counted, but its baseline absorbs a lot of app-side aliases.**
+  `unimportable-token-gate.sh`'s main count greps only TS2300/TS2304/TS2344/TS2552, and an unresolved
+  *module* is not an existing property degrading to `unknown`, so the regression gate is structurally
+  blind to a bad import too. [The TS2307 sub-gate](#the-ts2307-sub-gate) above is where every TS2307 is
+  counted instead — both the relative half, whose diagnostic is the signature of an import of a class
+  the package never writes a file for (the failure mode `PublishedResourceRegistry` exists to prevent,
+  documented under
   [convention guesses are gated on the published set](../components/resource-ast-analyzer.md#toresource-convention-guesses-are-gated-on-the-published-set),
   including its shared `InspectsAstNodes::resolveCollectedResourceClass()` resolver, which both
-  `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call.
+  `ResourceAstAnalyzer` and `InertiaPageAnalyzer` call), and the bare half.
 
-  A blanket TS2307 gate is impractical. `npx tsc --noEmit -p tsconfig.json` currently reports **61** of
-  them, and the relative-specifier count is 0, so all 61 are bare specifiers. They span **21 distinct
+  `npx tsc --noEmit -p tsconfig.json` currently reports **61** TS2307s, and the relative-specifier count is
+  0, so all 61 are bare specifiers, and the sub-gate's baseline is set to that 61. They span **21 distinct
   module names**, every one under an app-side alias namespace — `@/types/*` (14 names, 40 diagnostics),
   `@js/types/*` (6 names, 20) and `@workbench/types` (1) — counted straight off the `Cannot find module`
   text. The consuming app is expected to declare those modules, so the package cannot emit anything that
@@ -393,22 +456,21 @@ When changing `unknown-regression-gate.py` itself, also run its
   and `#[TsExtends]` all take an import argument); this measurement counted the specifiers, not their
   annotations, so treat the channel breakdown as unenumerated. They are the same *kind* of app-side escape
   hatch as most of the TS2304 baseline, but not the same mechanism: here the name is imported and the module
-  is undeclared, while `CustomObject` and `ExtendableInterface` carry no import at all. Re-measure
-  before quoting these; the count moves whenever a fixture's imports change. It dropped from 60
-  when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
+  is undeclared, while `CustomObject` and `ExtendableInterface` carry no import at all. None of the 61 is an
+  npm package this repo failed to install — `@tolki/ts` and `@tolki/types` are both direct dependencies and
+  resolve cleanly — so, unlike an uninstalled-package count, this baseline will not silently balloon on a
+  fresh `npm ci`. Re-measure before quoting these; the count moves whenever a fixture's imports change. It
+  dropped from 60 when `4016f7c9` (`Make relation except() expansions return columns only`) stopped
   `warehouse-resource.ts` importing `@js/types/settings`, and from 59 when step 5c stopped
   `warehouse.ts` importing `'../value-objects'`. It rose from 58 when `GlobalsWriter` gained its
   form-request import loop and `laravel-ts-global.ts` picked up three more bare specifiers.
 
-  That gap is now partly closed by a **sub-gate scoped to relative specifiers only** — see
-  [The relative-specifier sub-gate](#the-relative-specifier-sub-gate) above. A `./`- or `../`-relative
-  import inside the generated tree resolves against files this package itself writes, so it is never an
-  app-side escape hatch. None is emitted today — `default-example/app/models/warehouse.ts` was the last
-  one, importing `'../value-objects'` for the unpublished `Workbench\App\ValueObjects\Coordinate` — so the
-  sub-gate carries a baseline of 0. (The gate's baseline of 10 is not the TS2304 count, though they
-  coincide today: it is the combined TS2300/TS2304/TS2344/TS2552 total, currently 0 + 10 + 0 + 0.) The 61
-bare ones remain uncounted, for
-  the reason given above.
+  Widening the sub-gate to cover the bare half closed the gap this bullet used to describe, but it did not
+  make the 61 disappear — they are real, currently-unavoidable app-side escape hatches, not defects fixed by
+  the widening itself. [The TS2307 sub-gate](#the-ts2307-sub-gate) above carries the full history of the
+  baseline, including how the relative half separately went from `1` to `0`. (The main gate's baseline of 10
+  is not the TS2304 count, though they coincide today: it is the combined TS2300/TS2304/TS2344/TS2552 total,
+  currently 0 + 10 + 0 + 0 — a separate number from the TS2307 sub-gate's 61.)
 
 - **An inline object that already contains `unknown` cannot report its own wholesale collapse.**
   `detect_regressions()` gates the base side on the substring test `"unknown" not in b[k]`, and the
