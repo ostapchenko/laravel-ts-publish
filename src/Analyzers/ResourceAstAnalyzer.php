@@ -12,6 +12,11 @@ use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\BinaryOpHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
@@ -41,18 +46,11 @@ use PhpParser\Node\Expr\AssignOp;
 use PhpParser\Node\Expr\AssignRef;
 use PhpParser\Node\Expr\BinaryOp;
 use PhpParser\Node\Expr\BooleanNot;
-use PhpParser\Node\Expr\Cast\Array_ as CastArray_;
-use PhpParser\Node\Expr\Cast\Bool_ as CastBool;
-use PhpParser\Node\Expr\Cast\Double as CastDouble;
-use PhpParser\Node\Expr\Cast\Int_ as CastInt;
-use PhpParser\Node\Expr\Cast\String_ as CastString;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\ConstFetch;
-use PhpParser\Node\Expr\Empty_;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
-use PhpParser\Node\Expr\Isset_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
@@ -64,15 +62,11 @@ use PhpParser\Node\Expr\PreInc;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Ternary;
-use PhpParser\Node\Expr\UnaryMinus;
-use PhpParser\Node\Expr\UnaryPlus;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\NullableType;
-use PhpParser\Node\Scalar\Float_;
 use PhpParser\Node\Scalar\Int_;
-use PhpParser\Node\Scalar\InterpolatedString;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Do_;
@@ -510,7 +504,13 @@ class ResourceAstAnalyzer implements ExpressionEngine
      */
     protected function handlers(): array
     {
-        return [];
+        return [
+            new FirstClassCallableHandler,
+            new CastHandler,
+            new ScalarHandler,
+            new ConstFetchHandler,
+            new BinaryOpHandler,
+        ];
     }
 
     /**
@@ -536,57 +536,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
         $result = $this->unknownResult();
 
-        // First-class callables (e.g. $this->when(...)) have no args — bail early
-        if ($expr instanceof MethodCall && $expr->isFirstClassCallable()) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        // PHP cast operators — the cast alone determines the type, not the inner expression.
-        if ($expr instanceof CastBool) {
-            return ['type' => 'boolean', 'optional' => false];
-        }
-
-        if ($expr instanceof CastInt || $expr instanceof CastDouble) {
-            return ['type' => 'number', 'optional' => false];
-        }
-
-        if ($expr instanceof CastString) {
-            return ['type' => 'string', 'optional' => false];
-        }
-
-        if ($expr instanceof CastArray_) {
-            // A cast of an array literal is the identity — the shape survives. Any other operand
-            // (e.g. a scalar, which PHP wraps into a single-element list) stays the flat fallback.
-            if ($expr->expr instanceof Array_) {
-                return $this->analyzeInlineArray($expr->expr);
-            }
-
-            return ['type' => 'unknown[]', 'optional' => false];
-        }
-
-        if ($expr instanceof String_ || $expr instanceof InterpolatedString) {
-            return ['type' => 'string', 'optional' => false];
-        }
-
-        if ($expr instanceof Int_ || $expr instanceof Float_) {
-            return ['type' => 'number', 'optional' => false];
-        }
-
-        // Unary +/- always yield a number; non-literal operands are assumed numeric (variable types aren't tracked).
-        if ($expr instanceof UnaryMinus || $expr instanceof UnaryPlus) {
-            return ['type' => 'number', 'optional' => false];
-        }
-
-        if ($expr instanceof ConstFetch) {
-            $constName = $expr->name->toLowerString();
-            if ($constName === 'null') {
-                return ['type' => 'null', 'optional' => false];
-            }
-            if (in_array($constName, ['true', 'false'], true)) {
-                return ['type' => 'boolean', 'optional' => false];
-            }
-        }
-
         // SomeClass::CONSTANT / self::CONSTANT / static::CONSTANT as a value. `Foo::class` and
         // enum-case fetches are excluded inside the helper, so this never diverts those paths
         // (EnumResource::make(), toResource(SomeResource::class), #[Collects]).
@@ -596,50 +545,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
             if ($constantResult !== null) {
                 return $constantResult;
             }
-        }
-
-        // Arithmetic always yields a number. Also catches `(int) round(...) / 2`: PHP precedence binds the
-        // cast tighter than the division, so the outer node is a BinaryOp\Div rather than a Cast.
-        if ($expr instanceof BinaryOp\Plus
-            || $expr instanceof BinaryOp\Minus
-            || $expr instanceof BinaryOp\Mul
-            || $expr instanceof BinaryOp\Div
-            || $expr instanceof BinaryOp\Mod
-            || $expr instanceof BinaryOp\Pow
-        ) {
-            return ['type' => 'number', 'optional' => false];
-        }
-
-        if ($expr instanceof BinaryOp\Concat) {
-            return ['type' => 'string', 'optional' => false];
-        }
-
-        // Comparison, logical, and type-test operators always produce a boolean. PHP's &&/|| return bool,
-        // unlike JS — even as a null-guard (`$this->x && $this->x->y`), no false|T union is needed.
-        if ($expr instanceof BinaryOp\Identical
-            || $expr instanceof BinaryOp\NotIdentical
-            || $expr instanceof BinaryOp\Equal
-            || $expr instanceof BinaryOp\NotEqual
-            || $expr instanceof BinaryOp\Greater
-            || $expr instanceof BinaryOp\GreaterOrEqual
-            || $expr instanceof BinaryOp\Smaller
-            || $expr instanceof BinaryOp\SmallerOrEqual
-            || $expr instanceof BinaryOp\BooleanAnd
-            || $expr instanceof BinaryOp\BooleanOr
-            || $expr instanceof BinaryOp\LogicalAnd
-            || $expr instanceof BinaryOp\LogicalOr
-            || $expr instanceof BinaryOp\LogicalXor
-            || $expr instanceof BooleanNot
-            || $expr instanceof Instanceof_
-            || $expr instanceof Isset_
-            || $expr instanceof Empty_
-        ) {
-            return ['type' => 'boolean', 'optional' => false];
-        }
-
-        // Spaceship comparison produces -1|0|1.
-        if ($expr instanceof BinaryOp\Spaceship) {
-            return ['type' => 'number', 'optional' => false];
         }
 
         if ($expr instanceof BinaryOp\Coalesce) {
