@@ -4,13 +4,11 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Concerns;
 
+use AbeTwoThree\LaravelTsPublish\Ast\AstParser;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use PhpParser\Node;
 use PhpParser\Node\Stmt\Use_;
 use PhpParser\NodeFinder;
-use PhpParser\NodeTraverser;
-use PhpParser\NodeVisitor\NameResolver;
-use PhpParser\ParserFactory;
 use ReflectionClass;
 
 /**
@@ -148,16 +146,6 @@ trait ResolvesClassNames
      */
     protected function parseAndResolveAst(string $source): array
     {
-        $parser = (new ParserFactory)->createForNewestSupportedVersion();
-        $stmts = $parser->parse($source);
-
-        if ($stmts === null) {
-            return []; // @codeCoverageIgnore
-        }
-
-        $traverser = new NodeTraverser;
-        $traverser->addVisitor(new NameResolver);
-
-        return $traverser->traverse($stmts);
+        return resolve(AstParser::class)->parseSource($source);
     }
 }
