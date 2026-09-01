@@ -17,30 +17,10 @@ use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesSingularResourceClass;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\BinaryOpHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClassConstantHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClosureHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CoalesceHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InlineArrayHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownMethodRuleHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\MethodChainHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\NewResourceHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\PropertyChainHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\RelationCollectionChainHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\RelationFilterHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\StaticCallHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\TernaryHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ThisPropertyHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ToResourceHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\Handlers\VariableHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
+use AbeTwoThree\LaravelTsPublish\Ast\ResourceExpressionHandlers;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
@@ -503,36 +483,14 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Extracted expression handlers, tried before the legacy chain, in dispatch order.
+     * The resource profile's ordered handler chain — see ResourceExpressionHandlers for the list
+     * and its ordering contract.
      *
      * @return list<ExpressionHandler>
      */
     protected function handlers(): array
     {
-        return [
-            new FirstClassCallableHandler,
-            new CastHandler,
-            new ScalarHandler,
-            new ConstFetchHandler,
-            new ClassConstantHandler,
-            new BinaryOpHandler,
-            new CoalesceHandler,
-            new KnownFunctionCallHandler,
-            new ClosureHandler,
-            new ConditionalMethodHandler,
-            new ToResourceHandler,
-            new StaticCallHandler,
-            new NewResourceHandler,
-            new ThisPropertyHandler,
-            new RelationFilterHandler,
-            new InlineArrayHandler,
-            new MethodChainHandler,
-            new PropertyChainHandler,
-            new RelationCollectionChainHandler,
-            new VariableHandler,
-            new TernaryHandler,
-            new KnownMethodRuleHandler,
-        ];
+        return ResourceExpressionHandlers::make($this);
     }
 
     /**

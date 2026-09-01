@@ -16,7 +16,8 @@ use PhpParser\Node\Expr\Array_;
 interface ExpressionEngine
 {
     /**
-     * Resolve an expression to its TypeScript type: extracted handlers first, the legacy chain after.
+     * Resolve an expression to its TypeScript type by dispatching to the first registered
+     * ExpressionHandler that claims it; an unclaimed expression degrades to `unknown`.
      *
      * @return ValueExpressionResult
      */
