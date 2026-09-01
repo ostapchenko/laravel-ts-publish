@@ -448,7 +448,7 @@ describe('Arrayable DTO shape inference', function () {
     test('a class-backed value hidden inside Record<string, X> degrades the whole value; nested in array{...} degrades just the leaf', function () {
         // Record<string, User> has no shape to recurse into, so shapeValueHasUnimportableToken() degrades
         // the whole value. The nested array{owner: User} now resolves through resolveArrayShapeString(),
-        // which degrades only the unimportable 'owner' leaf (Task 6) instead of losing the whole shape.
+        // which degrades only the unimportable 'owner' leaf instead of losing the whole shape.
         $result = $this->service->toTsType(ArrayableWithHiddenClassValueObject::class);
 
         expect($result['type'])->toBe('{ recordOfUsers: unknown; nestedOwner: { owner: unknown } }');
@@ -2396,7 +2396,7 @@ describe('rewriteAsEnumToType', function () {
     });
 
     // A heterogeneous mixed union — ResourceTransformer::rewriteEnumResourceTypes()'s isCollection
-    // branch (Task 16) — is not the redundant same-shaped pair the fold exists for: the trailing
+    // branch — is not the redundant same-shaped pair the fold exists for: the trailing
     // `[]` makes the two members genuinely different, so both must survive, not collapse to one.
     test('does not fold a pair whose bare arm is itself array-shaped', function () {
         $result = $this->service->rewriteAsEnumToType(

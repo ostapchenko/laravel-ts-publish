@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Fixture for parseFileUseStatements()'s AST-backed group-use support (Task 8).
+ * Fixture for parseFileUseStatements()'s AST-backed group-use support.
  *
  * A `.php.stub` file so Pint's import fixers never touch these deliberately unusual
  * imports: an unreferenced function/const import would otherwise get flagged or removed.

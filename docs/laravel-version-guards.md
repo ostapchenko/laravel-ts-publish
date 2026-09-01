@@ -62,14 +62,13 @@ in each release — more reliable than changelog prose.
 
 The same method was applied ahead of time to five attributes in `Illuminate\Database\Eloquent\Attributes`
 (`Table`, `Hidden`, `Visible`, `Appends`, `Connection`) plus `Illuminate\Http\Resources\Attributes\PreserveKeys`:
-all six are absent at `v12.66.0` and present at `v13.0.0`, the same shape as `Collects`. Task 9 used
-this finding directly — recording `Min Laravel: 13.0.0` / `Convert when floor ≥: 13.0.0` for the
-five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows above without re-deriving it.
-Task 10 used the same finding for the `PreserveKeys` row above, once its `src/` guard was added.
-Task 11 used it again for the `RouteKey` row above: `RouteKey` lives in the same
-`Illuminate\Database\Eloquent\Attributes` directory as `Table`/`Hidden`/`Visible`/`Appends`/
-`Connection`, so the directory-level absent-at-`v12.66.0`/present-at-`v13.0.0` finding covers it
-without a fresh tag search.
+all six are absent at `v12.66.0` and present at `v13.0.0`, the same shape as `Collects`. That one
+finding backs every row derived from it, with no re-derivation: `Min Laravel: 13.0.0` /
+`Convert when floor ≥: 13.0.0` on the five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows
+above, the `PreserveKeys` row once its `src/` guard was added, and the `RouteKey` row — `RouteKey` lives
+in the same `Illuminate\Database\Eloquent\Attributes` directory as
+`Table`/`Hidden`/`Visible`/`Appends`/`Connection`, so the directory-level
+absent-at-`v12.66.0`/present-at-`v13.0.0` finding covers it without a fresh tag search.
 
 - **`ArrayKeys`**: binary-searched across all 32 published `v13.*` tags for
   `src/Illuminate/Validation/Rules/ArrayKeys.php`, after first confirming it 404s at both `v12.0.0`

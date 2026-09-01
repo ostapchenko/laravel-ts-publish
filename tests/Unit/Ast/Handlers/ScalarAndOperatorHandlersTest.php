@@ -270,7 +270,7 @@ it('resolves unary minus/plus to number', function () {
     expect($result)->toBe(['type' => 'number', 'optional' => false]);
 });
 
-it('declines Coalesce, which Slice S3 owns', function () {
+it('declines Coalesce, which CoalesceHandler owns', function () {
     $handler = new BinaryOpHandler;
     $expr = new BinaryOp\Coalesce(new Variable('a'), new ConstFetch(new Name('null')));
 

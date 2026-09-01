@@ -357,12 +357,12 @@ Two shapes reach this code, and the merged type string carries different informa
   `substituteEnumType()` call used for the homogeneous case matched *both* members (the word-boundary
   regex does not stop at `[`), wrongly producing `AsEnum<typeof Status>[] | AsEnum<typeof Status>`.
 
-Before Task 16, this deliberately did **not** mirror `rewriteEnumResourceTypes()`'s `isCollection`
+This once deliberately did **not** mirror `rewriteEnumResourceTypes()`'s `isCollection`
 reconstruction, which wrapped the *entire* mixed union in `()[]`
 (`(AsEnum<typeof Const> | EnumTypeName)[]`) whenever the top-level property's pre-rewrite type
 happened to end in `[]` — a shape that is only correct when *both* arms are arrays, and wrong
-(`(A | B)[]` where the truth is `A | B[]`) for exactly this heterogeneous case. Task 16 fixed the
-top-level rewrite to match: it now array-suffixes only the bare arm
+(`(A | B)[]` where the truth is `A | B[]`) for exactly this heterogeneous case. The top-level rewrite
+was later fixed to match: it now array-suffixes only the bare arm
 (`AsEnum<typeof Const> | EnumTypeName[]`) instead of wrapping the whole union, the same principle
 `expandMixedEnumType()` already applied — an array-shaped arm keeps its own `[]`, a scalar arm
 never gains one it didn't earn — even though the two reach it by different means: this section's
@@ -383,7 +383,7 @@ followed by a space and `}`, which the lookahead allows — so the globals tree 
 not match (the `[]` sits between the two names), and neither does `latest_status_or_history`'s
 `AsEnum<typeof Status> | StatusType[]` (the `[]` trails the bare name instead) — both render as two
 independently-qualified references, correct, since the two members mean different things despite
-sharing a base name. The trailing-`[]` exclusion is also from Task 16: before it, the pair
+sharing a base name. The trailing-`[]` exclusion came out of the same fix: before it, the pair
 pattern's lookahead rejected only a following word character, so it still matched the
 `AsEnum<typeof Const> | EnumTypeName` prefix of `AsEnum<typeof Status> | StatusType[]` and folded
 it to a single qualified reference with the array arm's `[]` left dangling after — `StatusType[]`
@@ -401,7 +401,7 @@ Every filter key on `WarehouseResource::$last_user_activity_by_mostly` (`except(
 and `$last_checked_by_mostly` (`except(['created_at', 'updated_at'])`) is a plain column on both
 models in the union, so both arms now resolve to `Pick<>` references:
 
-`last_user_activity_by_mostly`'s emitted type, before Task 12:
+`last_user_activity_by_mostly`'s emitted type, before:
 
 ```ts
 { email: string; company: string | null; status: CrmStatusType; created_at: string | null; updated_at: string | null } | { email: string; email_verified_at: string | null; password: string; options: unknown[] | null; remember_token: string | null; created_at: string | null; updated_at: string | null; role: RoleType | null; membership_level: MembershipLevelType | null; phone: string | null; avatar: string | null; bio: string | null; settings: unknown[] | null; last_login_at: string | null; last_login_ip: string | null } | null
@@ -1165,8 +1165,8 @@ object instead — `collectionPreservesKeys()` checks both, and `wrapCollectionE
 single point that turns that boolean into `Record<string, R>` instead of `R[]`.
 
 Every collection-typing call site routes through `wrapCollectionElementType()`. There are **seven**,
-across three paths, split between `ResourceAstAnalyzer` and the resource-construction handlers since
-Task 19 (Slice S6) moved static-call/`new`/`toResource` construction out of the analyzer;
+across three paths, split between `ResourceAstAnalyzer` and the resource-construction handlers, which
+now own static-call/`new`/`toResource` construction;
 `grep -rn 'wrapCollectionElementType(' src/Analyzers/ResourceAstAnalyzer.php src/Ast/Handlers/` is the check:
 
 - **`SomeResource::collection(...)` / `SomeCollection::make()`/`::collection()` / `new
@@ -1252,8 +1252,8 @@ for. Both reach `aliasPropertyType()`: `inlineEnumResourceFqcns` becomes
 `ResourceTransformer::$propertyInlineEnumResourceFqcns` and is walked directly by
 `rewriteEnumResourceTypes()`, and `inlineEnumFqcns` becomes `$propertyInlineEnumFqcns`, which
 `mergePropertyFqcnMaps()` folds into the list `rewriteTypeReferences()` passes to the same helper —
-and `mergePropertyFqcnMaps()`'s own docblock ends "never dedupe it". Task 14 dropped `array_unique`
-from `inlineModelFqcns` only, and left the two enum maps as they were.
+and `mergePropertyFqcnMaps()`'s own docblock ends "never dedupe it". `array_unique` was dropped
+from `inlineModelFqcns` only; the two enum maps kept theirs.
 
 What makes the dedupe safe today is the corpus, not the design. The exact rule, established by invoking
 `aliasPropertyType()` directly rather than by reading it: **dropping duplicates is lossless if and only if

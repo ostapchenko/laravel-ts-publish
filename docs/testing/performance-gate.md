@@ -82,13 +82,13 @@ FAIL - hyperfine is not installed. Install it (e.g. 'brew install hyperfine' loc
 ## Local baseline log
 
 `composer bench` medians recorded at fixed checkpoints in the unified-AST-engine plan. Machine-local
-numbers, not comparable across machines — they gate the Task 13/22/33/36 checkpoints against each other on
-the same box, never CI.
+numbers, not comparable across machines — they gate the branch's four bench checkpoints against each
+other on the same box, never CI.
 
-| date       | task              | local median          |
-| ---------- | ----------------- | ---------------------- |
-| 2026-08-31 | Task 37 (baseline) | 5.49s (3 runs)         |
-| 2026-09-01 | Task 36 (Surveyor/Ranger removed) | 0.94s (3 medians: 0.92 / 0.95 / 0.94) |
+| date       | checkpoint              | local median                          |
+| ---------- | ----------------------- | ------------------------------------- |
+| 2026-08-31 | Branch baseline         | 5.49s (3 runs)                        |
+| 2026-09-01 | Surveyor/Ranger removed | 0.94s (3 medians: 0.92 / 0.95 / 0.94) |
 
 The last row is a **5.9x speedup**, large enough to deserve its own check, so it was measured as a
 same-session A/B rather than against the recorded baseline: a worktree at the parent commit with

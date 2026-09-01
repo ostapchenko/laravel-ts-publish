@@ -73,8 +73,8 @@ it('finds the render call, its component, and its array props for an inline-arra
 });
 
 it('finds no render call for a method with no render call, so every downstream accessor is unreachable', function () {
-    // componentName()/propsArg()/propsArray() all require a StaticCall argument; every call site
-    // (Task 6) null-checks findRenderCall() first, exactly like the four duplicated originals do.
+    // componentName()/propsArg()/propsArray() all require a StaticCall argument, and every call site
+    // null-checks findRenderCall() first — exactly like the four duplicated originals did.
     $locator = new InertiaRenderLocator(new CallMatcher);
 
     expect($locator->findRenderCall(findControllerMethod('edit')))->toBeNull();

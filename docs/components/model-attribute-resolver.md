@@ -123,7 +123,7 @@ so "unimportable" is an assumption about the classes that happen to arrive here,
 verifies. The workbench contains a whole family that contradicts it: **12 of the 15** classes in
 `workbench/app/Events/` are plain, non-`Model`, non-`JsonSerializable`, have no `__toString()` and no
 `#[TsType]`, and carry typed public properties — so each of those reaches 5c and inlines when
-`toTsType()` is called on it directly. (The three added in Task 33 use `InteractsWithSockets`, whose
+`toTsType()` is called on it directly. (The three broadcast-event entries use `InteractsWithSockets`, whose
 untyped `public $socket` fails `hasFullyTypedPublicProperties()`, so they fall through to step 5's bare
 class name instead.) Probed against the real service:
 

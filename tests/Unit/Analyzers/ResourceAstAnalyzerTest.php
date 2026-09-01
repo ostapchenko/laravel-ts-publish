@@ -831,7 +831,7 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
 
     // A mixed ternary nested in an inline array whose arms differ in shape (an array-forcing
     // EnumResource::collection() wrap vs a scalar direct read): both members stay visible in the
-    // merged union, so only the array-shaped one substitutes — the scalar arm is left bare (Task 14).
+    // merged union, so only the array-shaped one substitutes — the scalar arm is deliberately left bare.
     test('mixed ternary nested in an inline array: a collection-wrapped arm and a scalar direct arm substitute independently', function () {
         expect($this->props['wrapped_status_fallback']['type'])
             ->toBe('{ status: AsEnum<typeof Status>[] | StatusType }');
