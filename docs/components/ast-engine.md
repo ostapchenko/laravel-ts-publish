@@ -54,8 +54,8 @@ Order is load-bearing wherever a node class is claimed by more than one handler:
 changes which handler wins for a shared class is a silent behavior regression, not a refactor.
 
 `ResourceExpressionHandlers::make()` builds the resource profile — the 22 handlers extracted from
-the legacy `analyzeValueExpression()` guard chain across Tasks 14-22, in the exact order the chain
-checked them, plus `ArrayMergeHandler` and `InertiaWrapperHandler` (Task 34).
+the legacy `analyzeValueExpression()` guard chain, in the exact order the chain checked them, plus
+`ArrayMergeHandler` and `InertiaWrapperHandler`.
 `ResourceExpressionHandlers::generic()` is that same list minus the three
 resource-only handlers (`ConditionalMethodHandler`, `ToResourceHandler`, `RelationFilterHandler`)
 — every other handler is class-agnostic and safe to reuse outside a resource's `toArray()`.
@@ -113,13 +113,13 @@ special case in the handlers.
 ### The honest ordering inventory
 
 Not every node class more than one handler claims has a pin. The table below is the full inventory of
-contested node classes as of Task 23 — pinned pairs, and pairs explicitly proven inert (the two arms
+contested node classes — pinned pairs, and pairs explicitly proven inert (the two arms
 never both actually claim the same expression, so their relative order cannot change output), and, for
 one class, pairs neither pinned nor proven — flagged as a gap rather than glossed over.
 
 | Node class | Claimants | Status |
 | --- | --- | --- |
-| `MethodCall` | `FirstClassCallableHandler`, `KnownFunctionCallHandler`, `ConditionalMethodHandler`, `ToResourceHandler`, `StaticCallHandler`, `RelationFilterHandler`, `RelationCollectionChainHandler`, `VariableHandler`, `KnownMethodRuleHandler` (9) | One pair pinned (`FirstClassCallableHandler` before `ConditionalMethodHandler` — the sharpest, crash-level divergence found). `KnownFunctionCallHandler` joined this list in Task 34 for `auth()->user()`/`auth()->id()` only, and declines every other receiver. The remaining handlers' pairwise interactions within this candidate list are **live and unpinned** — untraced, unverified, could be inert or could silently change output on a reorder. |
+| `MethodCall` | `FirstClassCallableHandler`, `KnownFunctionCallHandler`, `ConditionalMethodHandler`, `ToResourceHandler`, `StaticCallHandler`, `RelationFilterHandler`, `RelationCollectionChainHandler`, `VariableHandler`, `KnownMethodRuleHandler` (9) | Three pairs pinned, all with `FirstClassCallableHandler` as the winner: before `ConditionalMethodHandler` and before `ToResourceHandler` (both crash-level — the loser calls `getArgs()`, which asserts `!isFirstClassCallable()`), and before `KnownFunctionCallHandler` (a silent divergence: `auth()->user(...)` as a first-class callable resolves to the guard's model instead of `unknown`). `KnownFunctionCallHandler` claims this node class for `auth()->user()`/`auth()->id()` only, and declines every other receiver. The remaining pairwise interactions within this candidate list are **live and unpinned** — untraced, unverified, could be inert or could silently change output on a reorder; see [Known gaps](../known-gaps.md). |
 | `NullsafeMethodCall` | `RelationFilterHandler`, `MethodChainHandler` (2) | Pinned — the whole candidate list, full coverage. |
 | `PropertyFetch` | `ThisPropertyHandler`, `PropertyChainHandler`, `VariableHandler` (3) | One pair pinned (`ThisPropertyHandler` before `PropertyChainHandler`). The other two pairs are **inert-proven**: `ThisPropertyHandler` vs. `VariableHandler` never both claim the same expression (`isThisPropertyFetch()` requires a `$this` receiver; `VariableHandler`'s property branch requires the receiver not be `$this`); `PropertyChainHandler` vs. `VariableHandler` likewise — `PropertyChainHandler`'s fallback declines any chain not rooted at `$this`, which is exactly `VariableHandler`'s territory. |
 | `BinaryOp\Coalesce` | `BinaryOpHandler`, `CoalesceHandler` (2) | Inert-proven — `BinaryOpHandler::resolve()` has no branch matching `BinaryOp\Coalesce`, so it always declines regardless of registration position. |
@@ -318,7 +318,7 @@ AstEngine::analyzePublicProperties(string $class): MethodAnalysis
 ```
 
 `analyzeMethod()` analyzes one method body's return shape. `$method` defaults to `'toArray'`, the
-resource case, but any class/method pair works identically — this is what Task 24 generalized. When
+resource case, but any class/method pair works identically. When
 `$modelClass` is omitted and `$class` is a `JsonResource` subclass, it resolves the backing model via
 `ModelClassResolver::resolve()` (the same precedence `ResourceTransformer` uses, so the two never
 disagree about which model a resource wraps) before constructing
