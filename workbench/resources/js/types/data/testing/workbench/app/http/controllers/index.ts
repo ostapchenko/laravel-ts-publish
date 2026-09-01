@@ -16,6 +16,7 @@ export { default as InertiaPreserveKeysController } from './inertia-preserve-key
 export { default as InertiaResourceSharedTemplate } from './inertia-resource-shared-template';
 export { default as InertiaSingleResourceController } from './inertia-single-resource-controller';
 export { default as InertiaTsCastsController } from './inertia-ts-casts-controller';
+export { default as InertiaUserShapesController } from './inertia-user-shapes-controller';
 export { default as InvokableController } from './invokable-controller';
 export { default as InvokableInertiaController } from './invokable-inertia-controller';
 export { default as InvokableModelBoundController } from './invokable-model-bound-controller';

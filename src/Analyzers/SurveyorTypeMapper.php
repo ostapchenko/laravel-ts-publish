@@ -158,7 +158,8 @@ class SurveyorTypeMapper
 
         $mapped = match ($value) {
             'Illuminate\\Support\\Stringable' => 'string',
-            'Illuminate\\Support\\Collection' => 'unknown[]',
+            'Illuminate\\Support\\Collection',
+            'Illuminate\\Database\\Eloquent\\Collection' => 'unknown[]',
             default => isset(self::TOLKI_TYPES_MAP[$value])
                 ? str_replace('\\', '.', $value).self::buildGenericSuffix($type)
                 : str_replace('\\', '.', $value),

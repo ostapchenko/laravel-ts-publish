@@ -105,11 +105,13 @@ class InertiaPageAnalyzer
             /** @var list<string|mixed> $responses */
             $responses = $this->responseCollector->parseResponse($action);
 
+            // Two renders of one component are one page, not two: the registry already merged their
+            // props, and a duplicate name makes the transformer emit an invalid `A/BPageProps` alias.
             /** @var list<string> $componentNames */
-            $componentNames = array_values(array_filter(
+            $componentNames = array_values(array_unique(array_filter(
                 $responses,
                 fn (mixed $response): bool => is_string($response),
-            ));
+            )));
 
             if ($componentNames === []) {
                 return null;
