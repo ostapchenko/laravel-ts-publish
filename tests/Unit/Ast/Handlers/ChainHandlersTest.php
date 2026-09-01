@@ -9,21 +9,26 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\MethodChainHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\PropertyChainHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\RelationCollectionChainHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
+use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\Param;
 use PhpParser\Node\Scalar\Int_;
 use Workbench\App\Enums\Role;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Http\Resources\HelperCallResource;
 use Workbench\App\Http\Resources\MediaTypeResource;
 use Workbench\App\Http\Resources\RelationChainResource;
+use Workbench\App\Http\Resources\UnitEnumResource;
 use Workbench\App\Models\Comment;
+use Workbench\App\Models\Kpi;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\Team;
 use Workbench\App\Models\User;
@@ -51,6 +56,47 @@ function chainHandlersThrowingEngine(): ExpressionEngine
             throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
         }
     };
+}
+
+/**
+ * Resolves exactly the map closure to a canned body result, recording the scope bindings the chain
+ * handler had installed at the moment it recursed — the only way to see them before the restore.
+ */
+final class ChainHandlersMapStubEngine implements ExpressionEngine
+{
+    public ?string $boundRelationModel = null;
+
+    public ?string $boundParamModel = null;
+
+    /** @param array<string, mixed> $bodyResult */
+    public function __construct(
+        private Expr $mapArg,
+        private array $bodyResult,
+        private AnalysisScope $scope,
+    ) {}
+
+    /** @return array<string, mixed> */
+    public function resolve(Expr $expr): array
+    {
+        if ($expr !== $this->mapArg) {
+            throw new RuntimeException('Unexpected expression passed to ChainHandlersMapStubEngine');
+        }
+
+        $this->boundRelationModel = $this->scope->closureRelationModelClass;
+        $this->boundParamModel = $this->scope->varModelBindings['member'] ?? null;
+
+        return $this->bodyResult;
+    }
+
+    public function spreadAnalysis(string $methodName): ?MethodAnalysis
+    {
+        throw new RuntimeException('spreadAnalysis() must not be called in this case');
+    }
+
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+    {
+        throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
+    }
 }
 
 /** `$this->{$prop}` */
@@ -110,10 +156,11 @@ it('resolves $this->resource->name / ->value on an enum-wrapped resource', funct
         ->and($value)->toBe(['type' => 'string', 'optional' => false]);
 });
 
-// Guard-order pin: the wrapped-ENUM branch must run before the wrapped-MODEL branch. MediaTypeResource
-// has no backing model, so the model branch resolves nothing — swap the two and `value` goes unknown.
+// Guard-order pin: the wrapped-ENUM branch must run before the wrapped-MODEL branch, and BOTH must
+// really claim `value` or this pins nothing. UnitEnumResource wraps an unbacked enum ('string | number')
+// over a Kpi scope whose `value` column is an integer ('number') — swapping the arms returns 'number'.
 it('tries the wrapped-enum branch before the wrapped-model branch', function () {
-    $scope = new AnalysisScope(new ReflectionClass(MediaTypeResource::class));
+    $scope = new AnalysisScope(new ReflectionClass(UnitEnumResource::class), Kpi::class);
 
     $result = (new PropertyChainHandler)->resolve(
         new PropertyFetch(chainThisProp('resource'), 'value'),
@@ -121,7 +168,8 @@ it('tries the wrapped-enum branch before the wrapped-model branch', function () 
         chainHandlersThrowingEngine(),
     );
 
-    expect($result['type'])->not->toBe('unknown');
+    expect(resolve(ModelAttributeResolver::class)->resolveAttribute(Kpi::class, 'value')['type'])->toBe('number')
+        ->and($result)->toBe(['type' => 'string | number', 'optional' => false]);
 });
 
 it('declines a plain method call it does not claim', function () {
@@ -161,6 +209,35 @@ it('tries the collection chain before the wrapped-method branch', function () {
     $result = (new RelationCollectionChainHandler)->resolve($expr, $scope, chainHandlersThrowingEngine());
 
     expect($result['type'])->toBe('User[]');
+});
+
+// The one branch of the chain analysis that recurses through the engine: `map()`'s closure body.
+it('resolves a take()->map()->values() chain through the engine, array-wrapping the body', function () {
+    $closure = new ArrowFunction([
+        'params' => [new Param(new Variable('member'))],
+        'expr' => new Variable('mapBody'),
+    ]);
+
+    $chain = new MethodCall(
+        new MethodCall(
+            new MethodCall(chainThisProp('members'), 'take', [new Arg(new Int_(5))]),
+            'map',
+            [new Arg($closure)],
+        ),
+        'values',
+    );
+
+    $scope = new AnalysisScope(new ReflectionClass(RelationChainResource::class), Team::class);
+
+    $engine = new ChainHandlersMapStubEngine($closure, ['type' => '{ id: number }', 'optional' => false], $scope);
+
+    $result = (new RelationCollectionChainHandler)->resolve($chain, $scope, $engine);
+
+    expect($result)->toBe(['type' => '{ id: number }[]', 'optional' => false])
+        ->and($engine->boundRelationModel)->toBe(User::class)
+        ->and($engine->boundParamModel)->toBe(User::class)
+        ->and($scope->closureRelationModelClass)->toBeNull()
+        ->and($scope->varModelBindings)->toBe([]);
 });
 
 it('declines a method call on a bare variable, leaving the legacy chain its turn', function () {
