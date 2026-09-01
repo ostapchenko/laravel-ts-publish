@@ -14,10 +14,10 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 
 /**
- * Late-stage method-name rules fixed by Laravel convention, shared by the two chain handlers.
+ * Late-stage method-name rules fixed by Laravel convention, shared by the two chain handlers and
+ * by KnownMethodRuleHandler, the dispatch floor. The sole implementation — the analyzer's own copy
+ * went with its legacy chain.
  *
- * Mirrors ResourceAstAnalyzer::knownMethodRule(); duplicated for $scope, not $this->scope — the
- * analyzer's legacy chain still calls its own copy, which Slice S9 removes.
  * Requires the host to also use InspectsAstNodes, InspectsResourceSubject and ResolvesModelRelationTypes.
  *
  * @phpstan-import-type ValueExpressionResult from ExpressionHandler

@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\AnalyzesPluckCalls;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\AppliesKnownMethodRules;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
@@ -29,7 +30,6 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Scalar\Int_;
-use PhpParser\Node\Scalar\String_;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
@@ -42,6 +42,7 @@ use ReflectionNamedType;
  */
 final class RelationCollectionChainHandler implements ExpressionHandler
 {
+    use AnalyzesPluckCalls;
     use AppliesKnownMethodRules;
     use InspectsAstNodes;
     use InspectsResourceSubject;
@@ -286,7 +287,7 @@ final class RelationCollectionChainHandler implements ExpressionHandler
         // A map body entirely `EnumResource::make(...)` carries a live 'enumFqcn' through; the
         // transformer's substitution-based rewrite reproduces whatever shape results, including
         // the keyed Record arm a non-sequential filter()/sortBy() introduces.
-        $mapped = $this->arrayWrapType($bodyResult['type']);
+        $mapped = ValueResult::arrayWrapType($bodyResult['type']);
 
         return [
             ...$bodyResult,
@@ -434,47 +435,5 @@ final class RelationCollectionChainHandler implements ExpressionHandler
     private function keyedObjectArm(string $arrayType): string
     {
         return $arrayType.' | Record<string, '.substr($arrayType, 0, -2).'>';
-    }
-
-    /**
-     * Analyze a `$variable->pluck('field')` call within a whenLoaded closure context.
-     *
-     * Returns `unknown[]`, not `unknown`, when the field type cannot be determined — callers that
-     * only test for a non-`unknown` result rely on that.
-     *
-     * Mirrors ResourceAstAnalyzer::analyzeVariablePluckCall(); duplicated for $scope — the legacy
-     * chain's own `$variable->pluck()` guard still calls it there, so it stays defined there too.
-     *
-     * @return ValueExpressionResult
-     */
-    private function analyzeVariablePluckCall(MethodCall $call, AnalysisScope $scope): array
-    {
-        $args = $call->getArgs();
-
-        if (count($args) >= 1 && $args[0]->value instanceof String_) {
-            $fieldName = $args[0]->value->value;
-            $info = $this->analyzeRelatedModelProperty($fieldName, $scope);
-
-            if ($info['type'] !== 'unknown') {
-                $info['type'] = $this->arrayWrapType($info['type']);
-                $info['optional'] = false;
-
-                return $info;
-            }
-        }
-
-        return ['type' => 'unknown[]', 'optional' => false];
-    }
-
-    /**
-     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
-     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`.
-     *
-     * Mirrors ResourceAstAnalyzer::arrayWrapType(); duplicated for the same reason StaticCallHandler's
-     * and RelationFilterHandler's copies already are — it is still used elsewhere on the analyzer.
-     */
-    private function arrayWrapType(string $type): string
-    {
-        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
     }
 }

@@ -9,7 +9,10 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\DispatchesFqcnResults;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesSingularResourceClass;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
@@ -46,7 +49,6 @@ use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Http\Resources\Json\ResourceCollection;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
@@ -96,11 +98,14 @@ use ReflectionMethod;
 class ResourceAstAnalyzer implements ExpressionEngine
 {
     use ChecksPreserveKeys;
+    use DispatchesFqcnResults;
     use FiltersModelAttributes;
     use InspectsAstNodes;
+    use InspectsResourceSubject;
     use ResolvesClassNames;
     use ResolvesModelTypes;
     use ResolvesRelatedModelTypes;
+    use ResolvesSingularResourceClass;
 
     /** Carries the subject reflection, model class, and all closure/spread bindings; see AnalysisScope. */
     protected AnalysisScope $scope;
@@ -157,7 +162,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
                 return $inherited;
             }
 
-            if ($this->isResourceCollection()) {
+            if ($this->isResourceCollection($this->scope)) {
                 return $this->buildCollectionDelegatedAnalysis();
             }
 
@@ -1073,28 +1078,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Determine whether the analyzed resource is a ResourceCollection subclass.
-     */
-    protected function isResourceCollection(): bool
-    {
-        return $this->scope->subjectReflection->isSubclassOf(ResourceCollection::class);
-    }
-
-    /**
-     * Resolve the singular resource FQCN this ResourceCollection collects.
-     * See InspectsAstNodes::resolveCollectedResourceClass() for the resolution order.
-     *
-     * @return class-string<JsonResource>|null
-     */
-    protected function resolveSingularResourceClass(): ?string
-    {
-        /** @var class-string $ownFqcn */
-        $ownFqcn = $this->scope->subjectReflection->getName();
-
-        return $this->resolveCollectedResourceClass($ownFqcn);
-    }
-
-    /**
      * Build a ResourceAnalysis for a ResourceCollection subclass that has no toArray() method.
      *
      * A non-empty $wrap key produces `{ data: R[] }`, keyed as `Record<string, R>` when the collection
@@ -1102,7 +1085,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
      */
     protected function buildCollectionDelegatedAnalysis(): ResourceAnalysis
     {
-        $singular = $this->resolveSingularResourceClass();
+        $singular = $this->resolveSingularResourceClass($this->scope);
 
         if ($singular === null) {
             return new ResourceAnalysis;
@@ -1137,60 +1120,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
             ]],
             nestedResources: [$wrapKey => $singular],
         );
-    }
-
-    /**
-     * Dispatch FQCN results from a value expression into the tracking maps.
-     *
-     * @param  ValueExpressionResult  $result
-     * @param  ClassMapType  $enumResources
-     * @param  ClassMapType  $directEnumFqcns
-     * @param  ClassMapType  $nestedResources
-     * @param  ClassMapType  $modelFqcns
-     * @param  MultiEnumFqcnsMap  $multiEnumResourceFqcns
-     */
-    protected function dispatchFqcnResults(
-        string $keyName,
-        array $result,
-        array &$enumResources,
-        array &$directEnumFqcns,
-        array &$nestedResources,
-        array &$modelFqcns,
-        array &$multiEnumResourceFqcns = [],
-    ): void {
-        if (isset($result['enumFqcn'])) {
-            $enumResources[$keyName] = $result['enumFqcn'];
-        }
-
-        if (isset($result['directEnumFqcn'])) {
-            $directEnumFqcns[$keyName] = $result['directEnumFqcn'];
-        }
-
-        if (isset($result['multiEnumResourceFqcns'])) {
-            $multiEnumResourceFqcns[$keyName] = $result['multiEnumResourceFqcns'];
-        }
-
-        if (isset($result['resourceFqcn'])) {
-            $nestedResources[$keyName] = $result['resourceFqcn'];
-        }
-
-        if (isset($result['modelFqcn'])) {
-            $modelFqcns[$keyName] = $result['modelFqcn'];
-        }
-
-        // Embedded FQCNs from inline relation filter types (e.g. $this->post->only([...])).
-        // Using FQCN as both key and value: ResourceTransformer only reads the value, never the key.
-        foreach ($result['embeddedEnumFqcns'] ?? [] as $fqcn) {
-            $directEnumFqcns[$fqcn] = $fqcn;
-        }
-
-        foreach ($result['embeddedModelFqcns'] ?? [] as $fqcn) {
-            $modelFqcns[$fqcn] = $fqcn;
-        }
-
-        foreach ($result['embeddedResourceFqcns'] ?? [] as $fqcn) {
-            $nestedResources[$fqcn] = $fqcn;
-        }
     }
 
     /**

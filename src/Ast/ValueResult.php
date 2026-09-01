@@ -47,6 +47,17 @@ final class ValueResult
     }
 
     /**
+     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
+     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`.
+     *
+     * FormRequestRulesAnalyzer's same-named method is a different rule (nesting-aware) and stays there.
+     */
+    public static function arrayWrapType(string $type): string
+    {
+        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
+    }
+
+    /**
      * Merge multiple branch expressions into a single union-typed ValueExpressionResult.
      *
      * Null returns (guard clauses) contribute `null` to the union instead of a full object shape;

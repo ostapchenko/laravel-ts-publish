@@ -7,12 +7,12 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\BuildsInlineObjectTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesEnumPropertyArgTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\ReflectedTypeAcceptor;
 use AbeTwoThree\LaravelTsPublish\Ast\SubjectMethodTypeResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
@@ -42,6 +42,7 @@ use ReflectionNamedType;
  */
 final class StaticCallHandler implements ExpressionHandler
 {
+    use BuildsInlineObjectTypes;
     use ChecksPreserveKeys;
     use InspectsAstNodes;
     use InspectsResourceSubject;
@@ -379,7 +380,7 @@ final class StaticCallHandler implements ExpressionHandler
 
         return [
             ...$enumResult,
-            'type' => $alreadyCollection ? $type : $this->arrayWrapType($type),
+            'type' => $alreadyCollection ? $type : ValueResult::arrayWrapType($type),
         ];
     }
 
@@ -417,35 +418,5 @@ final class StaticCallHandler implements ExpressionHandler
         }
 
         return $result;
-    }
-
-    /**
-     * Mirrors InlineArrayHandler::buildInlineObjectType(), duplicated because this per-call handler
-     * cannot reach its private copy. Any enum-token substitution has to be applied to the properties
-     * before this is called.
-     */
-    private function buildInlineObjectType(MethodAnalysis $analysis): string
-    {
-        if ($analysis->properties === []) {
-            return 'Record<string, unknown>';
-        }
-
-        $parts = array_map(function (array $prop): string {
-            $key = LaravelTsPublish::validJsObjectKey($prop['name']);
-
-            return $prop['optional'] ? "{$key}?: {$prop['type']}" : "{$key}: {$prop['type']}";
-        }, $analysis->properties);
-
-        return '{ '.implode('; ', $parts).' }';
-    }
-
-    /**
-     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
-     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`. Mirrors
-     * ResourceAstAnalyzer::arrayWrapType(), duplicated for the same reason as buildInlineObjectType().
-     */
-    private function arrayWrapType(string $type): string
-    {
-        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
     }
 }

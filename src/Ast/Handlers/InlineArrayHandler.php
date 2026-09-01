@@ -6,9 +6,9 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\BuildsInlineObjectTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
-use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
@@ -30,6 +30,7 @@ use PhpParser\Node\Identifier;
  */
 final class InlineArrayHandler implements ExpressionHandler
 {
+    use BuildsInlineObjectTypes;
     use InspectsAstNodes;
 
     /** @return list<class-string<Expr>> */
@@ -201,26 +202,6 @@ final class InlineArrayHandler implements ExpressionHandler
         }
 
         return $result;
-    }
-
-    /**
-     * Flatten an analysis's properties into an inline TypeScript object literal type.
-     *
-     * Any enum-token substitution has to be applied to the properties before this is called.
-     */
-    private function buildInlineObjectType(MethodAnalysis $analysis): string
-    {
-        if ($analysis->properties === []) {
-            return 'Record<string, unknown>';
-        }
-
-        $parts = array_map(function (array $prop): string {
-            $key = LaravelTsPublish::validJsObjectKey($prop['name']);
-
-            return $prop['optional'] ? "{$key}?: {$prop['type']}" : "{$key}: {$prop['type']}";
-        }, $analysis->properties);
-
-        return '{ '.implode('; ', $parts).' }';
     }
 
     /**

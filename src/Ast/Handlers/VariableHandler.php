@@ -6,6 +6,8 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\AnalyzesPluckCalls;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesMapProxyElementModels;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
@@ -20,7 +22,6 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
-use PhpParser\Node\Scalar\String_;
 
 /**
  * Expressions rooted at a bound variable rather than `$this` — `$item->name`, `$items->map(…)`,
@@ -31,7 +32,9 @@ use PhpParser\Node\Scalar\String_;
  */
 final class VariableHandler implements ExpressionHandler
 {
+    use AnalyzesPluckCalls;
     use InspectsAstNodes;
+    use ResolvesMapProxyElementModels;
     use ResolvesModelRelationTypes;
     use ResolvesRelatedModelTypes;
 
@@ -216,83 +219,11 @@ final class VariableHandler implements ExpressionHandler
             return null;
         }
 
-        // arrayWrapType(), not a raw '[]' suffix: a union body (e.g. a mixed AsEnum/direct-enum
+        // ValueResult::arrayWrapType(), not a raw '[]' suffix: a union body (e.g. a mixed AsEnum/direct-enum
         // ternary) must be parenthesized before the array suffix binds.
-        $bodyResult['type'] = $this->arrayWrapType($bodyResult['type']);
+        $bodyResult['type'] = ValueResult::arrayWrapType($bodyResult['type']);
         $bodyResult['optional'] = false;
 
         return $bodyResult;
-    }
-
-    /**
-     * Analyze a `$variable->pluck('field')` call within a whenLoaded closure context.
-     *
-     * Returns `unknown[]`, not `unknown`, when the field type cannot be determined — callers that
-     * only test for a non-`unknown` result rely on that.
-     *
-     * Mirrors RelationCollectionChainHandler::analyzeVariablePluckCall(); see that copy's note.
-     *
-     * @return ValueExpressionResult
-     */
-    private function analyzeVariablePluckCall(MethodCall $call, AnalysisScope $scope): array
-    {
-        $args = $call->getArgs();
-
-        if (count($args) >= 1 && $args[0]->value instanceof String_) {
-            $fieldName = $args[0]->value->value;
-            $info = $this->analyzeRelatedModelProperty($fieldName, $scope);
-
-            if ($info['type'] !== 'unknown') {
-                $info['type'] = $this->arrayWrapType($info['type']);
-                $info['optional'] = false;
-
-                return $info;
-            }
-        }
-
-        return ['type' => 'unknown[]', 'optional' => false];
-    }
-
-    /**
-     * Resolve the element model behind a `->map` proxy receiver: a whenLoaded to-many closure
-     * parameter, or `$this->relation` itself. A singular relation's bound variable is not a
-     * collection and must not match, so it returns null rather than guessing a shape.
-     *
-     * Mirrors RelationFilterHandler::resolveMapProxyElementModel(); see that copy's note.
-     *
-     * @return class-string<Model>|null
-     */
-    private function resolveMapProxyElementModel(Expr $receiver, AnalysisScope $scope): ?string
-    {
-        if ($receiver instanceof Variable
-            && is_string($receiver->name)
-            && isset($scope->varCollectionBindings[$receiver->name])
-        ) {
-            return $scope->varCollectionBindings[$receiver->name]['modelFqcn'];
-        }
-
-        if ($receiver instanceof PropertyFetch
-            && $this->isThisPropertyFetch($receiver)
-            && $receiver->name instanceof Identifier
-        ) {
-            $relationInfo = $this->resolveModelRelationTypeInfo($receiver->name->toString(), $scope);
-
-            if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
-                return $relationInfo['modelFqcn'];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
-     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`.
-     *
-     * Mirrors RelationCollectionChainHandler::arrayWrapType(); see that copy's note.
-     */
-    private function arrayWrapType(string $type): string
-    {
-        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
     }
 }

@@ -8,9 +8,11 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\DispatchesFqcnResults;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesEnumPropertyArgTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesSingularResourceClass;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
@@ -18,7 +20,6 @@ use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Http\Resources\Json\JsonResource;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\PropertyFetch;
@@ -41,10 +42,12 @@ use PhpParser\Node\Identifier;
 final class ThisPropertyHandler implements ExpressionHandler
 {
     use ChecksPreserveKeys;
+    use DispatchesFqcnResults;
     use InspectsAstNodes;
     use InspectsResourceSubject;
     use ResolvesEnumPropertyArgTypes;
     use ResolvesModelRelationTypes;
+    use ResolvesSingularResourceClass;
 
     /** @return list<class-string<Expr>> */
     public function nodeClasses(): array
@@ -210,8 +213,7 @@ final class ThisPropertyHandler implements ExpressionHandler
 
     /**
      * Analyze $this->collection in a ResourceCollection: the singular resource type as an array,
-     * or a keyed record when the collection preserves keys. The sole implementation now — its only
-     * caller moved here with it, unlike resolveSingularResourceClass() below.
+     * or a keyed record when the collection preserves keys.
      *
      * @return ValueExpressionResult
      */
@@ -229,79 +231,5 @@ final class ThisPropertyHandler implements ExpressionHandler
             'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $scope->subjectReflection),
             'resourceFqcn' => $singular,
         ];
-    }
-
-    /**
-     * Resolve the singular resource FQCN this ResourceCollection collects.
-     * See InspectsAstNodes::resolveCollectedResourceClass() for the resolution order.
-     *
-     * Mirrors ResourceAstAnalyzer's own copy; duplicated for $scope.
-     *
-     * @return class-string<JsonResource>|null
-     */
-    private function resolveSingularResourceClass(AnalysisScope $scope): ?string
-    {
-        /** @var class-string $ownFqcn */
-        $ownFqcn = $scope->subjectReflection->getName();
-
-        return $this->resolveCollectedResourceClass($ownFqcn);
-    }
-
-    /**
-     * Dispatch FQCN results from a value expression into the tracking maps.
-     *
-     * Mirrors ResourceAstAnalyzer::dispatchFqcnResults(); duplicated because extractPropertiesFromArray()
-     * moved here but dispatchFqcnResults() itself is still used by analyzeReturnArray() and another
-     * analyzer method, so it stays defined there too.
-     *
-     * @param  ValueExpressionResult  $result
-     * @param  ClassMapType  $enumResources
-     * @param  ClassMapType  $directEnumFqcns
-     * @param  ClassMapType  $nestedResources
-     * @param  ClassMapType  $modelFqcns
-     * @param  MultiEnumFqcnsMap  $multiEnumResourceFqcns
-     */
-    private function dispatchFqcnResults(
-        string $keyName,
-        array $result,
-        array &$enumResources,
-        array &$directEnumFqcns,
-        array &$nestedResources,
-        array &$modelFqcns,
-        array &$multiEnumResourceFqcns = [],
-    ): void {
-        if (isset($result['enumFqcn'])) {
-            $enumResources[$keyName] = $result['enumFqcn'];
-        }
-
-        if (isset($result['directEnumFqcn'])) {
-            $directEnumFqcns[$keyName] = $result['directEnumFqcn'];
-        }
-
-        if (isset($result['multiEnumResourceFqcns'])) {
-            $multiEnumResourceFqcns[$keyName] = $result['multiEnumResourceFqcns'];
-        }
-
-        if (isset($result['resourceFqcn'])) {
-            $nestedResources[$keyName] = $result['resourceFqcn'];
-        }
-
-        if (isset($result['modelFqcn'])) {
-            $modelFqcns[$keyName] = $result['modelFqcn'];
-        }
-
-        // Embedded FQCNs from inline relation filter types (e.g. $this->post->only([...])).
-        // Using FQCN as both key and value: ResourceTransformer only reads the value, never the key.
-        foreach ($result['embeddedEnumFqcns'] ?? [] as $fqcn) {
-            $directEnumFqcns[$fqcn] = $fqcn;
-        }
-
-        foreach ($result['embeddedModelFqcns'] ?? [] as $fqcn) {
-            $modelFqcns[$fqcn] = $fqcn;
-        }
-
-        foreach ($result['embeddedResourceFqcns'] ?? [] as $fqcn) {
-            $nestedResources[$fqcn] = $fqcn;
-        }
     }
 }

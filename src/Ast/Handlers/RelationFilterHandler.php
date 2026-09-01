@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesMapProxyElementModels;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
@@ -32,6 +33,7 @@ use PhpParser\Node\Scalar\String_;
 final class RelationFilterHandler implements ExpressionHandler
 {
     use InspectsAstNodes;
+    use ResolvesMapProxyElementModels;
     use ResolvesModelRelationTypes;
 
     /** @return list<class-string<Expr>> */
@@ -331,7 +333,7 @@ final class RelationFilterHandler implements ExpressionHandler
             return $result;
         }
 
-        $inlineType = $this->arrayWrapType($filterResult['type']);
+        $inlineType = ValueResult::arrayWrapType($filterResult['type']);
 
         if ($call instanceof NullsafeMethodCall) {
             $inlineType .= ' | null';
@@ -344,43 +346,6 @@ final class RelationFilterHandler implements ExpressionHandler
             'embeddedModelFqcns' => $filterResult['modelFqcns'],
             'customImports' => $filterResult['customImports'],
         ];
-    }
-
-    /**
-     * Resolve the element model behind a `->map` proxy receiver: a whenLoaded to-many closure
-     * parameter, or `$this->relation` itself. A singular relation's bound variable is not a
-     * collection and must not match, so it returns null rather than guessing a shape.
-     *
-     * The binding is never invalidated by a reassignment inside the closure (e.g.
-     * `$members = $members->flatMap(...)` before `$members->map(...)`), so a reassigned receiver
-     * still resolves against the original relation's element model — an accepted approximation.
-     *
-     * Mirrors ResourceAstAnalyzer::resolveMapProxyElementModel(); duplicated for $scope — it is still
-     * used elsewhere on the analyzer (analyzeVariableMapCall()), so it stays defined there too.
-     *
-     * @return class-string<Model>|null
-     */
-    private function resolveMapProxyElementModel(Expr $receiver, AnalysisScope $scope): ?string
-    {
-        if ($receiver instanceof Variable
-            && is_string($receiver->name)
-            && isset($scope->varCollectionBindings[$receiver->name])
-        ) {
-            return $scope->varCollectionBindings[$receiver->name]['modelFqcn'];
-        }
-
-        if ($receiver instanceof PropertyFetch
-            && $this->isThisPropertyFetch($receiver)
-            && $receiver->name instanceof Identifier
-        ) {
-            $relationInfo = $this->resolveModelRelationTypeInfo($receiver->name->toString(), $scope);
-
-            if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
-                return $relationInfo['modelFqcn'];
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -560,17 +525,5 @@ final class RelationFilterHandler implements ExpressionHandler
         }
 
         return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcns($scope->modelClass, $propName);
-    }
-
-    /**
-     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
-     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`.
-     *
-     * Mirrors ResourceAstAnalyzer::arrayWrapType(); duplicated for the same reason StaticCallHandler's
-     * own copy already is — it is still used elsewhere on the analyzer.
-     */
-    private function arrayWrapType(string $type): string
-    {
-        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
     }
 }
