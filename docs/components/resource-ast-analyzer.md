@@ -759,7 +759,7 @@ on the relations axis.
 
 ## `whenNotNull()`/`whenNull()` read `($value, $default)`, not a callback
 
-`ConditionalMethodHandler::analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull)` handles both `$this->whenNotNull($value,
+`ConditionalMethodHandler::analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull, AnalysisScope $scope, ExpressionEngine $engine)` handles both `$this->whenNotNull($value,
 $default)` and `$this->whenNull($value, $default)`. Both delegate to `ConditionallyLoadsAttributes::when()`
 (`vendor/laravel/framework/.../Http/Resources/ConditionallyLoadsAttributes.php`): `whenNotNull($value,
 $default)` is `$this->when(! is_null($value), $value, $default)`, and `whenNull($value, $default)` is

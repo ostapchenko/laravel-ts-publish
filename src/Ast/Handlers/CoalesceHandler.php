@@ -8,7 +8,6 @@ use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
-use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\BinaryOp;
 
@@ -39,7 +38,7 @@ final class CoalesceHandler implements ExpressionHandler
             $rightType = $rightResult['type'];
 
             // Strip `| null` from the left: with a non-null fallback, null is never the final result.
-            $leftType = $this->stripNullArm($leftType);
+            $leftType = ValueResult::stripNullArm($leftType);
 
             if ($leftType === 'unknown' || $leftType === '') {
                 return ValueResult::mergeUnion([$rightType], [$rightResult]);
@@ -57,22 +56,5 @@ final class CoalesceHandler implements ExpressionHandler
         }
 
         return null;
-    }
-
-    /**
-     * Drop a top-level `| null` arm from a type string — a guarded success path proves it unreachable.
-     * Nested null members (inside object shapes, generics, or array element types) are kept.
-     *
-     * Duplicated here — a standalone handler can't call the analyzer's `protected` helpers. Task 20
-     * (Slice S7) moves stripNullArm() to its S7 home and repoints this handler there.
-     */
-    private function stripNullArm(string $type): string
-    {
-        $members = array_values(array_filter(
-            LaravelTsPublish::splitTopLevelUnion($type),
-            fn (string $member): bool => $member !== 'null',
-        ));
-
-        return $members === [] ? 'unknown' : implode(' | ', $members);
     }
 }

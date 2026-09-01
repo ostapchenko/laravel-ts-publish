@@ -20,6 +20,7 @@ use PhpParser\Node\Scalar\String_;
 use Workbench\App\Http\Resources\ConditionalDefaultsResource;
 use Workbench\App\Http\Resources\UserResource;
 use Workbench\App\Models\Address;
+use Workbench\App\Models\Post;
 use Workbench\App\Models\Profile;
 use Workbench\App\Models\User;
 
@@ -69,8 +70,11 @@ final class ConditionalMethodHandlerArmStubEngine implements ExpressionEngine
 }
 
 /**
- * An engine that records the scope's closureRelationModelClass/varModelBindings at the moment it
- * is called, proving whenLoaded()'s bindings are live only for the closure body's own resolution.
+ * An engine that records the scope's closureRelationModelClass/varModelBindings/
+ * varCollectionBindings at the moment it is called, proving whenLoaded()'s bindings are live only
+ * for the closure body's own resolution — and, for a to-many relation, that varModelBindings is
+ * never written at all (the documented asymmetry: binding the element model to a bare param would
+ * resolve it to a wrong-but-plausible singular type).
  */
 final class ConditionalMethodHandlerScopeSpyEngine implements ExpressionEngine
 {
@@ -81,6 +85,9 @@ final class ConditionalMethodHandlerScopeSpyEngine implements ExpressionEngine
     /** @var array<string, class-string> */
     public array $varModelBindingsDuringCall = [];
 
+    /** @var array<string, array{type: string, modelFqcn: class-string}> */
+    public array $varCollectionBindingsDuringCall = [];
+
     /** @param array<string, mixed> $result */
     public function __construct(private AnalysisScope $scope, private array $result) {}
 
@@ -90,6 +97,7 @@ final class ConditionalMethodHandlerScopeSpyEngine implements ExpressionEngine
         $this->wasCalled = true;
         $this->relationModelClassDuringCall = $this->scope->closureRelationModelClass;
         $this->varModelBindingsDuringCall = $this->scope->varModelBindings;
+        $this->varCollectionBindingsDuringCall = $this->scope->varCollectionBindings;
 
         return $this->result;
     }
@@ -173,6 +181,39 @@ it('binds whenLoaded()\'s closure param to the related model only for the closur
     expect($engine->wasCalled)->toBeTrue()
         ->and($engine->relationModelClassDuringCall)->toBe(Profile::class)
         ->and($engine->varModelBindingsDuringCall)->toBe(['unrelated' => Address::class, 'profile' => Profile::class])
+        ->and($engine->varCollectionBindingsDuringCall)->toBe([])
+        ->and($scope->closureRelationModelClass)->toBeNull()
+        ->and($scope->varModelBindings)->toBe(['unrelated' => Address::class])
+        ->and($scope->varCollectionBindings)->toBe([])
+        ->and($result)->toBe(['type' => 'string', 'optional' => true]);
+});
+
+it('binds a to-many whenLoaded()\'s closure param to the collection type, never varModelBindings, then restores scope', function () {
+    // Mirrors the singular-relation test above, on a to-many relation (User::posts(), a HasMany).
+    // The asymmetry this pins: the element model is never bound to the bare param — only the whole
+    // collection type is — because a wrong-but-plausible singular binding would be worse than none.
+    $scope = new AnalysisScope(new ReflectionClass(UserResource::class), User::class);
+    $scope->closureRelationModelClass = null;
+    $scope->varModelBindings = ['unrelated' => Address::class];
+    $scope->varCollectionBindings = [];
+
+    $bodyExpr = new Variable('posts');
+    $param = new Param(new Variable('posts'));
+    $closure = new ArrowFunction(['params' => [$param], 'expr' => $bodyExpr]);
+    $expr = new MethodCall(new Variable('this'), 'whenLoaded', [
+        new Arg(new String_('posts')),
+        new Arg($closure),
+    ]);
+    $engine = new ConditionalMethodHandlerScopeSpyEngine($scope, ['type' => 'string', 'optional' => false]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, $scope, $engine);
+
+    expect($engine->wasCalled)->toBeTrue()
+        ->and($engine->relationModelClassDuringCall)->toBe(Post::class)
+        ->and($engine->varModelBindingsDuringCall)->toBe(['unrelated' => Address::class])
+        ->and($engine->varCollectionBindingsDuringCall)->toBe([
+            'posts' => ['type' => 'Post[]', 'modelFqcn' => Post::class],
+        ])
         ->and($scope->closureRelationModelClass)->toBeNull()
         ->and($scope->varModelBindings)->toBe(['unrelated' => Address::class])
         ->and($scope->varCollectionBindings)->toBe([])
@@ -191,6 +232,25 @@ it('declines a different $this-> method name without calling the engine', functi
 
 it('declines a conditional-family method name called on a non-$this receiver', function () {
     $expr = new MethodCall(new Variable('foo'), 'whenLoaded', [new Arg(new String_('profile'))]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), conditionalMethodHandlerThrowingEngine());
+
+    expect($result)->toBeNull();
+});
+
+it('declines $this->toResource(), a later slice\'s guard, without calling the engine', function () {
+    // The regression this contract exists to prevent: a name this handler doesn't own shadowing a
+    // later guard. toResource()/merge() are both real $this-> methods on JsonResource that a wider
+    // match could accidentally swallow.
+    $expr = new MethodCall(new Variable('this'), 'toResource');
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), conditionalMethodHandlerThrowingEngine());
+
+    expect($result)->toBeNull();
+});
+
+it('declines $this->merge(), a later slice\'s guard, without calling the engine', function () {
+    $expr = new MethodCall(new Variable('this'), 'merge', [new Arg(new Variable('x'))]);
 
     $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), conditionalMethodHandlerThrowingEngine());
 

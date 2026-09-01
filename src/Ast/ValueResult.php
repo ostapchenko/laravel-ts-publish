@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast;
 
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
+use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 
 /**
  * Shared building blocks for ExpressionHandler results.
@@ -23,6 +24,23 @@ final class ValueResult
     public static function unknown(): array
     {
         return ['type' => 'unknown', 'optional' => false];
+    }
+
+    /**
+     * Drop a top-level `| null` arm from a type string — a guarded success path proves it unreachable.
+     * Nested null members (inside object shapes, generics, or array element types) are kept.
+     *
+     * The single canonical home for this helper: `CoalesceHandler` (stripping `??`'s left operand) and
+     * `ConditionalMethodHandler` (stripping `whenNotNull()`'s success arm) both call it from here now.
+     */
+    public static function stripNullArm(string $type): string
+    {
+        $members = array_values(array_filter(
+            LaravelTsPublish::splitTopLevelUnion($type),
+            fn (string $member): bool => $member !== 'null',
+        ));
+
+        return $members === [] ? 'unknown' : implode(' | ', $members);
     }
 
     /**

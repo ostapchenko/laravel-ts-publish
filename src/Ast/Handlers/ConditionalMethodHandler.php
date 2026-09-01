@@ -10,7 +10,6 @@ use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
-use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Database\Eloquent\Model;
 use PhpParser\Node\Expr;
@@ -326,7 +325,7 @@ final class ConditionalMethodHandler implements ExpressionHandler
         $value = $engine->resolve($args[0]->value);
 
         if ($stripNull) {
-            $value['type'] = $this->stripNullArm($value['type']);
+            $value['type'] = ValueResult::stripNullArm($value['type']);
         } else {
             $value['type'] = 'null';
         }
@@ -525,23 +524,6 @@ final class ConditionalMethodHandler implements ExpressionHandler
     private function isNullConstFetch(Expr $expr): bool
     {
         return $expr instanceof ConstFetch && strtolower($expr->name->toString()) === 'null';
-    }
-
-    /**
-     * Drop a top-level `| null` arm from a type string — a guarded success path proves it unreachable.
-     * Nested null members (inside object shapes, generics, or array element types) are kept.
-     *
-     * Duplicated here — a standalone handler can't call the analyzer's `protected` helpers. Task 20
-     * (Slice S7) moves stripNullArm() to its S7 home and repoints this handler there.
-     */
-    private function stripNullArm(string $type): string
-    {
-        $members = array_values(array_filter(
-            LaravelTsPublish::splitTopLevelUnion($type),
-            fn (string $member): bool => $member !== 'null',
-        ));
-
-        return $members === [] ? 'unknown' : implode(' | ', $members);
     }
 
     /**

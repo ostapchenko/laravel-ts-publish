@@ -84,6 +84,7 @@ trait ResolvesRelatedModelTypes
      *
      * Duplicated from ResourceAstAnalyzer — a trait can't call the analyzer's protected helper.
      * Task 19 (Slice S6) moves it to ReflectedTypeAcceptor::accept() and repoints this trait too.
+     * Unreachable from ResourceAstAnalyzer itself: its own `protected` copy always wins there.
      *
      * @param  TypeScriptTypeInfo  $tsInfo
      * @return ValueExpressionResult|null
