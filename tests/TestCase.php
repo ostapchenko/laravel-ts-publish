@@ -14,8 +14,6 @@ use AbeTwoThree\LaravelTsPublish\TypeScriptMap;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Notifications\DatabaseNotification;
-use Laravel\Ranger\RangerServiceProvider;
-use Laravel\Surveyor\SurveyorServiceProvider;
 use Orchestra\Testbench\Attributes\WithEnv;
 use Orchestra\Testbench\Concerns\WithWorkbench;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -73,8 +71,6 @@ class TestCase extends Orchestra
     {
         return [
             LaravelTsPublishServiceProvider::class,
-            RangerServiceProvider::class,
-            SurveyorServiceProvider::class,
             WorkbenchServiceProvider::class,
         ];
     }

@@ -11,7 +11,7 @@ it('reads a method that returns one whole string literal', function () {
         ->toBe('server.created');
 });
 
-// Surveyor folds `'order.'.$this->kind` to the literal "order." and ships that as the Echo key.
+// A reader that took the first literal of `'order.'.$this->kind` would ship "order." as the Echo key.
 it('returns null for a concatenated return rather than folding it to its literal prefix', function () {
     expect(resolve(ReturnLiteralReader::class)->stringLiteral(SubjectProps::class, 'computedName'))
         ->toBeNull();

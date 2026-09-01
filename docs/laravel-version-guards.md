@@ -109,4 +109,4 @@ catch a missing row for it.
 String FQCNs that exist for reasons other than version support, and must not be converted:
 
 - `src/RelationMap.php` — builds a relation class name dynamically from a type string.
-- `src/Analyzers/SurveyorTypeMapper.php` — maps always-present framework classes by name.
+- `src/Support/TolkiTypes.php` — maps always-present framework classes by name.

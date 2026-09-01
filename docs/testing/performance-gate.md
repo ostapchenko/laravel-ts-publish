@@ -88,3 +88,10 @@ the same box, never CI.
 | date       | task              | local median          |
 | ---------- | ----------------- | ---------------------- |
 | 2026-08-31 | Task 37 (baseline) | 5.49s (3 runs)         |
+| 2026-09-01 | Task 36 (Surveyor/Ranger removed) | 0.94s (3 medians: 0.92 / 0.95 / 0.94) |
+
+The last row is a **5.9x speedup**, large enough to deserve its own check, so it was measured as a
+same-session A/B rather than against the recorded baseline: a worktree at the parent commit with
+`laravel/surveyor` and `laravel/ranger` installed produced medians of 5.33 / 5.59 / 5.55s on the same
+box minutes earlier. The workload is identical on both sides — one filtered test, 8 assertions, 324
+generated files — so the difference is the second AST engine no longer running.

@@ -11,10 +11,6 @@ emitting TypeScript that does not compile. These gates check the committed outpu
 Types are gated here; speed is gated separately — see
 [`performance-gate.md`](performance-gate.md) for the publish-speed A/B gate.
 
-A third, non-blocking CI job — [`upstream-drift`](#the-upstream-drift-job) — runs alongside these two. It is
-not a script under `.github/scripts/` and it does not gate a merge; it watches for a different kind of
-silent failure, upstream API drift in two frozen dependencies, and is documented separately below.
-
 | Script                       | Catches                                                                      |
 | ---------------------------- | ---------------------------------------------------------------------------- |
 | `unknown-regression-gate.py` | A property that had a real type now emits `unknown`                          |
@@ -415,39 +411,6 @@ diagnostic under `tests/types/`. Locally:
 ```bash
 npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print nothing
 ```
-
-## The `upstream-drift` job
-
-`.github/workflows/run-tests.yml`'s `upstream-drift` job runs after `type-inference-gates` on every push.
-It installs `laravel/surveyor:'*'` and `laravel/ranger:'*'` — their latest tags, unpinned from
-`composer.json`'s frozen `^0.1` carets — then runs `composer analyse` and five test files. Three of them
-still exercise the Surveyor-backed pipeline; the two broadcast-event files no longer touch Surveyor since
-that feature went native, and stay listed as drift cover until the exit removes both packages:
-
-```text
-tests/Unit/Transformers/BroadcastEventTransformerTest.php
-tests/Unit/Analyzers/SurveyorTypeMapperTest.php
-tests/Unit/Analyzers/Inertia/InertiaPageAnalyzerTest.php
-tests/Unit/Analyzers/Inertia/InertiaSharedDataAnalyzerTest.php
-tests/Unit/Writers/BroadcastEventWriterTest.php
-```
-
-**It is expected to be RED**, and that is the point, not a bug to fix. `composer.json` deliberately freezes
-`laravel/surveyor` at `^0.1.10` and `laravel/ranger` at `^0.1.12` — see
-[`docs/decisions/2026-08-31-surveyor-staged-exit.md`](../decisions/2026-08-31-surveyor-staged-exit.md). That
-ADR exists because a measured bump to surveyor v0.3.0 / ranger v0.5.0 regressed 12 committed `.ts` files (the
-two packages renamed `ClassResult` to `ClassLikeResult`, among other breaks) and the `^0.1` caret hides that
-kind of drift from ordinary CI entirely. `upstream-drift` installs the unpinned latest inside its own job
-only — it does not touch `composer.json` — so the drift is visible on the CI dashboard as a standing red job
-instead of silently accumulating behind the caret until someone bumps it by hand.
-
-`continue-on-error: true` keeps it non-blocking: a red `upstream-drift` never fails the workflow or blocks a
-merge. Do not "fix" it by pinning its `composer require` back to the frozen versions, deleting the job, or
-loosening the assertions in the five tests it runs — a green `upstream-drift` would mean upstream stopped
-drifting, and the job's only job is to notice if that ever becomes true. It goes away on its own, deliberately,
-once a later phase in the unified-AST-engine plan moves broadcast events, then Inertia shared data, then page
-props onto the native `AstEngine` and removes both packages (`docs/decisions/2026-08-31-surveyor-staged-exit.md`'s
-"Exit gates"). Until then, red is the expected, informative state.
 
 ## Running both
 

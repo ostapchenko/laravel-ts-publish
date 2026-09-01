@@ -338,7 +338,7 @@ describe('TsCasts overrides', function () {
             expect($allTypes)->not->toContain('Post');
         });
 
-        it('still resolves non-overridden properties via Surveyor', function () {
+        it('still infers the non-overridden properties', function () {
             $transformer = app(BroadcastEventTransformer::class, ['findable' => MixedTypesEvent::class]);
             expect($transformer->properties['status']['type'])->toBe('StatusType');
             expect($transformer->properties['message']['type'])->toBe('string');
@@ -434,8 +434,8 @@ describe('TsExtends on BroadcastEventTransformer', function () {
     });
 });
 
-// Cutover discriminators. Only ComputedNameEvent failed under Surveyor (Echo key folded to
-// "order."); the other two passed there and pin that the native path does not regress them.
+// Cutover discriminators. Only ComputedNameEvent changed at the cutover (its Echo key used to
+// fold to "order."); the other two were already correct and pin that the engine did not regress them.
 describe('native engine cutover fixtures', function () {
     it('takes PayloadDiffersEvent properties from broadcastWith(), not the public properties', function () {
         $transformer = app(BroadcastEventTransformer::class, ['findable' => PayloadDiffersEvent::class]);

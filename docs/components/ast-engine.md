@@ -1,22 +1,20 @@
 # AST Engine
 
-`AbeTwoThree\LaravelTsPublish\Ast\AstEngine` is the public entry point onto the package's one
-php-parser layer: hand it a class and a method name, get back a `MethodAnalysis` DTO of TypeScript
-properties plus resource, model, and enum FQCN channels and import maps. It replaces the duplication
-that used to sit inside six separate files, each carrying its own nikic/php-parser logic —
+`AbeTwoThree\LaravelTsPublish\Ast\AstEngine` is the public entry point onto the package's php-parser
+layer — the only one it has: hand it a class and a method name, get back a `MethodAnalysis` DTO of
+TypeScript properties plus resource, model, and enum FQCN channels and import maps. It replaces the
+duplication that used to sit inside six separate files, each carrying its own nikic/php-parser logic —
 `ResourceAstAnalyzer`, `ControllerPaginatorAnalyzer`, `InertiaTableAnalyzer`, and the traits
 `InspectsAstNodes`, `FiltersModelAttributes`, `ResolvesClassNames` — with the shared primitives
-documented below (`AstParser`, `MethodLocator`, `ExpressionDispatcher`, the 22-handler resource
-profile). Those six files still exist; what changed is that they now build on one parse/dispatch layer
-instead of each re-implementing it.
+documented below: `AstParser`, `MethodLocator`, `ExpressionDispatcher`, and the two handler profiles.
 
-The move is staged, not finished. `ResourceAstAnalyzer`, `ControllerPaginatorAnalyzer`,
-`BroadcastEventTransformer` and `InertiaSharedDataAnalyzer` already sit on the engine, but Inertia
-*page* props still go through **Laravel Surveyor** — a second, foreign AST engine — until Task 35
-ports them. See the tracked
+Every feature that infers a type runs on it. Resources, broadcast events, Inertia shared data and
+Inertia page props all go through `AstEngine`, and `laravel/surveyor` + `laravel/ranger` — the second,
+foreign AST engine that used to type events and both Inertia features — are gone from `composer.json`.
+`ControllerPaginatorAnalyzer` went with them: the handlers resolve a paginator from the prop expression
+itself, so its three prop-key maps had no caller left. The tracked
 [ADR: freeze Laravel Surveyor/Ranger and exit in stages](../decisions/2026-08-31-surveyor-staged-exit.md)
-for why that freeze exists and what each exit stage must show. Task 36 rewrites this lead once the
-second stack is gone.
+records the staged exit and what each stage had to show before it landed.
 
 ## Dispatch semantics
 
@@ -84,6 +82,33 @@ The executable ordering contract lives in `tests/Unit/Ast/ResourceExpressionHand
   - `InertiaWrapperHandler` before `StaticCallHandler` for `Inertia::always(...)`. `StaticCallHandler`'s
     last arm claims every `StaticCall` and never declines, so if it ran first it would reflect the
     wrapper as an ordinary static method and floor the prop at `unknown` instead of the wrapped value.
+
+### Controller profile
+
+`ControllerExpressionHandlers::make()` is the profile `InertiaPageAnalyzer` runs an
+`Inertia::render()` props expression through. It is `ResourceExpressionHandlers::generic()` with two
+handlers inserted **immediately before `StaticCallHandler`**:
+
+- `ModelFinderHandler` — a chain rooted at a `Model` static call, typed by its terminal:
+  `find`/`first`/`firstWhere` → `{Model} | null`; `sole`/`firstOrFail`/`findOrFail`/`firstOrCreate`/
+  `firstOrNew`/`create`/`make`/`updateOrCreate` → `{Model}`; `all`/`get` → `{Model}[]`;
+  `paginate`/`simplePaginate`/`cursorPaginate` → the matching `TolkiTypes::MAP` name generic over the
+  model, with the `@tolki/types` external import; `count`/`exists` → `number`/`boolean`.
+- `InertiaResourcePropHandler` — a resource or resource collection in prop position, resolved to what
+  it wraps, including the preserve-keys `Omit<…, 'data'> & { data: Record<string, R> }` shape.
+
+That position is load-bearing in both directions. `StaticCallHandler`'s final arm claims every
+`StaticCall` and never declines, so anything registered after it never sees one; and `NewResourceHandler`
+sits directly after `StaticCallHandler` and resolves a `ResourceCollection` to its collected element
+array, so a `New_` handler has to precede that too. `tests/Unit/Ast/ControllerExpressionHandlersTest.php`
+pins the structure (the profile equals `generic()` with exactly those two inserted at that point) plus
+three behavioural ordering pins, each proven by mutation.
+
+`InertiaPageAnalyzer` pairs the profile with `AstEngine::bindingsFor()`, which seeds the scope from the
+action's own signature: route-bound `Model` parameters, `Request` parameter names, and the local
+variable bindings collected from the method body. That is what lets `compact('post', 'comments')`,
+`$post` from `show(Post $post)`, and `$request->integer('page')` all type without any Inertia-specific
+special case in the handlers.
 
 ### The honest ordering inventory
 
@@ -220,8 +245,8 @@ There are two arms because the dispatcher never hands the inner node of a chain 
 
 Every analyzer file-read flows through `AstParser`, directly or via `MethodLocator`. Skipping it means
 the cache serves stale output when the underlying file changes — a live staleness bug, not a
-theoretical one (`ControllerPaginatorAnalyzer` used to parse controller files without recording them
-at all; fixed as part of this plan's Task 4).
+theoretical one: the controller paginator analysis parsed controller files without recording a single
+dependency until it was moved onto `AstParser`.
 
 `AstParser::parseFile(string $path): array<Node>` calls `DependencyRecorder::record($path)`
 unconditionally, before it ever checks the cache — so a cache *hit* still records the dependency, not
@@ -308,9 +333,9 @@ concern, not something this method decides.
 
 `ReturnLiteralReader::stringLiteral(string $class, string $method): ?string` returns the one string
 literal a method returns, and `null` for anything else — several returns, no return, or an expression
-that merely *starts* with a literal. `'order.'.$this->kind` reads `null`, not `"order."`: Surveyor
-folds that concatenation to its prefix and ships it as a broadcast name, and a wrong Echo key is worse
-than no key, because the caller can fall back to a convention it controls. The return count stops at
+that merely *starts* with a literal. `'order.'.$this->kind` reads `null`, not `"order."` — folding a
+concatenation to its prefix and shipping that as a broadcast name is worse than emitting no key at all,
+because with no key the caller falls back to a convention it controls. The return count stops at
 every nested `FunctionLike`, so a closure's own `return` neither counts toward the total nor stands in
 for the method's — a plain `NodeFinder` sweep has no such boundary and over-rejects on it.
 
@@ -348,3 +373,10 @@ enums and models — stay transformer-side because only the transformer knows th
 presentation and the `ImportNameRegistry` aliases a same-basename collision forces; `buildTypeImports()`
 skips any `AnalysisImports` name they already emitted, so an alias is never shadowed by a bare
 duplicate.
+
+`InertiaPageAnalyzer` is the other shape a consumer can take: instead of one method's return shape it
+resolves *expressions* — every `Inertia::render()` props argument in a controller action — through the
+[controller profile](#controller-profile) over a scope built by `AstEngine::bindingsFor()`, merging
+same-component branches with `mergeReturnBranches()` so a key present in only one branch becomes
+optional. It reaches for `AstEngine::analyzeMethod()` directly only when the props are delegated whole
+to a collaborator (`Inertia::render('X', $this->service->build())`).

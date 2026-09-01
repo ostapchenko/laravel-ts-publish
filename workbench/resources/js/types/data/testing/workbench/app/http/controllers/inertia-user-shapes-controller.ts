@@ -1,8 +1,8 @@
 import { defineRoute, annotatePageProps } from '@tolki/ts';
 
-import type { Post, User } from '../../models';
+import type { Comment, Post, User } from '../../models';
 
-export type IndexPageProps = Inertia.SharedData & { users: unknown[], posts: unknown[], page: unknown };
+export type IndexPageProps = Inertia.SharedData & { users: User[], posts: Post[], page: number };
 
 /** Model collections plus a typed request read. */
 export const index = annotatePageProps<IndexPageProps>()(defineRoute({
@@ -12,7 +12,7 @@ export const index = annotatePageProps<IndexPageProps>()(defineRoute({
     component: 'UserShapes/Index',
 }));
 
-export type ShowPageProps = Inertia.SharedData & { post: string, draft: string | null };
+export type ShowPageProps = Inertia.SharedData & { post: Post, draft: Post | null };
 
 /** A found model and a nullable found model. */
 export const show = annotatePageProps<ShowPageProps>()(defineRoute({
@@ -23,7 +23,7 @@ export const show = annotatePageProps<ShowPageProps>()(defineRoute({
     component: 'UserShapes/Show',
 }));
 
-export type DeferredPageProps = Inertia.SharedData & { comments: unknown, tally: unknown };
+export type DeferredPageProps = Inertia.SharedData & { comments?: Comment[], tally?: number };
 
 /** Inertia v2 partial-reload prop wrappers. */
 export const deferred = annotatePageProps<DeferredPageProps>()(defineRoute({
@@ -33,7 +33,7 @@ export const deferred = annotatePageProps<DeferredPageProps>()(defineRoute({
     component: 'UserShapes/Deferred',
 }));
 
-export type CompactedPageProps = Inertia.SharedData & { 0: string, 1: unknown[] };
+export type CompactedPageProps = Inertia.SharedData & { post: Post, comments: Comment[] };
 
 /** Props supplied by compact() rather than an array literal. */
 export const compacted = annotatePageProps<CompactedPageProps>()(defineRoute({
@@ -44,14 +44,17 @@ export const compacted = annotatePageProps<CompactedPageProps>()(defineRoute({
     component: 'UserShapes/Compacted',
 }));
 
+export type ToggledPageProps = Inertia.SharedData & { post: Post | null, views?: number };
+
 /** A props array assigned from a ternary, so the two branches disagree on one key. */
-export const toggled = defineRoute({
+export const toggled = annotatePageProps<ToggledPageProps>()(defineRoute({
     name: 'user-shapes.toggled',
     url: '/user-shapes/toggled',
     methods: ['get', 'head'] as const,
-});
+    component: 'UserShapes/Toggled',
+}));
 
-export type ProfilePageProps = Inertia.SharedData & { user: User | null, stats: { views: number, likes: number } };
+export type ProfilePageProps = Inertia.SharedData & { user: User | null, stats: { views: number; likes: number } };
 
 /** The authenticated user and a service method with an array-shape docblock. */
 export const profile = annotatePageProps<ProfilePageProps>()(defineRoute({
@@ -61,7 +64,7 @@ export const profile = annotatePageProps<ProfilePageProps>()(defineRoute({
     component: 'UserShapes/Profile',
 }));
 
-export type MergedPageProps = Inertia.SharedData & { title: string, extra: true };
+export type MergedPageProps = Inertia.SharedData & { title: string, extra: boolean };
 
 /** Props built with array_merge() over a local base array. */
 export const merged = annotatePageProps<MergedPageProps>()(defineRoute({
@@ -71,7 +74,7 @@ export const merged = annotatePageProps<MergedPageProps>()(defineRoute({
     component: 'UserShapes/Merged',
 }));
 
-export type BranchedPageProps = Inertia.SharedData & { post: string | null, detail?: string };
+export type BranchedPageProps = Inertia.SharedData & { post: Post | null, detail?: string };
 
 /** Two renders of one component where `detail` exists on only one branch. */
 export const branched = annotatePageProps<BranchedPageProps>()(defineRoute({
@@ -81,7 +84,7 @@ export const branched = annotatePageProps<BranchedPageProps>()(defineRoute({
     component: 'UserShapes/Branched',
 }));
 
-export type BoundPageProps = Inertia.SharedData & { post: Post, stats: { views: number, likes: number } };
+export type BoundPageProps = Inertia.SharedData & { post: Post, stats: { views: number; likes: number } };
 
 /** A route-bound model parameter. */
 export const bound = annotatePageProps<BoundPageProps>()(defineRoute({

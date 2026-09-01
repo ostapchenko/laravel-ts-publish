@@ -359,15 +359,10 @@ return [
     |
     | When enabled, generates TypeScript page-prop types for each Inertia component
     | and a TypeScript Declaration module augmentation file for @inertiajs/core.
-    |
-    | 'analyzer' selects how page props are inferred: 'surveyor' (default) or the
-    | native AST engine, 'native'. The key is temporary and goes away once native
-    | is the only implementation.
     */
 
     'inertia' => [
         'enabled' => true,
-        'analyzer' => 'surveyor',
         'component_casing' => 'camel',
         'inertia_middleware_path' => null,
         'augmentation_filename' => 'inertia-config.d.ts',

@@ -996,8 +996,8 @@ excluded as unreachable anywhere else in the family.
 
 `InspectsAstNodes::resolveCollectedResourceClass()` — called directly by every consumer
 (`Ast\Concerns\ResolvesSingularResourceClass`, `ToResourceHandler`, `StaticCallHandler`,
-`NewResourceHandler`, and `InertiaPageAnalyzer::resolveSingularResourceFqcn()`) — checks for
-`Illuminate\Http\Resources\Attributes\Collects` behind `class_exists()` rather than a `use` import,
+`NewResourceHandler`) — checks for `Illuminate\Http\Resources\Attributes\Collects` behind
+`class_exists()` rather than a `use` import,
 because the package still supports Laravel 12 releases that don't ship the attribute. See
 [Version-guarded Laravel classes](../laravel-version-guards.md) for the full registry and when this
 guard can be removed.
@@ -1021,7 +1021,7 @@ that invents a candidate class name, four in total:
 | `ToResourceHandler::resolveResourceForModel()`'s candidate loop | `{Model}Resource`, then bare `{Model}` |
 | `ToResourceHandler::resolveResourceCollectionForModel()`'s `{Guessed}Collection` loop | `{Model}ResourceCollection`, then `{Model}Collection` — the inline `class_exists()`/`is_a()` pair gained a third `PublishedResourceRegistry::isPublished()` conjunct |
 | `ToResourceHandler::resolveResourceCollectionForModel()`'s bare-candidate loop | the `{Model}Resource` fallback |
-| `InspectsAstNodes::resolveCollectedResourceClass()`'s naming-convention branch | `{X}Resource`, then bare `{X}` — shared by every direct caller (`ResourceAstAnalyzer`, `ToResourceHandler`, `StaticCallHandler`, `NewResourceHandler`) and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` (see below) |
+| `InspectsAstNodes::resolveCollectedResourceClass()`'s naming-convention branch | `{X}Resource`, then bare `{X}` — shared by every direct caller (`ResourceAstAnalyzer`, `ToResourceHandler`, `StaticCallHandler`, `NewResourceHandler`) |
 
 **`isResourceClass()` itself is unchanged.** Every branch that reads a class the developer wrote down
 stays ungated on purpose — an explicitly named resource is a declaration, not a guess:
@@ -1030,15 +1030,15 @@ stays ungated on purpose — an explicitly named resource is a declaration, not 
 - `ToResourceHandler::resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
 - `resolveCollectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the
   `$collects` property default
-- `ControllerPaginatorAnalyzer::resolvePaginatedResourceConstructorProps()`'s `new $resourceFqcn(...)`
-  resolution (`ControllerPaginatorAnalyzer.php:221`) — the class name comes from an explicit `new`
-  expression in the analyzed source, not an invented candidate, so it stays ungated on the same basis
+- `NewResourceHandler`'s `new $resourceFqcn(...)` resolution — the class name comes from an explicit
+  `new` expression in the analyzed source, not an invented candidate, so it stays ungated on the
+  same basis
 
 ### One resolver, not many — every `#[Collects]` caller shares it
 
-`Ast\Concerns\ResolvesSingularResourceClass`, `ToResourceHandler`, `StaticCallHandler`,
-`NewResourceHandler`, and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` used to carry
-near-verbatim copies of the same `#[Collects]` / `$collects` / naming-convention resolution order,
+`Ast\Concerns\ResolvesSingularResourceClass`, `ToResourceHandler`, `StaticCallHandler` and
+`NewResourceHandler` used to carry near-verbatim copies of the same `#[Collects]` / `$collects` /
+naming-convention resolution order,
 including the same third, naming-convention branch — the one gap this section used to carry as a
 recorded follow-up rather than a fix. Every one of them now calls
 `InspectsAstNodes::resolveCollectedResourceClass()` directly, the only place that logic exists; its
@@ -1152,9 +1152,8 @@ tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentR
 `AttachmentCollection` workbench fixtures, plus a matching pair for `resolveCollectedResourceClass()`'s
 own naming-convention branch: `SupplierSummaryCollection` and `Admin\StoreCollection` prove the two
 positive candidates (Resource-suffixed and bare) still resolve when published, and `LedgerCollection`
-with `#[TsExclude]`d `LedgerResource`/`Ledger` proves both are rejected when neither is. The same
-`LedgerCollection` fixture backs the equivalent test in `InertiaPageAnalyzerTest.php` for
-`resolveSingularResourceFqcn()`, so both call sites onto the shared resolver are covered.
+with `#[TsExclude]`d `LedgerResource`/`Ledger` proves both are rejected when neither is. There is one
+implementation of the resolver, so that coverage is the coverage for every call site.
 
 ## `#[PreserveKeys]`/`$preserveKeys` flip a collection's element type to `Record<string, R>`
 
@@ -1210,27 +1209,24 @@ collection class".
 ### Inertia props
 
 `collectionPreservesKeys()` and `wrapCollectionElementType()` live in the
-`AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys` trait, which both this class
-and `AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer` `use`. `InertiaPageAnalyzer`
-has its own four collection-typing rewrites for `Inertia::render()` page props — paginated and
-non-paginated, named and anonymous — and preserve-keys only changes two of them:
+`AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys` trait, which this class shares
+with the handlers `InertiaPageAnalyzer` runs page props through — `InertiaResourcePropHandler`,
+`NewResourceHandler`, `StaticCallHandler`, `ToResourceHandler` and `ThisPropertyHandler`. Page props
+get preserve-keys handling from those handlers, not from a rewrite of their own, so the two shapes
+agree by construction:
 
-- **`rewritePaginatedResourceProps()`'s flat branch** (`$wrap === null`, e.g. `new
-  SomeFlatCollection($paginator)`) and **`rewritePaginatedStaticCollectionProps()`** (`SomeResource::collection($paginator)`)
-  both emit `JsonResourcePaginator<Singular>` by default, whose `data` member is `Singular[]` — wrong
-  for a key-preserving collection, since Laravel serializes its `data` as an object, not an array.
-  Fixed to emit `Omit<JsonResourcePaginator<Singular>, 'data'> & { data: Record<string, Singular> }`
-  when `collectionPreservesKeys()` is true, gated on the reflected collection (flat branch) or the
-  reflected resource (static-collection branch, since `Resource::collection()` inherits the singular
-  resource's own preserve-keys state — mirroring `wrapCollectionElementType()`'s own site-dependent
-  reflection target above).
-- **`rewriteResourceCollections()`** (the bare named-collection case) and **the wrapped, non-flat
-  branch of `rewritePaginatedResourceProps()`** were already correct and are unchanged: both reference
-  the collection's own generated interface — e.g. `PostCollection` — rather than re-deriving a shape,
-  and `ResourceAstAnalyzer` already emits that interface with a keyed `data: Record<string, T>` member
-  via `wrapCollectionElementType()` when the collection preserves keys. Fixtures pin this: a
-  key-preserving named collection, paginated or not, produces identical output before and after this
-  change.
+- A **paginated flat collection** (`$wrap === null`, e.g. `new SomeFlatCollection($paginator)`) and a
+  **paginated `SomeResource::collection($paginator)`** would otherwise emit
+  `JsonResourcePaginator<Singular>`, whose `data` member is `Singular[]` — wrong for a key-preserving
+  collection, since Laravel serializes its `data` as an object, not an array. `InertiaResourcePropHandler`
+  emits `Omit<JsonResourcePaginator<Singular>, 'data'> & { data: Record<string, Singular> }` when
+  `collectionPreservesKeys()` is true, gated on the reflected collection or, for the static-collection
+  form, the reflected resource — `Resource::collection()` inherits the singular resource's own
+  preserve-keys state, mirroring `wrapCollectionElementType()`'s site-dependent reflection target above.
+- A **named collection**, paginated or not, references the collection's own generated interface — e.g.
+  `PostCollection` — rather than re-deriving a shape, and `ResourceAstAnalyzer` already emits that
+  interface with a keyed `data: Record<string, T>` member via `wrapCollectionElementType()`. Fixtures
+  pin both shapes end to end in `InertiaPageAnalyzerTest.php`.
 
 ## `mergeReturnBranches()` carries every `MethodAnalysis::merge()` channel, plus two flat scalars
 

@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
-use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\NativeInertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Transformers\RouteTransformer;
 use Workbench\Accounting\Http\Controllers\TwoFactorController;
 use Workbench\Accounting\Http\Requests\VerifyTwoFactorRequest;
@@ -629,8 +628,7 @@ test('normalizeComponent falls back to keyed path when all depths produce collid
 
 test('invokable inertia controller action receives @__invoke uses string and returns component data', function () {
     // Laravel stores invokable routes with just the FQCN (no @method). RouteTransformer
-    // normalises this to Controller@__invoke before passing to InertiaPageAnalyzer, so
-    // Ranger's analyzeRoute() can correctly explode the uses string and find __invoke.
+    // normalises this to Controller@__invoke so the analyzer can split the uses string.
     config()->set('ts-publish.inertia.enabled', true);
 
     $capturedAction = null;
@@ -663,7 +661,7 @@ test('invokable inertia controller action receives @__invoke uses string and ret
         ->and($invoke['pageType'])->toContain('Inertia.SharedData');
 });
 
-test('resolvePageTypeImports maps TOLKI_TYPES_MAP FQCNs to @tolki/types import', function () {
+test('resolvePageTypeImports maps TolkiTypes::MAP FQCNs to @tolki/types import', function () {
     config()->set('ts-publish.inertia.enabled', true);
 
     $mockConverter = Mockery::mock(InertiaPageAnalyzer::class);
@@ -966,21 +964,3 @@ test('isInvokable is true for invokable controllers and false otherwise', functi
         ->and((new RouteTransformer(InvokableModelBoundPlusController::class))->data()->isInvokable)->toBeTrue()
         ->and((new RouteTransformer(PostController::class))->data()->isInvokable)->toBeFalse();
 });
-
-test('ts-publish.inertia.analyzer selects which page analyzer the transformer runs', function (string $analyzer, string $expected) {
-    config()->set('ts-publish.inertia.enabled', true);
-    config()->set('ts-publish.inertia.analyzer', $analyzer);
-
-    foreach ([InertiaPageAnalyzer::class => 'surveyor', NativeInertiaPageAnalyzer::class => 'native'] as $class => $label) {
-        $mock = Mockery::mock($class);
-        $mock->shouldReceive('analyze')->andReturnUsing(fn (array $action): ?array => str_contains($action['uses'], '@dashboard')
-            ? ['component' => $label, 'pageType' => 'Inertia.SharedData', 'classFqcns' => []]
-            : null);
-
-        app()->instance($class, $mock);
-    }
-
-    $transformer = new RouteTransformer(InertiaController::class);
-
-    expect(collect($transformer->actions)->firstWhere('methodName', 'dashboard')['component'])->toBe($expected);
-})->with([['surveyor', 'surveyor'], ['native', 'native']]);
