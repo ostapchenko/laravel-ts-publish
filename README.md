@@ -800,9 +800,10 @@ Key capabilities:
 - **`analyzeMethod()`** — analyzes any method's return shape, not only `toArray()`; a `JsonResource` subclass still gets full resource semantics (conditional methods, `EnumResource`, nested resources, relation filters) with no extra setup.
 - **`analyzePublicProperties()`** — reads a class's properties directly instead of a method body (promoted constructor parameters and class-body declarations), skipping anything a used trait declares. Nullability is always `| null`, never `?`.
 - **`AnalysisImports::build()`** — turns a `MethodAnalysis`'s FQCN references into resolved import paths for one generated file, merging colliding paths; resolving a name collision between two imports is left to the caller.
-- **Not yet everything** — broadcast events and Inertia page/shared props are still typed through a separate pipeline, so `analyzeMethod()` won't reproduce their output until that migration lands.
+- **Every feature runs on it** — broadcast events are `analyzeMethod($event, 'broadcastWith')` (or `analyzePublicProperties()` when the event has no such method) and Inertia shared data is `analyzeMethod($middleware, 'share')`, so calling either yourself returns exactly what `ts:publish` publishes.
+- **Page props take the expression path** — Inertia page props run on this same engine, but from an `Inertia::render()` call's props argument rather than a method's return shape, so `analyzeMethod()` on a controller action gives you that method's return type instead. There is no public entry point for the expression path.
 
-For the full walkthrough, including `MethodAnalysis`'s fields and what the engine can't do yet, see the full [Analyzer API documentation](https://tolki.abe.dev/ts/analyzer-api.html).
+For the full walkthrough, including `MethodAnalysis`'s fields and the engine's limits, see the full [Analyzer API documentation](https://tolki.abe.dev/ts/analyzer-api.html).
 
 ## Pre-command hook
 
