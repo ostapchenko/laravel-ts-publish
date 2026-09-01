@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesEnumPropertyArgTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
@@ -33,6 +34,7 @@ use PhpParser\Node\Scalar\String_;
 final class ConditionalMethodHandler implements ExpressionHandler
 {
     use InspectsAstNodes;
+    use ResolvesEnumPropertyArgTypes;
     use ResolvesRelatedModelTypes;
 
     /** @return list<class-string<Expr>> */
@@ -524,28 +526,6 @@ final class ConditionalMethodHandler implements ExpressionHandler
     private function isNullConstFetch(Expr $expr): bool
     {
         return $expr instanceof ConstFetch && strtolower($expr->name->toString()) === 'null';
-    }
-
-    /**
-     * Resolve the TypeScript type, optional enum FQCN, and any class FQCNs for a model attribute.
-     *
-     * Bypasses ResolvesModelTypes's cached-property gate, which this per-call handler never
-     * populates — calls the ModelAttributeResolver singleton directly instead; it caches per FQCN.
-     *
-     * @return array{type: string, enumFqcn: class-string|null, classFqcns: list<class-string>}
-     */
-    private function resolveModelAttributeTypeInfo(string $attributeName, AnalysisScope $scope): array
-    {
-        if ($scope->modelClass === null) {
-            return ['type' => 'unknown', 'enumFqcn' => null, 'classFqcns' => []];
-        }
-
-        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($scope->modelClass, $attributeName);
-
-        /** @var class-string|null $enumFqcn */
-        $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
-
-        return ['type' => $tsInfo['type'], 'enumFqcn' => $enumFqcn, 'classFqcns' => $tsInfo['classFqcns']];
     }
 
     /**
