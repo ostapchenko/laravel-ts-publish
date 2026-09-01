@@ -161,6 +161,12 @@ If the TypeScript files need to be different then they should be changed by chan
 
 Documenting features go in README.md to document features for users. The code itself should have comments on all methdos as explained above or in the code itself.
 
+### Known gaps
+
+Work you decide _not_ to do belongs in [docs/known-gaps.md](./docs/known-gaps.md), not in a commit message
+or a source comment. Read it before starting anything in `src/Ast/` — several entries exist specifically
+to stop the next person "fixing" something that is deliberate.
+
 ### Change log
 
 Do not update the CHANGELOG.md file. That is handled by CI when a new version is released. The CHANGELOG.md file is meant to be a record of changes for users, not for developers to update manually. It is automatically updated based on the commits and PRs that are merged into the main branch and updated when a new version is released.
