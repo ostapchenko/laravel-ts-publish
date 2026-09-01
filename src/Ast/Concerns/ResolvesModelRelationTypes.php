@@ -1,0 +1,34 @@
+<?php
+
+declare(strict_types=1);
+
+namespace AbeTwoThree\LaravelTsPublish\Ast\Concerns;
+
+use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
+use Illuminate\Database\Eloquent\Model;
+
+/**
+ * Resolve a `$this->{name}` property as a relation on the scope's backing model.
+ *
+ * The single scope-flavoured home for this: five handlers carried byte-identical private copies
+ * before this trait. It is deliberately NOT consumed by ResourceAstAnalyzer, whose
+ * Analyzers\Concerns\ResolvesModelTypes already declares this method name.
+ */
+trait ResolvesModelRelationTypes
+{
+    /**
+     * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
+     * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
+     *
+     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
+     */
+    protected function resolveModelRelationTypeInfo(string $name, AnalysisScope $scope): array
+    {
+        if ($scope->modelClass === null) {
+            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
+        }
+
+        return resolve(ModelAttributeResolver::class)->resolveRelation($scope->modelClass, $name);
+    }
+}

@@ -23,7 +23,10 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InlineArrayHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\MethodChainHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\NewResourceHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\PropertyChainHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\RelationCollectionChainHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\RelationFilterHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\StaticCallHandler;
@@ -31,8 +34,6 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ThisPropertyHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ToResourceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
-use AbeTwoThree\LaravelTsPublish\Ast\ReflectedTypeAcceptor;
-use AbeTwoThree\LaravelTsPublish\Ast\SubjectMethodTypeResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
@@ -40,12 +41,9 @@ use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
-use Carbon\Carbon as BaseCarbon;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
-use Illuminate\Support\Carbon;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
@@ -60,7 +58,6 @@ use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
-use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PostDec;
 use PhpParser\Node\Expr\PostInc;
 use PhpParser\Node\Expr\PreDec;
@@ -70,7 +67,6 @@ use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
-use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\Do_;
@@ -82,9 +78,7 @@ use PhpParser\Node\Stmt\Return_;
 use PhpParser\Node\Stmt\While_;
 use PhpParser\NodeFinder;
 use ReflectionClass;
-use ReflectionEnum;
 use ReflectionMethod;
-use ReflectionNamedType;
 
 /**
  * Analyzes a JsonResource's toArray() body to extract property names, types, and optional markers via AST.
@@ -529,6 +523,9 @@ class ResourceAstAnalyzer implements ExpressionEngine
             new ThisPropertyHandler,
             new RelationFilterHandler,
             new InlineArrayHandler,
+            new MethodChainHandler,
+            new PropertyChainHandler,
+            new RelationCollectionChainHandler,
         ];
     }
 
@@ -554,80 +551,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         $result = $this->unknownResult();
-
-        if ($expr instanceof NullsafeMethodCall) {
-            return $this->analyzeMethodChain($expr);
-        }
-
-        if ($expr instanceof NullsafePropertyFetch) {
-            return $this->analyzePropertyChain($expr);
-        }
-
-        // $this->anyProp->subProp — e.g. $this->resource->name / ->value on a backed enum
-        if ($expr instanceof PropertyFetch && $this->isThisPropertyFetch($expr->var)) {
-            $info = $this->analyzeWrappedEnumResourceProperty($expr);
-
-            if ($info['type'] === 'unknown') {
-                $info = $this->analyzeWrappedModelResourceProperty($expr);
-            }
-
-            if ($info['type'] === 'unknown' && $this->scope->closureRelationModelClass !== null && $expr->name instanceof Identifier) {
-                $info = $this->analyzeRelatedModelProperty($expr->name->toString(), $this->scope);
-            }
-
-            if ($info['type'] === 'unknown') {
-                $info = $this->analyzePropertyChain($expr);
-            }
-
-            return $info;
-        }
-
-        // Plain 3+-deep chains rooted at `$this` (e.g. `$this->resource->user->role`): the 2-deep handler
-        // above doesn't match, because `$expr->var` is not a direct `$this->prop`.
-        if ($expr instanceof PropertyFetch) {
-            $info = $this->analyzePropertyChain($expr);
-
-            if ($info['type'] !== 'unknown') {
-                return $info;
-            }
-        }
-
-        // Collection chains rooted at `$this->{manyRelation}` (e.g. `->take(5)->map(...)->values()`).
-        // Must precede the `$this->anyProp->method()` branch below: a 1-deep `$this->items->count()`
-        // matches both, and this returns null for it so knownMethodRule()'s count()/exists() rule wins.
-        if ($expr instanceof MethodCall) {
-            $chainResult = $this->analyzeRelationCollectionChain($expr);
-
-            if ($chainResult !== null) {
-                return $chainResult;
-            }
-        }
-
-        // $this->anyProp->method() — e.g. $this->resource->extensions() on a backed enum or model
-        if ($expr instanceof MethodCall
-            && $this->isThisPropertyFetch($expr->var)
-            && $expr->name instanceof Identifier
-        ) {
-            $info = $this->analyzeWrappedResourceMethodCall($expr);
-
-            /** @var class-string<Model>|null $closureModelClass */
-            $closureModelClass = $this->scope->closureRelationModelClass;
-
-            if ($info['type'] === 'unknown' && $closureModelClass !== null) {
-                $info = $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope);
-            }
-
-            return $info;
-        }
-
-        // Generic `$this->method()` — reflect the declared return type; the helper guards above ran first.
-        if ($expr instanceof MethodCall
-            && $expr->var instanceof Variable
-            && $expr->var->name === 'this'
-            && $expr->name instanceof Identifier
-        ) {
-            return resolve(SubjectMethodTypeResolver::class)->resolve($this->scope, $expr->name->toString());
-        }
 
         // $variable->property — resolve against the variable's own bound model (whenLoaded param,
         // chain map param, foreach value var), falling back to the ambient whenLoaded closure model.
@@ -743,7 +666,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
         // Late known-method rules for receivers not matched above (e.g. `$request->user()->can(...)`,
         // whose receiver is itself a MethodCall). Only MethodCall reaches here — every
-        // NullsafeMethodCall already returned via analyzeMethodChain().
+        // NullsafeMethodCall already returned via MethodChainHandler.
         if ($expr instanceof MethodCall) {
             $known = $this->knownMethodRule($expr);
 
@@ -940,245 +863,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         $this->applyTsCastsFromMethod($method, $analysis);
 
         return $analysis;
-    }
-
-    /**
-     * Decompose a property-fetch expression rooted at `$this` into ordered `{name, nullable}` steps,
-     * where `nullable` marks a `?->` access. Returns null if the root is not `$this`.
-     *
-     * @return list<array{name: string, nullable: bool}>|null
-     */
-    private function decomposePropertyChain(Expr $expr): ?array
-    {
-        /** @var list<array{name: string, nullable: bool}> $chain */
-        $chain = [];
-        $current = $expr;
-
-        while ($current instanceof PropertyFetch || $current instanceof NullsafePropertyFetch) {
-            if (! $current->name instanceof Identifier) {
-                return null;
-            }
-
-            $chain[] = [
-                'name' => $current->name->toString(),
-                'nullable' => $current instanceof NullsafePropertyFetch,
-            ];
-
-            $current = $current->var;
-        }
-
-        if (! $current instanceof Variable || $current->name !== 'this') {
-            return null;
-        }
-
-        return array_reverse($chain);
-    }
-
-    /**
-     * Analyze a property-fetch chain rooted at `$this`, traversing relation steps until the final
-     * property resolves. Handles `->` and `?->` in any mix; any `?->` step appends `| null`.
-     *
-     * The starting model is $closureRelationModelClass inside a whenLoaded closure, else $modelClass.
-     *
-     * @return ValueExpressionResult
-     */
-    private function analyzePropertyChain(Expr $expr): array
-    {
-        $chain = $this->decomposePropertyChain($expr);
-
-        if ($chain === null || $chain === []) {
-            return $this->unknownResult();
-        }
-
-        /** @var class-string<Model>|null $currentModel */
-        $currentModel = $this->scope->closureRelationModelClass ?? $this->scope->modelClass;
-
-        if ($currentModel === null) {
-            return $this->unknownResult();
-        }
-
-        $resolver = resolve(ModelAttributeResolver::class);
-
-        // Skip the `$this->resource` wrapper property when it is not a real model relation
-        if ($chain[0]['name'] === 'resource') {
-            $check = $resolver->resolveRelation($currentModel, 'resource');
-
-            if ($check['type'] === 'unknown') {
-                array_shift($chain);
-            }
-        }
-
-        if ($chain === []) {
-            return $this->unknownResult();
-        }
-
-        $hasNullable = array_any($chain, fn (array $step): bool => $step['nullable']);
-
-        $count = count($chain);
-
-        // Inside a whenLoaded closure the first step may be the resource's proxy to the already-loaded
-        // relation model (`$this->user` in `whenLoaded('user', fn() => $this->user?->name)`) — skip it.
-        $startIndex = 0;
-
-        if ($this->scope->closureRelationModelClass !== null && $count >= 2) {
-            $firstRelation = $resolver->resolveRelation($currentModel, $chain[0]['name']);
-
-            if ($firstRelation['type'] === 'unknown') {
-                $startIndex = 1;
-            }
-        }
-
-        for ($i = $startIndex; $i < $count - 1; $i++) {
-            $relationInfo = $resolver->resolveRelation($currentModel, $chain[$i]['name']);
-
-            if ($relationInfo['type'] === 'unknown' || $relationInfo['modelFqcn'] === null) {
-                return $this->unknownResult();
-            }
-
-            $currentModel = $relationInfo['modelFqcn'];
-        }
-
-        $lastStep = $chain[$count - 1];
-        $tsInfo = $resolver->resolveAttribute($currentModel, $lastStep['name']);
-
-        if ($tsInfo['type'] === 'unknown') {
-            // The final step may itself be a relation (e.g. $this->user?->profile).
-            $relationInfo = $resolver->resolveRelation($currentModel, $lastStep['name']);
-
-            if ($relationInfo['type'] === 'unknown') {
-                return $this->unknownResult();
-            }
-
-            $type = $hasNullable && ! str_ends_with($relationInfo['type'], ' | null')
-                ? $relationInfo['type'].' | null'
-                : $relationInfo['type'];
-
-            /** @var ValueExpressionResult $result */
-            $result = ['type' => $type, 'optional' => false];
-
-            if ($relationInfo['modelFqcn'] !== null) {
-                $result['modelFqcn'] = $relationInfo['modelFqcn'];
-            }
-
-            if ($relationInfo['morphFqcns'] !== []) {
-                $result['embeddedModelFqcns'] = $relationInfo['morphFqcns'];
-            }
-
-            return $result;
-        }
-
-        $type = $hasNullable && ! str_ends_with($tsInfo['type'], ' | null')
-            ? $tsInfo['type'].' | null'
-            : $tsInfo['type'];
-
-        /** @var ValueExpressionResult $result */
-        $result = ['type' => $type, 'optional' => false];
-
-        /** @var class-string|null $enumFqcn */
-        $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
-
-        if ($enumFqcn !== null) {
-            $result['directEnumFqcn'] = $enumFqcn;
-        }
-
-        return $result;
-    }
-
-    /**
-     * Analyze a nullsafe method-call chain rooted at `$this`, traversing relations to the terminal
-     * model and resolving the method's return type on it. The `?->` operator makes the result nullable.
-     *
-     * @return ValueExpressionResult
-     */
-    private function analyzeMethodChain(NullsafeMethodCall $call): array
-    {
-        $methodName = $call->name instanceof Identifier ? $call->name->toString() : null;
-
-        if ($methodName === null) {
-            return $this->unknownResult();
-        }
-
-        $chain = $this->decomposePropertyChain($call->var);
-
-        if ($chain === null || $chain === []) {
-            return $this->unknownResult();
-        }
-
-        /** @var class-string<Model>|null $currentModel */
-        $currentModel = $this->scope->closureRelationModelClass ?? $this->scope->modelClass;
-
-        if ($currentModel === null) {
-            return $this->unknownResult();
-        }
-
-        $resolver = resolve(ModelAttributeResolver::class);
-
-        // Skip the `$this->resource` wrapper property when it is not a real model relation
-        if ($chain[0]['name'] === 'resource') {
-            $check = $resolver->resolveRelation($currentModel, 'resource');
-
-            if ($check['type'] === 'unknown') {
-                array_shift($chain);
-            }
-        }
-
-        if ($chain === []) {
-            return $this->unknownResult();
-        }
-
-        $count = count($chain);
-
-        // Inside a whenLoaded closure the first step may be the resource's proxy to the already-loaded
-        // relation model (`$this->categoryRel` in `whenLoaded('categoryRel', ...)`) — skip it.
-        $startIndex = 0;
-
-        if ($this->scope->closureRelationModelClass !== null) {
-            $firstRelation = $resolver->resolveRelation($currentModel, $chain[0]['name']);
-
-            if ($firstRelation['type'] === 'unknown') {
-                $startIndex = 1;
-            }
-        }
-
-        for ($i = $startIndex; $i < $count - 1; $i++) {
-            $relationInfo = $resolver->resolveRelation($currentModel, $chain[$i]['name']);
-
-            if ($relationInfo['type'] === 'unknown' || $relationInfo['modelFqcn'] === null) {
-                return $this->unknownResult();
-            }
-
-            /** @var class-string<Model> $relatedModel */
-            $relatedModel = $relationInfo['modelFqcn'];
-            $currentModel = $relatedModel;
-        }
-
-        if ($startIndex <= $count - 1) {
-            $lastStep = $chain[$count - 1];
-            $relationInfo = $resolver->resolveRelation($currentModel, $lastStep['name']);
-
-            if ($relationInfo['type'] !== 'unknown' && $relationInfo['modelFqcn'] !== null) {
-                /** @var class-string<Model> $relatedModel */
-                $relatedModel = $relationInfo['modelFqcn'];
-                $currentModel = $relatedModel;
-            }
-        }
-
-        $tsInfo = $resolver->resolveMethodReturnType($currentModel, $methodName);
-
-        if ($tsInfo['type'] === '' || $tsInfo['type'] === 'unknown') {
-            // Same convention rules analyzeWrappedResourceMethodCall() uses for the non-nullsafe chain.
-            $tsInfo = $this->knownMethodRule($call) ?? $this->unknownResult();
-        }
-
-        if ($tsInfo['type'] === 'unknown') {
-            return $this->unknownResult();
-        }
-
-        $type = str_ends_with($tsInfo['type'], ' | null')
-            ? $tsInfo['type']
-            : $tsInfo['type'].' | null';
-
-        return ['type' => $type, 'optional' => false];
     }
 
     /**
@@ -1688,200 +1372,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Analyze `$this->anyProp->subProp` — a property fetch on one of `$this`'s properties.
-     *
-     * PHP enum universals: `->name` is always string, `->value` follows the enum's backing type.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWrappedEnumResourceProperty(PropertyFetch $expr): array
-    {
-        $result = $this->unknownResult();
-        $innerProp = $expr->name instanceof Identifier ? $expr->name->toString() : null;
-
-        if ($innerProp === null) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        // Guarded on the wrapped type actually being an enum: without it, a model-backed
-        // `$this->resource->column` would silently receive 'string' instead of its column type.
-        $wrappedClass = $this->resolveWrappedClass();
-
-        if ($wrappedClass === null || ! enum_exists($wrappedClass)) {
-            return $result;
-        }
-
-        if ($innerProp === 'name') {
-            return [
-                ...$result,
-                'type' => 'string',
-            ];
-        }
-
-        if ($innerProp === 'value') {
-            return [
-                ...$result,
-                'type' => $this->resolveEnumValueBackingType(),
-            ];
-        }
-
-        return $result;
-    }
-
-    /**
-     * Analyze `$this->anyProp->subProp` where `$this->anyProp` is a wrapped model resource
-     * (i.e. has a `@var ModelType|null` docblock on `$resource`).
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWrappedModelResourceProperty(PropertyFetch $expr): array
-    {
-        $result = $this->unknownResult();
-        $innerProp = $expr->name instanceof Identifier ? $expr->name->toString() : null;
-
-        if ($innerProp === null) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        $wrappedClass = $this->resolveWrappedClass();
-
-        if ($wrappedClass === null || ! class_exists($wrappedClass)) {
-            return $result;
-        }
-
-        $info = $this->resolveModelAttributeTypeInfo($innerProp);
-
-        if ($info['type'] !== 'unknown') {
-            $result = ['type' => $info['type'], 'optional' => false];
-
-            if ($info['enumFqcn'] !== null) {
-                $result['directEnumFqcn'] = $info['enumFqcn']; // @codeCoverageIgnore
-            }
-
-            return $result;
-        }
-
-        return $result; // @codeCoverageIgnore
-    }
-
-    /**
-     * Analyze `$this->anyProp->method()` by resolving the method on the wrapped class.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWrappedResourceMethodCall(MethodCall $expr): array
-    {
-        $result = $this->unknownResult();
-        $methodName = $expr->name instanceof Identifier ? $expr->name->toString() : null;
-
-        if ($methodName === null) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        $wrappedClass = $this->resolveWrappedClass();
-
-        if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
-            /** @var class-string $wrappedClass */
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
-            $accepted = resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
-
-            if ($accepted !== null) {
-                return $accepted;
-            }
-        } elseif ($this->scope->modelClass !== null && method_exists($this->scope->modelClass, $methodName)) {
-            // @mixin-style resources: `$this->resource->commentsCount()` lives on the model.
-            /** @var class-string $modelClass */
-            $modelClass = $this->scope->modelClass;
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
-            $accepted = resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
-
-            if ($accepted !== null) {
-                return $accepted;
-            }
-        }
-
-        // On a date-cast receiver (e.g. `created_at`) the method is a Carbon instance method reached
-        // through the cast, not declared on the model — reflect it on Carbon/CarbonImmutable instead.
-        if ($expr->var instanceof PropertyFetch && $expr->var->name instanceof Identifier) {
-            $receiverAttr = $this->scope->modelClass !== null
-                ? resolve(ModelAttributeResolver::class)->getAttributes($this->scope->modelClass)
-                    ?->firstWhere('name', $expr->var->name->toString())
-                : null;
-
-            $cast = $receiverAttr['cast'] ?? null;
-
-            if (is_string($cast) && $this->isDateFamilyCast($cast)) {
-                $carbonClass = str_starts_with($cast, 'immutable_')
-                    ? CarbonImmutable::class
-                    : Carbon::class;
-
-                if (! $this->carbonMethodReturnsUnimportableStringable($carbonClass, $methodName)) {
-                    $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(
-                        new ReflectionClass($carbonClass),
-                        $methodName,
-                    );
-
-                    $accepted = resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
-
-                    if ($accepted !== null) {
-                        return $accepted;
-                    }
-                }
-            }
-        }
-
-        // Known-method rules — authorization checks and relation counts/existence.
-        $known = $this->knownMethodRule($expr);
-
-        if ($known !== null) {
-            return $known;
-        }
-
-        return $result;
-    }
-
-    /**
-     * Determine whether a Carbon(Immutable) method returns a __toString()-only class, not a genuine string.
-     *
-     * Needed since toTsType() erases Stringable classes to a bare `string` — mirrors step 5b's own condition.
-     * Carbon/CarbonImmutable are excluded — their `__toString()` IS the canonical value, unlike CarbonInterval's.
-     */
-    protected function carbonMethodReturnsUnimportableStringable(string $carbonClass, string $methodName): bool
-    {
-        if (! method_exists($carbonClass, $methodName)) {
-            return false;
-        }
-
-        $returnType = new ReflectionMethod($carbonClass, $methodName)->getReturnType();
-
-        if (! $returnType instanceof ReflectionNamedType) {
-            return false;
-        }
-
-        $name = $returnType->getName();
-
-        if (in_array($name, [BaseCarbon::class, CarbonImmutable::class], true)) {
-            return false;
-        }
-
-        return class_exists($name)
-            && ! is_a($name, Model::class, true)
-            && method_exists($name, '__toString');
-    }
-
-    /**
-     * Determine whether a resolved model cast belongs to the date/datetime family, including
-     * immutable_* variants and the `:format` suffix on custom_datetime casts.
-     */
-    protected function isDateFamilyCast(string $cast): bool
-    {
-        return in_array(explode(':', $cast)[0], [
-            'date', 'datetime', 'custom_datetime', 'timestamp',
-            'immutable_date', 'immutable_datetime', 'immutable_custom_datetime',
-        ], true);
-    }
-
-    /**
      * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
      * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
      *
@@ -1894,228 +1384,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return resolve(ModelAttributeResolver::class)->resolveRelation($this->scope->modelClass, $name);
-    }
-
-    /**
-     * Analyze a method-call chain on `$this->{manyRelation}` of identity-preserving ops plus at most
-     * one `map()`/`pluck()`, or an argless `first()`/`last()`.
-     *
-     * Anything else returns null and falls through — e.g. `$this->items->count()` still reaches knownMethodRule().
-     *
-     * @return ValueExpressionResult|null
-     */
-    protected function analyzeRelationCollectionChain(MethodCall $call): ?array
-    {
-        $identityOps = [
-            'take', 'skip', 'filter', 'reject', 'values', 'unique',
-            'sortBy', 'sortByDesc', 'slice', 'reverse', 'where', 'whereNotNull',
-            'load', 'loadMissing',
-        ];
-
-        // Walk down the chain collecting op names until we reach $this->prop.
-        /** @var list<array{name: string, node: MethodCall}> $ops */
-        $ops = [];
-        $node = $call;
-
-        while ($node instanceof MethodCall) {
-            if (! $node->name instanceof Identifier) {
-                return null;
-            }
-
-            $ops[] = ['name' => $node->name->toString(), 'node' => $node];
-            $node = $node->var;
-        }
-
-        if (! $node instanceof PropertyFetch || ! $this->isThisPropertyFetch($node) || ! $node->name instanceof Identifier) {
-            return null;
-        }
-
-        $relationInfo = $this->resolveModelRelationTypeInfo($node->name->toString());
-
-        if (! str_ends_with($relationInfo['type'], '[]') || $relationInfo['modelFqcn'] === null) {
-            return null;
-        }
-
-        $elementModel = $relationInfo['modelFqcn'];
-
-        // first()/last() as the outermost op terminate the chain with a single element or null. $ops[0]
-        // is the outermost call because the walk above collects outside-in, and always exists here: the
-        // while loop above ran at least once, since $call is typed as MethodCall.
-        $terminalOp = $ops[0]['name'];
-        $isTerminal = ($terminalOp === 'first' || $terminalOp === 'last')
-            && ! $ops[0]['node']->isFirstClassCallable()
-            && $ops[0]['node']->getArgs() === [];
-
-        if ($isTerminal) {
-            array_shift($ops);
-        }
-
-        $mapNode = null;
-        $pluckNode = null;
-
-        // A relation collection starts keyed 0..n-1; each op below says whether that still holds.
-        $sequentialKeys = true;
-
-        foreach (array_reverse($ops) as $op) {
-            if (in_array($op['name'], $identityOps, true)) {
-                $sequentialKeys = match ($op['name']) {
-                    'values' => true,
-                    'take' => $sequentialKeys && $this->isFrontAnchoredTake($op['node']),
-                    'load', 'loadMissing' => $sequentialKeys,
-                    default => false,
-                };
-
-                continue;
-            }
-
-            if ($op['name'] === 'map' && $mapNode === null && $pluckNode === null) {
-                // map() preserves the receiver's keys, so it neither breaks nor restores sequentiality.
-                $mapNode = $op['node'];
-
-                continue;
-            }
-
-            if ($op['name'] === 'pluck' && $pluckNode === null && $mapNode === null) {
-                $pluckNode = $op['node'];
-                $sequentialKeys = $op['node']->isFirstClassCallable() || count($op['node']->getArgs()) < 2;
-
-                continue;
-            }
-
-            // Unsupported op, including a 2nd map()/pluck() or map()+pluck() combined.
-            return null;
-        }
-
-        if ($isTerminal) {
-            if ($mapNode !== null || $pluckNode !== null) {
-                return null; // YAGNI: map()/pluck() combined with a first()/last() terminal.
-            }
-
-            return [
-                ...$this->unknownResult(),
-                'type' => class_basename($elementModel).' | null',
-                'optional' => false,
-                'modelFqcn' => $elementModel,
-            ];
-        }
-
-        if ($mapNode === null && $pluckNode === null) {
-            return [
-                ...$this->unknownResult(),
-                'type' => $sequentialKeys ? $relationInfo['type'] : $this->keyedObjectArm($relationInfo['type']),
-                'optional' => false,
-                'modelFqcn' => $elementModel,
-            ];
-        }
-
-        if ($pluckNode !== null) {
-            // First-class callable syntax (`->pluck(...)`) has no args: CallLike::getArgs() asserts
-            // !isFirstClassCallable() and throws AssertionError under zend.assertions=1 (PHP's dev
-            // default), and analyzeVariablePluckCall() calls getArgs() unconditionally.
-            if ($pluckNode->isFirstClassCallable()) {
-                return null;
-            }
-
-            $previousContext = $this->scope->closureRelationModelClass;
-            $this->scope->closureRelationModelClass = $elementModel;
-
-            try {
-                $pluckResult = $this->analyzeVariablePluckCall($pluckNode);
-            } finally {
-                $this->scope->closureRelationModelClass = $previousContext;
-            }
-
-            // analyzeVariablePluckCall() degrades an unresolved field to 'unknown[]'; normalize to null
-            // so the caller's fallthrough produces plain 'unknown' like every other unrecognized chain.
-            if ($pluckResult['type'] === 'unknown[]') {
-                return null;
-            }
-
-            if (! $sequentialKeys) {
-                $pluckResult['type'] = $this->keyedObjectArm($pluckResult['type']);
-            }
-
-            return [...$this->unknownResult(), ...$pluckResult];
-        }
-
-        // The map argument must be a Closure/ArrowFunction: a callable-array (`[$this, 'method']`) or a
-        // bare string callable (`'strtoupper'`) is itself a valid expression node, so analyzeValueExpression()
-        // would resolve *that* — 'strtoupper' → 'string', wrongly wrapped here to 'string[]'.
-        /** @var MethodCall $mapNode */
-        // First-class callable syntax (`->map(...)`) has no args: getArgs() throws AssertionError under
-        // zend.assertions=1 rather than returning [].
-        if ($mapNode->isFirstClassCallable()) {
-            return null;
-        }
-
-        $args = $mapNode->getArgs();
-
-        if ($args === []) {
-            return null; // @codeCoverageIgnore
-        }
-
-        $mapArg = $args[0]->value;
-
-        if (! $mapArg instanceof ArrowFunction && ! $mapArg instanceof ClosureExpr) {
-            return null;
-        }
-
-        $previousContext = $this->scope->closureRelationModelClass;
-        $previousVarModelBindings = $this->scope->varModelBindings;
-        $this->scope->closureRelationModelClass = $elementModel;
-
-        if ($mapArg->params !== []
-            && $mapArg->params[0]->var instanceof Variable
-            && is_string($mapArg->params[0]->var->name)
-        ) {
-            $this->scope->varModelBindings[$mapArg->params[0]->var->name] = $elementModel;
-        }
-
-        try {
-            $bodyResult = $this->analyzeValueExpression($mapArg);
-        } finally {
-            $this->scope->closureRelationModelClass = $previousContext;
-            $this->scope->varModelBindings = $previousVarModelBindings;
-        }
-
-        if ($bodyResult['type'] === 'unknown') {
-            return null;
-        }
-
-        // A map body entirely `EnumResource::make(...)` carries a live 'enumFqcn' through; the
-        // transformer's substitution-based rewrite reproduces whatever shape results, including
-        // the keyed Record arm a non-sequential filter()/sortBy() introduces.
-        $mapped = $this->arrayWrapType($bodyResult['type']);
-
-        return [
-            ...$bodyResult,
-            'type' => $sequentialKeys ? $mapped : $this->keyedObjectArm($mapped),
-            'optional' => false,
-        ];
-    }
-
-    /**
-     * Whether a `take()` call slices from the front, where a sequentially keyed receiver stays sequential.
-     *
-     * A negative count takes from the tail and a non-literal count could be either, so both are rejected.
-     */
-    private function isFrontAnchoredTake(MethodCall $call): bool
-    {
-        if ($call->isFirstClassCallable()) {
-            return false;
-        }
-
-        $args = $call->getArgs();
-
-        return count($args) === 1 && $args[0]->value instanceof Int_;
-    }
-
-    /**
-     * Add the object arm json_encode emits for a gapped or reordered collection: `X[]` → `X[] | Record<string, X>`.
-     */
-    private function keyedObjectArm(string $arrayType): string
-    {
-        return $arrayType.' | Record<string, '.substr($arrayType, 0, -2).'>';
     }
 
     /**
@@ -2189,25 +1457,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return null;
-    }
-
-    /**
-     * Determine the TypeScript type for a backed enum's `->value` property from its backing type.
-     */
-    protected function resolveEnumValueBackingType(): string
-    {
-        $wrappedClass = $this->resolveWrappedClass();
-
-        if ($wrappedClass !== null && enum_exists($wrappedClass)) {
-            $r = new ReflectionEnum($wrappedClass);
-            $backingType = $r->getBackingType();
-
-            if ($backingType !== null) {
-                return $backingType->getName() === 'string' ? 'string' : 'number';
-            }
-        }
-
-        return 'string | number';
     }
 
     /**
@@ -2479,16 +1728,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return null;
-    }
-
-    /**
-     * Resolve the wrapped class for this resource, falling back to the instanceof guard clause hint.
-     *
-     * @return class-string|null
-     */
-    protected function resolveWrappedClass(): ?string
-    {
-        return $this->resolveClassOnProperty($this->scope->subjectReflection) ?? $this->scope->instanceOfWrappedClass;
     }
 
     /**

@@ -8,17 +8,17 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesEnumPropertyArgTypes;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
-use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Http\Resources\Json\ResourceCollection;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\PropertyFetch;
@@ -42,7 +42,9 @@ final class ThisPropertyHandler implements ExpressionHandler
 {
     use ChecksPreserveKeys;
     use InspectsAstNodes;
+    use InspectsResourceSubject;
     use ResolvesEnumPropertyArgTypes;
+    use ResolvesModelRelationTypes;
 
     /** @return list<class-string<Expr>> */
     public function nodeClasses(): array
@@ -207,20 +209,9 @@ final class ThisPropertyHandler implements ExpressionHandler
     }
 
     /**
-     * Determine whether the analyzed resource is a ResourceCollection subclass.
-     *
-     * Mirrors ResourceAstAnalyzer::isResourceCollection(); duplicated for $scope, not $this->scope —
-     * still used elsewhere on the analyzer (analyze(), analyzePropertyChain()), so it stays there too.
-     */
-    private function isResourceCollection(AnalysisScope $scope): bool
-    {
-        return $scope->subjectReflection->isSubclassOf(ResourceCollection::class);
-    }
-
-    /**
      * Analyze $this->collection in a ResourceCollection: the singular resource type as an array,
      * or a keyed record when the collection preserves keys. The sole implementation now — its only
-     * caller moved here with it, unlike isResourceCollection()/resolveSingularResourceClass() below.
+     * caller moved here with it, unlike resolveSingularResourceClass() below.
      *
      * @return ValueExpressionResult
      */
@@ -254,24 +245,6 @@ final class ThisPropertyHandler implements ExpressionHandler
         $ownFqcn = $scope->subjectReflection->getName();
 
         return $this->resolveCollectedResourceClass($ownFqcn);
-    }
-
-    /**
-     * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
-     * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
-     *
-     * Mirrors ResourceAstAnalyzer's own override of this name; duplicated for $scope, not $this->scope —
-     * same already-deferred cluster as ConditionalMethodHandler's and ToResourceHandler's copies.
-     *
-     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
-     */
-    private function resolveModelRelationTypeInfo(string $name, AnalysisScope $scope): array
-    {
-        if ($scope->modelClass === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveRelation($scope->modelClass, $name);
     }
 
     /**

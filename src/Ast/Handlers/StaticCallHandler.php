@@ -7,6 +7,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesEnumPropertyArgTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
@@ -15,7 +16,6 @@ use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\ReflectedTypeAcceptor;
 use AbeTwoThree\LaravelTsPublish\Ast\SubjectMethodTypeResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
-use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\ResourceCollection;
@@ -44,7 +44,7 @@ final class StaticCallHandler implements ExpressionHandler
 {
     use ChecksPreserveKeys;
     use InspectsAstNodes;
-    use ResolvesClassNames;
+    use InspectsResourceSubject;
     use ResolvesEnumPropertyArgTypes;
     use ResolvesRelatedModelTypes;
 
@@ -417,14 +417,6 @@ final class StaticCallHandler implements ExpressionHandler
         }
 
         return $result;
-    }
-
-    /**
-     * Mirrors ResourceAstAnalyzer::resolveWrappedClass(), duplicated for $scope, not $this->scope.
-     */
-    private function resolveWrappedClass(AnalysisScope $scope): ?string
-    {
-        return $this->resolveClassOnProperty($scope->subjectReflection) ?? $scope->instanceOfWrappedClass;
     }
 
     /**

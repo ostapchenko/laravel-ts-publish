@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Ast;
 
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
-use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use ReflectionClass;
 
@@ -15,13 +15,13 @@ use ReflectionClass;
  * `__call`/`@mixin`.
  *
  * Shared because more than one guard reflects a subject method the same way: StaticCallHandler's
- * `$this::staticMethod()` branch and the generic `$this->method()` guard still on the analyzer.
+ * `$this::staticMethod()` branch and RelationCollectionChainHandler's generic `$this->method()` guard.
  *
  * @phpstan-import-type ValueExpressionResult from ExpressionHandler
  */
 final class SubjectMethodTypeResolver
 {
-    use ResolvesClassNames;
+    use InspectsResourceSubject;
 
     /**
      * @return ValueExpressionResult
@@ -61,13 +61,5 @@ final class SubjectMethodTypeResolver
         }
 
         return ValueResult::unknown();
-    }
-
-    /**
-     * Mirrors ResourceAstAnalyzer::resolveWrappedClass(), duplicated for $scope, not $this->scope.
-     */
-    private function resolveWrappedClass(AnalysisScope $scope): ?string
-    {
-        return $this->resolveClassOnProperty($scope->subjectReflection) ?? $scope->instanceOfWrappedClass;
     }
 }

@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
@@ -31,6 +32,7 @@ use PhpParser\Node\Scalar\String_;
 final class RelationFilterHandler implements ExpressionHandler
 {
     use InspectsAstNodes;
+    use ResolvesModelRelationTypes;
 
     /** @return list<class-string<Expr>> */
     public function nodeClasses(): array
@@ -526,24 +528,6 @@ final class RelationFilterHandler implements ExpressionHandler
             'modelFqcns' => $collectedModelFqcns,
             'customImports' => $collectedCustomImports,
         ];
-    }
-
-    /**
-     * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
-     * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
-     *
-     * Mirrors ResourceAstAnalyzer's own override of this name; duplicated for $scope, not $this->scope —
-     * same already-deferred cluster as ConditionalMethodHandler's and ToResourceHandler's copies.
-     *
-     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
-     */
-    private function resolveModelRelationTypeInfo(string $name, AnalysisScope $scope): array
-    {
-        if ($scope->modelClass === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveRelation($scope->modelClass, $name);
     }
 
     /**

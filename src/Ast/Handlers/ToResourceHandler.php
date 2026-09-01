@@ -7,13 +7,13 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
-use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Str;
@@ -34,6 +34,7 @@ final class ToResourceHandler implements ExpressionHandler
 {
     use ChecksPreserveKeys;
     use InspectsAstNodes;
+    use ResolvesModelRelationTypes;
 
     /** @return list<class-string<Expr>> */
     public function nodeClasses(): array
@@ -322,22 +323,5 @@ final class ToResourceHandler implements ExpressionHandler
         return class_exists($collectionFqcn) && is_a($collectionFqcn, ResourceCollection::class, true)
             ? $collectionFqcn
             : null;
-    }
-
-    /**
-     * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
-     * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
-     *
-     * Mirrors ResourceAstAnalyzer's own override of this name; duplicated for $scope, not $this->scope.
-     *
-     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
-     */
-    private function resolveModelRelationTypeInfo(string $name, AnalysisScope $scope): array
-    {
-        if ($scope->modelClass === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveRelation($scope->modelClass, $name);
     }
 }
