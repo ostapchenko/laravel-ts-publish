@@ -1231,9 +1231,9 @@ Task 19 (Slice S6) moved static-call/`new`/`toResource` construction out of the 
   (`toResourceCollection(SomeResource::class)`) and the arm that resolves a collection through
   `resolveResourceCollectionForModel()`. They reflect on different classes; see the note below.
 - **A `ResourceCollection` with no `toArray()` override, delegating to `$this->collection`** — two
-  calls, both still on `ResourceAstAnalyzer`, in `buildCollectionDelegatedAnalysis()` (one call whose
-  element type feeds both the `flatTypeAlias` branch and the wrapped-`data`-key branch) and
-  `analyzeCollectionProperty()` (the `$this->collection` property read).
+  calls: `ResourceAstAnalyzer::buildCollectionDelegatedAnalysis()` (one call whose element type feeds
+  both the `flatTypeAlias` branch and the wrapped-`data`-key branch) and
+  `ThisPropertyHandler::analyzeCollectionProperty()` (the `$this->collection` property read).
 
 That count is exactly what a future change to any of these methods is liable to get wrong — a site
 that's missed silently keeps emitting `R[]`, and nothing catches it until a fixture exercises that

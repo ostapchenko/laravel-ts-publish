@@ -1600,28 +1600,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Analyze $this->collection in a ResourceCollection, resolving it to the singular resource
-     * type as an array, or a keyed record when the collection preserves keys.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeCollectionProperty(): array
-    {
-        $result = $this->unknownResult();
-        $singular = $this->resolveSingularResourceClass();
-
-        if ($singular === null) {
-            return $result;
-        }
-
-        return [
-            ...$result,
-            'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($singular), $this->scope->subjectReflection),
-            'resourceFqcn' => $singular,
-        ];
-    }
-
-    /**
      * Resolve the element model behind a `->map` proxy receiver: a whenLoaded to-many closure
      * parameter, or `$this->relation` itself. A singular relation's bound variable is not a
      * collection and must not match, so it returns null rather than guessing a shape.

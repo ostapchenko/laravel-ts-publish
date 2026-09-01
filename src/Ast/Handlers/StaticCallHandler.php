@@ -428,9 +428,9 @@ final class StaticCallHandler implements ExpressionHandler
     }
 
     /**
-     * Mirrors ResourceAstAnalyzer::buildInlineObjectType(), duplicated because this per-call handler
-     * cannot reach the analyzer's private copy. Any enum-token substitution has to be applied to the
-     * properties before this is called.
+     * Mirrors InlineArrayHandler::buildInlineObjectType(), duplicated because this per-call handler
+     * cannot reach its private copy. Any enum-token substitution has to be applied to the properties
+     * before this is called.
      */
     private function buildInlineObjectType(MethodAnalysis $analysis): string
     {

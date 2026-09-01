@@ -245,8 +245,9 @@ final class ThisPropertyHandler implements ExpressionHandler
 
     /**
      * Resolve the singular resource FQCN this ResourceCollection collects.
+     * See InspectsAstNodes::resolveCollectedResourceClass() for the resolution order.
      *
-     * Mirrors ResourceAstAnalyzer::resolveSingularResourceClass(); duplicated for $scope.
+     * Mirrors ResourceAstAnalyzer's own copy; duplicated for $scope.
      *
      * @return class-string<JsonResource>|null
      */

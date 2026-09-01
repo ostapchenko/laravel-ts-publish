@@ -91,37 +91,6 @@ trait ResolvesModelTypes
     }
 
     /**
-     * If $propName is an accessor attribute whose getter returns exactly one Eloquent Model
-     * subclass, return its FQCN. Used by analyzeRelationFilter() as a fallback when the
-     * property is not a database relation.
-     *
-     * @return class-string<Model>|null
-     */
-    protected function resolveAccessorModelFqcn(string $propName): ?string
-    {
-        if ($this->scope->modelClass === null) {
-            return null; // @codeCoverageIgnore
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcn($this->scope->modelClass, $propName);
-    }
-
-    /**
-     * Return all Eloquent Model FQCNs that an accessor returns.
-     * Used by analyzeRelationFilter() when the accessor union-types multiple models.
-     *
-     * @return list<class-string<Model>>
-     */
-    protected function resolveAccessorModelFqcns(string $propName): array
-    {
-        if ($this->scope->modelClass === null) {
-            return []; // @codeCoverageIgnore
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcns($this->scope->modelClass, $propName);
-    }
-
-    /**
      * Build a ResourceAnalysis from all model attributes and relations when the resource
      * delegates to JsonResource::toArray(). $excludeHidden is false only for only(), whose
      * property set is the caller's own keys — also gates the write-only mutator skip below.
