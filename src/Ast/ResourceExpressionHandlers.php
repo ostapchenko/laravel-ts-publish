@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast;
 
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ArrayMergeHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\BinaryOpHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClassConstantHandler;
@@ -14,6 +15,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CoalesceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InertiaWrapperHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InlineArrayHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownMethodRuleHandler;
@@ -37,8 +39,8 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\VariableHandler;
 final class ResourceExpressionHandlers
 {
     /**
-     * The full resource profile — all 22 handlers extracted in Tasks 14-22, in their chain-derived
-     * dispatch order. $engine mirrors the `make($this)` call site; unused today, kept for a future
+     * The full resource profile — the 22 handlers extracted in Tasks 14-22 plus Task 34's two, in their
+     * chain-derived dispatch order. $engine mirrors the `make($this)` call site; unused today, kept for a future
      * handler that needs the engine at construction.
      *
      * @return list<ExpressionHandler>
@@ -65,7 +67,7 @@ final class ResourceExpressionHandlers
     }
 
     /**
-     * Construct all 22 handlers in registration order — the single source both profiles above filter.
+     * Construct all 24 handlers in registration order — the single source both profiles above filter.
      *
      * @return list<ExpressionHandler>
      */
@@ -79,10 +81,12 @@ final class ResourceExpressionHandlers
             new ClassConstantHandler,
             new BinaryOpHandler,
             new CoalesceHandler,
+            new ArrayMergeHandler,
             new KnownFunctionCallHandler,
             new ClosureHandler,
             new ConditionalMethodHandler,
             new ToResourceHandler,
+            new InertiaWrapperHandler,
             new StaticCallHandler,
             new NewResourceHandler,
             new ThisPropertyHandler,

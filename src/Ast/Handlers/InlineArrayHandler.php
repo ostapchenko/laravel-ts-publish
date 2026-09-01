@@ -350,7 +350,7 @@ final class InlineArrayHandler implements ExpressionHandler
      */
     private function isKnownArraySpreadShape(Expr $value): bool
     {
-        if ($this->isParentToArrayCall($value)) {
+        if ($this->isParentCallTo($value)) {
             return true;
         }
 

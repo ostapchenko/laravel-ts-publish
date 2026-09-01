@@ -86,6 +86,14 @@ final class AnalysisScope
     public array $visitedSpreadMethods = [];
 
     /**
+     * Variable names holding an `Illuminate\Http\Request`, so the Request method rules fire on
+     * `$request->user()` and stay off an unrelated receiver that happens to share a method name.
+     *
+     * @var array<string, true>
+     */
+    public array $requestVarNames = [];
+
+    /**
      * @param  ReflectionClass<object>  $subjectReflection  the resource (or other AST subject) under analysis
      * @param  class-string<Model>|null  $modelClass  its resolved backing model, if any
      */

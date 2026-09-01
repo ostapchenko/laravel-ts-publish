@@ -215,15 +215,23 @@ trait InspectsAstNodes
     }
 
     /**
-     * Check if an expression is a parent::toArray() call.
+     * Check if an expression is a `parent::{$methodName}()` call, or any parent:: call when null.
      */
-    protected function isParentToArrayCall(Expr $expr): bool
+    protected function isParentCallTo(Expr $expr, ?string $methodName = null): bool
     {
         return $expr instanceof StaticCall
             && $expr->class instanceof Name
             && $expr->class->toLowerString() === 'parent'
             && $expr->name instanceof Identifier
-            && $expr->name->toString() === 'toArray';
+            && ($methodName === null || $expr->name->toString() === $methodName);
+    }
+
+    /**
+     * Check if an expression is a parent::toArray() call.
+     */
+    protected function isParentToArrayCall(Expr $expr): bool
+    {
+        return $this->isParentCallTo($expr, 'toArray');
     }
 
     /**

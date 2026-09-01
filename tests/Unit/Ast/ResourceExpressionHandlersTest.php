@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ArrayMergeHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\BinaryOpHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClassConstantHandler;
@@ -13,6 +14,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CoalesceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InertiaWrapperHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InlineArrayHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownMethodRuleHandler;
@@ -36,7 +38,9 @@ use PhpParser\Node\Expr\ArrayItem;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
+use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\VariadicPlaceholder;
 use Workbench\App\Http\Resources\CommentResource;
@@ -49,8 +53,8 @@ use Workbench\Crm\Models\User as CrmUser;
 
 /**
  * The documented dispatch order for the resource profile — Tasks 14-22's chain-derived precedence,
- * moved unchanged by Task 23. A change here without a matching change in
- * ResourceExpressionHandlers::handlers() is exactly the defect this test exists to catch.
+ * moved unchanged by Task 23, plus Task 34's two handlers. A change here without a matching change
+ * in ResourceExpressionHandlers::handlers() is exactly the defect this test exists to catch.
  *
  * @return list<class-string<ExpressionHandler>>
  */
@@ -64,10 +68,12 @@ function resourceExpressionHandlerOrder(): array
         ClassConstantHandler::class,
         BinaryOpHandler::class,
         CoalesceHandler::class,
+        ArrayMergeHandler::class,
         KnownFunctionCallHandler::class,
         ClosureHandler::class,
         ConditionalMethodHandler::class,
         ToResourceHandler::class,
+        InertiaWrapperHandler::class,
         StaticCallHandler::class,
         NewResourceHandler::class,
         ThisPropertyHandler::class,
@@ -104,7 +110,7 @@ function resourceExpressionHandlersTestEngine(): ExpressionEngine
     };
 }
 
-it('returns all 22 handlers in the documented dispatch order', function () {
+it('returns all 24 handlers in the documented dispatch order', function () {
     $classes = array_map(
         fn (ExpressionHandler $handler): string => $handler::class,
         ResourceExpressionHandlers::make(resourceExpressionHandlersTestEngine()),
@@ -128,7 +134,7 @@ it('excludes exactly the three resource-only handlers from generic(), same relat
         ], true),
     ));
 
-    expect($classes)->toHaveCount(19)
+    expect($classes)->toHaveCount(21)
         ->and($classes)->toBe($expected);
 });
 
@@ -175,4 +181,14 @@ it('tries ThisPropertyHandler before PropertyChainHandler for a multi-FQCN acces
         'optional' => false,
         'embeddedModelFqcns' => [CrmUser::class, User::class],
     ]);
+});
+
+// Ordering pin #4: StaticCallHandler's last arm claims every StaticCall and never declines, so if it
+// ran first it would reflect `Inertia::always` as an ordinary static method and floor this at
+// unknown instead of resolving the wrapped value.
+it('tries InertiaWrapperHandler before StaticCallHandler for Inertia::always(...)', function () {
+    $expr = new StaticCall(new Name('Inertia'), 'always', [new Arg(new String_('en'))]);
+    $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+
+    expect($analyzer->resolve($expr))->toBe(['type' => 'string', 'optional' => false]);
 });

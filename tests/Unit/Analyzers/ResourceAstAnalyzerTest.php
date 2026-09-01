@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\UnreadableReturnResource;
 use AbeTwoThree\LaravelTsPublish\Transformers\ResourceTransformer;
 use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
@@ -1999,8 +2000,17 @@ describe('ResourceAstAnalyzer with a non-$this receiver in a spread method chain
 });
 
 describe('ResourceAstAnalyzer non-array return', function () {
-    test('returns empty analysis for non-array non-parent return', function () {
+    test('merges a returned array_merge() of array literals', function () {
         $reflection = new ReflectionClass(NonArrayReturnResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, User::class);
+        $analysis = $analyzer->analyze();
+
+        expect($analysis)->toBeInstanceOf(ResourceAnalysis::class)
+            ->and(array_column($analysis->properties, 'type', 'name'))->toBe(['id' => 'number', 'name' => 'string']);
+    });
+
+    test('returns empty analysis for a returned call it cannot read statically', function () {
+        $reflection = new ReflectionClass(UnreadableReturnResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, User::class);
         $analysis = $analyzer->analyze();
 

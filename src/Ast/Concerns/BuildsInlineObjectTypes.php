@@ -18,6 +18,8 @@ trait BuildsInlineObjectTypes
     /**
      * Flatten an analysis's properties into an inline TypeScript object literal type.
      *
+     * A spread or an array_merge() can re-declare a key; PHP keeps the first position and the last
+     * value, and TypeScript rejects the duplicate outright (TS2300), so collapse before rendering.
      * Any enum-token substitution has to be applied to the properties before this is called.
      */
     protected function buildInlineObjectType(MethodAnalysis $analysis): string
@@ -26,11 +28,17 @@ trait BuildsInlineObjectTypes
             return 'Record<string, unknown>';
         }
 
+        $collapsed = [];
+
+        foreach ($analysis->properties as $prop) {
+            $collapsed[$prop['name']] = $prop;
+        }
+
         $parts = array_map(function (array $prop): string {
             $key = LaravelTsPublish::validJsObjectKey($prop['name']);
 
             return $prop['optional'] ? "{$key}?: {$prop['type']}" : "{$key}: {$prop['type']}";
-        }, $analysis->properties);
+        }, array_values($collapsed));
 
         return '{ '.implode('; ', $parts).' }';
     }

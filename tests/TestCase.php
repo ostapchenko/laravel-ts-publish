@@ -28,6 +28,7 @@ use Symfony\Component\Finder\SplFileInfo;
 use Workbench\Accounting\Enums\InvoiceStatus;
 use Workbench\Accounting\Enums\PaymentStatus;
 use Workbench\Accounting\Models\Invoice;
+use Workbench\App\Models\User as WorkbenchUser;
 use Workbench\App\Providers\WorkbenchServiceProvider;
 use Workbench\Shipping\Enums\Status;
 use Workbench\Shipping\Models\Shipment;
@@ -103,6 +104,9 @@ class TestCase extends Orchestra
 
         config()->set([
             'database.default' => 'testing',
+            // Testbench defaults the auth provider to Illuminate's own User; point it at the
+            // workbench model so AuthUserResolver sees what a real application would.
+            'auth.providers.users.model' => WorkbenchUser::class,
             // Laravel13Connection is collected on every full model pass, so this must resolve
             // globally; only its dedicated test in ModelTransformerTest.php creates a table on it.
             'database.connections.laravel13_secondary' => [

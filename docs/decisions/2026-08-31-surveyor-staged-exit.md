@@ -34,3 +34,10 @@ Intended golden changes are listed in the PR before it lands; an unlisted diff i
   Gate: three user-shape fixtures added first under Surveyor; only golden change is
   `ComputedNameEvent`'s Echo key, `"order."` → `.Workbench.App.Events.ComputedNameEvent`. All 17 event
   interfaces byte-identical; zero unimportable tokens; no real-type-to-`unknown` regressions.
+- 2026-09-01 — Inertia shared data native. `InertiaSharedDataAnalyzer` no longer takes Ranger's
+  collector; props come from `AstEngine::analyzeMethod($middleware, 'share')`, imports from
+  `AnalysisImports`. `errors` is deliberately not inferred: `@inertiajs/core` already declares
+  `page.props.errors`, and emitting the framework middleware's own `errors: object` would have added
+  an unlisted `unknown`-adjacent key to four committed trees. Gate: all four `inertia-config.d.ts`
+  byte-identical; the only golden change is `NonArrayReturnResource` gaining `id`/`name` from the new
+  `return array_merge(...)` support, which the plan predicted; both CI gates unchanged.

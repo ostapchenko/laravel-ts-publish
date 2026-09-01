@@ -1963,6 +1963,9 @@ class LaravelTsPublish
      * Compute the TypeScript relative import path from one namespace path to another.
      *
      * Example: 'blog/models' → 'blog/enums' = '../enums'; 'models' → 'models/videos' = './videos'
+     *
+     * An empty from-path is the output root, not a directory named '' — explode() would report it as
+     * one segment deep and climb out of the tree.
      */
     public function relativeImportPath(string $fromNamespacePath, string $toNamespacePath): string
     {
@@ -1970,7 +1973,7 @@ class LaravelTsPublish
             return '.';
         }
 
-        $fromParts = explode('/', $fromNamespacePath);
+        $fromParts = $fromNamespacePath === '' ? [] : explode('/', $fromNamespacePath);
         $toParts = explode('/', $toNamespacePath);
 
         $commonLength = 0;

@@ -4,19 +4,20 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Inertia;
 
-use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
+use AbeTwoThree\LaravelTsPublish\Ast\AnalysisImports;
+use AbeTwoThree\LaravelTsPublish\Ast\AstEngine;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\TsCastsReader;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
+use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\Support\TsCastsImportResolver;
 use Composer\ClassMapGenerator\ClassMapGenerator;
-use Laravel\Ranger\Collectors\InertiaSharedData as InertiaSharedDataCollector;
-use Laravel\Ranger\Components\InertiaSharedData as SharedDataComponent;
-use Laravel\Surveyor\Types\Contracts\Type;
 use ReflectionClass;
 
 /**
  * @phpstan-import-type TsCastsUnpacked from TsCastsReader
+ * @phpstan-import-type TypesImportMap from Datable
  *
  * @phpstan-type TsCastsParseResult = array{
  *     overrides: array<string, string>,
@@ -26,46 +27,40 @@ use ReflectionClass;
  *     sharedPageProps: string,
  *     withAllErrors: bool,
  *     importStatements: list<string>,
+ *     typeImports: TypesImportMap,
  * }
  * @phpstan-type OverrideEntry = array{type: string, optional: bool}
+ * @phpstan-type SharedPropMap = array<string, OverrideEntry>
  */
 class InertiaSharedDataAnalyzer
 {
+    /**
+     * Inertia sets `page.props.errors` itself and `@inertiajs/core` types it, so an inferred entry
+     * for it can only weaken that; `errorValueType` is this package's channel for errors instead.
+     */
+    protected const FRAMEWORK_OWNED_PROPS = ['errors'];
+
     /** @var list<string> */
     protected array $appPaths = [];
 
-    public function __construct(
-        protected InertiaSharedDataCollector $collector,
-    ) {}
-
     /**
-     * Set the app path(s) for the Inertia shared data collector.
+     * Set the app path(s) searched for the Inertia middleware.
      */
     public function setAppPaths(string ...$paths): void
     {
         $this->appPaths = array_values($paths);
-        $this->collector->setAppPaths(...$paths);
     }
 
     /**
-     * Collect and convert Inertia shared data from HandleInertiaRequests middleware.
+     * Analyze the discovered HandleInertiaRequests middleware's share() method.
      *
-     * @return SharedDataResult|null Null when no shared data components are collected.
+     * @return SharedDataResult|null Null when no Inertia middleware is discovered.
      */
     public function analyze(): ?array
     {
-        $sharedDataComponents = $this->collector->collect();
-
-        if ($sharedDataComponents->isEmpty()) {
-            return null;
-        }
-
-        /** @var SharedDataComponent $component */
-        $component = $sharedDataComponents->first();
-
         $middlewareClass = $this->discoverMiddlewareClass();
 
-        return $this->buildResult($component, $middlewareClass);
+        return $middlewareClass === null ? null : $this->buildResult($middlewareClass);
     }
 
     /**
@@ -93,17 +88,16 @@ class InertiaSharedDataAnalyzer
     }
 
     /**
-     * Build the result array from a SharedDataComponent.
+     * Build the result array from the middleware's share() method.
      *
-     * Type resolution priority: #[TsCasts] > @return docblock > Surveyor inference.
+     * Type resolution priority: #[TsCasts] > @return docblock > AST inference.
      *
-     * @param  class-string|null  $middlewareClass
+     * @param  class-string  $middlewareClass
      * @return SharedDataResult
      */
-    protected function buildResult(SharedDataComponent $component, ?string $middlewareClass): array
+    protected function buildResult(string $middlewareClass): array
     {
-        /** @var array<string|int, mixed> $props */
-        $props = $component->data->value;
+        $analysis = resolve(AstEngine::class)->analyzeMethod($middlewareClass, 'share');
 
         $tsCasts = $this->parseTsCastsFromMiddleware($middlewareClass);
         $docblockOverrides = $this->parseDocblockFromMiddleware($middlewareClass);
@@ -111,14 +105,98 @@ class InertiaSharedDataAnalyzer
         $resolver = new TsCastsImportResolver;
         $resolvedTsCasts = $resolver->resolve($tsCasts['overrides'], $tsCasts['importPaths']);
 
-        $mergedOverrides = array_merge($docblockOverrides, $resolvedTsCasts['overrides']);
-        $propsType = $this->buildTypeStringWithOverrides($props, $mergedOverrides);
+        $mergedOverrides = $this->normalizeOverrideKeys(
+            array_merge($docblockOverrides, $resolvedTsCasts['overrides'])
+        );
+
+        $this->forgetOverriddenChannels($analysis, $mergedOverrides);
+
+        $propsType = $this->buildTypeStringWithOverrides($this->collectProps($analysis), $mergedOverrides);
 
         return [
             'sharedPageProps' => $propsType,
-            'withAllErrors' => $component->withAllErrors,
+            'withAllErrors' => $this->resolveWithAllErrors($middlewareClass),
             'importStatements' => $resolvedTsCasts['importStatements'],
+            'typeImports' => $this->buildTypeImports($analysis, $propsType),
         ];
+    }
+
+    /**
+     * Read the middleware's `$withAllErrors` default, which decides the errorValueType augmentation.
+     *
+     * @param  class-string  $middlewareClass
+     */
+    protected function resolveWithAllErrors(string $middlewareClass): bool
+    {
+        return (bool) (new ReflectionClass($middlewareClass)->getDefaultProperties()['withAllErrors'] ?? false);
+    }
+
+    /**
+     * Flatten the analysis into a prop map, later declarations of a key winning.
+     *
+     * @return SharedPropMap
+     */
+    protected function collectProps(MethodAnalysis $analysis): array
+    {
+        $props = [];
+
+        foreach ($analysis->properties as $property) {
+            $props[$property['name']] = ['type' => $property['type'], 'optional' => $property['optional']];
+        }
+
+        foreach (self::FRAMEWORK_OWNED_PROPS as $name) {
+            unset($props[$name]);
+        }
+
+        return $props;
+    }
+
+    /**
+     * Resolve the type imports the inferred props need, keeping only names the rendered type spells.
+     *
+     * An override replaces a whole prop, so the type it displaced must not keep an import alive.
+     *
+     * @return TypesImportMap
+     */
+    protected function buildTypeImports(MethodAnalysis $analysis, string $propsType): array
+    {
+        $imports = new AnalysisImports()->build($analysis, '')['typeImports'];
+
+        foreach ($imports as $path => $names) {
+            $used = array_values(array_filter(
+                $names,
+                fn (string $name): bool => preg_match(
+                    '/(?<![A-Za-z0-9_$.])'.preg_quote($name, '/').'(?![A-Za-z0-9_$])/',
+                    $propsType,
+                ) === 1,
+            ));
+
+            if ($used === []) {
+                unset($imports[$path]);
+
+                continue;
+            }
+
+            $imports[$path] = $used;
+        }
+
+        return $imports;
+    }
+
+    /**
+     * Drop every FQCN channel belonging to an overridden key, so its import dies with its type.
+     *
+     * @param  SharedPropMap  $overrides
+     */
+    protected function forgetOverriddenChannels(MethodAnalysis $analysis, array $overrides): void
+    {
+        foreach (array_keys($overrides) as $name) {
+            unset(
+                $analysis->enumResources[$name], $analysis->nestedResources[$name], $analysis->directEnumFqcns[$name],
+                $analysis->modelFqcns[$name], $analysis->multiEnumResourceFqcns[$name], $analysis->inlineEnumFqcns[$name],
+                $analysis->inlineModelFqcns[$name], $analysis->inlineEnumResourceFqcns[$name],
+            );
+        }
     }
 
     /**
@@ -126,15 +204,11 @@ class InertiaSharedDataAnalyzer
      *
      * Method-level attributes take priority over class-level, matching Laravel's cast resolution order.
      *
-     * @param  class-string|null  $className
+     * @param  class-string  $className
      * @return TsCastsParseResult
      */
-    protected function parseTsCastsFromMiddleware(?string $className): array
+    protected function parseTsCastsFromMiddleware(string $className): array
     {
-        if ($className === null || ! class_exists($className)) {
-            return ['overrides' => [], 'importPaths' => []];
-        }
-
         /** @var ReflectionClass<object> $reflection */
         $reflection = new ReflectionClass($className);
 
@@ -159,15 +233,11 @@ class InertiaSharedDataAnalyzer
     /**
      * Extract per-key type overrides from the `@return array{...}` docblock on the middleware's share().
      *
-     * @param  class-string|null  $className
+     * @param  class-string  $className
      * @return array<string, string>
      */
-    protected function parseDocblockFromMiddleware(?string $className): array
+    protected function parseDocblockFromMiddleware(string $className): array
     {
-        if ($className === null || ! class_exists($className)) {
-            return [];
-        }
-
         /** @var ReflectionClass<object> $reflection */
         $reflection = new ReflectionClass($className);
 
@@ -179,10 +249,10 @@ class InertiaSharedDataAnalyzer
     }
 
     /**
-     * Build a TypeScript object type string, applying TsCasts overrides where present.
+     * Build a TypeScript object type string, applying overrides where present.
      *
-     * @param  array<string|int, mixed>  $props  The Surveyor-analyzed properties.
-     * @param  array<string, string>  $overrides  Type overrides keyed by property name.
+     * @param  SharedPropMap  $props  the AST-inferred props
+     * @param  SharedPropMap  $overrides  normalized type overrides keyed by property name
      */
     protected function buildTypeStringWithOverrides(array $props, array $overrides): string
     {
@@ -190,31 +260,15 @@ class InertiaSharedDataAnalyzer
             return 'Record<string, never>';
         }
 
-        $normalized = $this->normalizeOverrideKeys($overrides);
         $parts = [];
 
-        foreach ($props as $key => $value) {
-            if (isset($normalized[$key])) {
-                $parts[] = $key.($normalized[$key]['optional'] ? '?: ' : ': ').$normalized[$key]['type'];
+        foreach ($props as $key => $prop) {
+            $entry = $overrides[$key] ?? $prop;
 
-                continue;
-            }
-
-            $optional = $value instanceof Type && $value->isOptional();
-            $separator = $optional ? '?: ' : ': ';
-
-            if (is_array($value)) {
-                $tsType = SurveyorTypeMapper::objectToTypeString($value);
-            } elseif ($value instanceof Type) {
-                $tsType = SurveyorTypeMapper::convert($value);
-            } else {
-                $tsType = 'unknown';
-            }
-
-            $parts[] = $key.$separator.$tsType;
+            $parts[] = $key.($entry['optional'] ? '?: ' : ': ').$entry['type'];
         }
 
-        foreach ($normalized as $key => $override) {
+        foreach ($overrides as $key => $override) {
             if (! array_key_exists($key, $props)) {
                 $parts[] = $key.($override['optional'] ? '?: ' : ': ').$override['type'];
             }
@@ -225,11 +279,11 @@ class InertiaSharedDataAnalyzer
 
     /**
      * Split the docblock parser's key-embedded optional marker back out, so overrides can be matched
-     * against Surveyor's plain property names — otherwise `filters?` misses `filters` and the entry is
-     * emitted twice, which TypeScript rejects as a duplicate identifier.
+     * against the inferred plain property names — otherwise `filters?` misses `filters` and the entry
+     * is emitted twice, which TypeScript rejects as a duplicate identifier.
      *
      * @param  array<string, string>  $overrides
-     * @return array<string, OverrideEntry>
+     * @return SharedPropMap
      */
     protected function normalizeOverrideKeys(array $overrides): array
     {

@@ -27,6 +27,7 @@ use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
@@ -60,6 +61,7 @@ use PhpParser\Node\Stmt\While_;
 use PhpParser\NodeFinder;
 use ReflectionClass;
 use ReflectionMethod;
+use ReflectionNamedType;
 
 /**
  * Analyzes a JsonResource's toArray() body to extract property names, types, and optional markers via AST.
@@ -105,10 +107,39 @@ class ResourceAstAnalyzer implements ExpressionEngine
         protected string $methodName = 'toArray',
     ) {
         $this->scope = new AnalysisScope(self::genericReflection($this->resourceReflection->getName()), $this->modelClass);
+        $this->scope->requestVarNames = $this->resolveRequestVarNames();
 
         if ($this->scope->modelClass !== null) {
             $this->loadModelInspectorData();
         }
+    }
+
+    /**
+     * Request-typed parameter names of the method under analysis, keyed for O(1) lookup.
+     *
+     * Resources take `toArray(Request $request)` too, but their committed output was inferred without
+     * the Request rules; seeding them there would move it, so the resource path opts out.
+     *
+     * @return array<string, true>
+     */
+    private function resolveRequestVarNames(): array
+    {
+        if (is_a($this->scope->subjectReflection->getName(), JsonResource::class, true)
+            || ! $this->scope->subjectReflection->hasMethod($this->methodName)) {
+            return [];
+        }
+
+        $names = [];
+
+        foreach ($this->scope->subjectReflection->getMethod($this->methodName)->getParameters() as $parameter) {
+            $type = $parameter->getType();
+
+            if ($type instanceof ReflectionNamedType && is_a($type->getName(), Request::class, true)) {
+                $names[$parameter->getName()] = true;
+            }
+        }
+
+        return $names;
     }
 
     /**
@@ -181,8 +212,13 @@ class ResourceAstAnalyzer implements ExpressionEngine
             return new ResourceAnalysis; // @codeCoverageIgnore
         }
 
-        if ($this->isParentToArrayCall($returnStmt->expr)) {
+        if ($this->isParentCallTo($returnStmt->expr, $this->methodName)) {
             return $this->analyzeParentToArray() ?? $this->buildModelDelegatedAnalysis() ?? new ResourceAnalysis;
+        }
+
+        // return array_merge(parent::share($request), [...]) — the shape a shared-data middleware writes.
+        if ($returnStmt->expr instanceof FuncCall) {
+            return $this->analyzeReturnArrayMerge($returnStmt->expr) ?? new ResourceAnalysis;
         }
 
         // return $this->only([...]) or return $this->except([...])
@@ -370,7 +406,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
         foreach ($array->items as $item) {
             // Handle ...parent::toArray($request) spread
-            if ($item->key === null && $item->unpack && $this->isParentToArrayCall($item->value)) {
+            if ($item->key === null && $item->unpack && $this->isParentCallTo($item->value, $this->methodName)) {
                 $parentAnalysis = $this->analyzeParentToArray();
 
                 if ($parentAnalysis !== null) {
@@ -492,6 +528,42 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
+     * Analyze a returned `array_merge(...)` whose every argument is an array literal or a
+     * `parent::{$this->methodName}()` call, merging them left to right so later keys win.
+     *
+     * Anything else — a variable, a helper call — hides keys that cannot be read statically, so the
+     * whole call declines rather than reporting a partial shape.
+     */
+    protected function analyzeReturnArrayMerge(FuncCall $call): ?ResourceAnalysis
+    {
+        if (! $call->name instanceof Name || $call->name->getLast() !== 'array_merge' || $call->isFirstClassCallable()) {
+            return null;
+        }
+
+        $analysis = new ResourceAnalysis;
+
+        foreach ($call->getArgs() as $arg) {
+            if ($arg->value instanceof Array_) {
+                $analysis->merge($this->analyzeReturnArray($arg->value));
+
+                continue;
+            }
+
+            if (! $this->isParentCallTo($arg->value, $this->methodName)) {
+                return null;
+            }
+
+            $parentAnalysis = $this->analyzeParentToArray();
+
+            if ($parentAnalysis !== null) {
+                $analysis->merge($parentAnalysis);
+            }
+        }
+
+        return $analysis;
+    }
+
+    /**
      * The resource profile's ordered handler chain — see ResourceExpressionHandlers for the list
      * and its ordering contract.
      *
@@ -582,14 +654,14 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Resolve and analyze the parent resource's declaration of $this->methodName.
+     * Resolve and analyze the parent class's declaration of $this->methodName.
      */
     protected function analyzeParentToArray(): ?ResourceAnalysis
     {
         $parentClass = $this->scope->subjectReflection->getParentClass();
 
-        if ($parentClass === false || ! is_a($parentClass->getName(), JsonResource::class, true)) {
-            return null; // @codeCoverageIgnore
+        if ($parentClass === false) {
+            return null;
         }
 
         if ($parentClass->getName() === JsonResource::class) {

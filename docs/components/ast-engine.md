@@ -10,9 +10,10 @@ documented below (`AstParser`, `MethodLocator`, `ExpressionDispatcher`, the 22-h
 profile). Those six files still exist; what changed is that they now build on one parse/dispatch layer
 instead of each re-implementing it.
 
-The move is staged, not finished. `ResourceAstAnalyzer`, `ControllerPaginatorAnalyzer` and
-`BroadcastEventTransformer` already sit on the engine, but Inertia page and shared-data props still go
-through **Laravel Surveyor** — a second, foreign AST engine — until Phase 7 ports them. See the tracked
+The move is staged, not finished. `ResourceAstAnalyzer`, `ControllerPaginatorAnalyzer`,
+`BroadcastEventTransformer` and `InertiaSharedDataAnalyzer` already sit on the engine, but Inertia
+*page* props still go through **Laravel Surveyor** — a second, foreign AST engine — until Task 35
+ports them. See the tracked
 [ADR: freeze Laravel Surveyor/Ranger and exit in stages](../decisions/2026-08-31-surveyor-staged-exit.md)
 for why that freeze exists and what each exit stage must show. Task 36 rewrites this lead once the
 second stack is gone.
@@ -22,7 +23,7 @@ second stack is gone.
 `ExpressionHandler::resolve(Expr $expr, AnalysisScope $scope, ExpressionEngine $engine): ?array`
 returning `null` means **decline**: the dispatcher tries the next candidate handler, and if none
 resolve it, the caller degrades to `ValueResult::unknown()`. This is the decline-and-fall-through
-contract every handler implements — it is what lets 22 independently-extracted handlers reproduce one
+contract every handler implements — it is what lets 24 independently-written handlers reproduce one
 ordered guard chain's behavior without any handler knowing about the others.
 
 `ExpressionDispatcher::dispatch()` does the trying. For an expression's *concrete* node class, it
@@ -33,7 +34,7 @@ list, so a repeated dispatch of an unclaimed node class never re-scans every han
 again. Handlers run in registration order within that candidate list; the first non-null `resolve()`
 wins. This is PHPStan's `ExprHandlerRegistry` and Rector's `NodeNameResolver` memoization pattern,
 scaled down: no DI container, no attribute-driven autodiscovery, just a plain constructor array — at
-22 handlers that is enough.
+24 handlers that is enough.
 
 `ExpressionEngine` has exactly three methods, all implemented today by `ResourceAstAnalyzer`:
 
@@ -54,9 +55,10 @@ expression's concrete node class, and returns the first non-null result —
 Order is load-bearing wherever a node class is claimed by more than one handler: a reordering that
 changes which handler wins for a shared class is a silent behavior regression, not a refactor.
 
-`ResourceExpressionHandlers::make()` builds the resource profile — all 22 handlers extracted from
+`ResourceExpressionHandlers::make()` builds the resource profile — the 22 handlers extracted from
 the legacy `analyzeValueExpression()` guard chain across Tasks 14-22, in the exact order the chain
-checked them. `ResourceExpressionHandlers::generic()` is that same list minus the three
+checked them, plus `ArrayMergeHandler` and `InertiaWrapperHandler` (Task 34).
+`ResourceExpressionHandlers::generic()` is that same list minus the three
 resource-only handlers (`ConditionalMethodHandler`, `ToResourceHandler`, `RelationFilterHandler`)
 — every other handler is class-agnostic and safe to reuse outside a resource's `toArray()`.
 
@@ -65,7 +67,7 @@ The executable ordering contract lives in `tests/Unit/Ast/ResourceExpressionHand
 - One test asserts `make()`'s exact class-name sequence, so an accidental reorder fails a test
   instead of silently changing generated output.
 - One test asserts `generic()`'s exclusion set and relative order.
-- Three tests pin the *behavioral* precedence between handlers that both really claim a shared node
+- Four tests pin the *behavioral* precedence between handlers that both really claim a shared node
   class — proven by mutation: swap the pinned pair, watch the pinned test fail, revert.
   - `FirstClassCallableHandler` before `ConditionalMethodHandler` for a first-class-callable
     `$this->when(...)`. `ConditionalMethodHandler::isThisMethodCall()` matches on method name
@@ -79,6 +81,9 @@ The executable ordering contract lives in `tests/Unit/Ast/ResourceExpressionHand
     `ThisPropertyHandler` threads a multi-model accessor's FQCNs out as `embeddedModelFqcns`, used
     downstream to alias same-basename union arms apart; `PropertyChainHandler`'s last-step branch has
     no equivalent, so swapping the two loses one arm's FQCN entirely rather than merely reordering.
+  - `InertiaWrapperHandler` before `StaticCallHandler` for `Inertia::always(...)`. `StaticCallHandler`'s
+    last arm claims every `StaticCall` and never declines, so if it ran first it would reflect the
+    wrapper as an ordinary static method and floor the prop at `unknown` instead of the wrapped value.
 
 ### The honest ordering inventory
 
@@ -89,12 +94,14 @@ one class, pairs neither pinned nor proven — flagged as a gap rather than glos
 
 | Node class | Claimants | Status |
 | --- | --- | --- |
-| `MethodCall` | `FirstClassCallableHandler`, `ConditionalMethodHandler`, `ToResourceHandler`, `StaticCallHandler`, `RelationFilterHandler`, `RelationCollectionChainHandler`, `VariableHandler`, `KnownMethodRuleHandler` (8) | One pair pinned (`FirstClassCallableHandler` before `ConditionalMethodHandler` — the sharpest, crash-level divergence found). The other six handlers' pairwise interactions within this candidate list are **live and unpinned** — untraced, unverified, could be inert or could silently change output on a reorder. |
+| `MethodCall` | `FirstClassCallableHandler`, `KnownFunctionCallHandler`, `ConditionalMethodHandler`, `ToResourceHandler`, `StaticCallHandler`, `RelationFilterHandler`, `RelationCollectionChainHandler`, `VariableHandler`, `KnownMethodRuleHandler` (9) | One pair pinned (`FirstClassCallableHandler` before `ConditionalMethodHandler` — the sharpest, crash-level divergence found). `KnownFunctionCallHandler` joined this list in Task 34 for `auth()->user()`/`auth()->id()` only, and declines every other receiver. The remaining handlers' pairwise interactions within this candidate list are **live and unpinned** — untraced, unverified, could be inert or could silently change output on a reorder. |
 | `NullsafeMethodCall` | `RelationFilterHandler`, `MethodChainHandler` (2) | Pinned — the whole candidate list, full coverage. |
 | `PropertyFetch` | `ThisPropertyHandler`, `PropertyChainHandler`, `VariableHandler` (3) | One pair pinned (`ThisPropertyHandler` before `PropertyChainHandler`). The other two pairs are **inert-proven**: `ThisPropertyHandler` vs. `VariableHandler` never both claim the same expression (`isThisPropertyFetch()` requires a `$this` receiver; `VariableHandler`'s property branch requires the receiver not be `$this`); `PropertyChainHandler` vs. `VariableHandler` likewise — `PropertyChainHandler`'s fallback declines any chain not rooted at `$this`, which is exactly `VariableHandler`'s territory. |
 | `BinaryOp\Coalesce` | `BinaryOpHandler`, `CoalesceHandler` (2) | Inert-proven — `BinaryOpHandler::resolve()` has no branch matching `BinaryOp\Coalesce`, so it always declines regardless of registration position. |
+| `StaticCall` | `InertiaWrapperHandler`, `StaticCallHandler` (2) | Pinned — the whole candidate list, full coverage. |
+| `FuncCall` | `ArrayMergeHandler`, `KnownFunctionCallHandler` (2) | Inert-proven — `KnownFunctionCallHandler` declines `array_merge`: its reflected return type is `unknown[]`, and `resolveKnownFunctionCallType()` rejects any type containing `unknown`. `ArrayMergeHandler` is still registered first, so the specific handler keeps winning if that ever changes. |
 
-`MethodCall`'s six unpinned handlers are the open item: their pairwise interactions were enumerated
+`MethodCall`'s unpinned handlers are the open item: their pairwise interactions were enumerated
 (by tracing the dispatcher's own candidate list against the current registration order) but not
 individually fixture-verified. Read the pin count as "the divergences someone has actually gone and
 found," not "the only divergences that exist."
@@ -119,6 +126,7 @@ itself reaches the same instance as `$this->scope`.
 | `localVarBindings` | `array<string, Expr>` | Top-level `$var = expr;` bindings for the method last analyzed, so a bare `Variable` value expression resolves through its bound expression instead of degrading to `unknown`. Only variables written exactly once are recorded; `analyzeThisMethodSpread()` saves and restores this per method. |
 | `resolvingLocalVars` | `array<string, true>` | Re-entrancy guard: variable names currently mid-resolution, so a self- or mutually-referential binding (`$a = $b; $b = $a;`) resolves as `unknown` instead of recursing forever. |
 | `visitedSpreadMethods` | `array<string, true>` | Spread methods currently on the analysis stack, so a method that spreads itself — directly or through a cycle — degrades to an empty analysis instead of recursing until memory runs out. |
+| `requestVarNames` | `array<string, true>` | Variable names holding an `Illuminate\Http\Request`, so `KnownMethodRuleHandler`'s Request rule table (`url()`, `user()`, `cookie()`, …) fires on `$request->user()` and stays off an unrelated receiver sharing a method name. Seeded in `ResourceAstAnalyzer::__construct()` from the analyzed method's `Request`-typed parameters — **except for a `JsonResource` subject**, whose `toArray(Request $request)` would otherwise start typing request calls and move committed resource output. |
 
 **Snapshot/restore, not immutable copies.** `AnalysisScope` is one mutable object shared for the whole
 `analyze()` call, not a value threaded through with `mergeWith()`-style copying. A writer that needs a

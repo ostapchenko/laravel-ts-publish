@@ -7,8 +7,10 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ChecksPreserveKeys;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\AuthUserResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\BuildsInlineObjectTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesAuthHelperCalls;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesEnumPropertyArgTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
@@ -26,6 +28,7 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
@@ -46,6 +49,7 @@ final class StaticCallHandler implements ExpressionHandler
     use ChecksPreserveKeys;
     use InspectsAstNodes;
     use InspectsResourceSubject;
+    use ResolvesAuthHelperCalls;
     use ResolvesEnumPropertyArgTypes;
     use ResolvesRelatedModelTypes;
 
@@ -124,6 +128,20 @@ final class StaticCallHandler implements ExpressionHandler
 
             if ($closureModelClass !== null) {
                 return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $scope);
+            }
+        }
+
+        // `Auth::user()`/`Auth::id()`. Must precede the general StaticCall arm below, whose reflection
+        // fallback sees a facade with no such real method and floors the value at unknown.
+        if ($expr instanceof StaticCall
+            && $expr->class instanceof Name
+            && $expr->class->getLast() === 'Auth'
+            && $expr->name instanceof Identifier
+        ) {
+            $auth = $this->authMethodResult($expr->name->toString(), resolve(AuthUserResolver::class)->model());
+
+            if ($auth !== null) {
+                return $auth;
             }
         }
 

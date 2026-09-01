@@ -532,30 +532,38 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
+            'name' => config('app.name'),
             'auth' => ['user' => $request->user()],
+            'sidebarOpen' => ! $request->hasCookie('sidebar_state'),
         ];
     }
 }
 ```
 
 ```typescript
+import type { User } from './app/models';
+
 declare global {
     namespace Inertia {
-        type SharedData = { auth: { user: { id: number; name: string; email: string } | null }; /* ... */ };
+        type SharedData = { name: string, auth: { user: User | null }, sidebarOpen: boolean };
     }
 }
 
 declare module '@inertiajs/core' {
     export interface InertiaConfig {
-        sharedPageProps: Inertia.SharedData;
+        sharedPageProps: { name: string, auth: { user: User | null }, sidebarOpen: boolean };
     }
 }
 ```
 
 Key capabilities:
 
-- **Static `share()` analysis** — every key returned from `share()` (including a spread `...parent::share($request)`) is statically resolved to a TypeScript type, no running the app required.
-- **`#[TsCasts]` / `@return` docblock overrides** — override or add types for keys Surveyor can't infer on its own, the same `#[TsCasts]` attribute used everywhere else in the package.
+- **Static `share()` analysis** — every key returned from `share()` is statically resolved to a TypeScript type, no running the app required. Both composition forms are read: a `...parent::share($request)` spread and `array_merge(parent::share($request), [...])`, up the whole middleware inheritance chain, with a later key overriding an earlier one exactly as PHP does.
+- **`$request->user()` typed through your auth config** — resolved via `auth.defaults.guard` → its provider → that provider's model, so the prop is typed `User | null` with the model's import written for you. `auth()->user()`, `auth()->id()`, `Auth::user()` and `Auth::id()` resolve the same way, and `$request->url()`, `->path()`, `->integer()`, `->boolean()`, `->string()`, `->cookie()` and `->hasCookie()` are typed from Laravel's own signatures.
+- **`config('some.key')`** — a literal key is typed from the live configuration value, since the package runs inside your booted application. A computed key stays `unknown`.
+- **Inertia v2 prop wrappers** — `Inertia::defer()`, `optional()`, `lazy()`, `always()`, `merge()` and `deepMerge()` are typed as the value they wrap; the three that a partial reload can omit produce an optional key.
+- **`errors` is left to Inertia** — `@inertiajs/core` already types `page.props.errors`, so the package never infers a weaker `errors` entry of its own. A `#[TsCasts]` or `@return` docblock entry for it still wins if you want one.
+- **`#[TsCasts]` / `@return` docblock overrides** — override or add types for keys the analyzer can't infer on its own, the same `#[TsCasts]` attribute used everywhere else in the package.
 - **`errorValueType`** — automatically added to the augmentation when the middleware's `$withAllErrors` property is `true`, matching Inertia's validation error bag shape.
 - **Route-linked page props** — a related but separate piece: a controller action's `Inertia::render()` call gets its own page-prop type that intersects with `Inertia.SharedData`, threaded into that route's generated file automatically. See [Inertia Integration](https://tolki.abe.dev/ts/routing.html#inertia-integration) in the Routing docs.
 - **Preserve-keys resource collections** — a paginated `Inertia::render()` prop backed by a `#[PreserveKeys]`/`$preserveKeys` resource collection types its `data` member as `Record<string, T>`, matching Laravel's key-preserving JSON shape instead of the default array.

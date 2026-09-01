@@ -2634,6 +2634,8 @@ declare global {
             members_resource_then_model_spread?: (Omit<UserResource, 'flag' | keyof workbench.app.models.User | keyof UserResource> & Omit<workbench.app.models.User, 'flag' | keyof UserResource> & Omit<UserResource, 'flag'> & { flag: boolean })[];
         }
         export interface NonArrayReturnResource {
+            id: number;
+            name: string;
         }
         /**
          * outer() returns $this->helper()->wrongCall() — a method call chained off a non-$this receiver. The
