@@ -1,5 +1,44 @@
 {
     "broadcastEvents": {
+        "Workbench\\App\\Events\\ComputedNameEvent": {
+            "name": "ComputedNameEvent",
+            "eventName": "ComputedNameEvent",
+            "broadcastName": "order.",
+            "properties": [
+                {
+                    "name": "kind",
+                    "type": "string",
+                    "optional": false
+                }
+            ]
+        },
+        "Workbench\\App\\Events\\DeclaredPropsEvent": {
+            "name": "DeclaredPropsEvent",
+            "eventName": "DeclaredPropsEvent",
+            "broadcastName": ".Workbench.App.Events.DeclaredPropsEvent",
+            "properties": [
+                {
+                    "name": "label",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "tags",
+                    "type": "string[]",
+                    "optional": false
+                },
+                {
+                    "name": "id",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "note",
+                    "type": "string | null",
+                    "optional": false
+                }
+            ]
+        },
         "Workbench\\App\\Events\\EnumBroadcastEvent": {
             "name": "EnumBroadcastEvent",
             "eventName": "EnumBroadcastEvent",
@@ -80,6 +119,28 @@
                     "name": "metadata",
                     "type": "Record<string, unknown>",
                     "optional": true
+                }
+            ]
+        },
+        "Workbench\\App\\Events\\PayloadDiffersEvent": {
+            "name": "PayloadDiffersEvent",
+            "eventName": "PayloadDiffersEvent",
+            "broadcastName": ".Workbench.App.Events.PayloadDiffersEvent",
+            "properties": [
+                {
+                    "name": "team",
+                    "type": "number",
+                    "optional": false
+                },
+                {
+                    "name": "kind",
+                    "type": "string",
+                    "optional": false
+                },
+                {
+                    "name": "count",
+                    "type": "number",
+                    "optional": false
                 }
             ]
         },

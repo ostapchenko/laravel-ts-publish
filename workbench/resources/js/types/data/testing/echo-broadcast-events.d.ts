@@ -1,7 +1,10 @@
+import type { ComputedNameEvent } from './workbench/app/events/ComputedNameEvent';
+import type { DeclaredPropsEvent } from './workbench/app/events/DeclaredPropsEvent';
 import type { EnumBroadcastEvent } from './workbench/app/events/EnumBroadcastEvent';
 import type { MixedTypesEvent } from './workbench/app/events/MixedTypesEvent';
 import type { MultiModelEvent } from './workbench/app/events/MultiModelEvent';
 import type { OrderShipped } from './workbench/app/events/OrderShipped';
+import type { PayloadDiffersEvent } from './workbench/app/events/PayloadDiffersEvent';
 import type { PostPublishedEvent } from './workbench/app/events/PostPublishedEvent';
 import type { PureEnumEvent } from './workbench/app/events/PureEnumEvent';
 import type { ReportSynced } from './workbench/app/events/ReportSynced';
@@ -15,10 +18,13 @@ import type { UserSynced as CrmUserSynced } from './workbench/crm/events/UserSyn
 
 declare module "@laravel/echo" {
     interface Events {
+        "order.": ComputedNameEvent;
+        ".Workbench.App.Events.DeclaredPropsEvent": DeclaredPropsEvent;
         ".Workbench.App.Events.EnumBroadcastEvent": EnumBroadcastEvent;
         ".Workbench.App.Events.MixedTypesEvent": MixedTypesEvent;
         ".Workbench.App.Events.MultiModelEvent": MultiModelEvent;
         ".Workbench.App.Events.OrderShipped": OrderShipped;
+        ".Workbench.App.Events.PayloadDiffersEvent": PayloadDiffersEvent;
         ".Workbench.App.Events.PostPublishedEvent": PostPublishedEvent;
         ".Workbench.App.Events.PureEnumEvent": PureEnumEvent;
         ".Workbench.App.Events.ReportSynced": ReportSynced;

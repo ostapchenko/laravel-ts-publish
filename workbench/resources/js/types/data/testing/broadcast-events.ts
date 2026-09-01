@@ -1,7 +1,10 @@
+import type { ComputedNameEvent } from './workbench/app/events/ComputedNameEvent';
+import type { DeclaredPropsEvent } from './workbench/app/events/DeclaredPropsEvent';
 import type { EnumBroadcastEvent } from './workbench/app/events/EnumBroadcastEvent';
 import type { MixedTypesEvent } from './workbench/app/events/MixedTypesEvent';
 import type { MultiModelEvent } from './workbench/app/events/MultiModelEvent';
 import type { OrderShipped } from './workbench/app/events/OrderShipped';
+import type { PayloadDiffersEvent } from './workbench/app/events/PayloadDiffersEvent';
 import type { PostPublishedEvent } from './workbench/app/events/PostPublishedEvent';
 import type { PureEnumEvent } from './workbench/app/events/PureEnumEvent';
 import type { ReportSynced } from './workbench/app/events/ReportSynced';
@@ -14,10 +17,13 @@ import type { UserSynced as AppUserSynced } from './workbench/app/events/UserSyn
 import type { UserSynced as CrmUserSynced } from './workbench/crm/events/UserSynced';
 
 export type BroadcastEvent =
+    | 'order.'
+    | '.Workbench.App.Events.DeclaredPropsEvent'
     | '.Workbench.App.Events.EnumBroadcastEvent'
     | '.Workbench.App.Events.MixedTypesEvent'
     | '.Workbench.App.Events.MultiModelEvent'
     | '.Workbench.App.Events.OrderShipped'
+    | '.Workbench.App.Events.PayloadDiffersEvent'
     | '.Workbench.App.Events.PostPublishedEvent'
     | '.Workbench.App.Events.PureEnumEvent'
     | '.Workbench.App.Events.ReportSynced'
@@ -30,10 +36,13 @@ export type BroadcastEvent =
     | '.Workbench.Crm.Events.UserSynced';
 
 export const BroadcastEvents = Object.freeze({
+    ComputedNameEvent: 'order.',
+    DeclaredPropsEvent: '.Workbench.App.Events.DeclaredPropsEvent',
     EnumBroadcastEvent: '.Workbench.App.Events.EnumBroadcastEvent',
     MixedTypesEvent: '.Workbench.App.Events.MixedTypesEvent',
     MultiModelEvent: '.Workbench.App.Events.MultiModelEvent',
     OrderShipped: '.Workbench.App.Events.OrderShipped',
+    PayloadDiffersEvent: '.Workbench.App.Events.PayloadDiffersEvent',
     PostPublishedEvent: '.Workbench.App.Events.PostPublishedEvent',
     PureEnumEvent: '.Workbench.App.Events.PureEnumEvent',
     ReportSynced: '.Workbench.App.Events.ReportSynced',
@@ -47,10 +56,13 @@ export const BroadcastEvents = Object.freeze({
 } as const);
 
 export type {
+    ComputedNameEvent,
+    DeclaredPropsEvent,
     EnumBroadcastEvent,
     MixedTypesEvent,
     MultiModelEvent,
     OrderShipped,
+    PayloadDiffersEvent,
     PostPublishedEvent,
     PureEnumEvent,
     ReportSynced,

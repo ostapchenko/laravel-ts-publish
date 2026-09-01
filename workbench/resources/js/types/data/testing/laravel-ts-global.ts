@@ -3909,6 +3909,15 @@ declare global {
         }
     }
     export namespace workbench.app.events {
+        export interface ComputedNameEvent {
+            kind: string;
+        }
+        export interface DeclaredPropsEvent {
+            label: string;
+            tags: string[];
+            id: number;
+            note: string | null;
+        }
         export interface EnumBroadcastEvent {
             status: workbench.app.enums.StatusType;
             color: workbench.app.enums.ColorType;
@@ -3927,6 +3936,11 @@ declare global {
             trackingNumber: `${string}-${string}-${string}`;
             carrier: string;
             metadata?: Record<string, unknown>;
+        }
+        export interface PayloadDiffersEvent {
+            team: number;
+            kind: string;
+            count: number;
         }
         export interface PostPublishedEvent {
             post: Partial<workbench.app.models.Post>;
