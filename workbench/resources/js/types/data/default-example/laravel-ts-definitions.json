@@ -3,7 +3,7 @@
         "Workbench\\App\\Events\\ComputedNameEvent": {
             "name": "ComputedNameEvent",
             "eventName": "ComputedNameEvent",
-            "broadcastName": "order.",
+            "broadcastName": ".Workbench.App.Events.ComputedNameEvent",
             "properties": [
                 {
                     "name": "kind",

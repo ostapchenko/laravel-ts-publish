@@ -482,7 +482,7 @@ For the dot-notation tree algorithm, parameter typing, and quoted-key handling, 
 
 ## Broadcast events
 
-Every `ShouldBroadcast` and `ShouldBroadcastNow` event gets its own interface, built from its `broadcastWith()` return shape or, when there is none, its public constructor properties. A combined `broadcast-events.ts` index adds a `BroadcastEvent` union and a flat `BroadcastEvents` const of every Echo event name.
+Every `ShouldBroadcast` and `ShouldBroadcastNow` event gets its own interface, built from its `broadcastWith()` return shape or, when there is none, its public properties. A combined `broadcast-events.ts` index adds a `BroadcastEvent` union and a flat `BroadcastEvents` const of every Echo event name.
 
 ```php
 class OrderShipped implements ShouldBroadcast
@@ -511,9 +511,9 @@ export interface OrderShipped {
 
 Key capabilities:
 
-- **`broadcastWith()` or public properties** — when present, `broadcastWith()`'s return shape drives the interface (handy for hiding private fields); otherwise every public constructor-promoted property is used.
-- **Model & enum-aware** — a property typed as an Eloquent model resolves to `Partial<Model>`, and a PHP enum property resolves to the enum's `{Name}Type` alias, both with automatic imports.
-- **`broadcastAs()` support** — a custom Echo event name from `broadcastAs()` is used as-is; otherwise the Echo name defaults to Laravel's `.Fully.Qualified.ClassName` convention.
+- **`broadcastWith()` or public properties** — when present, `broadcastWith()`'s return shape drives the interface (handy for hiding private fields); otherwise both constructor-promoted and class-body public properties are used, with a `@var` docblock preferred over the native declaration. Every trait-declared property is skipped, `#[TsExtends]` traits included — their fields already arrive through the `extends` clause.
+- **Model & enum-aware** — a property typed as an Eloquent model resolves to `Partial<Model>`, and a PHP enum property resolves to the enum's `{Name}Type` alias (honouring `#[TsEnum(name:)]`), both with automatic imports.
+- **`broadcastAs()` support** — a custom Echo event name is used when `broadcastAs()` returns one whole string literal; a computed name (`'order.'.$this->kind`) falls back to Laravel's `.Fully.Qualified.ClassName` convention rather than shipping a half-built key.
 - **`#[TsCasts]` / `#[TsExtends]`** — override property types or extend shared interfaces, the same attributes used by models, resources, and form requests.
 - **`#[TsExclude]`** — exclude an entire event class from the output. See [Excluding with `#[TsExclude]`](#excluding-with-tsexclude).
 - **Echo module augmentation** — optionally generates an `echo-broadcast-events.d.ts` file that augments `@laravel/echo`'s (or `@laravel/echo-vue`/`-react`/`-svelte`'s, auto-detected) `Events` interface for fully-typed `Echo.private(...).listen()` calls.

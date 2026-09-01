@@ -28,3 +28,9 @@ Intended golden changes are listed in the PR before it lands; an unlisted diff i
 ## Log
 
 - 2026-08-31 — accepted.
+- 2026-09-01 — broadcast events native. `BroadcastEventTransformer` no longer takes Surveyor's
+  `Analyzer`; payloads come from `AstEngine` and the Echo name from `ReturnLiteralReader`. Trait-declared
+  public properties stay deliberately excluded (parity with Surveyor; `#[TsExtends]` supplies them).
+  Gate: three user-shape fixtures added first under Surveyor; only golden change is
+  `ComputedNameEvent`'s Echo key, `"order."` → `.Workbench.App.Events.ComputedNameEvent`. All 17 event
+  interfaces byte-identical; zero unimportable tokens; no real-type-to-`unknown` regressions.

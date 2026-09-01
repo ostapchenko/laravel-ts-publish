@@ -18,7 +18,7 @@ import type { UserSynced as CrmUserSynced } from './workbench/crm/events/UserSyn
 
 declare module "@laravel/echo" {
     interface Events {
-        "order.": ComputedNameEvent;
+        ".Workbench.App.Events.ComputedNameEvent": ComputedNameEvent;
         ".Workbench.App.Events.DeclaredPropsEvent": DeclaredPropsEvent;
         ".Workbench.App.Events.EnumBroadcastEvent": EnumBroadcastEvent;
         ".Workbench.App.Events.MixedTypesEvent": MixedTypesEvent;

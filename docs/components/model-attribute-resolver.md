@@ -120,25 +120,27 @@ package publishes no file, so step 5's token has nothing to import. `Coordinate`
 **Publication is a real axis, not a constant, and 5c does not test it.** The step-5 path below builds its
 import from `classFqcns` through `namespaceToPath()` and `relativeImportPath()` with no published-set check,
 so "unimportable" is an assumption about the classes that happen to arrive here, not something either step
-verifies. The workbench contains a whole family that contradicts it: **all 12** classes in
+verifies. The workbench contains a whole family that contradicts it: **12 of the 15** classes in
 `workbench/app/Events/` are plain, non-`Model`, non-`JsonSerializable`, have no `__toString()` and no
-`#[TsType]`, and carry typed public promoted properties — so every one of them reaches 5c and inlines when
-`toTsType()` is called on it directly. Probed against the real service:
+`#[TsType]`, and carry typed public properties — so each of those reaches 5c and inlines when
+`toTsType()` is called on it directly. (The three added in Task 33 use `InteractsWithSockets`, whose
+untyped `public $socket` fails `hasFullyTypedPublicProperties()`, so they fall through to step 5's bare
+class name instead.) Probed against the real service:
 
 ```
 EnumBroadcastEvent  -> { status: unknown; color: unknown }
 OrderShipped        -> { orderId: number; trackingNumber: string; carrier: string; metadata: unknown[] | null }
 ServerCreated       -> { serverId: number; serverName: string }
-…12 of 12
+…12 of the 12 that qualify
 ```
 
-And the package **does** publish a file for each: the two sets are identical, 12 PHP fixtures against 12
+And the package **does** publish a file for each: the two sets are identical, 15 PHP fixtures against 15
 `.ts` files in `app/events/` plus an `index.ts` that re-exports them, so `'../events'` — what step 5 would
 have derived for `Workbench\App\Events\OrderShipped` — is a directory this package writes.
 
-This costs nothing today. `src/Transformers/BroadcastEventTransformer.php` contains **no** reference to
-`toTsType` — it resolves a class-typed event property itself in `convertClassType()` (enum → `XType`,
-`Model` → `Partial<X>`, else `SurveyorTypeMapper::convert()`) — so the shapes above are never consulted when
+This costs nothing today. `src/Transformers/BroadcastEventTransformer.php` reaches `toTsType()` for enum
+FQCNs only, which resolve at step 3; a class-typed event property is typed by the AST engine and presented
+by the transformer (`Model` → `Partial<X>`) — so the shapes above are never consulted when
 an event file is written. Confirmed against the output as well: all 12 inlined shapes were searched, as
 exact strings, across every file under `workbench/resources/js/types/`, and matched **zero** files. Treat
 this as a standing caveat on the reasoning rather than a defect: if some future path *does* send a published

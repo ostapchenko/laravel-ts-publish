@@ -10,9 +10,9 @@ documented below (`AstParser`, `MethodLocator`, `ExpressionDispatcher`, the 22-h
 profile). Those six files still exist; what changed is that they now build on one parse/dispatch layer
 instead of each re-implementing it.
 
-The move is staged, not finished. `ResourceAstAnalyzer` and `ControllerPaginatorAnalyzer` already sit
-on the engine, but broadcast events and Inertia page/shared-data props still go through **Laravel
-Surveyor** — a second, foreign AST engine — until Phases 6-7 port them natively. See the tracked
+The move is staged, not finished. `ResourceAstAnalyzer`, `ControllerPaginatorAnalyzer` and
+`BroadcastEventTransformer` already sit on the engine, but Inertia page and shared-data props still go
+through **Laravel Surveyor** — a second, foreign AST engine — until Phase 7 ports them. See the tracked
 [ADR: freeze Laravel Surveyor/Ranger and exit in stages](../decisions/2026-08-31-surveyor-staged-exit.md)
 for why that freeze exists and what each exit stage must show. Task 36 rewrites this lead once the
 second stack is gone.
@@ -302,7 +302,9 @@ concern, not something this method decides.
 literal a method returns, and `null` for anything else — several returns, no return, or an expression
 that merely *starts* with a literal. `'order.'.$this->kind` reads `null`, not `"order."`: Surveyor
 folds that concatenation to its prefix and ships it as a broadcast name, and a wrong Echo key is worse
-than no key, because the caller can fall back to a convention it controls.
+than no key, because the caller can fall back to a convention it controls. The return count stops at
+every nested `FunctionLike`, so a closure's own `return` neither counts toward the total nor stands in
+for the method's — a plain `NodeFinder` sweep has no such boundary and over-rejects on it.
 
 `AnalysisImports::build(MethodAnalysis $analysis, string $fromNamespacePath): array{typeImports:
 TypesImportMap, valueImports: TypesImportMap}` turns a `MethodAnalysis`'s FQCN channels into resolved
@@ -326,3 +328,15 @@ not what to *call* it once two imports collide. See
 [ImportNameRegistry](import-name-registry.md) for that half, and the
 [Analyzer API](https://tolki.abe.dev/ts/analyzer-api.html) page for the user-facing walkthrough of
 calling `AstEngine` directly.
+
+## Consumers
+
+`BroadcastEventTransformer` is the first feature on this API, and shows the intended shape of a
+consumer: `analyzeMethod($fqcn, 'broadcastWith')` when the event has one — `hasMethod()`, so an
+inherited or trait-supplied `broadcastWith()` counts, matching what Laravel itself calls — and
+`analyzePublicProperties($fqcn)` otherwise, `ReturnLiteralReader` for the Echo name, then
+`AnalysisImports::build()` for every channel its own FQCN maps do not already own. Those two maps —
+enums and models — stay transformer-side because only the transformer knows the `Partial<Model>`
+presentation and the `ImportNameRegistry` aliases a same-basename collision forces; `buildTypeImports()`
+skips any `AnalysisImports` name they already emitted, so an alias is never shadowed by a bare
+duplicate.

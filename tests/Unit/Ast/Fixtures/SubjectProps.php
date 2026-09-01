@@ -49,6 +49,17 @@ final class SubjectProps
         return 'order.'.$this->teamId;
     }
 
+    public function literalPastAClosure(): string
+    {
+        $fallback = function (): string {
+            return 'closure.literal';
+        };
+
+        $fallback();
+
+        return 'past.the.closure';
+    }
+
     public function twoLiteralReturns(): string
     {
         if ($this->teamId > 0) {

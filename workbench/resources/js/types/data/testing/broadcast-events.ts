@@ -17,7 +17,7 @@ import type { UserSynced as AppUserSynced } from './workbench/app/events/UserSyn
 import type { UserSynced as CrmUserSynced } from './workbench/crm/events/UserSynced';
 
 export type BroadcastEvent =
-    | 'order.'
+    | '.Workbench.App.Events.ComputedNameEvent'
     | '.Workbench.App.Events.DeclaredPropsEvent'
     | '.Workbench.App.Events.EnumBroadcastEvent'
     | '.Workbench.App.Events.MixedTypesEvent'
@@ -36,7 +36,7 @@ export type BroadcastEvent =
     | '.Workbench.Crm.Events.UserSynced';
 
 export const BroadcastEvents = Object.freeze({
-    ComputedNameEvent: 'order.',
+    ComputedNameEvent: '.Workbench.App.Events.ComputedNameEvent',
     DeclaredPropsEvent: '.Workbench.App.Events.DeclaredPropsEvent',
     EnumBroadcastEvent: '.Workbench.App.Events.EnumBroadcastEvent',
     MixedTypesEvent: '.Workbench.App.Events.MixedTypesEvent',

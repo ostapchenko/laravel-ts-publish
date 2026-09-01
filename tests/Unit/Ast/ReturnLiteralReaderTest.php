@@ -27,6 +27,12 @@ it('returns null for a method that does not exist', function () {
         ->toBeNull();
 });
 
+// A closure's `return` is not the method's; counting it over-rejects a perfectly whole literal.
+it('ignores returns that belong to a nested closure', function () {
+    expect(resolve(ReturnLiteralReader::class)->stringLiteral(SubjectProps::class, 'literalPastAClosure'))
+        ->toBe('past.the.closure');
+});
+
 it('returns null for a method with more than one return', function () {
     expect(resolve(ReturnLiteralReader::class)->stringLiteral(SubjectProps::class, 'twoLiteralReturns'))
         ->toBeNull();

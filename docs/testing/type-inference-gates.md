@@ -420,8 +420,9 @@ npx tsc --noEmit -p tsconfig.json 2>&1 | grep "^tests/types/"   # must print not
 
 `.github/workflows/run-tests.yml`'s `upstream-drift` job runs after `type-inference-gates` on every push.
 It installs `laravel/surveyor:'*'` and `laravel/ranger:'*'` — their latest tags, unpinned from
-`composer.json`'s frozen `^0.1` carets — then runs `composer analyse` and the five test files that exercise
-the Surveyor-backed pipeline still in use today:
+`composer.json`'s frozen `^0.1` carets — then runs `composer analyse` and five test files. Three of them
+still exercise the Surveyor-backed pipeline; the two broadcast-event files no longer touch Surveyor since
+that feature went native, and stay listed as drift cover until the exit removes both packages:
 
 ```text
 tests/Unit/Transformers/BroadcastEventTransformerTest.php
