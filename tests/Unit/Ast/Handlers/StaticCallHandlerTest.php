@@ -22,6 +22,7 @@ use Workbench\App\Enums\Status;
 use Workbench\App\Http\Resources\CategoryResource;
 use Workbench\App\Http\Resources\FluentSelfResource;
 use Workbench\App\Http\Resources\PostResource;
+use Workbench\App\Models\Address;
 use Workbench\App\Models\Post;
 
 /**
@@ -111,6 +112,27 @@ it('resolves EnumResource::make($this->status) to the enum channel', function ()
         'type' => 'StatusType',
         'optional' => false,
         'enumFqcn' => Status::class,
+    ]);
+});
+
+it('routes $this->resource::m() to analyzeStaticMethodOnResource() even inside a closure with a related model bound — guard 5 must precede guard 6', function () {
+    // $this->resource::tableName() — guard 5 (`$this->resource::staticMethod()`) and guard 6
+    // (closure-context `$this->relation::staticMethod()`) share the same PropertyFetch-receiver
+    // shape; only guard 5's extra `name->toString() === 'resource'` check tells them apart. Setting
+    // closureRelationModelClass to a model with no tableName() method makes a guard-6 misroute
+    // observable: it would degrade to unknown instead of reflecting Post::tableName()'s `string`.
+    $expr = new StaticCall(
+        new PropertyFetch(new Variable('this'), 'resource'),
+        'tableName',
+    );
+    $scope = new AnalysisScope(new ReflectionClass(PostResource::class), Post::class);
+    $scope->closureRelationModelClass = Address::class;
+
+    $result = (new StaticCallHandler)->resolve($expr, $scope, staticCallHandlerThrowingEngine());
+
+    expect($result)->toBe([
+        'type' => 'string',
+        'optional' => false,
     ]);
 });
 
