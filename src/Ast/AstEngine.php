@@ -6,7 +6,6 @@ namespace AbeTwoThree\LaravelTsPublish\Ast;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\DispatchesFqcnResults;
-use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -15,8 +14,6 @@ use ReflectionProperty;
 
 /**
  * Public entry point: analyze any class method (or constructor) into a MethodAnalysis DTO.
- *
- * @phpstan-import-type ValueExpressionResult from ExpressionHandler
  */
 final class AstEngine
 {

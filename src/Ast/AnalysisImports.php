@@ -51,6 +51,10 @@ final class AnalysisImports
             $this->enumConstMap[$fqcn] ??= LaravelTsPublish::toTsType($fqcn)['enums'][0] ?? class_basename($fqcn);
         }
 
+        foreach ($this->asEnumWrappedOnlyFqcns($analysis) as $fqcn) {
+            unset($enumFqcnMap[$fqcn]);
+        }
+
         $resourceFqcnMap = [];
 
         foreach ($analysis->nestedResources as $fqcn) {
@@ -63,11 +67,18 @@ final class AnalysisImports
             $modelFqcnMap[$fqcn] = class_basename($fqcn);
         }
 
-        $typeImports = $this->mergeCustomImports([
-            ...$this->collectModularTypeImports($enumFqcnMap),
-            ...$this->collectModularTypeImports($resourceFqcnMap),
-            ...$this->collectModularTypeImports($modelFqcnMap),
-        ], $analysis->customImports);
+        $typeImports = [];
+
+        // Deliberately diverges from ResourceTransformer::buildResolvedImports(), which spreads these
+        // three maps and so drops a whole path's names when two of them resolve to the same path —
+        // reachable for any app that keeps enums, models and resources in one namespace.
+        foreach ([$enumFqcnMap, $resourceFqcnMap, $modelFqcnMap] as $fqcnMap) {
+            foreach ($this->collectModularTypeImports($fqcnMap) as $path => $names) {
+                $typeImports[$path] = [...($typeImports[$path] ?? []), ...$names];
+            }
+        }
+
+        $typeImports = $this->mergeCustomImports($typeImports, $analysis->customImports);
 
         return [
             'typeImports' => $this->deduplicateAndSortImports($typeImports),
@@ -121,6 +132,50 @@ final class AnalysisImports
         }
 
         return array_values(array_unique($fqcns));
+    }
+
+    /**
+     * Enums the AsEnum rewrite leaves with no bare `XType` token anywhere, so their type import is dead.
+     *
+     * Mirrors ResourceTransformer::rewriteEnumResourceTypes()'s GC; without it a wrapped-only enum
+     * emits an unused `import type` that fails a consumer's noUnusedLocals.
+     *
+     * @return list<class-string>
+     */
+    private function asEnumWrappedOnlyFqcns(MethodAnalysis $analysis): array
+    {
+        if (! Config::boolean('ts-publish.enums.use_tolki_package')) {
+            return [];
+        }
+
+        $directFqcns = array_values($analysis->directEnumFqcns);
+        $inlineFqcns = [];
+
+        foreach ($analysis->inlineEnumFqcns as $branchFqcns) {
+            $inlineFqcns = [...$inlineFqcns, ...$branchFqcns];
+        }
+
+        $dead = [];
+
+        foreach ($analysis->enumResources as $propName => $fqcn) {
+            if (! isset($analysis->directEnumFqcns[$propName])
+                && ! in_array($fqcn, $directFqcns, true)
+                && ! in_array($fqcn, $inlineFqcns, true)) {
+                $dead[] = $fqcn;
+            }
+        }
+
+        // The multi-enum ternary rewrite replaces every branch token, and unlike the wrap above it
+        // does not spare an enum that only an inline object type reads.
+        foreach ($analysis->multiEnumResourceFqcns as $branchFqcns) {
+            foreach ($branchFqcns as $fqcn) {
+                if (! in_array($fqcn, $directFqcns, true)) {
+                    $dead[] = $fqcn;
+                }
+            }
+        }
+
+        return array_values(array_unique($dead));
     }
 
     /**

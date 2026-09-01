@@ -69,6 +69,12 @@ final class PropertyDocblockTypeReader
 
             $depth += (int) in_array($char, ['{', '<', '('], true) - (int) in_array($char, ['}', '>', ')'], true);
             $type .= $isSpace ? ' ' : $char;
+
+            // A quoted or unmatched closer drives depth below zero, where the depth-zero space test
+            // can never fire again — without this the walk swallows the `$name` and the prose.
+            if ($depth < 0) {
+                break;
+            }
         }
 
         return trim($type);
@@ -101,7 +107,13 @@ final class PropertyDocblockTypeReader
 
         // Union fan-out duplicates LaravelTsPublish::resolveDocblockPartToInfo(), which is protected.
         foreach (LaravelTsPublish::splitPhpDocUnionType($declared) as $part) {
-            $infos[] = LaravelTsPublish::resolveDocblockTypePart(trim($part), $useMap, $namespace);
+            $part = trim($part);
+
+            if ($part === '') {
+                continue;
+            }
+
+            $infos[] = LaravelTsPublish::resolveDocblockTypePart($part, $useMap, $namespace);
         }
 
         if ($infos === []) {

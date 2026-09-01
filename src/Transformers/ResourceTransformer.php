@@ -29,7 +29,6 @@ use ReflectionClass;
  * @phpstan-import-type PropertiesList from TsResourceDto
  * @phpstan-import-type TypesImportMap from TsResourceDto
  * @phpstan-import-type ValuesImportMap from TsResourceDto
- * @phpstan-import-type ResourcePropertyInfo from MethodAnalysis
  * @phpstan-import-type ImportMapType from MethodAnalysis
  *
  * @extends CoreTransformer<JsonResource>
