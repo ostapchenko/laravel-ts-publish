@@ -11,6 +11,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\DispatchesFqcnResults;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesSingularResourceClass;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
@@ -44,9 +45,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
-use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
-use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use PhpParser\Node;
@@ -91,8 +90,6 @@ use ReflectionMethod;
  * @phpstan-import-type InlineEnumFqcnsMap from MethodAnalysis
  * @phpstan-import-type InlineModelFqcnsMap from MethodAnalysis
  * @phpstan-import-type MultiEnumFqcnsMap from MethodAnalysis
- * @phpstan-import-type TypeScriptTypeInfo from \AbeTwoThree\LaravelTsPublish\LaravelTsPublish
- * @phpstan-import-type TypesImportMap from Datable
  * @phpstan-import-type ValueExpressionResult from ExpressionHandler
  */
 class ResourceAstAnalyzer implements ExpressionEngine
@@ -103,6 +100,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
     use InspectsAstNodes;
     use InspectsResourceSubject;
     use ResolvesClassNames;
+    use ResolvesModelRelationTypes;
     use ResolvesModelTypes;
     use ResolvesRelatedModelTypes;
     use ResolvesSingularResourceClass;
@@ -295,7 +293,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
                 continue;
             }
 
-            $relationInfo = $this->resolveModelRelationTypeInfo($stmt->expr->name->toString());
+            $relationInfo = $this->resolveModelRelationTypeInfo($stmt->expr->name->toString(), $this->scope);
 
             if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
                 $this->scope->varModelBindings[$stmt->valueVar->name] = $relationInfo['modelFqcn'];
@@ -1120,21 +1118,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
             ]],
             nestedResources: [$wrapKey => $singular],
         );
-    }
-
-    /**
-     * Resolve a `$this->{name}` property as a model relation, in ModelAttributeResolver::resolveRelation()'s
-     * {type, modelFqcn, morphFqcns} shape — a to-many relation's type ends in '[]'.
-     *
-     * @return array{type: string, modelFqcn: class-string<Model>|null, morphFqcns: list<class-string>}
-     */
-    protected function resolveModelRelationTypeInfo(string $name): array
-    {
-        if ($this->scope->modelClass === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveRelation($this->scope->modelClass, $name);
     }
 
     /**

@@ -17,7 +17,6 @@ use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
-use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
 use PhpParser\Node\Expr;
@@ -37,7 +36,6 @@ use PhpParser\Node\Identifier;
  * @phpstan-import-type InlineEnumFqcnsMap from MethodAnalysis
  * @phpstan-import-type InlineModelFqcnsMap from MethodAnalysis
  * @phpstan-import-type MultiEnumFqcnsMap from MethodAnalysis
- * @phpstan-import-type TypesImportMap from Datable
  */
 final class ThisPropertyHandler implements ExpressionHandler
 {

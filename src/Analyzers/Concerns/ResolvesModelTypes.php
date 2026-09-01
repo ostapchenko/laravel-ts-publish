@@ -25,7 +25,6 @@ use ReflectionClass;
  * @phpstan-import-type InlineModelFqcnsMap from MethodAnalysis
  * @phpstan-import-type AttributeInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  * @phpstan-import-type RelationInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
- * @phpstan-import-type TypesImportMap from \AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable
  *
  * @phpstan-type ModelAttributeTypeResult = array{type: string, enumFqcn: class-string|null, classFqcns: list<class-string>}
  * @phpstan-type ModelRelationTypeResult = array{type: string, modelFqcn: class-string<\Illuminate\Database\Eloquent\Model>|null, morphFqcns: list<class-string>}
@@ -79,18 +78,6 @@ trait ResolvesModelTypes
         $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
 
         return ['type' => $tsInfo['type'], 'enumFqcn' => $enumFqcn, 'classFqcns' => $tsInfo['classFqcns']];
-    }
-
-    /**
-     * @return ModelRelationTypeResult
-     */
-    protected function resolveModelRelationTypeInfo(string $relationName): array
-    {
-        if ($this->scope->modelClass === null || $this->modelRelations === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveRelation($this->scope->modelClass, $relationName);
     }
 
     /**
@@ -151,7 +138,7 @@ trait ResolvesModelTypes
         // Also include relations so they can be referenced by only()/except() filters
         if ($this->modelRelations !== null) {
             foreach ($this->modelRelations as $relation) {
-                $info = $this->resolveModelRelationTypeInfo($relation['name']);
+                $info = $this->resolveModelRelationTypeInfo($relation['name'], $this->scope);
 
                 if ($info['type'] !== 'unknown') {
                     $properties[] = [

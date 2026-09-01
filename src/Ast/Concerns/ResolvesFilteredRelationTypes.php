@@ -10,9 +10,9 @@ use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 /**
  * Build an inline TypeScript object type for a filtered subset of a related model's members.
  *
- * The single home for this: the analyzer reaches it through `$this->relation->only([...])` on a
- * ResolvesModelTypes path, RelationFilterHandler through the same shape as a value expression.
- * Stateless — it reads nothing off the host.
+ * RelationFilterHandler is the only production caller. ResolvesModelTypes still composes this trait
+ * so the analyzer keeps inheriting the method: ResourceAstAnalyzerTest probes it through two
+ * anonymous subclasses, which is the only coverage the except-branch column rule has.
  *
  * @phpstan-import-type TypesImportMap from Datable
  */
