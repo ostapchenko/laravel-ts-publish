@@ -35,6 +35,7 @@ use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrayItem;
+use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
@@ -52,8 +53,7 @@ use Workbench\App\Models\Warehouse;
 use Workbench\Crm\Models\User as CrmUser;
 
 /**
- * The documented dispatch order for the resource profile — Tasks 14-22's chain-derived precedence,
- * moved unchanged by Task 23, plus Task 34's two handlers. A change here without a matching change
+ * The documented dispatch order for the resource profile. A change here without a matching change
  * in ResourceExpressionHandlers::handlers() is exactly the defect this test exists to catch.
  *
  * @return list<class-string<ExpressionHandler>>
@@ -140,7 +140,7 @@ it('excludes exactly the three resource-only handlers from generic(), same relat
 
 // Ordering pin #1: both handlers claim a first-class-callable $this->when(...) —
 // isThisMethodCall() matches on method name alone, ignoring args — so if ConditionalMethodHandler
-// ran first it would call getArgs(), which asserts !isFirstClassCallable() and fatals. See report.
+// ran first it would call getArgs(), which asserts !isFirstClassCallable() and fatals.
 it('tries FirstClassCallableHandler before ConditionalMethodHandler for a first-class-callable $this->when(...)', function () {
     $expr = new MethodCall(new Variable('this'), 'when', [new VariadicPlaceholder]);
     $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
@@ -150,7 +150,7 @@ it('tries FirstClassCallableHandler before ConditionalMethodHandler for a first-
 
 // Ordering pin #2: both handlers claim NullsafeMethodCall, but MethodChainHandler's floor is
 // ValueResult::unknown(), never null, so it would win every NullsafeMethodCall if it ran first —
-// degrading this Pick<> reference to a plain reflected type. See task-23-report.md.
+// degrading this Pick<> reference to a plain reflected type.
 it('tries RelationFilterHandler before MethodChainHandler for $this->relation?->only([...])', function () {
     $expr = new NullsafeMethodCall(
         new PropertyFetch(new Variable('this'), 'post'),
@@ -191,4 +191,24 @@ it('tries InertiaWrapperHandler before StaticCallHandler for Inertia::always(...
     $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
 
     expect($analyzer->resolve($expr))->toBe(['type' => 'string', 'optional' => false]);
+});
+
+// Ordering pin #5: KnownFunctionCallHandler gates only the inner auth() call on isFirstClassCallable(),
+// never the outer MethodCall, so if it ran first it would answer a first-class-callable auth()->user(...)
+// with the guard's model — a confident type for a Closure.
+it('tries FirstClassCallableHandler before KnownFunctionCallHandler for auth()->user(...)', function () {
+    $expr = new MethodCall(new FuncCall(new Name('auth')), 'user', [new VariadicPlaceholder]);
+    $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+
+    expect($analyzer->resolve($expr))->toBe(['type' => 'unknown', 'optional' => false]);
+});
+
+// Ordering pin #6: ToResourceHandler matches on the method name alone and then calls getArgs(),
+// which asserts !isFirstClassCallable() — so without FirstClassCallableHandler ahead of it a
+// first-class-callable $this->post->toResource(...) fatals with an AssertionError.
+it('tries FirstClassCallableHandler before ToResourceHandler for $this->post->toResource(...)', function () {
+    $expr = new MethodCall(new PropertyFetch(new Variable('this'), 'post'), 'toResource', [new VariadicPlaceholder]);
+    $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+
+    expect($analyzer->resolve($expr))->toBe(['type' => 'unknown', 'optional' => false]);
 });
