@@ -120,12 +120,22 @@ it('merges a ResourceAnalysis source into a ResourceAnalysis target, since it in
     ])->and($target->inlineModelFqcns)->toBe(['author' => ['App\\Models\\User', 'App\\Models\\User']]);
 });
 
-it('leaves fields absent from both source and target untouched by merge', function () {
-    $target = new MethodAnalysis(flatTypeAlias: 'Foo', flatTypeAliasFqcn: 'App\\Foo');
-    $source = new MethodAnalysis;
+// The flat-type alias names the ONE resource a collection flattens to, so it is deliberately
+// outside merge()'s reach: a spread source carrying its own alias must not rename the target.
+it('merges properties without letting the source flat-type alias overwrite the target', function () {
+    $target = new MethodAnalysis(properties: [
+        ['name' => 'id', 'type' => 'number', 'optional' => false, 'description' => ''],
+    ], flatTypeAlias: 'Foo', flatTypeAliasFqcn: 'App\\Foo');
+    $source = new MethodAnalysis(properties: [
+        ['name' => 'name', 'type' => 'string', 'optional' => false, 'description' => ''],
+    ], flatTypeAlias: 'Bar', flatTypeAliasFqcn: 'App\\Bar');
 
     $target->merge($source);
 
-    expect($target->flatTypeAlias)->toBe('Foo')
+    expect($target->properties)->toBe([
+        ['name' => 'id', 'type' => 'number', 'optional' => false, 'description' => ''],
+        ['name' => 'name', 'type' => 'string', 'optional' => false, 'description' => ''],
+    ])
+        ->and($target->flatTypeAlias)->toBe('Foo')
         ->and($target->flatTypeAliasFqcn)->toBe('App\\Foo');
 });

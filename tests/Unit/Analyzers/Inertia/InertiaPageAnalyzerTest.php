@@ -406,11 +406,13 @@ test('analyze() types a table-free sibling action on a table-bearing controller'
         ->and($inline['pageType'])->toBe('Inertia.SharedData & { mode: string }');
 });
 
-test('analyze() keeps the #[TsCasts] page type on a sibling of a table action', function () {
+// The literal 'create' the props expression carries infers as `string`, so the narrowed union is
+// only reachable through the attribute — the sibling at @serviceCreate above pins the inferred half.
+test('analyze() applies the #[TsCasts] override on a sibling of a table action', function () {
     $result = pageData(InertiaTableController::class.'@castedCreate');
 
     expect($result)->not->toBeNull()
-        ->and($result['pageType'])->toBe('Inertia.SharedData & { mode: string }');
+        ->and($result['pageType'])->toBe("Inertia.SharedData & { mode: 'create' | 'edit' }");
 });
 
 test('analyze() returns null for a non-Inertia action on a table-bearing controller', function () {
