@@ -5,6 +5,9 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\NativeInertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Support\TolkiTypes;
+use AbeTwoThree\LaravelTsPublish\Tests\Fixtures\InertiaUiTable\InertiaInlineTableController;
+use AbeTwoThree\LaravelTsPublish\Tests\Fixtures\InertiaUiTable\InertiaServiceTableController;
+use AbeTwoThree\LaravelTsPublish\Tests\Fixtures\InertiaUiTable\InertiaTableController;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -25,6 +28,28 @@ function parityActions(): array
 
         if (! in_array($uses, $actions, true)) {
             $actions[] = $uses;
+        }
+    }
+
+    return $actions;
+}
+
+/**
+ * The Inertia UI Table fixture actions. They are deliberately not routed — the table stub they
+ * reference is a local fixture, not the real package — so Route::getRoutes() cannot reach them, and
+ * the taint bypass they exist to exercise would otherwise never enter this comparison.
+ *
+ * @return list<string>
+ */
+function parityTaintActions(): array
+{
+    $actions = [];
+
+    foreach ([InertiaTableController::class, InertiaInlineTableController::class, InertiaServiceTableController::class] as $class) {
+        foreach (new ReflectionClass($class)->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+            if (! $method->isConstructor() && $method->getDeclaringClass()->getName() === $class) {
+                $actions[] = $class.'@'.$method->getName();
+            }
         }
     }
 
@@ -65,8 +90,8 @@ function parityShape(?array $data): ?array
 
 /**
  * Every difference the native analyzer is expected to produce, both sides spelled out, so the
- * config flip has nothing left to discover: finders and collections typed, wrappers/`compact()`/
- * ternary props read, `true`/`[]` widened, a dead import dropped, `;` between object members.
+ * config flip has nothing left to discover: finders/collections typed, wrappers, `compact()` and
+ * ternary props read, `true`/`[]` widened, a dead import dropped, `;` separators, taint siblings typed.
  *
  * @return array<string, array{surveyor: mixed, native: mixed}>
  */
@@ -291,6 +316,33 @@ function parityExpectedDifferences(): array
                 'imports' => ['Workbench\App\Models\Post'],
             ],
         ],
+        // The taint bypass: the Surveyor path refuses to type any action in a file that references an
+        // Inertia UI Table, because autoloading one through Ranger fatals. The engine has no such
+        // constraint, so these two siblings gain the page type the bypass withheld.
+        'AbeTwoThree\\LaravelTsPublish\\Tests\\Fixtures\\InertiaUiTable\\InertiaTableController@serviceCreate' => [
+            'surveyor' => [
+                'component' => 'Tables/Create',
+                'pageType' => null,
+                'imports' => [],
+            ],
+            'native' => [
+                'component' => 'Tables/Create',
+                'pageType' => 'Inertia.SharedData & { mode: string }',
+                'imports' => [],
+            ],
+        ],
+        'AbeTwoThree\\LaravelTsPublish\\Tests\\Fixtures\\InertiaUiTable\\InertiaInlineTableController@form' => [
+            'surveyor' => [
+                'component' => 'Tables/Form',
+                'pageType' => null,
+                'imports' => [],
+            ],
+            'native' => [
+                'component' => 'Tables/Form',
+                'pageType' => 'Inertia.SharedData & { mode: string }',
+                'imports' => [],
+            ],
+        ],
     ];
 }
 
@@ -300,7 +352,7 @@ test('the native page analyzer matches the Surveyor one except on the listed imp
 
     $differences = [];
 
-    foreach (parityActions() as $uses) {
+    foreach ([...parityActions(), ...parityTaintActions()] as $uses) {
         $before = parityShape($surveyor->analyze(['uses' => $uses]));
         $after = parityShape($native->analyze(['uses' => $uses]));
 

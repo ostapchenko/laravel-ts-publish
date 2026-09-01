@@ -49,6 +49,9 @@ class NativeInertiaPageAnalyzer
     /** Depth cap for `$props = $other;` chains, which the flat bindings cannot prove acyclic. */
     private const MAX_VARIABLE_HOPS = 8;
 
+    /** TypeScript's own generic heads, which a rendered type spells without naming any PHP class. */
+    private const UTILITY_TYPES = ['Record', 'Omit', 'Pick', 'Partial', 'Required', 'Readonly', 'Exclude', 'Extract', 'NonNullable'];
+
     /**
      * Create the analyzer with an optional table analyzer override.
      */
@@ -293,11 +296,13 @@ class NativeInertiaPageAnalyzer
             $this->forgetOverriddenChannels($analysis, $overrides);
 
             $props = $this->collectProps($analysis);
-            $pageTypes[] = $props === [] && $overrides === []
+            $pageType = $props === [] && $overrides === []
                 ? 'Inertia.SharedData'
                 : 'Inertia.SharedData & '.$this->buildTypeStringWithOverrides($props, $overrides);
 
-            foreach ($this->usedFqcns($analysis, end($pageTypes) ?: '') as $fqcn) {
+            $pageTypes[] = $pageType;
+
+            foreach ($this->usedFqcns($analysis, $pageType) as $fqcn) {
                 if (! in_array($fqcn, $allFqcns, true)) {
                     $allFqcns[] = $fqcn;
                 }
@@ -410,11 +415,16 @@ class NativeInertiaPageAnalyzer
     }
 
     /**
-     * Whether a rendered type string contains a bare identifier token.
+     * Whether a rendered type string names an identifier as a type of its own.
+     *
+     * The utility-type heads are erased first: a class whose basename is `Record` must not be kept
+     * alive by the `Record<string, X>` a preserve-keys collection renders, which names no class.
      */
     protected function typeSpells(string $pageType, string $name): bool
     {
-        return preg_match('/(?<![A-Za-z0-9_$.])'.preg_quote($name, '/').'(?![A-Za-z0-9_$])/', $pageType) === 1;
+        $structural = (string) preg_replace('/\b(?:'.implode('|', self::UTILITY_TYPES).')</', '<', $pageType);
+
+        return preg_match('/(?<![A-Za-z0-9_$.])'.preg_quote($name, '/').'(?![A-Za-z0-9_$])/', $structural) === 1;
     }
 
     /**

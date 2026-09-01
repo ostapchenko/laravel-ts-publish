@@ -43,6 +43,17 @@ if [ -n "$setup_errs" ] || { [ "$status" -ne 0 ] && ! printf '%s\n' "$out" | gre
   exit 1
 fi
 
+# The other fail-open shape, and the one that actually happened: a SYNTAX error in a generated file.
+# tsc emits no semantic diagnostics for a program it could not parse, so every count below reads 0
+# and all three sub-gates PASS on a tree nothing checked. TS1xxx is the syntactic range.
+syntax_errs=$(printf '%s\n' "$out" | grep -E "error TS1[0-9]{3}:" || true)
+
+if [ -n "$syntax_errs" ]; then
+  echo "FAIL - the generated tree does not parse, so nothing after the parse error was type-checked"
+  printf '%s\n' "$syntax_errs"
+  exit 1
+fi
+
 errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2344|2552)" || true)
 count=$(printf '%s' "$errs" | grep -c . || true)
 

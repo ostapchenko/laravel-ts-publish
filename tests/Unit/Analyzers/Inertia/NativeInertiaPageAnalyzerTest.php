@@ -117,3 +117,23 @@ it('returns null for an action that renders no Inertia response', function () {
         ->and(nativePageData(PostInertiaController::class.'@missingMethod'))->toBeNull()
         ->and(nativePageData('Closure'))->toBeNull();
 });
+
+// A class basename colliding with a TypeScript utility head must not be kept alive by the
+// `Record<string, X>` a preserve-keys collection renders — that would import a type the page
+// never names, which is the TS2304 shape the token gate exists to catch.
+it('does not treat a TypeScript utility head as a class the page type names', function () {
+    $analyzer = new class extends NativeInertiaPageAnalyzer
+    {
+        public function expose(string $pageType, string $name): bool
+        {
+            return $this->typeSpells($pageType, $name);
+        }
+    };
+
+    $preserveKeys = "Inertia.SharedData & { teams: Omit<JsonResourcePaginator<TeamResource>, 'data'> & { data: Record<string, TeamResource> } }";
+
+    expect($analyzer->expose($preserveKeys, 'Record'))->toBeFalse()
+        ->and($analyzer->expose($preserveKeys, 'Omit'))->toBeFalse()
+        ->and($analyzer->expose($preserveKeys, 'TeamResource'))->toBeTrue()
+        ->and($analyzer->expose('Inertia.SharedData & { audit: Record }', 'Record'))->toBeTrue();
+});
