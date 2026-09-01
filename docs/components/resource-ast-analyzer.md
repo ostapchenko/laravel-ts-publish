@@ -194,9 +194,9 @@ the include branch of `resolveFilteredRelationType()`, and `ModelAttributeResolv
 ## Import dispatch rules
 
 A static-call value (e.g. `UrlService::locateOrder($id)`) whose method has no dedicated handler
-falls through to `analyzeStaticCall()`'s general-reflection branch: it reflects the method's
-return type into a `TypeScriptTypeInfo` and hands it to `acceptReflectedTypeInfo()`, which
-decides whether the result can be emitted at all. The invariant is absolute: **a type token
+falls through to `StaticCallHandler::analyzeStaticCall()`'s general-reflection branch: it reflects
+the method's return type into a `TypeScriptTypeInfo` and hands it to `ReflectedTypeAcceptor::accept()`,
+which decides whether the result can be emitted at all. The invariant is absolute: **a type token
 never outruns its import** — nothing may be accepted unless every referenced name has a
 resolvable `import` statement somewhere in the dispatch chain.
 
@@ -213,7 +213,7 @@ resolvable `import` statement somewhere in the dispatch chain.
 | `void` / `never` / `mixed`'s reflected `unknown \| null` / empty type | **no** — degrades to `unknown` | none; these carry no meaningful TypeScript shape |
 
 "Always the multi-entry channels" in that last row is structural, not a convention.
-`acceptReflectedTypeInfo()` sets `directEnumFqcn` only when `count($enumFqcns) === 1 && $classFqcns === []`,
+`ReflectedTypeAcceptor::accept()` sets `directEnumFqcn` only when `count($enumFqcns) === 1 && $classFqcns === []`,
 and `modelFqcn` only when `count($classFqcns) === 1 && $enumFqcns === []`. A union carrying both kinds
 fails both tests, so the single-entry channels are unreachable for it even when each kind contributes
 exactly one FQCN — which is why that row does not contradict the two above it.
@@ -597,16 +597,18 @@ the workbench and the corresponding test in `ResourceAstAnalyzerTest` for the tr
 
 ### A `new self($x)->method()` receiver resolves the same way
 
-`analyzeSelfReturningResourceMethodCall()` handles `new self($x)->method()`, `self::make($x)->method()`
-and chains of both. When `methodPreservesReceiverType()` says the method hands the same instance back —
-a native `static`/`self`/the resource class, or a docblock-only `@return $this` — the receiver's own
-resolved result is returned, with one adjustment. A nullable method return appends `| null` to it first
+`StaticCallHandler::analyzeSelfReturningResourceMethodCall()` handles `new self($x)->method()`,
+`self::make($x)->method()` and chains of both. When `methodPreservesReceiverType()` says the method
+hands the same instance back — a native `static`/`self`/the resource class, or a docblock-only
+`@return $this` — the receiver's own resolved result is returned, with one adjustment. A nullable
+method return appends `| null` to it first
 (`if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null'))`), so
 `FluentSelfResource::whenAuthorized(): ?static` widens the receiver's type rather than passing it
 through; `parent_fluent_nullable` pins that. When it says otherwise, the expression has stopped being the
-resource, and the method's *body* is resolved through `analyzeThisMethodSpread()` instead of degrading
-to `unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
-`buildInlineObjectType()` — the same helper `analyzeInlineArray()` assembles its `{ … }` arm with.
+resource, and the method's *body* is resolved through the analyzer's `spreadAnalysis()` — the
+`ExpressionEngine` entry point delegating to `analyzeThisMethodSpread()` — instead of degrading to
+`unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
+`StaticCallHandler`'s own `buildInlineObjectType()`, a duplicate of `analyzeInlineArray()`'s `{ … }`-arm helper.
 
 Three tiers are possible here and only the last is correct. Do not "improve" this to the receiver type:
 
@@ -1044,8 +1046,9 @@ excluded as unreachable anywhere else in the family.
 
 ## `#[Collects]` resolution is Laravel-version-guarded
 
-`InspectsAstNodes::resolveCollectedResourceClass()` — the shared resolver `collectedResourceClass()`
-and `resolveSingularResourceFqcn()` both delegate to — checks for
+`InspectsAstNodes::resolveCollectedResourceClass()` — called directly by every consumer
+(`ResourceAstAnalyzer::resolveSingularResourceClass()`, `ToResourceHandler`, `StaticCallHandler`,
+`NewResourceHandler`, and `InertiaPageAnalyzer::resolveSingularResourceFqcn()`) — checks for
 `Illuminate\Http\Resources\Attributes\Collects` behind `class_exists()` rather than a `use` import,
 because the package still supports Laravel 12 releases that don't ship the attribute. See
 [Version-guarded Laravel classes](../laravel-version-guards.md) for the full registry and when this
@@ -1055,7 +1058,7 @@ guard can be removed.
 
 `Model::toResource()` and `Collection::toResourceCollection()` reach a resource class three ways: an
 explicit `SomeResource::class` argument, a `#[UseResource]`/`#[UseResourceCollection]` attribute, or
-Laravel's naming convention (`guessResourceNames()`). Only the last one *invents* a class name, and
+Laravel's naming convention (`ToResourceHandler::guessResourceNames()`). Only the last one *invents* a class name, and
 `isResourceClass()` accepts whatever `class_exists()` finds — including a third-party or `#[TsExclude]`d
 resource this package never writes a file for. `ResourceTransformer` would then emit the
 `class_basename()` token plus an import built by `LaravelTsPublish::namespaceToPath()`, which is pure
@@ -1067,31 +1070,33 @@ that invents a candidate class name, four in total:
 
 | Site | Candidates it can now reject |
 | --- | --- |
-| `resolveResourceForModel()`'s candidate loop | `{Model}Resource`, then bare `{Model}` |
-| `resolveResourceCollectionForModel()`'s `{Guessed}Collection` loop | `{Model}ResourceCollection`, then `{Model}Collection` — the inline `class_exists()`/`is_a()` pair gained a third `PublishedResourceRegistry::isPublished()` conjunct |
-| `resolveResourceCollectionForModel()`'s bare-candidate loop | the `{Model}Resource` fallback |
-| `InspectsAstNodes::resolveCollectedResourceClass()`'s naming-convention branch | `{X}Resource`, then bare `{X}` — shared by `ResourceAstAnalyzer::collectedResourceClass()` and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` (see below) |
+| `ToResourceHandler::resolveResourceForModel()`'s candidate loop | `{Model}Resource`, then bare `{Model}` |
+| `ToResourceHandler::resolveResourceCollectionForModel()`'s `{Guessed}Collection` loop | `{Model}ResourceCollection`, then `{Model}Collection` — the inline `class_exists()`/`is_a()` pair gained a third `PublishedResourceRegistry::isPublished()` conjunct |
+| `ToResourceHandler::resolveResourceCollectionForModel()`'s bare-candidate loop | the `{Model}Resource` fallback |
+| `InspectsAstNodes::resolveCollectedResourceClass()`'s naming-convention branch | `{X}Resource`, then bare `{X}` — shared by every direct caller (`ResourceAstAnalyzer`, `ToResourceHandler`, `StaticCallHandler`, `NewResourceHandler`) and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` (see below) |
 
 **`isResourceClass()` itself is unchanged.** Every branch that reads a class the developer wrote down
 stays ungated on purpose — an explicitly named resource is a declaration, not a guess:
 
-- the explicit-argument arms of `analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`
-- `resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
+- the explicit-argument arms of `ToResourceHandler::analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`
+- `ToResourceHandler::resolveUseResourceAttribute()` and `resolveUseResourceCollectionAttribute()`
 - `resolveCollectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the
   `$collects` property default
 - `ControllerPaginatorAnalyzer::resolvePaginatedResourceConstructorProps()`'s `new $resourceFqcn(...)`
   resolution (`ControllerPaginatorAnalyzer.php:258`) — the class name comes from an explicit `new`
   expression in the analyzed source, not an invented candidate, so it stays ungated on the same basis
 
-### One resolver, not two — `collectedResourceClass()` and `resolveSingularResourceFqcn()` share it
+### One resolver, not many — every `#[Collects]` caller shares it
 
-`ResourceAstAnalyzer::collectedResourceClass()` and `InertiaPageAnalyzer::resolveSingularResourceFqcn()`
-used to be near-verbatim copies of the same `#[Collects]` / `$collects` / naming-convention resolution
-order, including the same third, naming-convention branch — the one gap this section used to carry as a
-recorded follow-up rather than a fix. Both methods are now one-line delegations to
-`InspectsAstNodes::resolveCollectedResourceClass()`, the only place that logic exists; its naming-convention
-branch is gated on `PublishedResourceRegistry` exactly like the three sites above. Two call sites can no
-longer drift apart on this resolution order, because there is only one implementation left to diverge from.
+`ResourceAstAnalyzer::resolveSingularResourceClass()`, `ToResourceHandler`, `StaticCallHandler`,
+`NewResourceHandler`, and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` used to carry
+near-verbatim copies of the same `#[Collects]` / `$collects` / naming-convention resolution order,
+including the same third, naming-convention branch — the one gap this section used to carry as a
+recorded follow-up rather than a fix. Every one of them now calls
+`InspectsAstNodes::resolveCollectedResourceClass()` directly, the only place that logic exists; its
+naming-convention branch is gated on `PublishedResourceRegistry` exactly like the three sites above.
+No call site can drift apart on this resolution order, because there is only one implementation left
+to diverge from.
 
 ### The registry fails open, and `RunnerForSource` depends on it
 
@@ -1102,12 +1107,12 @@ analyze against an empty registry even in the same process as an earlier full ru
 set from that run narrows this run's own convention guess and a real type silently collapses to `unknown`.
 Failing closed there would also silently strip the regenerated file's *convention-guessed* nested resource
 references. Only those. The registry is consulted at four candidate-inventing sites:
-`ResourceAstAnalyzer.php:2247`, `:2293` and `:2304`, plus the naming-convention branch of
+`ToResourceHandler.php:180`, `:226` and `:237`, plus the naming-convention branch of
 `InspectsAstNodes::resolveCollectedResourceClass()`, which tries two candidates (`:203`, `:209`). An
 explicitly named reference never reaches it and would survive — `SomeResource::make()` and
-`::collection()` (`ResourceAstAnalyzer.php:1705`, `:1719`) test `isResourceClass()` rather than
-`isPublishedResourceClass()`, and so do the explicit-argument arms of `analyzeToResourceCall()` and
-`analyzeToResourceCollectionCall()`.
+`::collection()` (`StaticCallHandler.php:187`, `:201`) test `isResourceClass()` rather than
+`isPublishedResourceClass()`, and so do the explicit-argument arms of
+`ToResourceHandler::analyzeToResourceCall()` and `analyzeToResourceCollectionCall()`.
 
 ### Both runners reset the registry at the top of `run()`, once per run
 
@@ -1213,21 +1218,22 @@ object instead — `collectionPreservesKeys()` checks both, and `wrapCollectionE
 single point that turns that boolean into `Record<string, R>` instead of `R[]`.
 
 Every collection-typing call site routes through `wrapCollectionElementType()`. There are **seven**,
-across three paths, and `grep -n 'wrapCollectionElementType(' src/Analyzers/ResourceAstAnalyzer.php` is
-the check:
+across three paths, split between `ResourceAstAnalyzer` and the resource-construction handlers since
+Task 19 (Slice S6) moved static-call/`new`/`toResource` construction out of the analyzer;
+`grep -rn 'wrapCollectionElementType(' src/Analyzers/ResourceAstAnalyzer.php src/Ast/Handlers/` is the check:
 
 - **`SomeResource::collection(...)` / `SomeCollection::make()`/`::collection()` / `new
   SomeCollection(...)`, referenced inside another resource's `toArray()`** — three calls, in
-  `analyzeStaticCall()` (two: the named-collection branch and the plain-resource branch) and
-  `analyzeNewResource()` (one).
-- **`$collection->toResourceCollection()`** — two calls, both in `analyzeToResourceCollectionCall()`:
-  the explicit-argument arm (`toResourceCollection(SomeResource::class)`) and the arm that resolves a
-  collection through `resolveResourceCollectionForModel()`. They reflect on different classes; see the
-  note below.
+  `StaticCallHandler::analyzeStaticCall()` (two: the named-collection branch and the plain-resource
+  branch) and `NewResourceHandler::analyzeNewResource()` (one).
+- **`$collection->toResourceCollection()`** — two calls, both in
+  `ToResourceHandler::analyzeToResourceCollectionCall()`: the explicit-argument arm
+  (`toResourceCollection(SomeResource::class)`) and the arm that resolves a collection through
+  `resolveResourceCollectionForModel()`. They reflect on different classes; see the note below.
 - **A `ResourceCollection` with no `toArray()` override, delegating to `$this->collection`** — two
-  calls, in `buildCollectionDelegatedAnalysis()` (one call whose element type feeds both the
-  `flatTypeAlias` branch and the wrapped-`data`-key branch) and `analyzeCollectionProperty()` (the
-  `$this->collection` property read).
+  calls, both still on `ResourceAstAnalyzer`, in `buildCollectionDelegatedAnalysis()` (one call whose
+  element type feeds both the `flatTypeAlias` branch and the wrapped-`data`-key branch) and
+  `analyzeCollectionProperty()` (the `$this->collection` property read).
 
 That count is exactly what a future change to any of these methods is liable to get wrong — a site
 that's missed silently keeps emitting `R[]`, and nothing catches it until a fixture exercises that
@@ -1241,7 +1247,7 @@ on, not a separate collection class. The other is `toResourceCollection(SomeReso
 `TransformsToResourceCollection::toResourceCollection()` returns `$resourceClass::collection($this)` and
 so lands in that same method. The remaining sites reflect on whatever class Laravel instantiates — the
 `ResourceCollection` subclass for `make()`, `new`, and the collection-delegated path. The argument-less
-`toResourceCollection()` arm (site 1924) is the one that varies: it reflects on
+`toResourceCollection()` arm (`ToResourceHandler.php:125`) is the one that varies: it reflects on
 `resolveResourceCollectionForModel()`'s `collectionFqcn`, and that is only sometimes a collection class.
 Of the method's four value-returning arms, the two that resolve *through a collection class*
 (`#[UseResourceCollection]`, and the `{Guessed}Collection` naming branch) set it to that class; the two

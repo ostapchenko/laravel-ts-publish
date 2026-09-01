@@ -22,14 +22,17 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\NewResourceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\StaticCallHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ToResourceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
-use AbeTwoThree\LaravelTsPublish\Ast\ValueResolver;
+use AbeTwoThree\LaravelTsPublish\Ast\ReflectedTypeAcceptor;
+use AbeTwoThree\LaravelTsPublish\Ast\SubjectMethodTypeResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsCasts;
 use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
-use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\Concerns\ResolvesClassNames;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
@@ -41,7 +44,6 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Str;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
@@ -51,12 +53,10 @@ use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\AssignOp;
 use PhpParser\Node\Expr\AssignRef;
 use PhpParser\Node\Expr\BooleanNot;
-use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
 use PhpParser\Node\Expr\MethodCall;
-use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PostDec;
@@ -64,7 +64,6 @@ use PhpParser\Node\Expr\PostInc;
 use PhpParser\Node\Expr\PreDec;
 use PhpParser\Node\Expr\PreInc;
 use PhpParser\Node\Expr\PropertyFetch;
-use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
@@ -227,6 +226,15 @@ class ResourceAstAnalyzer implements ExpressionEngine
     public function resolve(Expr $expr): array
     {
         return $this->analyzeValueExpression($expr);
+    }
+
+    /**
+     * Spread-analyze a named method on the subject under analysis. ExpressionEngine entry point
+     * for a handler that resolves a self-returning chain onto a non-preserving method body.
+     */
+    public function spreadAnalysis(string $methodName): ?ResourceAnalysis
+    {
+        return $this->analyzeThisMethodSpread($methodName);
     }
 
     /**
@@ -506,6 +514,9 @@ class ResourceAstAnalyzer implements ExpressionEngine
             new KnownFunctionCallHandler,
             new ClosureHandler,
             new ConditionalMethodHandler,
+            new ToResourceHandler,
+            new StaticCallHandler,
+            new NewResourceHandler,
         ];
     }
 
@@ -531,98 +542,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         $result = $this->unknownResult();
-
-        // $model->toResource()/toResourceCollection() — a whenLoaded closure param bound to a
-        // model, or $this->relation accessed directly. Checked by method name alone so both
-        // receiver shapes share one resolution path; see resolveToResourceReceiverModel().
-        if ($expr instanceof MethodCall && $expr->name instanceof Identifier && $expr->name->toString() === 'toResource') {
-            return $this->analyzeToResourceCall($expr);
-        }
-
-        if ($expr instanceof MethodCall
-            && $expr->name instanceof Identifier
-            && $expr->name->toString() === 'toResourceCollection'
-        ) {
-            return $this->analyzeToResourceCollectionCall($expr);
-        }
-
-        // `$variable::staticMethod()` in a whenLoaded closure. Must precede the general StaticCall
-        // handler, which only matches class-name receivers.
-        if ($this->scope->closureRelationModelClass !== null
-            && $expr instanceof StaticCall
-            && $expr->class instanceof Variable
-            && is_string($expr->class->name)
-            && $expr->class->name !== 'this'
-            && $expr->name instanceof Identifier
-        ) {
-            return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope);
-        }
-
-        // SomeResource::collection(...)->resolve() — strip the trailing ->resolve() and delegate.
-        if ($expr instanceof MethodCall
-            && $expr->name instanceof Identifier
-            && $expr->name->toString() === 'resolve'
-            && $expr->var instanceof StaticCall
-        ) {
-            return $this->analyzeStaticCall($expr->var);
-        }
-
-        // A fluent method chained onto a resource-resolving receiver — `new self($x)->foo()`,
-        // `SomeResource::make($x)->foo()`, or a chain of such calls — keeps the receiver's type
-        // when the method's own declared return type hands the same instance back.
-        if ($expr instanceof MethodCall
-            && $expr->name instanceof Identifier
-            && ($expr->var instanceof New_ || $expr->var instanceof StaticCall || $expr->var instanceof MethodCall)
-        ) {
-            $selfReturning = $this->analyzeSelfReturningResourceMethodCall($expr);
-
-            if ($selfReturning !== null) {
-                return $selfReturning;
-            }
-        }
-
-        // `$this::staticMethod()` — the resource itself is the receiver.
-        if ($expr instanceof StaticCall
-            && $expr->class instanceof Variable
-            && $expr->class->name === 'this'
-            && $expr->name instanceof Identifier
-        ) {
-            return $this->analyzeThisMethodCall($expr->name->toString());
-        }
-
-        // `$this->resource::staticMethod()`. Must precede the closure-context PropertyFetch handler below.
-        if ($expr instanceof StaticCall
-            && $expr->class instanceof PropertyFetch
-            && $expr->class->var instanceof Variable
-            && $expr->class->var->name === 'this'
-            && $expr->class->name instanceof Identifier
-            && $expr->class->name->toString() === 'resource'
-            && $expr->name instanceof Identifier
-        ) {
-            return $this->analyzeStaticMethodOnResource($expr->name->toString());
-        }
-
-        // `$this->relation::staticMethod()` inside a whenLoaded closure — use the related model.
-        if ($expr instanceof StaticCall
-            && $expr->class instanceof PropertyFetch
-            && $expr->name instanceof Identifier
-        ) {
-            /** @var class-string<Model>|null $closureModelClass */
-            $closureModelClass = $this->scope->closureRelationModelClass;
-
-            if ($closureModelClass !== null) {
-                return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope);
-            }
-        }
-
-        // EnumResource::make($this->prop) or SomeResource::make/collection()
-        if ($expr instanceof StaticCall) {
-            return $this->analyzeStaticCall($expr);
-        }
-
-        if ($expr instanceof New_) {
-            return $this->analyzeNewResource($expr);
-        }
 
         if ($this->isThisPropertyFetch($expr)) {
             return $this->analyzeThisProperty($expr);
@@ -727,7 +646,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             && $expr->var->name === 'this'
             && $expr->name instanceof Identifier
         ) {
-            return $this->analyzeThisMethodCall($expr->name->toString());
+            return resolve(SubjectMethodTypeResolver::class)->resolve($this->scope, $expr->name->toString());
         }
 
         // $variable->property — resolve against the variable's own bound model (whenLoaded param,
@@ -931,753 +850,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         $analyses = array_map(fn (Array_ $a) => $this->extractPropertiesFromArray($a, $optional), $arrays);
 
         return $this->mergeReturnBranches($analyses);
-    }
-
-    /**
-     * Analyze a static method call like EnumResource::make() or SomeResource::make/collection().
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeStaticCall(StaticCall $call): array
-    {
-        $result = $this->unknownResult();
-        $className = $this->resolveStaticCallClassName($call);
-        $methodName = $call->name instanceof Identifier ? $call->name->toString() : null;
-
-        if ($className === null || $methodName === null) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        // Resolve `self`/`static` so those calls are treated identically to ClassName::*() calls.
-        if ($className === 'self' || $className === 'static') {
-            $className = $this->scope->subjectReflection->getName();
-        }
-
-        // EnumResource::make($this->prop)
-        if ($this->isEnumResourceClass($className) && $methodName === 'make') {
-            return $this->analyzeEnumResourceMake($call);
-        }
-
-        // EnumResource::collection($this->prop) — must precede the generic isResourceClass()
-        // checks below: EnumResource extends JsonResource, so those would match it too and
-        // yield the unsuffixed 'EnumResource[]' instead of resolving the wrapped enum.
-        if ($this->isEnumResourceClass($className) && $methodName === 'collection') {
-            return $this->analyzeEnumResourceCollection($call);
-        }
-
-        // SomeCollection::make()/::collection() on a ResourceCollection subclass. Must precede the generic
-        // checks below: ResourceCollection extends JsonResource, so isResourceClass() matches it too and
-        // would yield the unsuffixed collection name instead of 'OrderItemResource[]'.
-        if (is_a($className, ResourceCollection::class, true) && in_array($methodName, ['make', 'collection'], true)) {
-            $collected = $this->collectedResourceClass($className);
-
-            if ($collected !== null) {
-                return [
-                    ...$result,
-                    'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($collected), new ReflectionClass($className)),
-                    'optional' => $this->hasConditionalArgument($call),
-                    'resourceFqcn' => $collected,
-                ];
-            }
-        }
-
-        // SomeResource::make($this->prop) — nested resource
-        if ($this->isResourceClass($className) && $methodName === 'make') {
-            $resourceName = LaravelTsPublish::resourceTypeName($className);
-            $optional = $this->hasConditionalArgument($call);
-
-            /** @var class-string $className */
-            return [
-                ...$result,
-                'type' => $resourceName,
-                'optional' => $optional,
-                'resourceFqcn' => $className,
-            ];
-        }
-
-        // SomeResource::collection(...) — array or keyed record of nested resource
-        if ($this->isResourceClass($className) && $methodName === 'collection') {
-            $resourceName = LaravelTsPublish::resourceTypeName($className);
-            $optional = $this->hasConditionalArgument($call);
-
-            /** @var class-string $className */
-            return [
-                ...$result,
-                'type' => $this->wrapCollectionElementType($resourceName, new ReflectionClass($className)),
-                'optional' => $optional,
-                'resourceFqcn' => $className,
-            ];
-        }
-
-        // Any other existing class — reflect the static method's return type. Accepted only when it
-        // cannot break generated imports; see acceptReflectedTypeInfo().
-        if (class_exists($className)) {
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($className), $methodName);
-
-            return $this->acceptReflectedTypeInfo($tsInfo) ?? $result;
-        }
-
-        return $result;
-    }
-
-    /**
-     * Resolve a fluent method chained onto a receiver that itself resolves to a resource — e.g.
-     * `new self($x)->foo()`, `SomeResource::make($x)->foo()`, or a chain of such calls. The
-     * receiver's own resolved result is returned unchanged when the method preserves it; otherwise
-     * the method's own body is resolved, and an unreflectable receiver yields null to degrade.
-     *
-     * @return ValueExpressionResult|null
-     */
-    protected function analyzeSelfReturningResourceMethodCall(MethodCall $expr): ?array
-    {
-        if (! $expr->name instanceof Identifier) {
-            return null; // @codeCoverageIgnore
-        }
-
-        $receiverResult = $this->analyzeValueExpression($expr->var);
-        $resourceFqcn = $receiverResult['resourceFqcn'] ?? null;
-
-        // A collection receiver (e.g. ::collection()) resolves to an AnonymousResourceCollection
-        // instance, not a $resourceFqcn instance — reflecting the method below would validate
-        // against the wrong receiver, so exclude it rather than misfire on e.g. ->additional().
-        if ($resourceFqcn === null || $receiverResult['type'] !== LaravelTsPublish::resourceTypeName($resourceFqcn)) {
-            return null;
-        }
-
-        $methodName = $expr->name->toString();
-
-        if (! method_exists($resourceFqcn, $methodName)) {
-            return null;
-        }
-
-        $method = new ReflectionMethod($resourceFqcn, $methodName);
-
-        // Not self-returning: the expression is the method's payload, not the resource. Resolving it
-        // needs the receiver's own analyzer, so only the analyzer's own class is in scope — a foreign
-        // resource class returns null and keeps the `unknown` floor rather than claiming its keys.
-        if (! $this->methodPreservesReceiverType($method, $resourceFqcn)) {
-            if ($resourceFqcn !== $this->scope->subjectReflection->getName()) {
-                return null;
-            }
-
-            $analysis = $this->analyzeThisMethodSpread($methodName);
-
-            if ($analysis === null || $analysis->properties === []) {
-                return null;
-            }
-
-            return ['type' => $this->buildInlineObjectType($analysis), 'optional' => false];
-        }
-
-        if ($this->methodReturnAllowsNull($method) && ! str_contains($receiverResult['type'], 'null')) {
-            $receiverResult['type'] .= ' | null';
-        }
-
-        return $receiverResult;
-    }
-
-    /**
-     * Whether a method's declared return type says it hands the same instance back — a native
-     * `static`, `self`, or the resource class itself; falling back to a `@return $this` docblock
-     * only when no native return type is declared at all. A union or intersection return type is
-     * rejected outright and never falls through to the docblock.
-     */
-    protected function methodPreservesReceiverType(ReflectionMethod $method, string $resourceFqcn): bool
-    {
-        $returnType = $method->getReturnType();
-
-        if ($returnType instanceof ReflectionNamedType) {
-            $name = $returnType->getName();
-
-            return $name === 'static' || $name === 'self' || $name === $resourceFqcn;
-        }
-
-        if ($returnType !== null) {
-            return false;
-        }
-
-        $docComment = $method->getDocComment();
-
-        if ($docComment === false) {
-            return false;
-        }
-
-        // extractReturnTypeFromDocblock()'s final fallback is `\S+`, so the token it returns
-        // can never carry surrounding whitespace — no trim() needed before comparing.
-        return LaravelTsPublish::extractReturnTypeFromDocblock($docComment) === '$this';
-    }
-
-    /**
-     * Whether a self-returning method's native return type also allows null (`?static`). The
-     * docblock-only `@return $this` fallback carries no nullability signal, so this only
-     * inspects a `ReflectionNamedType` — the same shape methodPreservesReceiverType() required
-     * to have already matched before this is ever called.
-     */
-    protected function methodReturnAllowsNull(ReflectionMethod $method): bool
-    {
-        $returnType = $method->getReturnType();
-
-        return $returnType instanceof ReflectionNamedType && $returnType->allowsNull();
-    }
-
-    /**
-     * Resolve the resource class a ResourceCollection collects, from the #[Collects] attribute, the
-     * $collects property default, or the FooCollection → FooResource naming convention.
-     *
-     * @param  class-string  $collectionFqcn
-     * @return class-string<JsonResource>|null
-     */
-    protected function collectedResourceClass(string $collectionFqcn): ?string
-    {
-        return $this->resolveCollectedResourceClass($collectionFqcn);
-    }
-
-    /**
-     * Analyze `$model->toResource()` / `$model->toResource(SomeResource::class)`. An explicit
-     * argument wins outright; otherwise the receiver's model resolves via resolveResourceForModel().
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeToResourceCall(MethodCall $call): array
-    {
-        $result = $this->unknownResult();
-        $args = $call->getArgs();
-
-        if ($args !== []) {
-            $explicit = resolve(ValueResolver::class)->resolveClassConstArgument($args[0]->value);
-
-            if ($explicit === null || ! $this->isResourceClass($explicit)) {
-                return $result;
-            }
-
-            /** @var class-string $explicit */
-            return [...$result, 'type' => LaravelTsPublish::resourceTypeName($explicit), 'optional' => false, 'resourceFqcn' => $explicit];
-        }
-
-        $modelFqcn = $this->resolveToResourceReceiverModel($call->var);
-        $resourceFqcn = $modelFqcn !== null ? $this->resolveResourceForModel($modelFqcn) : null;
-
-        if ($resourceFqcn === null) {
-            return $result;
-        }
-
-        return [...$result, 'type' => LaravelTsPublish::resourceTypeName($resourceFqcn), 'optional' => false, 'resourceFqcn' => $resourceFqcn];
-    }
-
-    /**
-     * Analyze `$collection->toResourceCollection()` / `->toResourceCollection(SomeResource::class)`.
-     * An explicit argument wins outright; otherwise the receiver's model resolves via
-     * resolveResourceCollectionForModel().
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeToResourceCollectionCall(MethodCall $call): array
-    {
-        $result = $this->unknownResult();
-        $args = $call->getArgs();
-
-        if ($args !== []) {
-            $explicit = resolve(ValueResolver::class)->resolveClassConstArgument($args[0]->value);
-
-            if ($explicit === null || ! $this->isResourceClass($explicit)) {
-                return $result;
-            }
-
-            /** @var class-string $explicit */
-            return [
-                ...$result,
-                'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($explicit), new ReflectionClass($explicit)),
-                'optional' => false,
-                'resourceFqcn' => $explicit,
-            ];
-        }
-
-        $modelFqcn = $this->resolveToResourceReceiverModel($call->var);
-        $resolved = $modelFqcn !== null ? $this->resolveResourceCollectionForModel($modelFqcn) : null;
-
-        if ($resolved === null) {
-            return $result;
-        }
-
-        return [
-            ...$result,
-            'type' => $this->wrapCollectionElementType(
-                LaravelTsPublish::resourceTypeName($resolved['resourceFqcn']),
-                new ReflectionClass($resolved['collectionFqcn']),
-            ),
-            'optional' => false,
-            'resourceFqcn' => $resolved['resourceFqcn'],
-        ];
-    }
-
-    /**
-     * Resolve the model class backing a toResource()/toResourceCollection() receiver: a whenLoaded
-     * closure parameter (ConditionalMethodHandler::analyzeWhenLoaded()'s bindings) or
-     * `$this->relation` accessed directly.
-     *
-     * @return class-string<Model>|null
-     */
-    protected function resolveToResourceReceiverModel(Expr $receiver): ?string
-    {
-        if ($receiver instanceof Variable && is_string($receiver->name)) {
-            return $this->scope->varModelBindings[$receiver->name]
-                ?? $this->scope->varCollectionBindings[$receiver->name]['modelFqcn']
-                ?? $this->scope->closureRelationModelClass;
-        }
-
-        if ($receiver instanceof PropertyFetch && $this->isThisPropertyFetch($receiver) && $receiver->name instanceof Identifier) {
-            return $this->resolveModelRelationTypeInfo($receiver->name->toString())['modelFqcn'];
-        }
-
-        return null;
-    }
-
-    /**
-     * Reproduce Model::toResource()'s guessResource(): the #[UseResource] attribute first, then
-     * the naming-convention candidates, Resource-suffixed candidate first.
-     *
-     * @param  class-string<Model>  $modelFqcn
-     * @return class-string|null
-     */
-    protected function resolveResourceForModel(string $modelFqcn): ?string
-    {
-        $fromAttribute = $this->resolveUseResourceAttribute($modelFqcn);
-
-        if ($fromAttribute !== null) {
-            return $fromAttribute;
-        }
-
-        foreach ($this->guessResourceNames($modelFqcn) as $candidate) {
-            if ($this->isPublishedResourceClass($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Reproduce Collection::toResourceCollection()'s guessResourceCollection() order: the
-     * #[UseResourceCollection] attribute, then #[UseResource], then the naming convention —
-     * trying `{Guessed}Collection` classes before the bare guessed resources.
-     *
-     * @param  class-string<Model>  $modelFqcn
-     * @return array{collectionFqcn: class-string, resourceFqcn: class-string}|null
-     */
-    protected function resolveResourceCollectionForModel(string $modelFqcn): ?array
-    {
-        // Vendor returns `new $useResourceCollection($this)` unconditionally once the attribute
-        // names an existing class — it never falls through to #[UseResource] or the naming
-        // convention, even when the element type can't be determined here. Match that: stop hard.
-        $collectionFqcn = $this->resolveUseResourceCollectionAttribute($modelFqcn);
-
-        if ($collectionFqcn !== null) {
-            $resourceFqcn = $this->collectedResourceClass($collectionFqcn);
-
-            return $resourceFqcn !== null
-                ? ['collectionFqcn' => $collectionFqcn, 'resourceFqcn' => $resourceFqcn]
-                : null;
-        }
-
-        $resourceFqcn = $this->resolveUseResourceAttribute($modelFqcn);
-
-        if ($resourceFqcn !== null) {
-            return ['collectionFqcn' => $resourceFqcn, 'resourceFqcn' => $resourceFqcn];
-        }
-
-        $candidates = $this->guessResourceNames($modelFqcn);
-
-        // Same shape here: vendor's own loop returns `new $resourceCollection($this)` the moment
-        // `class_exists($resourceCollection)` passes for a candidate, never trying the next one.
-        foreach ($candidates as $candidate) {
-            $collectionCandidate = $candidate.'Collection';
-
-            if (class_exists($collectionCandidate)
-                && is_a($collectionCandidate, ResourceCollection::class, true)
-                && PublishedResourceRegistry::isPublished($collectionCandidate)
-            ) {
-                $collectedFqcn = $this->collectedResourceClass($collectionCandidate);
-
-                return $collectedFqcn !== null
-                    ? ['collectionFqcn' => $collectionCandidate, 'resourceFqcn' => $collectedFqcn]
-                    : null;
-            }
-        }
-
-        foreach ($candidates as $candidate) {
-            if ($this->isPublishedResourceClass($candidate)) {
-                return ['collectionFqcn' => $candidate, 'resourceFqcn' => $candidate];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Reproduce Model::guessResourceName()'s `\Models\` to `\Http\Resources\` naming convention.
-     *
-     * @param  class-string<Model>  $modelFqcn
-     * @return list<class-string>
-     */
-    protected function guessResourceNames(string $modelFqcn): array
-    {
-        if (! str_contains($modelFqcn, '\\Models\\')) {
-            return [];
-        }
-
-        $basename = class_basename($modelFqcn);
-        $relativeNamespace = Str::after($modelFqcn, '\\Models\\');
-
-        $relativeNamespace = str_contains($relativeNamespace, '\\')
-            ? Str::beforeLast($relativeNamespace, '\\'.$basename)
-            : '';
-
-        $potentialResource = sprintf(
-            '%s\\Http\\Resources\\%s%s',
-            Str::before($modelFqcn, '\\Models'),
-            $relativeNamespace !== '' ? $relativeNamespace.'\\' : '',
-            $basename,
-        );
-
-        /** @var list<class-string> */
-        return [$potentialResource.'Resource', $potentialResource];
-    }
-
-    /**
-     * Read the #[UseResource] attribute directly off a model class.
-     *
-     * @param  class-string<Model>  $modelFqcn
-     * @return class-string|null
-     */
-    protected function resolveUseResourceAttribute(string $modelFqcn): ?string
-    {
-        $attributeFqcn = 'Illuminate\Database\Eloquent\Attributes\UseResource';
-
-        if (! class_exists($attributeFqcn) || ! class_exists($modelFqcn)) {
-            return null;
-        }
-
-        $attributes = new ReflectionClass($modelFqcn)->getAttributes($attributeFqcn);
-
-        if ($attributes === []) {
-            return null;
-        }
-
-        $resourceFqcn = $attributes[0]->newInstance()->class;
-
-        return $this->isResourceClass($resourceFqcn) ? $resourceFqcn : null;
-    }
-
-    /**
-     * Read the #[UseResourceCollection] attribute directly off a model class.
-     *
-     * @param  class-string<Model>  $modelFqcn
-     * @return class-string|null
-     */
-    protected function resolveUseResourceCollectionAttribute(string $modelFqcn): ?string
-    {
-        $attributeFqcn = 'Illuminate\Database\Eloquent\Attributes\UseResourceCollection';
-
-        if (! class_exists($attributeFqcn) || ! class_exists($modelFqcn)) {
-            return null;
-        }
-
-        $attributes = new ReflectionClass($modelFqcn)->getAttributes($attributeFqcn);
-
-        if ($attributes === []) {
-            return null;
-        }
-
-        $collectionFqcn = $attributes[0]->newInstance()->class;
-
-        return class_exists($collectionFqcn) && is_a($collectionFqcn, ResourceCollection::class, true)
-            ? $collectionFqcn
-            : null;
-    }
-
-    /**
-     * Accept a reflected TypeScriptTypeInfo as a ValueExpressionResult, or null when any referenced
-     * type can't be imported.
-     *
-     * A non-Model class token has no published file to import, so its presence rejects the whole result.
-     *
-     * @param  TypeScriptTypeInfo  $tsInfo
-     * @return ValueExpressionResult|null
-     */
-    protected function acceptReflectedTypeInfo(array $tsInfo): ?array
-    {
-        if (in_array($tsInfo['type'], ['unknown', 'unknown | null', 'void', 'never', ''], true)) {
-            return null;
-        }
-
-        foreach ($tsInfo['classFqcns'] as $fqcn) {
-            if (! is_a($fqcn, Model::class, true)) {
-                return null;
-            }
-        }
-
-        $result = [...$this->unknownResult(), 'type' => $tsInfo['type'], 'optional' => false];
-
-        if (count($tsInfo['enumFqcns']) === 1 && $tsInfo['classFqcns'] === []) {
-            $result['directEnumFqcn'] = $tsInfo['enumFqcns'][0];
-        } elseif ($tsInfo['enumFqcns'] !== []) {
-            $result['embeddedEnumFqcns'] = $tsInfo['enumFqcns'];
-        }
-
-        if (count($tsInfo['classFqcns']) === 1 && $tsInfo['enumFqcns'] === []) {
-            /** @var class-string<Model> $modelFqcn */
-            $modelFqcn = $tsInfo['classFqcns'][0];
-            $result['modelFqcn'] = $modelFqcn;
-        } elseif ($tsInfo['classFqcns'] !== []) {
-            $result['embeddedModelFqcns'] = $tsInfo['classFqcns'];
-        }
-
-        if ($tsInfo['customImports'] !== []) {
-            $result['customImports'] = $tsInfo['customImports'];
-        }
-
-        return $result;
-    }
-
-    /**
-     * Analyze `new SomeResource(...)` — resolve as a nested resource.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeNewResource(New_ $expr): array
-    {
-        $result = $this->unknownResult();
-
-        if (! $expr->class instanceof Name) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        $className = $expr->class->toString();
-
-        // Resolve `self`/`static` so `new self(...)` is treated identically to `new ClassName(...)`.
-        if ($className === 'self' || $className === 'static') {
-            $className = $this->scope->subjectReflection->getName();
-        }
-
-        // new EnumResource($this->prop)
-        if ($this->isEnumResourceClass($className)) {
-            $args = $expr->getArgs();
-
-            if (count($args) >= 1) {
-                return $this->resolveEnumFromPropertyArg($args[0]->value) ?? $result;
-            }
-
-            return $result;
-        }
-
-        // new SomeCollection($this->items) — resolve the collected element type. Must precede the
-        // generic isResourceClass() branch below, for the same reason as in analyzeStaticCall().
-        if (is_a($className, ResourceCollection::class, true)) {
-            $collected = $this->collectedResourceClass($className);
-
-            if ($collected !== null) {
-                return [
-                    ...$result,
-                    'type' => $this->wrapCollectionElementType(LaravelTsPublish::resourceTypeName($collected), new ReflectionClass($className)),
-                    'optional' => $this->hasConditionalNewArgument($expr),
-                    'resourceFqcn' => $collected,
-                ];
-            }
-        }
-
-        if (! $this->isResourceClass($className)) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        $resourceName = LaravelTsPublish::resourceTypeName($className);
-        $optional = $this->hasConditionalNewArgument($expr);
-
-        /** @var class-string $className */
-        return [
-            ...$result,
-            'type' => $resourceName,
-            'optional' => $optional,
-            'resourceFqcn' => $className,
-        ];
-    }
-
-    /**
-     * Analyze EnumResource::make($this->prop) — resolve the enum class from the model property.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeEnumResourceMake(StaticCall $call): array
-    {
-        $result = $this->unknownResult();
-
-        if ($call->isFirstClassCallable()) {
-            return $result;
-        }
-
-        $args = $call->getArgs();
-
-        if (count($args) < 1) {
-            return $result;
-        }
-
-        return $this->resolveEnumFromPropertyArg($args[0]->value) ?? $result;
-    }
-
-    /**
-     * Analyze EnumResource::collection($this->prop) — resolve the enum class and array-wrap it.
-     *
-     * A first-class callable carries no argument at the call site to resolve the enum from — the
-     * value is supplied later by whichever conditional method invokes it — so it degrades to
-     * unknown rather than guessing, matching analyzeEnumResourceMake()'s FCC bail-out.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeEnumResourceCollection(StaticCall $call): array
-    {
-        $result = $this->unknownResult();
-
-        if ($call->isFirstClassCallable()) {
-            return $result;
-        }
-
-        $args = $call->getArgs();
-
-        if (count($args) < 1) {
-            return $result;
-        }
-
-        $enumResult = $this->resolveEnumFromPropertyArg($args[0]->value);
-
-        if ($enumResult === null) {
-            return $result;
-        }
-
-        // The resolved property may already be a collection type (an AsEnumCollection cast or a
-        // list<Enum> accessor both resolve their own '[]' already) — only wrap when it isn't.
-        $type = $enumResult['type'];
-        $alreadyCollection = str_ends_with(rtrim(str_replace('| null', '', $type)), '[]');
-
-        return [
-            ...$enumResult,
-            'type' => $alreadyCollection ? $type : $this->arrayWrapType($type),
-        ];
-    }
-
-    /**
-     * Resolve an enum type from a property-fetch expression (shared by EnumResource::make and new EnumResource).
-     *
-     * Handles `$this->property` against the resource's own model, and `$variable->property` against
-     * `$closureRelationModelClass` inside a whenLoaded() closure.
-     *
-     * @return ValueExpressionResult|null
-     */
-    protected function resolveEnumFromPropertyArg(Expr $argExpr): ?array
-    {
-        $result = $this->unknownResult();
-
-        if (! $this->isThisPropertyFetch($argExpr)) {
-            // A bare $variable may be a closure parameter bound to $this->prop by a when() condition.
-            if ($argExpr instanceof Variable && is_string($argExpr->name)) {
-                $boundExpr = $this->scope->closureParamExprBindings[$argExpr->name] ?? null;
-
-                if ($boundExpr !== null) {
-                    return $this->resolveEnumFromPropertyArg($boundExpr);
-                }
-            }
-
-            // Handle $variable->property inside a whenLoaded closure.
-            if (
-                $argExpr instanceof PropertyFetch
-                && $argExpr->var instanceof Variable
-                && $argExpr->name instanceof Identifier
-                && $this->scope->closureRelationModelClass !== null
-            ) {
-                $propName = $argExpr->name->toString();
-                $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->scope->closureRelationModelClass, $propName);
-
-                /** @var class-string|null $enumFqcn */
-                $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
-
-                if ($enumFqcn === null) {
-                    return null;
-                }
-
-                // toTsType() on the FQCN directly yields the pure enum type, without the nullable
-                // suffix appendNullable() adds from the DB column definition.
-                $enumTsInfo = LaravelTsPublish::toTsType($enumFqcn);
-
-                return [
-                    ...$result,
-                    'type' => $enumTsInfo['type'],
-                    'enumFqcn' => $enumFqcn,
-                ];
-            }
-
-            // `$this->resource->property` is equivalent to `$this->property`, since $this->resource
-            // is the underlying model instance.
-            if (
-                $argExpr instanceof PropertyFetch
-                && $argExpr->var instanceof PropertyFetch
-                && $this->isThisPropertyFetch($argExpr->var)
-                && $argExpr->var->name instanceof Identifier
-                && $argExpr->var->name->toString() === 'resource'
-                && $argExpr->name instanceof Identifier
-            ) {
-                $propName = $argExpr->name->toString();
-                $info = $this->resolveModelAttributeTypeInfo($propName);
-
-                if ($info['enumFqcn'] === null) {
-                    return null;
-                }
-
-                return [
-                    ...$result,
-                    'type' => $info['type'],
-                    'enumFqcn' => $info['enumFqcn'],
-                ];
-            }
-
-            // Enum::staticMethod(...) or Enum::Case — resolved from the class name alone. parseAndResolveAst()
-            // runs a NameResolver, so ->class is already the FQCN.
-            $enumClassName = null;
-
-            if ($argExpr instanceof StaticCall && $argExpr->class instanceof Name) {
-                $enumClassName = $argExpr->class->toString();
-            } elseif ($argExpr instanceof ClassConstFetch && $argExpr->class instanceof Name) {
-                $enumClassName = $argExpr->class->toString();
-            }
-
-            if ($enumClassName !== null && enum_exists($enumClassName)) {
-                $enumTsInfo = LaravelTsPublish::toTsType($enumClassName);
-
-                return [
-                    ...$result,
-                    'type' => $enumTsInfo['type'],
-                    'enumFqcn' => $enumClassName,
-                ];
-            }
-
-            return null;
-        }
-
-        /** @var PropertyFetch $argExpr */
-        $propName = $argExpr->name instanceof Identifier ? $argExpr->name->toString() : null;
-
-        if ($propName === null) {
-            return null; // @codeCoverageIgnore
-        }
-
-        $info = $this->resolveModelAttributeTypeInfo($propName);
-
-        if ($info['enumFqcn'] === null) {
-            return null;
-        }
-
-        return [
-            ...$result,
-            'type' => $info['type'],
-            'enumFqcn' => $info['enumFqcn'],
-        ];
     }
 
     /**
@@ -2533,7 +1705,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
     /**
      * Resolve the singular resource FQCN this ResourceCollection collects.
-     * See collectedResourceClass() for the resolution order.
+     * See InspectsAstNodes::resolveCollectedResourceClass() for the resolution order.
      *
      * @return class-string<JsonResource>|null
      */
@@ -2542,7 +1714,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
         /** @var class-string $ownFqcn */
         $ownFqcn = $this->scope->subjectReflection->getName();
 
-        return $this->collectedResourceClass($ownFqcn);
+        return $this->resolveCollectedResourceClass($ownFqcn);
     }
 
     /**
@@ -3376,7 +2548,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
         if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
             /** @var class-string $wrappedClass */
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
-            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
+            $accepted = resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
 
             if ($accepted !== null) {
                 return $accepted;
@@ -3386,7 +2558,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             /** @var class-string $modelClass */
             $modelClass = $this->scope->modelClass;
             $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
-            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
+            $accepted = resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
 
             if ($accepted !== null) {
                 return $accepted;
@@ -3414,7 +2586,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
                         $methodName,
                     );
 
-                    $accepted = $this->acceptReflectedTypeInfo($tsInfo);
+                    $accepted = resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
 
                     if ($accepted !== null) {
                         return $accepted;
@@ -3822,42 +2994,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Analyze a `$this->resource::staticMethod()` call against the wrapped class, then the @mixin model.
-     *
-     * Each reflection is accepted only when its tokens can be imported; see acceptReflectedTypeInfo().
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeStaticMethodOnResource(string $methodName): array
-    {
-        $result = $this->unknownResult();
-        $wrappedClass = $this->resolveWrappedClass();
-
-        if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
-            /** @var class-string $wrappedClass */
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
-            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
-
-            if ($accepted !== null) {
-                return $accepted;
-            }
-        }
-
-        if ($this->scope->modelClass !== null && method_exists($this->scope->modelClass, $methodName)) {
-            /** @var class-string $modelClass */
-            $modelClass = $this->scope->modelClass;
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
-            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
-
-            if ($accepted !== null) {
-                return $accepted;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
      * Determine the TypeScript type for a backed enum's `->value` property from its backing type.
      */
     protected function resolveEnumValueBackingType(): string
@@ -3874,51 +3010,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return 'string | number';
-    }
-
-    /**
-     * Analyze a generic `$this->method()` by reflecting its declared return type.
-     *
-     * Checks own methods, then the wrapped class, then the backing model, to cover calls delegated
-     * via `__call`/`@mixin`.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeThisMethodCall(string $methodName): array
-    {
-        if ($this->scope->subjectReflection->hasMethod($methodName)) {
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes($this->scope->subjectReflection, $methodName);
-            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
-
-            if ($accepted !== null) {
-                return $accepted;
-            }
-        }
-
-        $wrappedClass = $this->resolveWrappedClass();
-
-        if ($wrappedClass !== null && method_exists($wrappedClass, $methodName)) {
-            /** @var class-string $wrappedClass */
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($wrappedClass), $methodName);
-            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
-
-            if ($accepted !== null) {
-                return $accepted;
-            }
-        }
-
-        if ($this->scope->modelClass !== null && method_exists($this->scope->modelClass, $methodName)) {
-            /** @var class-string $modelClass */
-            $modelClass = $this->scope->modelClass;
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(new ReflectionClass($modelClass), $methodName);
-            $accepted = $this->acceptReflectedTypeInfo($tsInfo);
-
-            if ($accepted !== null) {
-                return $accepted;
-            }
-        }
-
-        return $this->unknownResult();
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
@@ -44,6 +45,11 @@ function conditionalMethodHandlerThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('resolve() must not be called in this case');
         }
+
+        public function spreadAnalysis(string $methodName): ?MethodAnalysis
+        {
+            throw new RuntimeException('spreadAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -66,6 +72,11 @@ final class ConditionalMethodHandlerArmStubEngine implements ExpressionEngine
         }
 
         throw new RuntimeException('Unexpected expression passed to ConditionalMethodHandlerArmStubEngine');
+    }
+
+    public function spreadAnalysis(string $methodName): ?MethodAnalysis
+    {
+        throw new RuntimeException('spreadAnalysis() must not be called in this case');
     }
 }
 
@@ -100,6 +111,11 @@ final class ConditionalMethodHandlerScopeSpyEngine implements ExpressionEngine
         $this->varCollectionBindingsDuringCall = $this->scope->varCollectionBindings;
 
         return $this->result;
+    }
+
+    public function spreadAnalysis(string $methodName): ?MethodAnalysis
+    {
+        throw new RuntimeException('spreadAnalysis() must not be called in this case');
     }
 }
 

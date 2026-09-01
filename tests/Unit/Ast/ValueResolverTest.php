@@ -7,6 +7,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use PhpParser\Node\Expr;
@@ -37,6 +38,11 @@ function valueResolverThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('resolve() must not be called in this case');
         }
+
+        public function spreadAnalysis(string $methodName): ?MethodAnalysis
+        {
+            throw new RuntimeException('spreadAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -59,6 +65,11 @@ function valueResolverLeafEngine(): ExpressionEngine
         public function resolve(Expr $expr): array
         {
             return $this->dispatcher->dispatch($expr, valueResolverTestScope(), $this) ?? ValueResult::unknown();
+        }
+
+        public function spreadAnalysis(string $methodName): ?MethodAnalysis
+        {
+            throw new RuntimeException('spreadAnalysis() must not be called in this case');
         }
     };
 }

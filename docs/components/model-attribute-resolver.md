@@ -209,7 +209,7 @@ an outcome today:
 
 `Workbench\App\ValueObjects\OpaqueHandle` is still the fixture that pins the property-less path end to end:
 its promoted property is `protected` on purpose, so `StaticCallResource.money_value` stays `unknown` and
-`ResourceAstAnalyzer::acceptReflectedTypeInfo()`'s rejection branch keeps its coverage. What the mutation
+`ReflectedTypeAcceptor::accept()`'s rejection branch keeps its coverage. What the mutation
 above shows is that `$found` is not the *mechanism* keeping it there — `publicPropertyShapeType()`'s own
 `null` is.
 

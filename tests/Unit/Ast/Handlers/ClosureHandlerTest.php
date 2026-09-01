@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClosureHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
@@ -34,6 +35,11 @@ function closureHandlerThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('resolve() must not be called in this case');
         }
+
+        public function spreadAnalysis(string $methodName): ?MethodAnalysis
+        {
+            throw new RuntimeException('spreadAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -56,6 +62,11 @@ final class ClosureHandlerArmStubEngine implements ExpressionEngine
         }
 
         throw new RuntimeException('Unexpected expression passed to ClosureHandlerArmStubEngine');
+    }
+
+    public function spreadAnalysis(string $methodName): ?MethodAnalysis
+    {
+        throw new RuntimeException('spreadAnalysis() must not be called in this case');
     }
 }
 
@@ -80,6 +91,11 @@ final class ClosureHandlerScopeSpyEngine implements ExpressionEngine
 
         return $this->result;
     }
+
+    public function spreadAnalysis(string $methodName): ?MethodAnalysis
+    {
+        throw new RuntimeException('spreadAnalysis() must not be called in this case');
+    }
 }
 
 /**
@@ -91,6 +107,11 @@ function closureHandlerBlowingUpEngine(): ExpressionEngine
     return new class implements ExpressionEngine
     {
         public function resolve(Expr $expr): array
+        {
+            throw new RuntimeException('body resolution exploded');
+        }
+
+        public function spreadAnalysis(string $methodName): ?MethodAnalysis
         {
             throw new RuntimeException('body resolution exploded');
         }

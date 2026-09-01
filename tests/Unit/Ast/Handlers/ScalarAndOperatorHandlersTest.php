@@ -9,6 +9,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\BinaryOp;
@@ -49,6 +50,11 @@ function throwingEngine(): ExpressionEngine
         {
             throw new RuntimeException('resolve() must not be called in this case');
         }
+
+        public function spreadAnalysis(string $methodName): ?MethodAnalysis
+        {
+            throw new RuntimeException('spreadAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -68,6 +74,11 @@ final class SpyExpressionEngine implements ExpressionEngine
         $this->receivedExpr = $expr;
 
         return $this->result;
+    }
+
+    public function spreadAnalysis(string $methodName): ?MethodAnalysis
+    {
+        throw new RuntimeException('spreadAnalysis() must not be called in this case');
     }
 }
 
