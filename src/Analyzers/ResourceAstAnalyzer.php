@@ -15,6 +15,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\BinaryOpHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClassConstantHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClosureHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CoalesceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
@@ -68,7 +69,6 @@ use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
-use PhpParser\Node\NullableType;
 use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
@@ -98,11 +98,6 @@ use ReflectionNamedType;
  * @phpstan-import-type TypesImportMap from Datable
  * @phpstan-import-type ValueExpressionResult from ExpressionHandler
  *
- * @phpstan-type ClosureAnnotationResult = array{
- *      type: string,
- *      directEnumFqcn?: class-string,
- *      modelFqcn?: class-string
- * }
  * @phpstan-type InlineSpreadArm = array{fqcn: class-string, isModel: bool, isCollection: bool}
  */
 class ResourceAstAnalyzer implements ExpressionEngine
@@ -508,6 +503,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             new BinaryOpHandler,
             new CoalesceHandler,
             new KnownFunctionCallHandler,
+            new ClosureHandler,
         ];
     }
 
@@ -533,43 +529,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         $result = $this->unknownResult();
-
-        // Closures / arrow functions — body analysis first, return-type annotation as the fallback.
-        $closureReturns = $this->resolveClosureReturnExpressions($expr);
-
-        if ($closureReturns !== []) {
-            // A param merely shadows a same-named outer local for this body — it must not resolve
-            // through the outer binding just because no scoped binding (e.g. whenLoaded) claimed it.
-            $previousLocalVarBindings = $this->scope->localVarBindings;
-
-            if ($expr instanceof ArrowFunction || $expr instanceof ClosureExpr) {
-                foreach ($expr->params as $param) {
-                    if ($param->var instanceof Variable && is_string($param->var->name)) {
-                        unset($this->scope->localVarBindings[$param->var->name]);
-                    }
-                }
-            }
-
-            try {
-                $bodyResult = count($closureReturns) === 1
-                    ? $this->analyzeValueExpression($closureReturns[0])
-                    : $this->analyzeClosureUnion($closureReturns);
-
-                if ($bodyResult['type'] !== 'unknown') {
-                    return $bodyResult;
-                }
-
-                $annotationResult = $this->resolveClosureAstReturnType($expr);
-
-                if ($annotationResult !== null) {
-                    return [...$annotationResult, 'optional' => false];
-                }
-
-                return $bodyResult;
-            } finally {
-                $this->scope->localVarBindings = $previousLocalVarBindings;
-            }
-        }
 
         if ($this->isThisMethodCall($expr, 'when')) {
             /** @var MethodCall $expr */
@@ -971,10 +930,10 @@ class ResourceAstAnalyzer implements ExpressionEngine
     protected function analyzeTernary(Ternary $expr): array
     {
         if ($expr->if === null) {
-            return $this->analyzeClosureUnion([$expr->cond, $expr->else]);
+            return (new ClosureHandler)->analyzeClosureUnion([$expr->cond, $expr->else], $this);
         }
 
-        return $this->analyzeClosureUnion([$expr->if, $expr->else]);
+        return (new ClosureHandler)->analyzeClosureUnion([$expr->if, $expr->else], $this);
     }
 
     /**
@@ -1021,7 +980,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             $members = array_values(array_filter($members, fn (string $m): bool => $m !== 'never[]'));
         }
 
-        return [...$this->mergeUnionChannels($members, [$value, $default]), 'optional' => false];
+        return [...ValueResult::mergeUnion($members, [$value, $default]), 'optional' => false];
     }
 
     /**
@@ -2594,88 +2553,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
             : $tsInfo['type'].' | null';
 
         return ['type' => $type, 'optional' => false];
-    }
-
-    /**
-     * Resolve an arrow function's or closure's return type annotation to a ClosureAnnotationResult.
-     * Returns null when the annotation is absent, is a union/intersection, or maps to void/mixed/never
-     * or an unresolvable class.
-     *
-     * @return ClosureAnnotationResult|null
-     */
-    private function resolveClosureAstReturnType(Expr $expr): ?array
-    {
-        if (! $expr instanceof ArrowFunction && ! $expr instanceof ClosureExpr) {
-            return null;
-        }
-
-        $returnType = $expr->returnType;
-
-        if ($returnType === null) {
-            return null;
-        }
-
-        return $this->convertAstTypeNodeToTs($returnType);
-    }
-
-    /**
-     * Convert a PHP-Parser return-type AST node to a ClosureAnnotationResult (type + optional FQCN).
-     *
-     * Returns null for union/intersection types, void/never/mixed, unresolvable classes, and types
-     * carrying customImports — that import metadata cannot be represented in ValueExpressionResult.
-     *
-     * @return ClosureAnnotationResult|null
-     */
-    private function convertAstTypeNodeToTs(Node $typeNode): ?array
-    {
-        if ($typeNode instanceof NullableType) {
-            $inner = $this->convertAstTypeNodeToTs($typeNode->type);
-
-            if ($inner === null) {
-                return null;
-            }
-
-            return [...$inner, 'type' => $inner['type'].' | null'];
-        }
-
-        if ($typeNode instanceof Identifier) {
-            $phpType = $typeNode->toString();
-
-            if (in_array($phpType, ['void', 'never', 'mixed'], true)) {
-                return null;
-            }
-
-            $tsInfo = LaravelTsPublish::toTsType($phpType);
-
-            return $tsInfo['type'] !== 'unknown' ? ['type' => $tsInfo['type']] : null;
-        }
-
-        if ($typeNode instanceof Name) {
-            $phpType = $typeNode->toString();
-            $tsInfo = LaravelTsPublish::toTsType($phpType);
-
-            if ($tsInfo['type'] === 'unknown') {
-                return null;
-            }
-
-            if ($tsInfo['customImports'] !== []) {
-                return null;
-            }
-
-            /** @var ClosureAnnotationResult $result */
-            $result = ['type' => $tsInfo['type']];
-
-            if ($tsInfo['enumFqcns'] !== []) {
-                $result['directEnumFqcn'] = $tsInfo['enumFqcns'][0];
-            } elseif ($tsInfo['classFqcns'] !== []) {
-                $result['modelFqcn'] = $tsInfo['classFqcns'][0];
-            }
-
-            return $result;
-        }
-
-        // UnionType / IntersectionType — fall through to body analysis
-        return null;
     }
 
     /**
@@ -4796,193 +4673,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Merge multiple closure return expressions into a single union-typed ValueExpressionResult.
-     *
-     * Null returns (guard clauses) contribute `null` to the union instead of a full object shape;
-     * duplicate types are removed and import metadata is collected from all branches.
-     *
-     * @param  list<Expr>  $returns
-     * @return ValueExpressionResult
-     */
-    protected function analyzeClosureUnion(array $returns): array
-    {
-        /** @var list<string> $types */
-        $types = [];
-        /** @var list<ValueExpressionResult> $branchResults every non-null, non-unknown branch, for channel merging */
-        $branchResults = [];
-        $hasNull = false;
-
-        foreach ($returns as $returnExpr) {
-            // A guard-clause `return null;` is intercepted here so the standalone `null` union member is
-            // tracked apart from object-shape branches; null as an *array value* goes through ConstFetch.
-            if ($returnExpr instanceof ConstFetch
-                && $returnExpr->name->toLowerString() === 'null') {
-                $hasNull = true;
-
-                continue;
-            }
-
-            $inner = $this->analyzeValueExpression($returnExpr);
-
-            if ($inner['type'] === 'unknown') {
-                continue; // @codeCoverageIgnore
-            }
-
-            $types[] = $inner['type'];
-            $branchResults[] = $inner;
-        }
-
-        if ($hasNull) {
-            $types[] = 'null';
-        }
-
-        $types = array_values(array_unique($types));
-
-        // Drop a standalone 'null' when another member already carries null (e.g. 'number | null' from a
-        // nullable column), which would otherwise render 'number | null | null'. Splitting on ' | ' is
-        // safe for inline object types, since their trailing `}` prevents 'null }' from matching.
-        $explicitNullIndex = array_search('null', $types, true);
-
-        if ($explicitNullIndex !== false && count($types) > 1) {
-            $otherTypes = array_values(array_filter($types, fn (string $t): bool => $t !== 'null'));
-            $alreadyHasNull = false;
-
-            foreach ($otherTypes as $t) {
-                if (in_array('null', explode(' | ', $t), true)) {
-                    $alreadyHasNull = true;
-
-                    break;
-                }
-            }
-
-            if ($alreadyHasNull) {
-                unset($types[$explicitNullIndex]);
-                $types = array_values($types);
-            }
-        }
-
-        if ($types === []) {
-            return $this->unknownResult(); // @codeCoverageIgnore
-        }
-
-        return $this->mergeUnionChannels($types, $branchResults);
-    }
-
-    /**
-     * Fold union member types and their branch results into one ValueExpressionResult, carrying every
-     * FQCN/import channel across so no emitted token loses its import.
-     *
-     * Shared by the ternary/closure union and by coalesce, which computes its own member list.
-     *
-     * @param  list<string>  $types
-     * @param  list<ValueExpressionResult>  $branchResults
-     * @return ValueExpressionResult
-     */
-    protected function mergeUnionChannels(array $types, array $branchResults): array
-    {
-        /** @var list<class-string> $enumResourceFqcns FQCNs from EnumResource::make() / new EnumResource() branches */
-        $enumResourceFqcns = [];
-        /** @var list<class-string> $enumDirectFqcns FQCNs from direct $this->prop enum-access branches */
-        $enumDirectFqcns = [];
-        /** @var list<class-string> $embeddedEnumFqcns FQCNs embedded inside nested inline-object types */
-        $embeddedEnumFqcns = [];
-        /** @var list<class-string> $embeddedModelFqcns */
-        $embeddedModelFqcns = [];
-        /** @var list<class-string> $embeddedResourceFqcns */
-        $embeddedResourceFqcns = [];
-        /** @var TypesImportMap $customImports */
-        $customImports = [];
-
-        foreach ($branchResults as $inner) {
-            // EnumResource branches are tracked apart from direct-access ones, so the result can
-            // propagate the correct FQCN metadata.
-            if (isset($inner['enumFqcn'])) {
-                $enumResourceFqcns[] = $inner['enumFqcn'];
-            }
-
-            if (isset($inner['directEnumFqcn'])) {
-                $enumDirectFqcns[] = $inner['directEnumFqcn'];
-            }
-
-            if (isset($inner['embeddedEnumFqcns'])) {
-                array_push($embeddedEnumFqcns, ...$inner['embeddedEnumFqcns']);
-            }
-
-            if (isset($inner['embeddedModelFqcns'])) {
-                array_push($embeddedModelFqcns, ...$inner['embeddedModelFqcns']);
-            }
-
-            if (isset($inner['embeddedResourceFqcns'])) {
-                array_push($embeddedResourceFqcns, ...$inner['embeddedResourceFqcns']);
-            }
-
-            if (isset($inner['resourceFqcn'])) {
-                $embeddedResourceFqcns[] = $inner['resourceFqcn'];
-            }
-
-            if (isset($inner['modelFqcn'])) {
-                $embeddedModelFqcns[] = $inner['modelFqcn'];
-            }
-
-            foreach ($inner['customImports'] ?? [] as $path => $importTypes) {
-                $customImports[$path] = [...($customImports[$path] ?? []), ...$importTypes];
-            }
-        }
-
-        $result = ['type' => implode(' | ', $types), 'optional' => false];
-
-        $enumResourceFqcns = array_values(array_unique($enumResourceFqcns));
-        $enumDirectFqcns = array_values(array_unique($enumDirectFqcns));
-        $embeddedEnumFqcns = array_values(array_unique($embeddedEnumFqcns));
-        $embeddedModelFqcns = array_values(array_unique($embeddedModelFqcns));
-        $embeddedResourceFqcns = array_values(array_unique($embeddedResourceFqcns));
-
-        if ($enumResourceFqcns !== []) {
-            $allBranchFqcns = array_values(array_unique([...$enumResourceFqcns, ...$enumDirectFqcns]));
-
-            if ($enumDirectFqcns === [] && count($enumResourceFqcns) === 1) {
-                // Pure EnumResource, single FQCN.
-                $result['enumFqcn'] = $enumResourceFqcns[0];
-            } elseif ($enumDirectFqcns !== [] && count($allBranchFqcns) === 1) {
-                // Mixed: same FQCN via EnumResource and via direct access.
-                $result['enumFqcn'] = $allBranchFqcns[0];
-                $result['directEnumFqcn'] = $allBranchFqcns[0];
-            } elseif ($enumDirectFqcns === []
-                && count($enumResourceFqcns) > 1
-                && count($enumResourceFqcns) === count($types)
-            ) {
-                // All non-null branches are EnumResource with different FQCNs.
-                // Emit ordered list so the transformer can do per-token AsEnum rewrite.
-                $result['multiEnumResourceFqcns'] = $enumResourceFqcns;
-            } else {
-                // Multiple different FQCNs or complex mixed branches: fall back to embedded imports.
-                $embeddedEnumFqcns = array_values(array_unique([...$allBranchFqcns, ...$embeddedEnumFqcns]));
-            }
-        } elseif ($enumDirectFqcns !== []) {
-            // Only direct-access enum branches: existing embedded behaviour.
-            $embeddedEnumFqcns = array_values(array_unique([...$enumDirectFqcns, ...$embeddedEnumFqcns]));
-        }
-
-        if ($embeddedEnumFqcns !== []) {
-            $result['embeddedEnumFqcns'] = $embeddedEnumFqcns;
-        }
-
-        if ($embeddedModelFqcns !== []) {
-            $result['embeddedModelFqcns'] = $embeddedModelFqcns;
-        }
-
-        if ($embeddedResourceFqcns !== []) {
-            $result['embeddedResourceFqcns'] = $embeddedResourceFqcns;
-        }
-
-        if ($customImports !== []) {
-            $result['customImports'] = $customImports;
-        }
-
-        return $result;
-    }
-
-    /**
      * Analyze `$variable->map(fn (TypedClass $item) => [...])` using the closure's typed first param
      * as the element model, wrapping the body result as `elementType[]`.
      *
@@ -5034,7 +4724,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
         $bodyResult = match (count($returnExprs)) {
             0 => null,
             1 => $this->analyzeValueExpression($returnExprs[0]),
-            default => $this->analyzeClosureUnion($returnExprs),
+            default => (new ClosureHandler)->analyzeClosureUnion($returnExprs, $this),
         };
 
         $this->scope->closureRelationModelClass = $previousRelationModel;

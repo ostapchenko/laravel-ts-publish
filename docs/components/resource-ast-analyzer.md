@@ -319,11 +319,12 @@ analyzer does keep — `$isMixed`.
 Two shapes reach this code, and the merged type string carries different information for each:
 
 - **Homogeneous** — both ternary arms produce the identical type string (e.g. `EnumResource::make($this->status)`
-  vs `$this->status`, both `StatusType`). `analyzeClosureUnion()` deduplicates identical strings
-  before `mergeUnionChannels()` ever joins them, so by the time `analyzeInlineArray()` sees it there
-  is exactly one `StatusType` token — no per-member signal survives to say "this token stands for
-  two arms, only one of which was wrapped." `$isMixed` is the signal that survives instead:
-  `mergeUnionChannels()` sets *both* `enumFqcn` and `directEnumFqcn` only when one arm wrapped and
+  vs `$this->status`, both `StatusType`). `ClosureHandler::analyzeClosureUnion()` deduplicates
+  identical strings before `ValueResult::mergeUnion()` ever joins them, so by the time
+  `analyzeInlineArray()` sees it there is exactly one `StatusType` token — no per-member signal
+  survives to say "this token stands for two arms, only one of which was wrapped." `$isMixed` is
+  the signal that survives instead: `ValueResult::mergeUnion()` sets *both* `enumFqcn` and
+  `directEnumFqcn` only when one arm wrapped and
   another read directly, so its presence alone proves a wrapped arm exists that the single token does
   not show. `expandMixedEnumType()` therefore spells that arm out beside the bare one rather than
   substituting the token in place. `ResourceWrappedEnumResource::$ternary_enums_array` pins it:
@@ -337,12 +338,13 @@ Two shapes reach this code, and the merged type string carries different informa
   merged string says — a same-shaped top-level mixed pair (`status_when_not_null_arrow`, below) and
   this nested one both get the full union. (`status_ternary_both`, elsewhere in the same fixture,
   looks similar but is not this case at all — both of its arms are EnumResource-wrapped, so
-  `mergeUnionChannels()` never sets `directEnumFqcn` for it; its single `AsEnum<typeof Status>` is
-  the ordinary, correct wrapped-only substitution, not a dropped arm.)
+  `ValueResult::mergeUnion()` never sets `directEnumFqcn` for it; its single `AsEnum<typeof Status>`
+  is the ordinary, correct wrapped-only substitution, not a dropped arm.)
 - **Heterogeneous** — the two arms produce *different* type strings because one is forced into an
   array shape and the other is not (e.g. `EnumResource::collection($this->status_history)`, already
   array-shaped, vs a direct scalar read of a different accessor sharing the same enum — `StatusType[]`
-  vs `StatusType`). Those two strings are not identical, so `analyzeClosureUnion()` keeps both and the
+  vs `StatusType`). Those two strings are not identical, so `ClosureHandler::analyzeClosureUnion()`
+  keeps both and the
   merged type string is a genuine two-member union, each member's own shape still visible.
   `expandMixedEnumType()` substitutes
   only the member matching `{bareTypeName}[]` — the one `EnumResource::collection()` actually
@@ -523,11 +525,11 @@ That narrowing alone would have introduced a *worse* defect: a closure parameter
 local, inside a construct with no scoped binding for it (none of the three `$varModelBindings`
 sources above, e.g. `when()`'s condition isn't a `$this->prop` test), would resolve through the
 outer `$localVarBindings` entry when analyzing the closure body — turning an honest `unknown` into
-a confidently wrong `string`. To prevent that, the generic closure/arrow-function descent in
-`analyzeValueExpression()` saves `$this->scope->localVarBindings`, unsets any entry whose name
-matches one of the closure's own parameters, analyzes the body, and restores the snapshot in a
-`finally` — so a param with no binding of its own degrades to `unknown` inside the closure, never
-the outer local's value.
+a confidently wrong `string`. To prevent that, `ClosureHandler::resolve()` (the generic
+closure/arrow-function handler in `analyzeValueExpression()`'s dispatch chain) saves
+`$scope->localVarBindings`, unsets any entry whose name matches one of the closure's own
+parameters, analyzes the body, and restores the snapshot in a `finally` — so a param with no
+binding of its own degrades to `unknown` inside the closure, never the outer local's value.
 
 `ShadowedClosureParamResource` in the workbench exists to hold that second half of the fix: its
 `$slug = $this->slug;` followed by `$this->when($request->user() !== null, fn ($slug) => $slug)`
@@ -869,8 +871,8 @@ and simplify away in a later refactor — it is load-bearing. It fires whenever 
 fails to resolve **either** arm, and it has two justifications, not one:
 
 - **Precedent.** `CoalesceHandler` already treats an `unknown` operand as "no information" rather than a
-  real union member, and `analyzeClosureUnion()` does the same for an `unknown` return branch. Unioning
-  `unknown` in literally here would be the odd one out.
+  real union member, and `ClosureHandler::analyzeClosureUnion()` does the same for an `unknown` return
+  branch. Unioning `unknown` in literally here would be the odd one out.
 - **`T | unknown` collapses to `unknown` in TypeScript.** The honest-looking alternative — emitting the raw,
   un-filtered union when one arm can't be resolved — wouldn't degrade gracefully to a *partial* type; it
   would degrade the *whole property* to `unknown`, which is exactly the outcome this package's own
@@ -931,10 +933,10 @@ if no default were passed at all.
 
 `applyConditionalDefault($value, $call, $index)` is the single vehicle for the whole family: every
 handler builds its value arm, then hands it over with its own default index. It union-merges the two
-arms' `' | '` members, deduplicates them, and folds their import channels via `mergeUnionChannels()`,
-re-asserting `optional` to `false` afterwards (`mergeUnionChannels()` resets it). The merge is not
+arms' `' | '` members, deduplicates them, and folds their import channels via `ValueResult::mergeUnion()`,
+re-asserting `optional` to `false` afterwards (`ValueResult::mergeUnion()` resets it). The merge is not
 cosmetic — a default like `Status::Draft` or `UserResource::make(...)` carries an import channel that
-only `mergeUnionChannels()` preserves; concatenating type strings by hand would emit a type name with no
+only `ValueResult::mergeUnion()` preserves; concatenating type strings by hand would emit a type name with no
 import and trip the unimportable-token gate.
 
 The settled rule is one sentence:
@@ -1374,10 +1376,10 @@ eight lines carrying a top-level duplicate before the fix, all of them
 unchanged: those are nested member nulls, which is what a nullable member inside an object shape should
 look like.
 
-`analyzeClosureUnion()`, the ternary/Elvis union, has the same repetition and is **not** covered by this
-helper: it collapses only a standalone `'null'` member against arms that already carry one, so two arms
-each ending in `| null` still double. No corpus property reaches it; the plan's Out of Scope section
-records it.
+`ClosureHandler::analyzeClosureUnion()`, the ternary/Elvis union, has the same repetition and is **not**
+covered by this helper: it collapses only a standalone `'null'` member against arms that already carry
+one, so two arms each ending in `| null` still double. No corpus property reaches it; the plan's Out of
+Scope section records it.
 
 ## Resource inheritance: a subclass with no `toArray()` of its own
 
