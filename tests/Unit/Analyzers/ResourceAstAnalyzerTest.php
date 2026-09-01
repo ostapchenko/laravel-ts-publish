@@ -5748,3 +5748,34 @@ describe('ResourceAstAnalyzer with BranchedInlineFqcnResource (branch union null
         )->and($type)->not->toContain('} | null | {');
     });
 });
+
+describe('ResourceAstAnalyzer with an arbitrary method name', function () {
+    test('analyzes a non-toArray array-returning method by name', function () {
+        $reflection = new ReflectionClass(TagResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, Tag::class, 'summaryPayload'))->analyze();
+
+        $names = array_column($analysis->properties, 'name');
+        $label = collect($analysis->properties)->firstWhere('name', 'label');
+
+        expect($names)->toContain('id', 'label')
+            ->and($label['type'])->toBe('string')
+            ->and($label['optional'])->toBeFalse();
+    });
+
+    test('a missing generic method yields an empty analysis instead of a model dump', function () {
+        $reflection = new ReflectionClass(TagResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, Tag::class, 'noSuchMethod'))->analyze();
+
+        expect($analysis->properties)->toBeEmpty();
+    });
+
+    test('an explicit "toArray" method name still falls back to the model dump', function () {
+        $reflection = new ReflectionClass(EmptyWithMixinResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, User::class, 'toArray'))->analyze();
+
+        $names = array_column($analysis->properties, 'name');
+
+        expect($analysis->properties)->not->toBeEmpty()
+            ->and($names)->toContain('id', 'name', 'email');
+    });
+});

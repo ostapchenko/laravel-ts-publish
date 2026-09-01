@@ -92,16 +92,17 @@ class ResourceAstAnalyzer implements ExpressionEngine
     protected ?ExpressionDispatcher $dispatcher = null;
 
     /**
-     * Create an analyzer for a resource class and its optional backing model.
+     * Create an analyzer for a class, its optional backing model, and the method to analyze.
      *
      * @param  ReflectionClass<JsonResource>  $resourceReflection
      * @param  class-string<Model>|null  $modelClass
      */
     public function __construct(
-        ReflectionClass $resourceReflection,
-        ?string $modelClass = null,
+        protected ReflectionClass $resourceReflection,
+        protected ?string $modelClass = null,
+        protected string $methodName = 'toArray',
     ) {
-        $this->scope = new AnalysisScope(self::genericReflection($resourceReflection->getName()), $modelClass);
+        $this->scope = new AnalysisScope(self::genericReflection($this->resourceReflection->getName()), $this->modelClass);
 
         if ($this->scope->modelClass !== null) {
             $this->loadModelInspectorData();
@@ -121,7 +122,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Analyze the resource's toArray() and return the resulting property/type analysis.
+     * Analyze the subject's $this->methodName body and return the resulting property/type analysis.
      */
     public function analyze(): ResourceAnalysis
     {
@@ -129,15 +130,21 @@ class ResourceAstAnalyzer implements ExpressionEngine
             DependencyRecorder::recordClass($this->scope->modelClass);
         }
 
-        $context = resolve(MethodLocator::class)->locateOwn($this->scope->subjectReflection->getName(), 'toArray');
+        $context = resolve(MethodLocator::class)->locateOwn($this->scope->subjectReflection->getName(), $this->methodName);
         $toArrayMethod = $context?->method;
 
         if ($toArrayMethod === null || $toArrayMethod->stmts === null) {
             $inherited = $this->analyzeParentToArray();
 
-            // An empty result means no ancestor declared a toArray() either, so keep delegating.
+            // An empty result means no ancestor declared the method either, so keep delegating.
             if ($inherited !== null && $inherited->properties !== []) {
                 return $inherited;
+            }
+
+            // Model/collection delegation only makes sense for toArray(); a generic method with no
+            // body anywhere in the chain is simply empty, not a model dump.
+            if ($this->methodName !== 'toArray') {
+                return new ResourceAnalysis;
             }
 
             if ($this->isResourceCollection($this->scope)) {
@@ -156,8 +163,8 @@ class ResourceAstAnalyzer implements ExpressionEngine
         $branchAnalysis = $this->analyzeAllReturnBranches($toArrayMethod->stmts);
 
         if ($branchAnalysis !== null) {
-            if ($this->scope->subjectReflection->hasMethod('toArray')) {
-                $this->applyTsCastsFromMethod($this->scope->subjectReflection->getMethod('toArray'), $branchAnalysis);
+            if ($this->scope->subjectReflection->hasMethod($this->methodName)) {
+                $this->applyTsCastsFromMethod($this->scope->subjectReflection->getMethod($this->methodName), $branchAnalysis);
             }
 
             return $branchAnalysis;
@@ -573,7 +580,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Resolve and analyze the parent resource's toArray() method.
+     * Resolve and analyze the parent resource's declaration of $this->methodName.
      */
     protected function analyzeParentToArray(): ?ResourceAnalysis
     {
@@ -584,12 +591,13 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         if ($parentClass->getName() === JsonResource::class) {
-            return $this->buildModelDelegatedAnalysis();
+            return $this->methodName === 'toArray' ? $this->buildModelDelegatedAnalysis() : null;
         }
 
         $parentAnalyzer = new self(
             $parentClass,
             $this->scope->modelClass,
+            $this->methodName,
         );
 
         return $parentAnalyzer->analyze();
