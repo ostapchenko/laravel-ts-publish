@@ -1,0 +1,198 @@
+<?php
+
+declare(strict_types=1);
+
+use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
+use PhpParser\Node\Arg;
+use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\ArrowFunction;
+use PhpParser\Node\Expr\BinaryOp;
+use PhpParser\Node\Expr\ConstFetch;
+use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\PropertyFetch;
+use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\Name;
+use PhpParser\Node\Param;
+use PhpParser\Node\Scalar\Int_;
+use PhpParser\Node\Scalar\String_;
+use Workbench\App\Http\Resources\ConditionalDefaultsResource;
+use Workbench\App\Http\Resources\UserResource;
+use Workbench\App\Models\Address;
+use Workbench\App\Models\Profile;
+use Workbench\App\Models\User;
+
+/**
+ * An AnalysisScope for tests that don't need a real backing model.
+ */
+function conditionalMethodHandlerScope(): AnalysisScope
+{
+    return new AnalysisScope(new ReflectionClass(ConditionalDefaultsResource::class));
+}
+
+/**
+ * An engine that fails the test if a handler calls back into it, proving the handler declined —
+ * or resolved a bare/model-typed shape — without resolving any sub-expression.
+ */
+function conditionalMethodHandlerThrowingEngine(): ExpressionEngine
+{
+    return new class implements ExpressionEngine
+    {
+        public function resolve(Expr $expr): array
+        {
+            throw new RuntimeException('resolve() must not be called in this case');
+        }
+    };
+}
+
+/**
+ * A stub engine resolving each distinct expression instance to its own canned result, keyed by
+ * object identity — mirrors ClosureHandlerArmStubEngine's convention for the same reason.
+ */
+final class ConditionalMethodHandlerArmStubEngine implements ExpressionEngine
+{
+    /** @param list<array{0: Expr, 1: array<string, mixed>}> $arms */
+    public function __construct(private array $arms) {}
+
+    /** @return array<string, mixed> */
+    public function resolve(Expr $expr): array
+    {
+        foreach ($this->arms as [$candidate, $result]) {
+            if ($candidate === $expr) {
+                return $result;
+            }
+        }
+
+        throw new RuntimeException('Unexpected expression passed to ConditionalMethodHandlerArmStubEngine');
+    }
+}
+
+/**
+ * An engine that records the scope's closureRelationModelClass/varModelBindings at the moment it
+ * is called, proving whenLoaded()'s bindings are live only for the closure body's own resolution.
+ */
+final class ConditionalMethodHandlerScopeSpyEngine implements ExpressionEngine
+{
+    public bool $wasCalled = false;
+
+    public ?string $relationModelClassDuringCall = null;
+
+    /** @var array<string, class-string> */
+    public array $varModelBindingsDuringCall = [];
+
+    /** @param array<string, mixed> $result */
+    public function __construct(private AnalysisScope $scope, private array $result) {}
+
+    /** @return array<string, mixed> */
+    public function resolve(Expr $expr): array
+    {
+        $this->wasCalled = true;
+        $this->relationModelClassDuringCall = $this->scope->closureRelationModelClass;
+        $this->varModelBindingsDuringCall = $this->scope->varModelBindings;
+
+        return $this->result;
+    }
+}
+
+// ConditionalMethodHandler — pinned resolutions
+
+it('resolves whenLoaded() on a singular relation as optional and model-typed, carrying modelFqcn', function () {
+    $expr = new MethodCall(new Variable('this'), 'whenLoaded', [new Arg(new String_('profile'))]);
+    $scope = new AnalysisScope(new ReflectionClass(UserResource::class), User::class);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, $scope, conditionalMethodHandlerThrowingEngine());
+
+    expect($result)->toBe([
+        'type' => 'Profile | null',
+        'optional' => true,
+        'modelFqcn' => Profile::class,
+    ]);
+});
+
+it('resolves when(condition, value, default) with an explicit default as required and unioned', function () {
+    $condition = new BinaryOp\Greater(new PropertyFetch(new Variable('this'), 'id'), new Int_(0));
+    $valueExpr = new Variable('valueArm');
+    $defaultExpr = new Int_(0);
+    $expr = new MethodCall(new Variable('this'), 'when', [
+        new Arg($condition),
+        new Arg($valueExpr),
+        new Arg($defaultExpr),
+    ]);
+    $engine = new ConditionalMethodHandlerArmStubEngine([
+        [$valueExpr, ['type' => 'string', 'optional' => false]],
+        [$defaultExpr, ['type' => 'number', 'optional' => false]],
+    ]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), $engine);
+
+    expect($result)->toBe(['type' => 'string | number', 'optional' => false]);
+});
+
+it('resolves whenCounted() with no default as an optional number', function () {
+    $expr = new MethodCall(new Variable('this'), 'whenCounted', [new Arg(new String_('posts'))]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), conditionalMethodHandlerThrowingEngine());
+
+    expect($result)->toBe(['type' => 'number', 'optional' => true]);
+});
+
+it('resolves whenCounted() with an explicit default as required and unioned', function () {
+    $defaultExpr = new String_('none');
+    $expr = new MethodCall(new Variable('this'), 'whenCounted', [
+        new Arg(new String_('user')),
+        new Arg(new ConstFetch(new Name('null'))),
+        new Arg($defaultExpr),
+    ]);
+    $engine = new ConditionalMethodHandlerArmStubEngine([
+        [$defaultExpr, ['type' => 'string', 'optional' => false]],
+    ]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), $engine);
+
+    expect($result)->toBe(['type' => 'number | string', 'optional' => false]);
+});
+
+it('binds whenLoaded()\'s closure param to the related model only for the closure body, then restores scope', function () {
+    $scope = new AnalysisScope(new ReflectionClass(UserResource::class), User::class);
+    $scope->closureRelationModelClass = null;
+    $scope->varModelBindings = ['unrelated' => Address::class];
+    $scope->varCollectionBindings = [];
+
+    $bodyExpr = new Variable('profile');
+    $param = new Param(new Variable('profile'));
+    $closure = new ArrowFunction(['params' => [$param], 'expr' => $bodyExpr]);
+    $expr = new MethodCall(new Variable('this'), 'whenLoaded', [
+        new Arg(new String_('profile')),
+        new Arg($closure),
+    ]);
+    $engine = new ConditionalMethodHandlerScopeSpyEngine($scope, ['type' => 'string', 'optional' => false]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, $scope, $engine);
+
+    expect($engine->wasCalled)->toBeTrue()
+        ->and($engine->relationModelClassDuringCall)->toBe(Profile::class)
+        ->and($engine->varModelBindingsDuringCall)->toBe(['unrelated' => Address::class, 'profile' => Profile::class])
+        ->and($scope->closureRelationModelClass)->toBeNull()
+        ->and($scope->varModelBindings)->toBe(['unrelated' => Address::class])
+        ->and($scope->varCollectionBindings)->toBe([])
+        ->and($result)->toBe(['type' => 'string', 'optional' => true]);
+});
+
+// ConditionalMethodHandler — declines
+
+it('declines a different $this-> method name without calling the engine', function () {
+    $expr = new MethodCall(new Variable('this'), 'somethingElse', [new Arg(new String_('x'))]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), conditionalMethodHandlerThrowingEngine());
+
+    expect($result)->toBeNull();
+});
+
+it('declines a conditional-family method name called on a non-$this receiver', function () {
+    $expr = new MethodCall(new Variable('foo'), 'whenLoaded', [new Arg(new String_('profile'))]);
+
+    $result = (new ConditionalMethodHandler)->resolve($expr, conditionalMethodHandlerScope(), conditionalMethodHandlerThrowingEngine());
+
+    expect($result)->toBeNull();
+});

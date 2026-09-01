@@ -163,8 +163,10 @@ go through `getArrayableItems()`, which strips it.
 - **`$this->whenHas('column')`** — the attribute name is a literal argument to the call.
 - **Plain `@mixin` property access** — `'password' => $this->password` — the single most common
   resource idiom. `analyzeThisProperty()` resolves it via `resolveModelAttributeTypeInfo()`, the
-  same single-attribute path `whenHas()` uses; it never reaches `buildModelDelegatedAnalysis()`, so
-  a hand-written key survives `exclude_hidden` exactly like a named `only()` key does.
+  same single-attribute resolution `ConditionalMethodHandler::analyzeWhenHas()` reaches through its
+  own `ModelAttributeResolver`-backed copy of that helper; it never reaches
+  `buildModelDelegatedAnalysis()`, so a hand-written key survives `exclude_hidden` exactly like a
+  named `only()` key does.
 
 Two touch points implement the implicit side. `buildModelDelegatedAnalysis()`
 (`ResolvesModelTypes.php`) is the property-set builder shared by whole-model delegation *and*
@@ -533,7 +535,7 @@ binding of its own degrades to `unknown` inside the closure, never the outer loc
 
 `ShadowedClosureParamResource` in the workbench exists to hold that second half of the fix: its
 `$slug = $this->slug;` followed by `$this->when($request->user() !== null, fn ($slug) => $slug)`
-has a condition that isn't a `$this->prop` test, so `bindClosureParamsFromCondition()` binds nothing
+has a condition that isn't a `$this->prop` test, so `ConditionalMethodHandler::bindClosureParamsFromCondition()` binds nothing
 for the closure's `$slug`. The closure-descent suppression above is the only thing keeping `shadowed`
 at `unknown` rather than leaking the outer `$slug`'s `string` type — narrow the write count without
 it, and `shadowed` silently becomes `string`; this fixture's test is what catches that regression.
@@ -757,7 +759,7 @@ on the relations axis.
 
 ## `whenNotNull()`/`whenNull()` read `($value, $default)`, not a callback
 
-`analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull)` handles both `$this->whenNotNull($value,
+`ConditionalMethodHandler::analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull)` handles both `$this->whenNotNull($value,
 $default)` and `$this->whenNull($value, $default)`. Both delegate to `ConditionallyLoadsAttributes::when()`
 (`vendor/laravel/framework/.../Http/Resources/ConditionallyLoadsAttributes.php`): `whenNotNull($value,
 $default)` is `$this->when(! is_null($value), $value, $default)`, and `whenNull($value, $default)` is
@@ -777,7 +779,7 @@ type alone — instead of `string | number, required`. The fix was checked again
 ### Which arm each analysis path reads
 
 - **`whenNotNull()`** (`stripNull: true`) analyzes argument 0, then strips a top-level `| null` arm from its
-  type via `stripNullArm()`: the `! is_null($value)` guard on the success arm proves that arm unreachable,
+  type via `ConditionalMethodHandler::stripNullArm()`: the `! is_null($value)` guard on the success arm proves that arm unreachable,
   so `whenNotNull($this->description)` emits `?string`, not `?string | null`.
 - **`whenNull()`** (`stripNull: false`) forces argument 0's contribution to the literal string `'null'`
   instead of analyzing it — the success arm always returns `null` when the guard holds, so the value's own
@@ -789,14 +791,15 @@ type alone — instead of `string | number, required`. The fix was checked again
 braces, parens, angle brackets, and square brackets, and filters out a member equal to exactly `'null'`.
 Only a union member sitting at depth zero is ever removed — `(string | null)[]` and `{ a: string; b: number
 | null }` both keep their nested `| null` untouched, since neither nested `null` is a top-level member of
-the outer type. `CoalesceHandler` carries its own copy of this helper to strip the left operand of `??`
-(a not-yet-consolidated duplicate — see its docblock). One consequence: a left operand of exactly `null`
+the outer type. `ConditionalMethodHandler` and `CoalesceHandler` each carry their own copy of this helper —
+the former to strip `whenNotNull()`'s success arm, the latter to strip the left operand of `??`
+(not-yet-consolidated duplicates — see their docblocks). One consequence: a left operand of exactly `null`
 (`null ?? $x`) strips to `'unknown'` and falls through to the right arm, since `null ?? $x` always
 evaluates to `$x`.
 
 ### The default argument controls both `optional` and the union
 
-`hasExplicitDefaultArg(MethodCall $call, int $index)` decides whether argument 1 was passed at all — purely
+`ConditionalMethodHandler::hasExplicitDefaultArg(MethodCall $call, int $index)` decides whether argument 1 was passed at all — purely
 positionally, since Laravel distinguishes an omitted argument from an explicitly-passed `null` via
 `func_num_args()`, not via `$value === null`. A `ConstFetch(null)` at the default position
 (`whenNotNull($x, null)`) counts as an explicit default: `func_num_args() === 2` there too, so the key
@@ -807,7 +810,7 @@ handlers for the same reason.
 When no explicit default is present, the property is `optional: true` and its type is just the (possibly
 null-stripped) value arm — matching every pre-existing single-argument fixture (`ProductResource`,
 `ImageResource`, `AddressResource`, …). When an explicit default *is* present, both the `optional` flag and
-the union are decided by the shared `applyConditionalDefault()` helper described
+the union are decided by the shared `ConditionalMethodHandler::applyConditionalDefault()` helper described
 [below](#every-handler-unions-the-default-arm-in-through-applyconditionaldefault), which `whenNotNull()` and
 `whenNull()` reach with `$index: 1`. The default's own type is analyzed independently via
 `analyzeValueExpression()`, since PHP evaluates it eagerly as an argument regardless of which arm ultimately
@@ -826,14 +829,15 @@ argument, not zero. A closure or arrow function passed as the default that decla
 parameters than its caller actually supplies therefore throws `ArgumentCountError` at runtime instead of
 producing a value — it can never contribute to the property's type.
 
-`applyConditionalDefault($value, $call, $index, $defaultArgCount = 0)` checks this before analyzing the
-default expression at all: `InspectsAstNodes::closureRequiresArguments(Expr $expr, int $providedArgs = 0)`
+`ConditionalMethodHandler::applyConditionalDefault($value, $call, $index, $scope, $engine, $defaultArgCount = 0)`
+checks this before analyzing the default expression at all:
+`InspectsAstNodes::closureRequiresArguments(Expr $expr, int $providedArgs = 0)`
 returns `true` when `$expr` is a `Closure` or `ArrowFunction` whose count of parameters lacking both a
 default value and a variadic marker exceeds `$providedArgs`. Every handler leaves `$defaultArgCount` at its
 default of `0` except `analyzeTransform()`, which passes `defaultArgCount: 1` to match the global helper's
 one-argument call. When the check trips, `applyConditionalDefault()` returns the value arm's result alone
 with `optional: false` — the same "unresolved default leaves the value arm standing" policy used elsewhere
-in this helper — without ever calling `analyzeValueExpression()` on the default's body.
+in this helper — without ever calling `$engine->resolve()` on the default's body.
 
 The check sits at `applyConditionalDefault()`, the one choke point every handler's default argument passes
 through, with the per-method argument count as an explicit parameter rather than a special case. It does
@@ -931,7 +935,7 @@ if no default were passed at all.
 
 ### Every handler unions the default arm in, through `applyConditionalDefault()`
 
-`applyConditionalDefault($value, $call, $index)` is the single vehicle for the whole family: every
+`ConditionalMethodHandler::applyConditionalDefault($value, $call, $index, $scope, $engine)` is the single vehicle for the whole family: every
 handler builds its value arm, then hands it over with its own default index. It union-merges the two
 arms' `' | '` members, deduplicates them, and folds their import channels via `ValueResult::mergeUnion()`,
 re-asserting `optional` to `false` afterwards (`ValueResult::mergeUnion()` resets it). The merge is not
@@ -962,7 +966,7 @@ It covers both directions of an `'unknown'` arm, which reach the same result for
   hard-coded `unknown` the handler never inspects.
 
 Routing the whole family through one helper replaced three near-identical inline merge blocks and closed a
-soundness hole: `analyzeWhenHas()`, `analyzeWhenAppended()`, `analyzeWhenLoaded()` and
+soundness hole: `ConditionalMethodHandler::analyzeWhenHas()`, `analyzeWhenAppended()`, `analyzeWhenLoaded()` and
 `analyzeWhenExistsLoaded()`, plus the `whenCounted()`/`whenAggregated()` inline arms, used to flip **only**
 `optional` and emit the value arm's type alone. `$this->whenLoaded('user', fn ($user) => $user, null)` was
 emitted as a required `User`, so a consumer could dereference the very `null` Laravel returns when the
@@ -994,15 +998,18 @@ resource constructor* (`Resource::make(...)`/`new Resource(...)`), so that case 
 `$this->when(! $condition, $value, $default)`, and `mergeUnless()` is
 `$this->mergeWhen(! $condition, $value, $default)` — Laravel negates the condition and forwards straight
 through. Negating which branch of an `if` runs never changes what either branch's *type* is, so
-`analyzeValueExpression()` dispatches `unless` straight to the existing `analyzeWhen()`, and
+`ConditionalMethodHandler::resolve()` dispatches `unless` straight to the existing `analyzeWhen()`, and
 `analyzeMergeExpression()` treats `mergeUnless` exactly like `mergeWhen()` (array/closure argument at index
 1, always optional). Neither needed a new method.
 
 ### `whenAppended()` types from the named attribute, like `whenHas()`
 
-`whenAppended('attribute', $value, $default)` mirrors `analyzeWhenHas()`: `analyzeWhenAppended()` resolves
-the accessor's type via `resolveModelAttributeTypeInfo()` from the attribute name alone, never from
-analyzing `$value`. This matters because Laravel's `whenAppended()` does **not** forward the resolved value
+`whenAppended('attribute', $value, $default)` mirrors `ConditionalMethodHandler::analyzeWhenHas()`:
+`analyzeWhenAppended()` resolves the accessor's type via its own `resolveModelAttributeTypeInfo()` helper
+from the attribute name alone, never from analyzing `$value`. That helper is a `ConditionalMethodHandler`-
+private duplicate of the shared trait method of the same name, calling `ModelAttributeResolver` directly
+with `$scope->modelClass` rather than the trait's cached-property gate (see its own docblock). This matters
+because Laravel's `whenAppended()` does **not** forward the resolved value
 into a `$value` closure the way `whenHas()`/`whenLoaded()`/`whenCounted()`/`whenAggregated()`/
 `whenExistsLoaded()` do — it calls `value($value)` with zero arguments, not `value($value, $resolved)` — so
 a `$value` closure parameter has nothing bound to it in Laravel's own implementation. Typing from the
@@ -1015,7 +1022,7 @@ binding.
 `whenExistsLoaded('relation')` reads `Model::withExists()`'s `{relation}_exists` attribute — the same flag
 `ModelAttributeResolver::resolveAttributeFallbacks()` types as `boolean` for a model's own `*_exists`
 properties (the `_exists` suffix → `boolean` fallback, mirroring `_count` → `number`).
-`analyzeWhenExistsLoaded()` emits that same `boolean`, deliberately: a resource and the model it wraps
+`ConditionalMethodHandler::analyzeWhenExistsLoaded()` emits that same `boolean`, deliberately: a resource and the model it wraps
 disagreeing about the type of the same underlying flag is exactly the kind of divergence this package
 exists to prevent. An explicit default still unions its own type alongside that `boolean`, since the
 runtime can return it in place of the flag.
@@ -1024,7 +1031,7 @@ runtime can return it in place of the flag.
 
 `transform($value, $callback, $default)` (`vendor/laravel/framework/.../Support/helpers.php`) calls
 `$callback($value)` when `$value` is filled and returns that result — the callback's return type, not
-`$value`'s own type, is what the property carries. `analyzeTransform()` mirrors `analyzeWhen()`'s
+`$value`'s own type, is what the property carries. `ConditionalMethodHandler::analyzeTransform()` mirrors `analyzeWhen()`'s
 value-argument handling but analyzes `$args[1]` (the callback) instead of `$args[0]`, binding the
 callback's first parameter to `$args[0]`'s `$this->prop` expression via `bindClosureParamsFromCondition()`
 the same way `analyzeWhen()` binds a value closure to its condition, then hands the result to

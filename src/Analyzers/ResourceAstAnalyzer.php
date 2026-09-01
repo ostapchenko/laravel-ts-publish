@@ -9,6 +9,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
@@ -17,6 +18,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CastHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClassConstantHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClosureHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CoalesceHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
@@ -48,11 +50,9 @@ use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\AssignOp;
 use PhpParser\Node\Expr\AssignRef;
-use PhpParser\Node\Expr\BinaryOp;
 use PhpParser\Node\Expr\BooleanNot;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
-use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
 use PhpParser\Node\Expr\MethodCall;
@@ -107,6 +107,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
     use InspectsAstNodes;
     use ResolvesClassNames;
     use ResolvesModelTypes;
+    use ResolvesRelatedModelTypes;
 
     /** Carries the subject reflection, model class, and all closure/spread bindings; see AnalysisScope. */
     protected AnalysisScope $scope;
@@ -504,6 +505,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             new CoalesceHandler,
             new KnownFunctionCallHandler,
             new ClosureHandler,
+            new ConditionalMethodHandler,
         ];
     }
 
@@ -530,73 +532,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
         $result = $this->unknownResult();
 
-        if ($this->isThisMethodCall($expr, 'when')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhen($expr);
-        }
-
-        // unless() delegates to when() unchanged: negating the condition changes which arm runs,
-        // never what either arm's type is.
-        if ($this->isThisMethodCall($expr, 'unless')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhen($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenAppended')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhenAppended($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenExistsLoaded')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhenExistsLoaded($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'transform')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeTransform($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenHas')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhenHas($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenNotNull')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhenNotNull($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenNull')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhenNull($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenLoaded')) {
-            /** @var MethodCall $expr */
-            return $this->analyzeWhenLoaded($expr);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenCounted')) {
-            /** @var MethodCall $expr */
-            return $this->applyConditionalDefault(['type' => 'number', 'optional' => false], $expr, 2);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenAggregated')) {
-            /** @var MethodCall $expr */
-            return $this->applyConditionalDefault(['type' => 'number', 'optional' => false], $expr, 4);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenPivotLoaded')) {
-            /** @var MethodCall $expr */
-            return $this->applyConditionalDefault($this->unknownResult(), $expr, 2);
-        }
-
-        if ($this->isThisMethodCall($expr, 'whenPivotLoadedAs')) {
-            /** @var MethodCall $expr */
-            return $this->applyConditionalDefault($this->unknownResult(), $expr, 3);
-        }
-
         // $model->toResource()/toResourceCollection() — a whenLoaded closure param bound to a
         // model, or $this->relation accessed directly. Checked by method name alone so both
         // receiver shapes share one resolution path; see resolveToResourceReceiverModel().
@@ -620,7 +555,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             && $expr->class->name !== 'this'
             && $expr->name instanceof Identifier
         ) {
-            return $this->analyzeRelatedModelMethodCall($expr->name->toString());
+            return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope);
         }
 
         // SomeResource::collection(...)->resolve() — strip the trailing ->resolve() and delegate.
@@ -676,7 +611,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             $closureModelClass = $this->scope->closureRelationModelClass;
 
             if ($closureModelClass !== null) {
-                return $this->analyzeRelatedModelMethodCall($expr->name->toString());
+                return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope);
             }
         }
 
@@ -738,7 +673,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             }
 
             if ($info['type'] === 'unknown' && $this->scope->closureRelationModelClass !== null && $expr->name instanceof Identifier) {
-                $info = $this->analyzeRelatedModelProperty($expr->name->toString());
+                $info = $this->analyzeRelatedModelProperty($expr->name->toString(), $this->scope);
             }
 
             if ($info['type'] === 'unknown') {
@@ -780,7 +715,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             $closureModelClass = $this->scope->closureRelationModelClass;
 
             if ($info['type'] === 'unknown' && $closureModelClass !== null) {
-                $info = $this->analyzeRelatedModelMethodCall($expr->name->toString());
+                $info = $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope);
             }
 
             return $info;
@@ -807,7 +742,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             $boundModel = $this->scope->varModelBindings[$expr->var->name] ?? $this->scope->closureRelationModelClass;
 
             if ($boundModel !== null) {
-                return $this->analyzeRelatedModelProperty($expr->name->toString(), $boundModel);
+                return $this->analyzeRelatedModelProperty($expr->name->toString(), $this->scope, $boundModel);
             }
         }
 
@@ -852,7 +787,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             $boundModel = $this->scope->varModelBindings[$expr->var->name] ?? $this->scope->closureRelationModelClass;
 
             if ($boundModel !== null) {
-                return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $boundModel);
+                return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope, $boundModel);
             }
         }
 
@@ -887,8 +822,9 @@ class ResourceAstAnalyzer implements ExpressionEngine
             ];
         }
 
-        // Bare variable bound either to a closure parameter (bindClosureParamsFromCondition) or to a
-        // top-level local assignment (collectLocalVarBindings). Closure-param bindings win, being the
+        // Bare variable bound either to a closure parameter (ConditionalMethodHandler's
+        // bindClosureParamsFromCondition()) or to a top-level local assignment
+        // (collectLocalVarBindings). Closure-param bindings win, being the
         // narrower scope; the re-entrancy guard makes a cyclic binding resolve as unknown.
         if ($expr instanceof Variable && is_string($expr->name)) {
             $boundExpr = $this->scope->closureParamExprBindings[$expr->name]
@@ -934,326 +870,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return (new ClosureHandler)->analyzeClosureUnion([$expr->if, $expr->else], $this);
-    }
-
-    /**
-     * Fold a conditional method's explicit default into its value arm's result.
-     *
-     * An explicit default always makes the property required, since Laravel then always emits the key.
-     * The default's type unions in when it resolves; otherwise the value arm's own type stands alone.
-     * $defaultArgCount is how many arguments Laravel invokes the default with — 0 for the value($default)
-     * family, 1 for transform()'s $default($value) — and is forwarded to closureRequiresArguments().
-     *
-     * @param  ValueExpressionResult  $value
-     * @return ValueExpressionResult
-     */
-    protected function applyConditionalDefault(array $value, MethodCall $call, int $index, int $defaultArgCount = 0): array
-    {
-        if (! $this->hasExplicitDefaultArg($call, $index)) {
-            return [...$value, 'optional' => true];
-        }
-
-        $defaultExpr = $call->getArgs()[$index]->value;
-
-        // A default closure requiring more parameters than Laravel supplies it can never run, so its
-        // arm is unreachable — the value arm stands alone, still required.
-        if ($this->closureRequiresArguments($defaultExpr, $defaultArgCount)) {
-            return [...$value, 'optional' => false];
-        }
-
-        $default = $this->analyzeValueExpression($defaultExpr);
-
-        // An `unknown` on either arm carries no type to union: an unresolved default leaves the value arm
-        // standing, and an unresolved value arm already admits whatever the default could produce.
-        if ($default['type'] === 'unknown' || $value['type'] === 'unknown') {
-            return [...$value, 'optional' => false];
-        }
-
-        $members = array_values(array_unique([
-            ...explode(' | ', $value['type']),
-            ...explode(' | ', $default['type']),
-        ]));
-
-        // `[]` is assignable to every array type, so an empty-array arm beside a real one would only
-        // widen the property into a shape — `Category[] | Record<…>` — that no caller can consume.
-        if (array_any($members, fn (string $m): bool => $m !== 'never[]' && str_ends_with($m, '[]'))) {
-            $members = array_values(array_filter($members, fn (string $m): bool => $m !== 'never[]'));
-        }
-
-        return [...ValueResult::mergeUnion($members, [$value, $default]), 'optional' => false];
-    }
-
-    /**
-     * Analyze $this->when(condition, value) — the value is the second arg.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhen(MethodCall $call): array
-    {
-        $result = $this->unknownResult();
-        $args = $call->getArgs();
-
-        if (count($args) >= 2) {
-            $valueExpr = $args[1]->value;
-
-            $previousBindings = $this->scope->closureParamExprBindings;
-            $this->bindClosureParamsFromCondition($args[0]->value, $valueExpr);
-
-            $inner = $this->analyzeValueExpression($valueExpr);
-
-            $this->scope->closureParamExprBindings = $previousBindings;
-
-            return $this->applyConditionalDefault($inner, $call, 2);
-        }
-
-        return [...$result, 'optional' => true]; // @codeCoverageIgnore
-    }
-
-    /**
-     * Analyze $this->whenHas('attribute') — the attribute name is the first arg string.
-     *
-     * The value arg (2nd) is never evaluated for its own type: Laravel invokes it with the named
-     * attribute's own value, so the attribute is authoritative for type and array-ness. It IS
-     * checked for EnumResource::make()/::collection() shape, since that decides whether the enum
-     * channel is 'enumFqcn' (wrapped — gets the AsEnum rewrite) or 'directEnumFqcn' (read as-is).
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhenHas(MethodCall $call): array
-    {
-        $result = $this->unknownResult();
-        $args = $call->getArgs();
-
-        if (count($args) >= 1 && $args[0]->value instanceof String_) {
-            $attrName = $args[0]->value->value;
-            $info = $this->resolveModelAttributeTypeInfo($attrName);
-            $result = ['type' => $info['type'], 'optional' => false];
-
-            if ($info['enumFqcn'] !== null) {
-                $wrapped = count($args) >= 2 && $this->isEnumResourceWrapCall($args[1]->value);
-                $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
-            }
-
-            return $this->applyConditionalDefault($result, $call, 2);
-        }
-
-        return [...$result, 'optional' => true]; // @codeCoverageIgnore
-    }
-
-    /**
-     * Analyze $this->whenAppended('attribute', $value, $default) — types from the named attribute,
-     * the same way whenHas() does, since the appended accessor is what surfaces. Unlike whenHas()/
-     * whenLoaded(), Laravel's whenAppended() invokes a Closure value with no arguments at all, so
-     * only a non-first-class-callable EnumResource::make()/::collection() value is realistically
-     * reachable here — still checked for consistency, since it costs nothing.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhenAppended(MethodCall $call): array
-    {
-        $args = $call->getArgs();
-
-        if ($args === [] || ! $args[0]->value instanceof String_) {
-            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
-        }
-
-        $info = $this->resolveModelAttributeTypeInfo($args[0]->value->value);
-        $result = ['type' => $info['type'], 'optional' => false];
-
-        if ($info['enumFqcn'] !== null) {
-            $wrapped = count($args) >= 2 && $this->isEnumResourceWrapCall($args[1]->value);
-            $result[$wrapped ? 'enumFqcn' : 'directEnumFqcn'] = $info['enumFqcn'];
-        }
-
-        return $this->applyConditionalDefault($result, $call, 2);
-    }
-
-    /**
-     * Whether a whenHas()/whenAppended() value argument is EnumResource::make()/::collection() —
-     * including the first-class-callable form — signalling the named attribute is EnumResource-
-     * wrapped rather than read directly.
-     */
-    private function isEnumResourceWrapCall(Expr $value): bool
-    {
-        if (! $value instanceof StaticCall || ! $value->name instanceof Identifier) {
-            return false;
-        }
-
-        $className = $this->resolveStaticCallClassName($value);
-
-        return $className !== null
-            && $this->isEnumResourceClass($className)
-            && in_array($value->name->toString(), ['make', 'collection'], true);
-    }
-
-    /**
-     * Analyze $this->whenExistsLoaded('relation', $value, $default) — resolves to the relation's
-     * generated `{relation}_exists` flag.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhenExistsLoaded(MethodCall $call): array
-    {
-        $args = $call->getArgs();
-
-        if ($args === [] || ! $args[0]->value instanceof String_) {
-            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
-        }
-
-        return $this->applyConditionalDefault(['type' => 'boolean', 'optional' => false], $call, 2);
-    }
-
-    /**
-     * Analyze $this->whenNotNull($value, $default) — the success arm returns $value, proven non-null.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhenNotNull(MethodCall $call): array
-    {
-        return $this->analyzeWhenPossiblyNull($call, stripNull: true);
-    }
-
-    /**
-     * Analyze $this->whenNull($value, $default) — the success arm returns null, so only the default
-     * carries a useful type.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhenNull(MethodCall $call): array
-    {
-        return $this->analyzeWhenPossiblyNull($call, stripNull: false);
-    }
-
-    /**
-     * Shared logic for whenNotNull()/whenNull(): argument 0 is the value, argument 1 the optional
-     * default. An explicit default makes the key required and unions its type into the result.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhenPossiblyNull(MethodCall $call, bool $stripNull): array
-    {
-        $args = $call->getArgs();
-
-        if ($args === []) {
-            return [...$this->unknownResult(), 'optional' => true]; // @codeCoverageIgnore
-        }
-
-        $value = $this->analyzeValueExpression($args[0]->value);
-
-        if ($stripNull) {
-            $value['type'] = $this->stripNullArm($value['type']);
-        } else {
-            $value['type'] = 'null';
-        }
-
-        return $this->applyConditionalDefault($value, $call, 1);
-    }
-
-    /**
-     * Analyze $this->whenLoaded('relation') or $this->whenLoaded('relation', value, default).
-     *
-     * A single-model relation's closure param binds to the model; a to-many relation's binds to the
-     * collection type instead, since the param holds the whole collection rather than one element.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeWhenLoaded(MethodCall $call): array
-    {
-        $result = $this->unknownResult();
-        $args = $call->getArgs();
-
-        if (count($args) >= 2) {
-            // Resolve the related model so accesses on local variables inside the closure can be typed.
-            $previousRelationModel = $this->scope->closureRelationModelClass;
-            $previousVarModelBindings = $this->scope->varModelBindings;
-            $previousVarCollectionBindings = $this->scope->varCollectionBindings;
-            $relationInfo = null;
-
-            if ($args[0]->value instanceof String_) {
-                $relationInfo = $this->resolveModelRelationTypeInfo($args[0]->value->value);
-
-                if ($relationInfo['modelFqcn'] !== null) {
-                    $this->scope->closureRelationModelClass = $relationInfo['modelFqcn'];
-                }
-            }
-
-            if ($relationInfo !== null
-                && $relationInfo['modelFqcn'] !== null
-                && ($args[1]->value instanceof ClosureExpr || $args[1]->value instanceof ArrowFunction)
-                && isset($args[1]->value->params[0])
-                && $args[1]->value->params[0]->var instanceof Variable
-                && is_string($args[1]->value->params[0]->var->name)
-            ) {
-                $paramName = $args[1]->value->params[0]->var->name;
-
-                if (str_ends_with($relationInfo['type'], '[]')) {
-                    $this->scope->varCollectionBindings[$paramName] = [
-                        'type' => $relationInfo['type'],
-                        'modelFqcn' => $relationInfo['modelFqcn'],
-                    ];
-                } else {
-                    $this->scope->varModelBindings[$paramName] = $relationInfo['modelFqcn'];
-                }
-            }
-
-            try {
-                $inner = $this->analyzeValueExpression($args[1]->value);
-            } finally {
-                $this->scope->closureRelationModelClass = $previousRelationModel;
-                $this->scope->varModelBindings = $previousVarModelBindings;
-                $this->scope->varCollectionBindings = $previousVarCollectionBindings;
-            }
-
-            return $this->applyConditionalDefault($inner, $call, 2);
-        }
-
-        if (count($args) >= 1 && $args[0]->value instanceof String_) {
-            $relationName = $args[0]->value->value;
-            $info = $this->resolveModelRelationTypeInfo($relationName);
-            $result = ['type' => $info['type'], 'optional' => false];
-
-            if ($info['modelFqcn'] !== null) {
-                $result['modelFqcn'] = $info['modelFqcn'];
-            }
-
-            if ($info['morphFqcns'] !== []) {
-                $result['embeddedModelFqcns'] = $info['morphFqcns'];
-            }
-
-            return $this->applyConditionalDefault($result, $call, 2);
-        }
-
-        return [...$result, 'optional' => true]; // @codeCoverageIgnore
-    }
-
-    /**
-     * Analyze $this->transform($value, $callback, $default) — types from the callback's return, since
-     * transform() invokes $callback with $value rather than passing $value through untouched.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeTransform(MethodCall $call): array
-    {
-        $result = $this->unknownResult();
-        $args = $call->getArgs();
-
-        if (count($args) >= 2) {
-            $valueExpr = $args[0]->value;
-            $callbackExpr = $args[1]->value;
-
-            $previousBindings = $this->scope->closureParamExprBindings;
-            $this->bindClosureParamsFromCondition($valueExpr, $callbackExpr);
-
-            $inner = $this->analyzeValueExpression($callbackExpr);
-
-            $this->scope->closureParamExprBindings = $previousBindings;
-
-            // transform()'s default runs through the global transform() helper's $default($value) — one
-            // argument — unlike the rest of the family's zero-argument value($default).
-            return $this->applyConditionalDefault($inner, $call, 2, defaultArgCount: 1);
-        }
-
-        return [...$result, 'optional' => true]; // @codeCoverageIgnore
     }
 
     /**
@@ -1596,7 +1212,8 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
     /**
      * Resolve the model class backing a toResource()/toResourceCollection() receiver: a whenLoaded
-     * closure parameter (analyzeWhenLoaded()'s bindings) or `$this->relation` accessed directly.
+     * closure parameter (ConditionalMethodHandler::analyzeWhenLoaded()'s bindings) or
+     * `$this->relation` accessed directly.
      *
      * @return class-string<Model>|null
      */
@@ -4104,20 +3721,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Drop a top-level `| null` arm from a type string — a guarded success path proves it unreachable.
-     * Nested null members (inside object shapes, generics, or array element types) are kept.
-     */
-    private function stripNullArm(string $type): string
-    {
-        $members = array_values(array_filter(
-            LaravelTsPublish::splitTopLevelUnion($type),
-            fn (string $member): bool => $member !== 'null',
-        ));
-
-        return $members === [] ? 'unknown' : implode(' | ', $members);
-    }
-
-    /**
      * Replace a bare enum type-name token with its AsEnum wrap, preserving every other union arm.
      *
      * Mirrors ResourceTransformer::substituteEnumResourceType(): the lookbehind's `.` keeps a
@@ -4152,22 +3755,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }, $members);
 
         return implode(' | ', $expanded);
-    }
-
-    /**
-     * Whether an explicit default was passed at the given argument index. Laravel distinguishes a
-     * passed-through `null` from an omitted argument via func_num_args(), so position is the only
-     * signal; named or spread arguments make the position meaningless, so both bail out.
-     */
-    private function hasExplicitDefaultArg(MethodCall $call, int $index): bool
-    {
-        foreach ($call->getArgs() as $arg) {
-            if ($arg->unpack || $arg->name !== null) {
-                return false;
-            }
-        }
-
-        return count($call->getArgs()) > $index;
     }
 
     /**
@@ -4268,63 +3855,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return $result;
-    }
-
-    /**
-     * Resolve a property access on a related model — an explicitly bound model, or by default the
-     * ambient whenLoaded closure's related model.
-     *
-     * Uses the same resolution chain as model attributes: accessor → cast → DB column type.
-     *
-     * @param  class-string<Model>|null  $modelFqcn
-     * @return ValueExpressionResult
-     */
-    protected function analyzeRelatedModelProperty(string $propertyName, ?string $modelFqcn = null): array
-    {
-        $modelFqcn ??= $this->scope->closureRelationModelClass;
-
-        if ($modelFqcn === null) {
-            return $this->unknownResult(); // @codeCoverageIgnore
-        }
-
-        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($modelFqcn, $propertyName);
-
-        if ($tsInfo['type'] === 'unknown') {
-            return $this->unknownResult();
-        }
-
-        $info = ['type' => $tsInfo['type'], 'optional' => false];
-
-        /** @var class-string|null $enumFqcn */
-        $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
-
-        if ($enumFqcn !== null) {
-            $info['directEnumFqcn'] = $enumFqcn;
-        }
-
-        return $info;
-    }
-
-    /**
-     * Resolve a method call (instance or static) on a related model — an explicitly bound model, or
-     * by default the ambient whenLoaded closure's related model.
-     *
-     * Accepted only when its tokens can be imported; see acceptReflectedTypeInfo().
-     *
-     * @param  class-string<Model>|null  $modelFqcn
-     * @return ValueExpressionResult
-     */
-    protected function analyzeRelatedModelMethodCall(string $methodName, ?string $modelFqcn = null): array
-    {
-        $modelFqcn ??= $this->scope->closureRelationModelClass;
-
-        if ($modelFqcn === null) {
-            return $this->unknownResult(); // @codeCoverageIgnore
-        }
-
-        $tsInfo = resolve(ModelAttributeResolver::class)->resolveMethodReturnType($modelFqcn, $methodName);
-
-        return $this->acceptReflectedTypeInfo($tsInfo) ?? $this->unknownResult();
     }
 
     /**
@@ -4706,7 +4236,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
         // A named class type hint (already FQCN-resolved by NameResolver) wins when present — it's
         // the more specific signal. Otherwise fall back to the receiver's own relation binding, the
-        // same one analyzeWhenLoaded() already populated for a to-many param.
+        // same one ConditionalMethodHandler::analyzeWhenLoaded() already populated for a to-many param.
         $paramClass = $firstParam->type instanceof Name
             ? $firstParam->type->toString()
             : $this->resolveMapProxyElementModel($call->var);
@@ -4755,7 +4285,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
         if (count($args) >= 1 && $args[0]->value instanceof String_) {
             $fieldName = $args[0]->value->value;
-            $info = $this->analyzeRelatedModelProperty($fieldName);
+            $info = $this->analyzeRelatedModelProperty($fieldName, $this->scope);
 
             if ($info['type'] !== 'unknown') {
                 $info['type'] = $this->arrayWrapType($info['type']);
@@ -4766,76 +4296,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return ['type' => 'unknown[]', 'optional' => false];
-    }
-
-    /**
-     * Bind a closure's first parameter to the `$this->propName` expression found in a `when()` condition,
-     * so `EnumResource::make($status)` resolves as if it were `EnumResource::make($this->status)`.
-     */
-    private function bindClosureParamsFromCondition(Expr $condition, Expr $valueExpr): void
-    {
-        $thisPropExpr = $this->extractThisPropertyFromCondition($condition);
-
-        if ($thisPropExpr === null) {
-            return;
-        }
-
-        $firstParam = null;
-
-        if ($valueExpr instanceof ArrowFunction && $valueExpr->params !== []) {
-            $firstParam = $valueExpr->params[0];
-        } elseif ($valueExpr instanceof ClosureExpr && $valueExpr->params !== []) {
-            $firstParam = $valueExpr->params[0];
-        }
-
-        if ($firstParam === null) {
-            return;
-        }
-
-        if ($firstParam->var instanceof Variable && is_string($firstParam->var->name)) {
-            $this->scope->closureParamExprBindings[$firstParam->var->name] = $thisPropExpr;
-        }
-    }
-
-    /**
-     * Extract a `$this->propName` PropertyFetch from a boolean condition, whether used bare as a
-     * truthy test or compared identically against null in either operand order.
-     */
-    private function extractThisPropertyFromCondition(Expr $condition): ?Expr
-    {
-        if ($this->isThisPropertyFetch($condition)) {
-            return $condition;
-        }
-
-        if ($condition instanceof BinaryOp\NotIdentical) {
-            if ($this->isThisPropertyFetch($condition->left) && $this->isNullConstFetch($condition->right)) {
-                return $condition->left;
-            }
-
-            if ($this->isThisPropertyFetch($condition->right) && $this->isNullConstFetch($condition->left)) {
-                return $condition->right;
-            }
-        }
-
-        if ($condition instanceof BinaryOp\Identical) {
-            if ($this->isThisPropertyFetch($condition->left) && $this->isNullConstFetch($condition->right)) {
-                return $condition->left;
-            }
-
-            if ($this->isThisPropertyFetch($condition->right) && $this->isNullConstFetch($condition->left)) {
-                return $condition->right;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Return true when the expression is a `null` constant fetch.
-     */
-    private function isNullConstFetch(Expr $expr): bool
-    {
-        return $expr instanceof ConstFetch && strtolower($expr->name->toString()) === 'null';
     }
 
     /**
