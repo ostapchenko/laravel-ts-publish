@@ -14,7 +14,6 @@ use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
-use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
@@ -64,7 +63,7 @@ final class ClosureHandler implements ExpressionHandler
             try {
                 $bodyResult = count($closureReturns) === 1
                     ? $engine->resolve($closureReturns[0])
-                    : $this->analyzeClosureUnion($closureReturns, $engine);
+                    : ValueResult::analyzeClosureUnion($closureReturns, $engine);
 
                 if ($bodyResult['type'] !== 'unknown') {
                     return $bodyResult;
@@ -83,82 +82,6 @@ final class ClosureHandler implements ExpressionHandler
         }
 
         return null;
-    }
-
-    /**
-     * Merge multiple closure return expressions into a single union-typed ValueExpressionResult.
-     *
-     * Null returns (guard clauses) contribute `null` to the union instead of a full object shape;
-     * duplicate types are removed and import metadata is collected from all branches.
-     *
-     * Public: the analyzer's own ternary and untyped-map-closure guards call back into this until
-     * their slices extract, since both need the same guard-clause/dedup handling as a closure body.
-     *
-     * @param  list<Expr>  $returns
-     * @return ValueExpressionResult
-     */
-    public function analyzeClosureUnion(array $returns, ExpressionEngine $engine): array
-    {
-        /** @var list<string> $types */
-        $types = [];
-        /** @var list<ValueExpressionResult> $branchResults every non-null, non-unknown branch, for channel merging */
-        $branchResults = [];
-        $hasNull = false;
-
-        foreach ($returns as $returnExpr) {
-            // A guard-clause `return null;` is intercepted here so the standalone `null` union member is
-            // tracked apart from object-shape branches; null as an *array value* goes through ConstFetch.
-            if ($returnExpr instanceof ConstFetch
-                && $returnExpr->name->toLowerString() === 'null') {
-                $hasNull = true;
-
-                continue;
-            }
-
-            $inner = $engine->resolve($returnExpr);
-
-            if ($inner['type'] === 'unknown') {
-                continue; // @codeCoverageIgnore
-            }
-
-            $types[] = $inner['type'];
-            $branchResults[] = $inner;
-        }
-
-        if ($hasNull) {
-            $types[] = 'null';
-        }
-
-        $types = array_values(array_unique($types));
-
-        // Drop a standalone 'null' when another member already carries null (e.g. 'number | null' from a
-        // nullable column), which would otherwise render 'number | null | null'. Splitting on ' | ' is
-        // safe for inline object types, since their trailing `}` prevents 'null }' from matching.
-        $explicitNullIndex = array_search('null', $types, true);
-
-        if ($explicitNullIndex !== false && count($types) > 1) {
-            $otherTypes = array_values(array_filter($types, fn (string $t): bool => $t !== 'null'));
-            $alreadyHasNull = false;
-
-            foreach ($otherTypes as $t) {
-                if (in_array('null', explode(' | ', $t), true)) {
-                    $alreadyHasNull = true;
-
-                    break;
-                }
-            }
-
-            if ($alreadyHasNull) {
-                unset($types[$explicitNullIndex]);
-                $types = array_values($types);
-            }
-        }
-
-        if ($types === []) {
-            return ValueResult::unknown(); // @codeCoverageIgnore
-        }
-
-        return ValueResult::mergeUnion($types, $branchResults);
     }
 
     /**

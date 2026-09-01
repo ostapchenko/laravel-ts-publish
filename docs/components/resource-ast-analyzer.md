@@ -321,7 +321,7 @@ analyzer does keep — `$isMixed`.
 Two shapes reach this code, and the merged type string carries different information for each:
 
 - **Homogeneous** — both ternary arms produce the identical type string (e.g. `EnumResource::make($this->status)`
-  vs `$this->status`, both `StatusType`). `ClosureHandler::analyzeClosureUnion()` deduplicates
+  vs `$this->status`, both `StatusType`). `ValueResult::analyzeClosureUnion()` deduplicates
   identical strings before `ValueResult::mergeUnion()` ever joins them, so by the time
   `analyzeInlineArray()` sees it there is exactly one `StatusType` token — no per-member signal
   survives to say "this token stands for two arms, only one of which was wrapped." `$isMixed` is
@@ -345,7 +345,7 @@ Two shapes reach this code, and the merged type string carries different informa
 - **Heterogeneous** — the two arms produce *different* type strings because one is forced into an
   array shape and the other is not (e.g. `EnumResource::collection($this->status_history)`, already
   array-shaped, vs a direct scalar read of a different accessor sharing the same enum — `StatusType[]`
-  vs `StatusType`). Those two strings are not identical, so `ClosureHandler::analyzeClosureUnion()`
+  vs `StatusType`). Those two strings are not identical, so `ValueResult::analyzeClosureUnion()`
   keeps both and the
   merged type string is a genuine two-member union, each member's own shape still visible.
   `expandMixedEnumType()` substitutes
@@ -660,7 +660,7 @@ collects the arms via `collectInlineArraySpreadArms()` and builds each one with
   `$varCollectionBindings` — a to-many `whenLoaded` param holding the whole collection, not one
   model — else falls back to `$closureRelationModelClass`.
   Every `->map()` closure element actually resolves through that fallback, typed or not:
-  `analyzeVariableMapCall()` sets only `$closureRelationModelClass` for the element and never
+  `VariableHandler::analyzeVariableMapCall()` sets only `$closureRelationModelClass` for the element and never
   populates `$varModelBindings` (`members_model_spread` pins the fallback path, not the explicit-
   binding one). `$this->toArray()` is excluded by name: it is the resource's own method and
   `InlineArrayHandler::isKnownArraySpreadShape()` already flattens it.
@@ -877,7 +877,7 @@ and simplify away in a later refactor — it is load-bearing. It fires whenever 
 fails to resolve **either** arm, and it has two justifications, not one:
 
 - **Precedent.** `CoalesceHandler` already treats an `unknown` operand as "no information" rather than a
-  real union member, and `ClosureHandler::analyzeClosureUnion()` does the same for an `unknown` return
+  real union member, and `ValueResult::analyzeClosureUnion()` does the same for an `unknown` return
   branch. Unioning `unknown` in literally here would be the odd one out.
 - **`T | unknown` collapses to `unknown` in TypeScript.** The honest-looking alternative — emitting the raw,
   un-filtered union when one arm can't be resolved — wouldn't degrade gracefully to a *partial* type; it
@@ -1389,7 +1389,7 @@ eight lines carrying a top-level duplicate before the fix, all of them
 unchanged: those are nested member nulls, which is what a nullable member inside an object shape should
 look like.
 
-`ClosureHandler::analyzeClosureUnion()`, the ternary/Elvis union, has the same repetition and is **not**
+`ValueResult::analyzeClosureUnion()`, the ternary/Elvis union, has the same repetition and is **not**
 covered by this helper: it collapses only a standalone `'null'` member against arms that already carry
 one, so two arms each ending in `| null` still double. No corpus property reaches it; the plan's Out of
 Scope section records it.

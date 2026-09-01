@@ -66,7 +66,7 @@ final class ThisPropertyHandler implements ExpressionHandler
      * Extract properties and FQCNs from an array expression, e.g. for mergeWhen's second argument.
      *
      * Public: the analyzer's own resolveArrayOrClosureToProperties() (merge()/mergeWhen() resolution)
-     * calls this directly, the same public-method bridge ClosureHandler::analyzeClosureUnion() uses.
+     * calls this directly — the array machinery moved here while that caller stayed on the analyzer.
      */
     public function extractPropertiesFromArray(Array_ $array, ExpressionEngine $engine, bool $optional = false): ResourceAnalysis
     {

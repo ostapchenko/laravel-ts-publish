@@ -14,7 +14,7 @@ use PhpParser\Node\Expr\BinaryOp;
 /**
  * Analyze a null-coalescing expression (`$left ?? $right`).
  *
- * Doesn't delegate to ClosureHandler::analyzeClosureUnion(): that would leave `null` in twice
+ * Doesn't delegate to ValueResult::analyzeClosureUnion(): that would leave `null` in twice
  * (`Order | null | Order`). Only operands contributing a result member get their channels merged.
  *
  * @phpstan-import-type ValueExpressionResult from ExpressionHandler

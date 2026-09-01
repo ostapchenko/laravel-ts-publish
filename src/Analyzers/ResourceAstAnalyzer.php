@@ -23,6 +23,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConstFetchHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\FirstClassCallableHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InlineArrayHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownMethodRuleHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\MethodChainHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\NewResourceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\PropertyChainHandler;
@@ -30,8 +31,10 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\RelationCollectionChainHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\RelationFilterHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ScalarHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\StaticCallHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\TernaryHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ThisPropertyHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ToResourceHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\Handlers\VariableHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
@@ -48,7 +51,6 @@ use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrayDimFetch;
-use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\AssignOp;
 use PhpParser\Node\Expr\AssignRef;
@@ -57,13 +59,11 @@ use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
 use PhpParser\Node\Expr\MethodCall;
-use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\PostDec;
 use PhpParser\Node\Expr\PostInc;
 use PhpParser\Node\Expr\PreDec;
 use PhpParser\Node\Expr\PreInc;
 use PhpParser\Node\Expr\PropertyFetch;
-use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
@@ -526,6 +526,9 @@ class ResourceAstAnalyzer implements ExpressionEngine
             new MethodChainHandler,
             new PropertyChainHandler,
             new RelationCollectionChainHandler,
+            new VariableHandler,
+            new TernaryHandler,
+            new KnownMethodRuleHandler,
         ];
     }
 
@@ -544,154 +547,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
      */
     protected function analyzeValueExpression(Expr $expr): array
     {
-        $dispatched = $this->dispatcher()->dispatch($expr, $this->scope, $this);
-
-        if ($dispatched !== null) {
-            return $dispatched;
-        }
-
-        $result = $this->unknownResult();
-
-        // $variable->property — resolve against the variable's own bound model (whenLoaded param,
-        // chain map param, foreach value var), falling back to the ambient whenLoaded closure model.
-        if ($expr instanceof PropertyFetch
-            && $expr->var instanceof Variable
-            && is_string($expr->var->name)
-            && $expr->var->name !== 'this'
-            && $expr->name instanceof Identifier
-        ) {
-            /** @var class-string<Model>|null $boundModel */
-            $boundModel = $this->scope->varModelBindings[$expr->var->name] ?? $this->scope->closureRelationModelClass;
-
-            if ($boundModel !== null) {
-                return $this->analyzeRelatedModelProperty($expr->name->toString(), $this->scope, $boundModel);
-            }
-        }
-
-        // `$variable->map(fn (TypedClass $item) => [...])` — no closureRelationModelClass is required
-        // here, since the element type comes from the closure's own type hint.
-        if ($expr instanceof MethodCall
-            && $expr->var instanceof Variable
-            && is_string($expr->var->name)
-            && $expr->var->name !== 'this'
-            && $expr->name instanceof Identifier
-            && $expr->name->toString() === 'map'
-            && $expr->getArgs() !== []
-        ) {
-            $mapResult = $this->analyzeVariableMapCall($expr);
-
-            if ($mapResult !== null) {
-                return $mapResult;
-            }
-        }
-
-        // $variable->pluck('field') — resolve to an array of the field's type
-        if ($this->scope->closureRelationModelClass !== null
-            && $expr instanceof MethodCall
-            && $expr->var instanceof Variable
-            && is_string($expr->var->name)
-            && $expr->var->name !== 'this'
-            && $expr->name instanceof Identifier
-            && $expr->name->toString() === 'pluck'
-        ) {
-            return $this->analyzeVariablePluckCall($expr);
-        }
-
-        // $variable->method() — resolve against the variable's own bound model, falling back to the
-        // ambient whenLoaded closure model.
-        if ($expr instanceof MethodCall
-            && $expr->var instanceof Variable
-            && is_string($expr->var->name)
-            && $expr->var->name !== 'this'
-            && $expr->name instanceof Identifier
-        ) {
-            /** @var class-string<Model>|null $boundModel */
-            $boundModel = $this->scope->varModelBindings[$expr->var->name] ?? $this->scope->closureRelationModelClass;
-
-            if ($boundModel !== null) {
-                return $this->analyzeRelatedModelMethodCall($expr->name->toString(), $this->scope, $boundModel);
-            }
-        }
-
-        if ($expr instanceof Ternary) {
-            return $this->analyzeTernary($expr);
-        }
-
-        // Bare variable bound to a model class (whenLoaded param, chain map param, foreach value var) —
-        // resolves to the model's own type. Checked before closure-param/local-var expression bindings,
-        // which resolve through a *different* expression rather than naming a model directly.
-        if ($expr instanceof Variable && is_string($expr->name) && isset($this->scope->varModelBindings[$expr->name])) {
-            $modelFqcn = $this->scope->varModelBindings[$expr->name];
-
-            return [
-                ...$this->unknownResult(),
-                'type' => class_basename($modelFqcn),
-                'optional' => false,
-                'modelFqcn' => $modelFqcn,
-            ];
-        }
-
-        // Bare variable bound to a whole relation collection (to-many whenLoaded param) — resolves to
-        // the collection type, e.g. `User[]`, never the singular element model.
-        if ($expr instanceof Variable && is_string($expr->name) && isset($this->scope->varCollectionBindings[$expr->name])) {
-            $binding = $this->scope->varCollectionBindings[$expr->name];
-
-            return [
-                ...$this->unknownResult(),
-                'type' => $binding['type'],
-                'optional' => false,
-                'modelFqcn' => $binding['modelFqcn'],
-            ];
-        }
-
-        // Bare variable bound either to a closure parameter (ConditionalMethodHandler's
-        // bindClosureParamsFromCondition()) or to a top-level local assignment
-        // (collectLocalVarBindings). Closure-param bindings win, being the
-        // narrower scope; the re-entrancy guard makes a cyclic binding resolve as unknown.
-        if ($expr instanceof Variable && is_string($expr->name)) {
-            $boundExpr = $this->scope->closureParamExprBindings[$expr->name]
-                ?? $this->scope->localVarBindings[$expr->name]
-                ?? null;
-
-            if ($boundExpr !== null && ! isset($this->scope->resolvingLocalVars[$expr->name])) {
-                $this->scope->resolvingLocalVars[$expr->name] = true;
-
-                try {
-                    return $this->analyzeValueExpression($boundExpr);
-                } finally {
-                    unset($this->scope->resolvingLocalVars[$expr->name]);
-                }
-            }
-        }
-
-        // Late known-method rules for receivers not matched above (e.g. `$request->user()->can(...)`,
-        // whose receiver is itself a MethodCall). Only MethodCall reaches here — every
-        // NullsafeMethodCall already returned via MethodChainHandler.
-        if ($expr instanceof MethodCall) {
-            $known = $this->knownMethodRule($expr);
-
-            if ($known !== null) {
-                return $known;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * Analyze a ternary or Elvis expression, unioning both branches.
-     *
-     * In Elvis (`$cond ?: $else`) the parser leaves `if` null, so the truthy value is `$cond` itself.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function analyzeTernary(Ternary $expr): array
-    {
-        if ($expr->if === null) {
-            return (new ClosureHandler)->analyzeClosureUnion([$expr->cond, $expr->else], $this);
-        }
-
-        return (new ClosureHandler)->analyzeClosureUnion([$expr->if, $expr->else], $this);
+        return $this->dispatcher()->dispatch($expr, $this->scope, $this) ?? ValueResult::unknown();
     }
 
     /**
@@ -1284,40 +1140,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Resolve the element model behind a `->map` proxy receiver: a whenLoaded to-many closure
-     * parameter, or `$this->relation` itself. A singular relation's bound variable is not a
-     * collection and must not match, so it returns null rather than guessing a shape.
-     *
-     * The binding is never invalidated by a reassignment inside the closure (e.g.
-     * `$members = $members->flatMap(...)` before `$members->map(...)`), so a reassigned receiver
-     * still resolves against the original relation's element model — an accepted approximation.
-     *
-     * @return class-string<Model>|null
-     */
-    protected function resolveMapProxyElementModel(Expr $receiver): ?string
-    {
-        if ($receiver instanceof Variable
-            && is_string($receiver->name)
-            && isset($this->scope->varCollectionBindings[$receiver->name])
-        ) {
-            return $this->scope->varCollectionBindings[$receiver->name]['modelFqcn'];
-        }
-
-        if ($receiver instanceof PropertyFetch
-            && $this->isThisPropertyFetch($receiver)
-            && $receiver->name instanceof Identifier
-        ) {
-            $relationInfo = $this->resolveModelRelationTypeInfo($receiver->name->toString());
-
-            if (str_ends_with($relationInfo['type'], '[]') && $relationInfo['modelFqcn'] !== null) {
-                return $relationInfo['modelFqcn'];
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * Dispatch FQCN results from a value expression into the tracking maps.
      *
      * @param  ValueExpressionResult  $result
@@ -1384,79 +1206,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return resolve(ModelAttributeResolver::class)->resolveRelation($this->scope->modelClass, $name);
-    }
-
-    /**
-     * Suffix a type with `[]`, parenthesizing a union or intersection first: TypeScript binds `[]`
-     * tighter than both, so `A & B[]` parses as `A & (B[])`, not `(A & B)[]`.
-     */
-    private function arrayWrapType(string $type): string
-    {
-        return str_contains($type, '|') || str_contains($type, '&') ? '('.$type.')[]' : $type.'[]';
-    }
-
-    /**
-     * Late-stage rules fixed by Laravel convention (can/cannot/canAny → boolean; count/exists → number/boolean).
-     *
-     * count()/exists()/getKey() are receiver-gated (unlike can()) since those names are commonly overloaded;
-     * getKey() is further scoped to `$this->resource->getKey()` since its type depends on the receiver's key type.
-     *
-     * @return ValueExpressionResult|null
-     */
-    protected function knownMethodRule(MethodCall|NullsafeMethodCall $expr): ?array
-    {
-        if (! $expr->name instanceof Identifier) {
-            return null; // @codeCoverageIgnore
-        }
-
-        $method = $expr->name->toString();
-
-        if (in_array($method, ['can', 'cannot', 'canAny'], true)) {
-            return [...$this->unknownResult(), 'type' => 'boolean', 'optional' => false];
-        }
-
-        if ($method === 'getKey') {
-            $isResourceReceiver = $expr->var instanceof PropertyFetch
-                && $this->isThisPropertyFetch($expr->var)
-                && $expr->var->name instanceof Identifier
-                && $expr->var->name->toString() === 'resource';
-
-            if (! $isResourceReceiver || $this->scope->modelClass === null) {
-                return null;
-            }
-
-            $instance = resolve(ModelAttributeResolver::class)->getInstance($this->scope->modelClass);
-
-            $type = $instance?->getKeyType() === 'int' ? 'number' : 'string';
-
-            return [...$this->unknownResult(), 'type' => $type, 'optional' => false];
-        }
-
-        if (! in_array($method, ['count', 'exists'], true)) {
-            return null;
-        }
-
-        // Receiver must be $this->{manyRelation}, or $this->collection on a ResourceCollection —
-        // Laravel populates that property with the collected resources, always a many receiver.
-        if ($expr->var instanceof PropertyFetch
-            && $this->isThisPropertyFetch($expr->var)
-            && $expr->var->name instanceof Identifier
-        ) {
-            $propName = $expr->var->name->toString();
-
-            $isManyReceiver = ($propName === 'collection' && $this->isResourceCollection())
-                || str_ends_with($this->resolveModelRelationTypeInfo($propName)['type'], '[]');
-
-            if ($isManyReceiver) {
-                return [
-                    ...$this->unknownResult(),
-                    'type' => $method === 'count' ? 'number' : 'boolean',
-                    'optional' => false,
-                ];
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -1728,111 +1477,5 @@ class ResourceAstAnalyzer implements ExpressionEngine
         }
 
         return null;
-    }
-
-    /**
-     * Analyze `$variable->map(fn (TypedClass $item) => [...])` using the closure's typed first param
-     * as the element model, wrapping the body result as `elementType[]`.
-     *
-     * Returns null when there's no typed Model parameter, deferring to the generic method handler.
-     *
-     * @return ValueExpressionResult|null
-     */
-    private function analyzeVariableMapCall(MethodCall $call): ?array
-    {
-        $args = $call->getArgs();
-
-        if ($args === []) {
-            return null;
-        }
-
-        $closureArg = $args[0]->value;
-
-        if ($closureArg instanceof ArrowFunction) {
-            $params = $closureArg->params;
-        } elseif ($closureArg instanceof ClosureExpr) {
-            $params = $closureArg->params;
-        } else {
-            return null;
-        }
-
-        if ($params === []) {
-            return null;
-        }
-
-        $firstParam = $params[0];
-
-        // A named class type hint (already FQCN-resolved by NameResolver) wins when present — it's
-        // the more specific signal. Otherwise fall back to the receiver's own relation binding, the
-        // same one ConditionalMethodHandler::analyzeWhenLoaded() already populated for a to-many param.
-        $paramClass = $firstParam->type instanceof Name
-            ? $firstParam->type->toString()
-            : $this->resolveMapProxyElementModel($call->var);
-
-        if ($paramClass === null || ! class_exists($paramClass) || ! is_a($paramClass, Model::class, true)) {
-            return null;
-        }
-
-        /** @var class-string<Model> $paramClass */
-        $previousRelationModel = $this->scope->closureRelationModelClass;
-        $this->scope->closureRelationModelClass = $paramClass;
-
-        $returnExprs = $this->resolveClosureReturnExpressions($closureArg);
-
-        $bodyResult = match (count($returnExprs)) {
-            0 => null,
-            1 => $this->analyzeValueExpression($returnExprs[0]),
-            default => (new ClosureHandler)->analyzeClosureUnion($returnExprs, $this),
-        };
-
-        $this->scope->closureRelationModelClass = $previousRelationModel;
-
-        if ($bodyResult === null || $bodyResult['type'] === 'unknown') {
-            return null;
-        }
-
-        // arrayWrapType(), not a raw '[]' suffix: a union body (e.g. a mixed AsEnum/direct-enum
-        // ternary) must be parenthesized before the array suffix binds.
-        $bodyResult['type'] = $this->arrayWrapType($bodyResult['type']);
-        $bodyResult['optional'] = false;
-
-        return $bodyResult;
-    }
-
-    /**
-     * Analyze a `$variable->pluck('field')` call within a whenLoaded closure context.
-     *
-     * Returns `unknown[]`, not `unknown`, when the field type cannot be determined — callers that
-     * only test for a non-`unknown` result rely on that.
-     *
-     * @return ValueExpressionResult
-     */
-    private function analyzeVariablePluckCall(MethodCall $call): array
-    {
-        $args = $call->getArgs();
-
-        if (count($args) >= 1 && $args[0]->value instanceof String_) {
-            $fieldName = $args[0]->value->value;
-            $info = $this->analyzeRelatedModelProperty($fieldName, $this->scope);
-
-            if ($info['type'] !== 'unknown') {
-                $info['type'] = $this->arrayWrapType($info['type']);
-                $info['optional'] = false;
-
-                return $info;
-            }
-        }
-
-        return ['type' => 'unknown[]', 'optional' => false];
-    }
-
-    /**
-     * Fallback result for expressions that can't be analyzed or have no type information.
-     *
-     * @return ValueExpressionResult
-     */
-    protected function unknownResult(): array
-    {
-        return ValueResult::unknown();
     }
 }
