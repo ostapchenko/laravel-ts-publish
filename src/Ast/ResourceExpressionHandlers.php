@@ -39,9 +39,9 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\VariableHandler;
 final class ResourceExpressionHandlers
 {
     /**
-     * The full resource profile — the 22 handlers extracted in Tasks 14-22 plus Task 34's two, in their
-     * chain-derived dispatch order. $engine mirrors the `make($this)` call site; unused today, kept for a future
-     * handler that needs the engine at construction.
+     * The full resource profile, in the dispatch order derived from the guard order of the single
+     * if/else chain these handlers replaced. $engine mirrors the `make($this)` call site; unused today,
+     * kept for a future handler that needs the engine at construction.
      *
      * @return list<ExpressionHandler>
      */

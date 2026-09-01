@@ -89,7 +89,7 @@ final class BinaryOpHandler implements ExpressionHandler
             return ['type' => 'number', 'optional' => false];
         }
 
-        // Coalesce is Slice S3's; other BinaryOp kinds (bitwise, shift) the legacy chain never matched either.
+        // Coalesce belongs to CoalesceHandler; other BinaryOp kinds (bitwise, shift) are simply not typed.
         return null;
     }
 }

@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Model;
  * Resolve a `$this->{name}` property as a relation on the scope's backing model.
  *
  * The single home for this: five handlers plus ResourceAstAnalyzer carried byte-identical copies
- * before this trait. The analyzer could only adopt it once Slice S9 deleted the shadowed twin that
- * Analyzers\Concerns\ResolvesModelTypes had declared under the same name.
+ * before this trait. Any other trait the consuming class uses must not declare this name — PHP
+ * collides on method name alone and PHPStan compiles the resulting fatal cleanly.
  */
 trait ResolvesModelRelationTypes
 {
