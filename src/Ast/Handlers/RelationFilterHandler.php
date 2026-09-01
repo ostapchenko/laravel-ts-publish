@@ -549,9 +549,7 @@ final class RelationFilterHandler implements ExpressionHandler
     /**
      * If $propName is an accessor attribute whose getter returns exactly one Eloquent Model
      * subclass, return its FQCN. Used as a fallback when the property is not a database relation.
-     *
-     * Mirrors ResolvesModelTypes::resolveAccessorModelFqcn(); duplicated for $scope — it has no
-     * other caller on the analyzer once analyzeRelationFilter() moves.
+     * The sole implementation — the analyzer-side copy was deleted as dead code, not moved here.
      *
      * @return class-string<Model>|null
      */
@@ -566,10 +564,8 @@ final class RelationFilterHandler implements ExpressionHandler
 
     /**
      * Return all Eloquent Model FQCNs that an accessor returns, used when the accessor union-types
-     * multiple models.
-     *
-     * Mirrors ResolvesModelTypes::resolveAccessorModelFqcns(); duplicated for $scope — same reason
-     * as resolveAccessorModelFqcn() above.
+     * multiple models. The sole implementation — the analyzer-side copy was deleted as dead code,
+     * not moved here, same as resolveAccessorModelFqcn() above.
      *
      * @return list<class-string<Model>>
      */

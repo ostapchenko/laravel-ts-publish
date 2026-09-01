@@ -69,11 +69,9 @@ it('resolves $this->relation->only([...]) to a Pick<Model, ...> reference when e
 });
 
 it('relation except() falls back to database columns only, matching Model::except() at runtime — RelationFilterHandler::resolveFilteredRelationType()', function () {
-    // 'excerpt' is a pure accessor on Post, not a published column, so relationFilterModelReference()
-    // declines (not every key is a column) and this reaches resolveFilteredRelationType()'s except
-    // branch. HasAttributes::except() iterates getAttributes() only — never relations, and never a
-    // get-only accessor — so 'excerpt' must never appear in the output even though it was named, while
-    // 'created_at', a real column, is correctly dropped.
+    // 'excerpt' is a pure Post accessor, not a published column, so relationFilterModelReference()
+    // declines and this reaches resolveFilteredRelationType()'s except branch: HasAttributes::except()
+    // iterates getAttributes() only, so 'excerpt' must never appear even though named; 'created_at' does.
     $expr = new MethodCall(
         new PropertyFetch(new Variable('this'), 'post'),
         'except',
@@ -101,10 +99,9 @@ it('relation except() falls back to database columns only, matching Model::excep
 });
 
 it('relation only() still resolves a named accessor and a named relation, unlike except() — RelationFilterHandler::resolveFilteredRelationType()', function () {
-    // 'title_display' (an accessor) and 'comments' (a relation) are both not published columns, so
+    // 'title_display' (accessor) and 'comments' (relation) are both non-columns, so
     // relationFilterModelReference() declines and this reaches resolveFilteredRelationType()'s include
-    // branch: HasAttributes::only() calls getAttribute() per named key, so an accessor comes back same
-    // as a column, and a named relation resolves through ModelAttributeResolver::resolveRelation().
+    // branch — only() calls getAttribute() per key, so both the accessor and the relation resolve.
     $expr = new MethodCall(
         new PropertyFetch(new Variable('this'), 'post'),
         'only',

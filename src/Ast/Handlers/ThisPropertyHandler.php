@@ -218,12 +218,9 @@ final class ThisPropertyHandler implements ExpressionHandler
     }
 
     /**
-     * Analyze $this->collection in a ResourceCollection, resolving it to the singular resource
-     * type as an array, or a keyed record when the collection preserves keys.
-     *
-     * Mirrors ResourceAstAnalyzer::analyzeCollectionProperty(); duplicated for $scope — it has no
-     * other caller on the analyzer once analyzeThisProperty() moves, but isResourceCollection() and
-     * resolveSingularResourceClass() do, so those two stay defined there as well.
+     * Analyze $this->collection in a ResourceCollection: the singular resource type as an array,
+     * or a keyed record when the collection preserves keys. The sole implementation now — its only
+     * caller moved here with it, unlike isResourceCollection()/resolveSingularResourceClass() below.
      *
      * @return ValueExpressionResult
      */
