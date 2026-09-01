@@ -481,74 +481,21 @@ just above (never the arm's own FQCN there either).
 
 ## Variable bindings
 
-`AnalysisScope::$varModelBindings` (`array<string, class-string<Model>>`) maps a local variable
-name to a model class, so `$var`, `$var->prop`, and `$var->method()` resolve against that model
-instead of degrading to `unknown`. The analyzer reaches it as `$this->scope->varModelBindings`; it
-is populated from three sources, each scoped to the body it binds:
+`AnalysisScope`'s binding maps — `$varModelBindings`, `$varCollectionBindings`, `$localVarBindings`,
+`$closureParamExprBindings` — their population sources, the snapshot/restore discipline that scopes
+them, and what deliberately stays unbound are documented at
+[AstEngine § AnalysisScope](ast-engine.md#analysisscope), which now owns this content.
+`AnalysisScope` is a standalone class shared by every AST consumer, not specific to this analyzer.
+`ClosureParamShadowResource` and `ShadowedClosureParamResource` (workbench fixtures) pin the
+shadowing guarantees described there; both are exercised through this analyzer today.
 
-- **`whenLoaded('relation', fn ($x) => ...)`** — when `relation` resolves to a *single*-model
-  relation, `$x` is bound to that model for the closure body. A to-many relation's closure param
-  is deliberately **not** bound this way: the param holds the whole collection, not one element,
-  so binding it to the element model would resolve a bare `$x` to a wrong-but-plausible singular
-  type (e.g. `OrderItem` instead of `OrderItem[]`) — `$x->pluck(...)`/`$x->map(...)` already
-  resolve via the older `AnalysisScope::$closureRelationModelClass` mechanism, unaffected by this guard.
-- **A relation-chain `map()`** (`$this->{manyRelation}->take(5)->map(fn ($m) => ...)`) — `$m` is
-  bound to the relation's element model for the map closure's body.
-- **A top-level `foreach ($this->{manyRelation} as $item) { ... }`** — `$item` is bound to the
-  relation's element model for the rest of the method's analysis (mirrors
-  `AnalysisScope::$localVarBindings`' method-wide scope, restored around a `...$this->method()`
-  spread the same way).
-
-### Scoping and shadowing
-
-The two closure writers follow the same save/restore discipline as `$closureRelationModelClass`:
-snapshot the map (or the one key being overwritten), mutate it for the nested body's analysis, then
-restore the snapshot. The third writer does not. `bindForeachLoopVariables()` assigns
-`$this->scope->varModelBindings[$stmt->valueVar->name]` outright, with no snapshot and no restore,
-because its binding is method-wide by design — the third bullet above says so. The shadowing
-guarantee survives that exception: a closure parameter that shadows an outer variable of the same
-name still resolves against its **own** binding and can never leak into, or be leaked into by, the
-outer scope, because it is the closure writers' own snapshots that restore over whatever the
-`foreach` binding left behind. See `ClosureParamShadowResource` in the workbench: a top-level
-`$member` and a `map(fn ($member) => $member)` closure param share a name, and each site resolves
-independently.
-
-### Closure params vs. `AnalysisScope::$localVarBindings`
-
-`collectWrittenVariableNames()` used to count every closure/arrow-function *parameter* as a write
-to the enclosing name pool, so a top-level `$member = $this->slug;` reused as a `map(fn ($member)
-=> $member)` param elsewhere in the same method looked written twice, and `collectLocalVarBindings()`
-(which only binds names written exactly once) never bound `$member` — even at the top-level site the
-closure never touches. `outer_member` in `ClosureParamShadowResource` demonstrated the gap. Now
-`collectWrittenVariableNames()` only counts assignments, mutations, `foreach` targets, and a
-`Closure`'s by-ref `use (&$x)` clause; closure/arrow params are no longer collected there.
-
-That narrowing alone would have introduced a *worse* defect: a closure parameter shadowing an outer
-local, inside a construct with no scoped binding for it (none of the three `$varModelBindings`
-sources above, e.g. `when()`'s condition isn't a `$this->prop` test), would resolve through the
-outer `$localVarBindings` entry when analyzing the closure body — turning an honest `unknown` into
-a confidently wrong `string`. To prevent that, `ClosureHandler::resolve()` (the generic
-closure/arrow-function handler in `analyzeValueExpression()`'s dispatch chain) saves
-`$scope->localVarBindings`, unsets any entry whose name matches one of the closure's own
-parameters, analyzes the body, and restores the snapshot in a `finally` — so a param with no
-binding of its own degrades to `unknown` inside the closure, never the outer local's value.
-
-`ShadowedClosureParamResource` in the workbench exists to hold that second half of the fix: its
-`$slug = $this->slug;` followed by `$this->when($request->user() !== null, fn ($slug) => $slug)`
-has a condition that isn't a `$this->prop` test, so `ConditionalMethodHandler::bindClosureParamsFromCondition()` binds nothing
-for the closure's `$slug`. The closure-descent suppression above is the only thing keeping `shadowed`
-at `unknown` rather than leaking the outer `$slug`'s `string` type — narrow the write count without
-it, and `shadowed` silently becomes `string`; this fixture's test is what catches that regression.
-
-### What deliberately stays unbound
-
-- **A reassigned local** (written more than once in the method) — `$localVarBindings` already
-  skips these; `$varModelBindings` has no reassignment analog since it only ever binds closure
-  params and loop variables, each written exactly once by construction.
-- **First-class callables** (`->map(...)`, `->pluck(...)`) — there is no closure body to bind a
-  param into, so these are rejected before any binding is attempted.
-- **A relation-chain `map()` whose argument isn't a `Closure`/`ArrowFunction`** (a string callable
-  like `'strtoupper'`, or an array callable like `[$this, 'method']`) — same reasoning.
+`collectWrittenVariableNames()` used to count every closure/arrow-function *parameter* as a write to
+the enclosing name pool, so a top-level `$member =
+$this->slug;` reused as a `map(fn ($member) => $member)` param elsewhere in the same method looked
+written twice, and `collectLocalVarBindings()` (which only binds names written exactly once) never
+bound `$member` — even at the top-level site the closure never touches. `outer_member` in
+`ClosureParamShadowResource` demonstrated the gap; fixed by narrowing `collectWrittenVariableNames()`
+to count only assignments, mutations, `foreach` targets, and a `Closure`'s by-ref `use (&$x)` clause.
 
 ## Method-spread recursion guard
 
@@ -1084,7 +1031,7 @@ stays ungated on purpose — an explicitly named resource is a declaration, not 
 - `resolveCollectedResourceClass()`'s first two branches: the `#[Collects]` attribute and the
   `$collects` property default
 - `ControllerPaginatorAnalyzer::resolvePaginatedResourceConstructorProps()`'s `new $resourceFqcn(...)`
-  resolution (`ControllerPaginatorAnalyzer.php:258`) — the class name comes from an explicit `new`
+  resolution (`ControllerPaginatorAnalyzer.php:221`) — the class name comes from an explicit `new`
   expression in the analyzed source, not an invented candidate, so it stays ungated on the same basis
 
 ### One resolver, not many — every `#[Collects]` caller shares it
@@ -1108,7 +1055,7 @@ analyze against an empty registry even in the same process as an earlier full ru
 set from that run narrows this run's own convention guess and a real type silently collapses to `unknown`.
 Failing closed there would also silently strip the regenerated file's *convention-guessed* nested resource
 references. Only those. The registry is consulted at four candidate-inventing sites:
-`ToResourceHandler.php:180`, `:226` and `:237`, plus the naming-convention branch of
+`ToResourceHandler.php:181`, `:227` and `:238`, plus the naming-convention branch of
 `InspectsAstNodes::resolveCollectedResourceClass()`, which tries two candidates (`:203`, `:209`). An
 explicitly named reference never reaches it and would survive — `SomeResource::make()` and
 `::collection()` (`StaticCallHandler.php:187`, `:201`) test `isResourceClass()` rather than
@@ -1285,14 +1232,14 @@ non-paginated, named and anonymous — and preserve-keys only changes two of the
   key-preserving named collection, paginated or not, produces identical output before and after this
   change.
 
-## `mergeReturnBranches()` carries every `syncAnalysisMaps()` channel, plus two flat scalars
+## `mergeReturnBranches()` carries every `MethodAnalysis::merge()` channel, plus two flat scalars
 
 A resource with multiple direct `return [...]` branches (`if`/`elseif`/`else`, loop bodies, guard
 clauses) is analyzed per-branch, then unioned by `mergeReturnBranches()`. It carries the same ten
-channels `syncAnalysisMaps()` does — `properties`, `enumResources`, `nestedResources`,
+channels `MethodAnalysis::merge()` does — `properties`, `enumResources`, `nestedResources`,
 `directEnumFqcns`, `modelFqcns`, `customImports`, `multiEnumResourceFqcns`, and the three inline
 maps (`inlineEnumFqcns`, `inlineModelFqcns`, `inlineEnumResourceFqcns`) — unioning each inline map
-per property key, exactly like `syncAnalysisMaps()`. Missing this union silently drops a property's
+per property key, exactly like `MethodAnalysis::merge()`. Missing this union silently drops a property's
 only enum/model reference when that reference sits inside an inline array literal in one branch,
 emitting a type token with no import.
 
@@ -1301,7 +1248,7 @@ paths used to `array_unique` all three inline maps, which lost real multiplicity
 or branched property named the same model twice — `aliasPropertyType()`'s per-occurrence queue then
 fell back to its shorter-than-occurrence-count clamp and mistyped the missing occurrence.
 `BranchedInlineFqcnResource` pins the branch-merge case; `ChildInlineFqcnResource` pins the
-`syncAnalysisMaps()` case.
+`MethodAnalysis::merge()` case.
 
 `inlineEnumFqcns` and `inlineEnumResourceFqcns` stay deduped **even though they feed the same
 per-occurrence queue**, so this is an asymmetry the code has, not a difference in what the maps are
@@ -1358,8 +1305,8 @@ survive into the child's own push, so the child's occurrences consume the parent
 instead of their own — `ChildInlineFqcnResource`'s `regional_hub_contacts` pins this; its
 `regional_hub_leads`, spread through with no override, pins the dedupe removal on its own.
 
-It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `syncAnalysisMaps()` never
-touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule, and the
+It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `MethodAnalysis::merge()`
+never touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule, and the
 argument has to cover **both** callers. `analyzeAllReturnBranches()` builds its branches with
 `analyzeReturnArray()`; `resolveArrayOrClosureToProperties()` — the `merge()`/`mergeWhen()` path, which
 merges a multi-return closure's branches — builds its own with `ThisPropertyHandler::extractPropertiesFromArray()`. Neither
@@ -1413,9 +1360,10 @@ When that search finds no `ClassMethod` — or one with a `null` body — `analy
   `JsonResource`.
 - When the parent *is* `JsonResource` itself it returns `buildModelDelegatedAnalysis()` — the
   bottom of the chain, not an inherited shape.
-- Otherwise it builds `new self($parentClass, $this->modelClass)` and calls `analyze()` on it. The
-  multi-level walk and its termination therefore come for free through that recursion: each level
-  repeats the own-file lookup and only stops at the nearest ancestor that really declares a body.
+- Otherwise it builds `new self($parentClass, $this->scope->modelClass, $this->methodName)` and calls
+  `analyze()` on it. The multi-level walk and its termination therefore come for free through that
+  recursion: each level repeats the own-file lookup and only stops at the nearest ancestor that really
+  declares a body.
 
 The `properties !== []` guard is what keeps the pre-existing behaviour intact. An ancestor chain
 where **nobody** declares a `toArray()` yields an empty analysis at every level, so `analyze()` falls
@@ -1435,7 +1383,8 @@ analyzer can read — so the recursion yields no properties and body-less collec
 Two body-less `ResourceCollection` subclasses stacked on each other (`LeafCollection extends
 MidCollection extends ResourceCollection`, neither declaring `toArray()`) do not each resolve
 `$collects` independently. `LeafCollection::analyze()` finds no own-file `toArray()` and calls
-`analyzeParentToArray()`, which builds `new self($midClass, $this->modelClass)` and analyzes *that*.
+`analyzeParentToArray()`, which builds `new self($midClass, $this->scope->modelClass, $this->methodName)`
+and analyzes *that*.
 `MidCollection` is itself body-less, so its own `analyzeParentToArray()` walks up again to the real
 `ResourceCollection::toArray()`, which — per the guard above — yields no usable properties, so
 `MidCollection::analyze()` falls through to its **own** `buildCollectionDelegatedAnalysis()`, resolving
@@ -1476,7 +1425,7 @@ route through the same `analyzeParentToArray()`:
 
 - `...parent::toArray($request)` spread inside an array literal — `analyzeReturnArray()` matches the
   unpacked item with `isParentToArrayCall()`, then merges the parent analysis in through
-  `syncAnalysisMaps()`. `ApiPostResource` pins this one.
+  `MethodAnalysis::merge()`. `ApiPostResource` pins this one.
 - a bare `return parent::toArray($request);` — the non-array fallback in `analyze()` matches the
   `Return_` expression with `isParentToArrayCall()`. `PreserveKeysTeamResource` pins this one.
 
