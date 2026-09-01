@@ -16,6 +16,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesSingularResourceClass;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
+use AbeTwoThree\LaravelTsPublish\Ast\SubjectPropertyTypeResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
@@ -204,6 +205,11 @@ final class ThisPropertyHandler implements ExpressionHandler
             }
 
             return $result;
+        }
+
+        // Subject mode: with no backing model, `$this->prop` can only mean the subject's own property.
+        if ($scope->modelClass === null) {
+            return resolve(SubjectPropertyTypeResolver::class)->resolve($scope->subjectReflection, $propName) ?? $result;
         }
 
         return $result;

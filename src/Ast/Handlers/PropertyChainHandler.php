@@ -12,6 +12,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesEnumPropertyArgTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesRelatedModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\SubjectPropertyTypeResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Database\Eloquent\Model;
@@ -99,8 +100,20 @@ final class PropertyChainHandler implements ExpressionHandler
         /** @var class-string<Model>|null $currentModel */
         $currentModel = $scope->closureRelationModelClass ?? $scope->modelClass;
 
+        // Subject mode: no backing model, so the chain's first segment must be the subject's own
+        // property, and the relation/attribute walk below starts from the model it is typed as.
         if ($currentModel === null) {
-            return ValueResult::unknown();
+            $currentModel = $this->resolveSubjectRootModel($chain[0]['name'], $scope);
+
+            if ($currentModel === null) {
+                return ValueResult::unknown();
+            }
+
+            array_shift($chain);
+
+            if ($chain === []) {
+                return ValueResult::unknown();
+            }
         }
 
         $resolver = resolve(ModelAttributeResolver::class);
@@ -188,6 +201,20 @@ final class PropertyChainHandler implements ExpressionHandler
         }
 
         return $result;
+    }
+
+    /**
+     * Resolve a model-less subject's own property to the model it is typed as, or null when it is
+     * typed as anything else — `@var` docblock first, native declared type second.
+     *
+     * @return class-string<Model>|null
+     */
+    private function resolveSubjectRootModel(string $name, AnalysisScope $scope): ?string
+    {
+        $result = resolve(SubjectPropertyTypeResolver::class)->resolve($scope->subjectReflection, $name);
+        $modelFqcn = $result['modelFqcn'] ?? null;
+
+        return $modelFqcn !== null && is_a($modelFqcn, Model::class, true) ? $modelFqcn : null;
     }
 
     /**

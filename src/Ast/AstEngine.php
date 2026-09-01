@@ -6,7 +6,6 @@ namespace AbeTwoThree\LaravelTsPublish\Ast;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\DispatchesFqcnResults;
-use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use ReflectionClass;
@@ -48,8 +47,7 @@ final class AstEngine
     {
         $reflection = new ReflectionClass($class);
         $traitProperties = $this->traitPropertyNames($reflection);
-        $reader = resolve(PropertyDocblockTypeReader::class);
-        $acceptor = resolve(ReflectedTypeAcceptor::class);
+        $resolver = resolve(SubjectPropertyTypeResolver::class);
         $analysis = new MethodAnalysis;
 
         foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
@@ -59,9 +57,7 @@ final class AstEngine
                 continue;
             }
 
-            $result = $reader->read($property)
-                ?? $acceptor->accept(LaravelTsPublish::propertyTypes($reflection, $name))
-                ?? ValueResult::unknown();
+            $result = $resolver->resolve($reflection, $name) ?? ValueResult::unknown();
 
             $analysis->properties[] = [
                 'name' => $name,

@@ -1,0 +1,33 @@
+<?php
+
+declare(strict_types=1);
+
+use AbeTwoThree\LaravelTsPublish\Ast\ReturnLiteralReader;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\SubjectProps;
+use Workbench\App\Events\ServerCreated;
+
+it('reads a method that returns one whole string literal', function () {
+    expect(resolve(ReturnLiteralReader::class)->stringLiteral(ServerCreated::class, 'broadcastAs'))
+        ->toBe('server.created');
+});
+
+// Surveyor folds `'order.'.$this->kind` to the literal "order." and ships that as the Echo key.
+it('returns null for a concatenated return rather than folding it to its literal prefix', function () {
+    expect(resolve(ReturnLiteralReader::class)->stringLiteral(SubjectProps::class, 'computedName'))
+        ->toBeNull();
+});
+
+it('returns null for a method with no return statement', function () {
+    expect(resolve(ReturnLiteralReader::class)->stringLiteral(SubjectProps::class, 'noReturn'))
+        ->toBeNull();
+});
+
+it('returns null for a method that does not exist', function () {
+    expect(resolve(ReturnLiteralReader::class)->stringLiteral(ServerCreated::class, 'notAMethod'))
+        ->toBeNull();
+});
+
+it('returns null for a method with more than one return', function () {
+    expect(resolve(ReturnLiteralReader::class)->stringLiteral(SubjectProps::class, 'twoLiteralReturns'))
+        ->toBeNull();
+});

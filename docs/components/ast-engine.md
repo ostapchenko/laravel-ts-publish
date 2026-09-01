@@ -182,6 +182,32 @@ outer `$slug`'s type.
 See [ResourceAstAnalyzer § Multi-model accessor unions](resource-ast-analyzer.md#multi-model-accessor-unions-reference-each-arms-own-model)
 and the fixtures named above for how these bindings surface in emitted output.
 
+## Subject mode
+
+Subject mode is how `$this->prop` resolves when `AnalysisScope::$modelClass` is `null` — a class the
+engine is pointed at that has no backing Eloquent model, which is every non-resource subject
+`AstEngine::analyzeMethod()` accepts (a broadcast event, a DTO, a plain class). A resource always has
+a model or the pipeline could not type it at all, so nothing on the resource path enters this mode;
+both arms below live strictly inside the `null` branch that previously returned `unknown`.
+
+Resolution order for the property itself is **`@var` docblock first, native declared type second** —
+`PropertyDocblockTypeReader::read()`, then `LaravelTsPublish::propertyTypes()` — with the result
+accepted through `ReflectedTypeAcceptor`, so a token that has no importable published file rejects
+the whole result rather than shipping a name nothing imports. `SubjectPropertyTypeResolver` is the one
+home for that pair; `AstEngine::analyzePublicProperties()` and both handler arms call it.
+
+There are two arms because the dispatcher never hands the inner node of a chain to a handler:
+
+- **Leaf** (`ThisPropertyHandler`): `$this->teamId` — after the model attribute and relation lookups
+  both miss (they always do with no model), the subject's own property supplies the type and its FQCN
+  channels.
+- **Chain root** (`PropertyChainHandler::analyzePropertyChain()`): `$this->post->title` arrives as one
+  `PropertyFetch` whose outermost node is `title`, so `ThisPropertyHandler`'s resolution of the inner
+  `$this->post` is never consulted. The chain handler resolves its own first segment the same way, and
+  **only a `Model` subclass hands off**: that model becomes the walk's starting point and the existing
+  relation/attribute traversal runs unchanged over the remaining steps. Any other type declines, and
+  the expression degrades to `unknown` exactly as before.
+
 ## Dependency recording policy
 
 Every analyzer file-read flows through `AstParser`, directly or via `MethodLocator`. Skipping it means
@@ -271,6 +297,12 @@ second. It skips any property a used trait declares (transitively), so a `#[TsEx
 fields aren't emitted twice by the class that uses it. It never marks a property `optional`:
 nullability is expressed as `| null` in the type; whether the key is present at all is a `#[TsCasts]`
 concern, not something this method decides.
+
+`ReturnLiteralReader::stringLiteral(string $class, string $method): ?string` returns the one string
+literal a method returns, and `null` for anything else — several returns, no return, or an expression
+that merely *starts* with a literal. `'order.'.$this->kind` reads `null`, not `"order."`: Surveyor
+folds that concatenation to its prefix and ships it as a broadcast name, and a wrong Echo key is worse
+than no key, because the caller can fall back to a convention it controls.
 
 `AnalysisImports::build(MethodAnalysis $analysis, string $fromNamespacePath): array{typeImports:
 TypesImportMap, valueImports: TypesImportMap}` turns a `MethodAnalysis`'s FQCN channels into resolved

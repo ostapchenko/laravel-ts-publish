@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\AstEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ThisPropertyHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\SubjectProps;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrayItem;
@@ -14,6 +16,7 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
 use Workbench\App\Http\Resources\UserResource;
+use Workbench\App\Models\Post;
 use Workbench\App\Models\User;
 
 /**
@@ -118,4 +121,43 @@ it('extractPropertiesFromArray() skips unkeyed items — it does not support spr
     $analysis = (new ThisPropertyHandler)->extractPropertiesFromArray($array, thisPropertyHandlerThrowingEngine());
 
     expect($analysis->properties)->toBe([]);
+});
+
+it('resolves a model-less subject through its own declared properties and property chains', function () {
+    $analysis = resolve(AstEngine::class)->analyzeMethod(SubjectProps::class, 'payload');
+
+    $props = collect($analysis->properties)->keyBy('name');
+
+    expect($props->keys()->all())->toBe(['team', 'tags', 'title', 'count'])
+        ->and($props['team']['type'])->toBe('number')
+        ->and($props['tags']['type'])->toBe('string[]')
+        ->and($props['title']['type'])->toBe('string')
+        ->and($props['count']['type'])->toBe('number');
+});
+
+it('routes a subject property typed as a model into the modelFqcns channel', function () {
+    $analysis = resolve(AstEngine::class)->analyzeMethod(SubjectProps::class, 'subject');
+
+    expect($analysis->properties)->toBe([
+        ['name' => 'post', 'type' => 'Post', 'optional' => false, 'description' => ''],
+    ])->and($analysis->modelFqcns)->toBe(['post' => Post::class]);
+});
+
+it('declines a subject-mode chain whose root property is not a model', function () {
+    $analysis = resolve(AstEngine::class)->analyzeMethod(SubjectProps::class, 'unresolvableChain');
+
+    expect($analysis->properties)->toBe([
+        ['name' => 'nope', 'type' => 'unknown', 'optional' => false, 'description' => ''],
+    ]);
+});
+
+// Subject mode is the model-less branch only: a model-backed scope must still miss on a property
+// the subject declares but the model does not, or every resource's output could shift.
+it('leaves a model-backed scope on the model, never on the subject own property', function () {
+    $expr = new PropertyFetch(new Variable('this'), 'teamId');
+    $scope = new AnalysisScope(new ReflectionClass(SubjectProps::class), Post::class);
+
+    $result = (new ThisPropertyHandler)->resolve($expr, $scope, thisPropertyHandlerThrowingEngine());
+
+    expect($result)->toBe(['type' => 'unknown', 'optional' => false]);
 });
