@@ -136,7 +136,7 @@ it('resolves a 3-deep chain through the $this->resource wrapper step', function 
     expect($result)->toBe(['type' => 'string', 'optional' => false]);
 });
 
-it('declines a property fetch whose chain resolves to nothing, leaving the legacy chain its turn', function () {
+it('declines a property fetch rooted at a plain variable, not $this', function () {
     $expr = new PropertyFetch(new Variable('other'), 'name');
     $scope = new AnalysisScope(new ReflectionClass(CommentResource::class), Comment::class);
 
@@ -240,7 +240,7 @@ it('resolves a take()->map()->values() chain through the engine, array-wrapping 
         ->and($scope->varModelBindings)->toBe([]);
 });
 
-it('declines a method call on a bare variable, leaving the legacy chain its turn', function () {
+it('declines a method call rooted at a bare variable, not $this', function () {
     $expr = new MethodCall(new Variable('members'), 'take', [new Arg(new Int_(5))]);
     $scope = new AnalysisScope(new ReflectionClass(RelationChainResource::class), Team::class);
 

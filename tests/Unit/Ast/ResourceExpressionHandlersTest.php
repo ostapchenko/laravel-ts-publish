@@ -40,8 +40,12 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\VariadicPlaceholder;
 use Workbench\App\Http\Resources\CommentResource;
+use Workbench\App\Http\Resources\WarehouseResource;
 use Workbench\App\Models\Comment;
 use Workbench\App\Models\Post;
+use Workbench\App\Models\User;
+use Workbench\App\Models\Warehouse;
+use Workbench\Crm\Models\User as CrmUser;
 
 /**
  * The documented dispatch order for the resource profile — Tasks 14-22's chain-derived precedence,
@@ -128,13 +132,9 @@ it('excludes exactly the three resource-only handlers from generic(), same relat
         ->and($classes)->toBe($expected);
 });
 
-// Ordering-contract pin #1: FirstClassCallableHandler and ConditionalMethodHandler are the only two
-// registered handlers claiming MethodCall ahead of a first-class-callable $this->when(...), and both
-// really claim it — ConditionalMethodHandler::isThisMethodCall() matches on method name alone,
-// ignoring args entirely. If ConditionalMethodHandler ran first it would call MethodCall::getArgs(),
-// which asserts !isFirstClassCallable() and throws under this suite's zend.assertions=1. Swapping
-// their positions in ResourceExpressionHandlers::handlers() was confirmed to turn this pass into a
-// fatal AssertionError; see task-23-report.md for the exact mutation and captured output.
+// Ordering pin #1: both handlers claim a first-class-callable $this->when(...) —
+// isThisMethodCall() matches on method name alone, ignoring args — so if ConditionalMethodHandler
+// ran first it would call getArgs(), which asserts !isFirstClassCallable() and fatals. See report.
 it('tries FirstClassCallableHandler before ConditionalMethodHandler for a first-class-callable $this->when(...)', function () {
     $expr = new MethodCall(new Variable('this'), 'when', [new VariadicPlaceholder]);
     $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
@@ -142,11 +142,9 @@ it('tries FirstClassCallableHandler before ConditionalMethodHandler for a first-
     expect($analyzer->resolve($expr))->toBe(['type' => 'unknown', 'optional' => false]);
 });
 
-// Ordering-contract pin #2: RelationFilterHandler and MethodChainHandler are the only two registered
-// handlers claiming NullsafeMethodCall. MethodChainHandler::analyzeMethodChain() never returns null —
-// its floor is ValueResult::unknown() — so if it ran first it would win every NullsafeMethodCall,
-// including this one, and RelationFilterHandler would never get a turn. Swapping their positions was
-// confirmed to degrade this from a Pick<> reference to plain 'unknown'; see task-23-report.md.
+// Ordering pin #2: both handlers claim NullsafeMethodCall, but MethodChainHandler's floor is
+// ValueResult::unknown(), never null, so it would win every NullsafeMethodCall if it ran first —
+// degrading this Pick<> reference to a plain reflected type. See task-23-report.md.
 it('tries RelationFilterHandler before MethodChainHandler for $this->relation?->only([...])', function () {
     $expr = new NullsafeMethodCall(
         new PropertyFetch(new Variable('this'), 'post'),
@@ -162,5 +160,19 @@ it('tries RelationFilterHandler before MethodChainHandler for $this->relation?->
         'type' => "Pick<Post, 'id' | 'title'> | null",
         'optional' => false,
         'modelFqcn' => Post::class,
+    ]);
+});
+
+// Ordering pin #3: both handlers claim $this->{multi-FQCN accessor}, but PropertyChainHandler's
+// last-step branch has no embeddedModelFqcns equivalent — if it ran first, the alias rewriter
+// would lose the CrmUser arm entirely and both union members would render as bare 'User'.
+it('tries ThisPropertyHandler before PropertyChainHandler for a multi-FQCN accessor', function () {
+    $expr = new PropertyFetch(new Variable('this'), 'last_user_activity_by');
+    $analyzer = new ResourceAstAnalyzer(new ReflectionClass(WarehouseResource::class), Warehouse::class);
+
+    expect($analyzer->resolve($expr))->toBe([
+        'type' => 'User | User | null',
+        'optional' => false,
+        'embeddedModelFqcns' => [CrmUser::class, User::class],
     ]);
 });

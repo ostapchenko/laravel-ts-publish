@@ -144,7 +144,7 @@ it('resolves an array cast of a non-array operand to unknown[] without calling t
     expect($result)->toBe(['type' => 'unknown[]', 'optional' => false]);
 });
 
-it('declines an object cast, preserving the legacy fall-through to unknown', function () {
+it('declines an object cast', function () {
     $handler = new CastHandler;
     $expr = new CastObject(new Variable('x'));
 
@@ -173,7 +173,7 @@ it('resolves an int literal to number', function () {
     expect($result)->toBe(['type' => 'number', 'optional' => false]);
 });
 
-it('declines a MagicConst scalar (e.g. __LINE__), preserving the legacy fall-through', function () {
+it('declines a MagicConst scalar (e.g. __LINE__)', function () {
     $handler = new ScalarHandler;
     $expr = new MagicConst\Line;
 

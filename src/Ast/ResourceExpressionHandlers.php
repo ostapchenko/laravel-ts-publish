@@ -38,9 +38,8 @@ final class ResourceExpressionHandlers
 {
     /**
      * The full resource profile — all 22 handlers extracted in Tasks 14-22, in their chain-derived
-     * dispatch order. $engine is accepted, not consumed: it mirrors the call site
-     * (`ResourceExpressionHandlers::make($this)`) so a future handler needing the engine at
-     * construction can be added without changing every caller.
+     * dispatch order. $engine mirrors the `make($this)` call site; unused today, kept for a future
+     * handler that needs the engine at construction.
      *
      * @return list<ExpressionHandler>
      */
