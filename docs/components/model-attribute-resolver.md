@@ -495,7 +495,7 @@ resolver instance) and must be re-read every time rather than trapped in that ca
 
 ## `#[UseResource]` model-guessing is Laravel-version-guarded
 
-`ResourceTransformer::guessModelFromUseResourceAttribute()` — the counterpart lookup that finds
+`Ast\ModelClassResolver::guessModelFromUseResourceAttribute()` — the counterpart lookup that finds
 which model a resource belongs to — checks for `Illuminate\Database\Eloquent\Attributes\UseResource`
 behind `class_exists()` rather than a `use` import, because the package still supports Laravel 12
 releases older than 12.29 that don't ship the attribute. See [Version-guarded Laravel

@@ -94,7 +94,9 @@ class ResourceAstAnalyzer implements ExpressionEngine
     /**
      * Create an analyzer for a class, its optional backing model, and the method to analyze.
      *
-     * @param  ReflectionClass<JsonResource>  $resourceReflection
+     * @template T of object
+     *
+     * @param  ReflectionClass<T>  $resourceReflection  templated because ReflectionClass is invariant
      * @param  class-string<Model>|null  $modelClass
      */
     public function __construct(

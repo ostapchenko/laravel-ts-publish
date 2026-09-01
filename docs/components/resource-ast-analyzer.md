@@ -1485,10 +1485,11 @@ reached for them.
 
 ## An inherited shape needs an inherited model
 
-`ResourceTransformer::resolveModelClass()` used to read the docblock of the resource itself only. A
-body-less child with no docblock of its own resolved no model, and the inherited analysis degraded
-every column to `unknown` — so the walk is only half a feature without a matching docblock walk.
-`modelFromDocblock()` now reads the `@mixin`/`@extends` tags off any one `ReflectionClass`, and
+`Ast\ModelClassResolver::resolve()` — which `ResourceTransformer::resolveModelClass()` and
+`AstEngine::analyzeMethod()` both delegate to — used to read the docblock of the resource itself
+only. A body-less child with no docblock of its own resolved no model, and the inherited analysis
+degraded every column to `unknown` — so the walk is only half a feature without a matching docblock
+walk. `modelFromDocblock()` now reads the `@mixin`/`@extends` tags off any one `ReflectionClass`, and
 `modelFromAncestorDocblock()` climbs the parent chain calling it until one resolves. Precedence:
 
 1. `#[TsResource(model:)]`
@@ -1504,7 +1505,7 @@ exist, so its `number`/`AsEnum<…>` columns can only come from `OrderResource`'
 `BodylessTeamResource` carries its own `@mixin Team` and so pins the analyzer walk alone.
 
 **The docblock walk is not scoped to the body-less case.** The body-less resource is what motivated
-it, but `resolveModelClass()` runs `modelFromAncestorDocblock()` unconditionally once step 2 fails,
+it, but `ModelClassResolver::resolve()` runs `modelFromAncestorDocblock()` unconditionally once step 2 fails,
 so *any* resource lacking its own `@mixin`/`@extends` — body or no body — now resolves an ancestor's
 before falling through to the `$resource` property and the naming convention. That is arguably the
 right scope, since an ancestor's `@mixin` describes the same model either way, and it moved nothing

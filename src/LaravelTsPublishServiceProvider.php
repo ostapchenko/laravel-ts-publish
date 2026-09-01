@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish;
 
+use AbeTwoThree\LaravelTsPublish\Ast\AstEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\AstParser;
 use AbeTwoThree\LaravelTsPublish\Ast\CallChainWalker;
 use AbeTwoThree\LaravelTsPublish\Ast\CallMatcher;
@@ -29,6 +30,7 @@ class LaravelTsPublishServiceProvider extends PackageServiceProvider
     public function packageRegistered(): void
     {
         $this->app->singleton(ModelAttributeResolver::class);
+        $this->app->singleton(AstEngine::class);
         $this->app->singleton(AstParser::class);
         $this->app->singleton(MethodLocator::class);
         $this->app->singleton(CallMatcher::class);
