@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\NativeInertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Transformers\RouteTransformer;
 use Workbench\Accounting\Http\Controllers\TwoFactorController;
 use Workbench\Accounting\Http\Requests\VerifyTwoFactorRequest;
@@ -965,3 +966,21 @@ test('isInvokable is true for invokable controllers and false otherwise', functi
         ->and((new RouteTransformer(InvokableModelBoundPlusController::class))->data()->isInvokable)->toBeTrue()
         ->and((new RouteTransformer(PostController::class))->data()->isInvokable)->toBeFalse();
 });
+
+test('ts-publish.inertia.analyzer selects which page analyzer the transformer runs', function (string $analyzer, string $expected) {
+    config()->set('ts-publish.inertia.enabled', true);
+    config()->set('ts-publish.inertia.analyzer', $analyzer);
+
+    foreach ([InertiaPageAnalyzer::class => 'surveyor', NativeInertiaPageAnalyzer::class => 'native'] as $class => $label) {
+        $mock = Mockery::mock($class);
+        $mock->shouldReceive('analyze')->andReturnUsing(fn (array $action): ?array => str_contains($action['uses'], '@dashboard')
+            ? ['component' => $label, 'pageType' => 'Inertia.SharedData', 'classFqcns' => []]
+            : null);
+
+        app()->instance($class, $mock);
+    }
+
+    $transformer = new RouteTransformer(InertiaController::class);
+
+    expect(collect($transformer->actions)->firstWhere('methodName', 'dashboard')['component'])->toBe($expected);
+})->with([['surveyor', 'surveyor'], ['native', 'native']]);

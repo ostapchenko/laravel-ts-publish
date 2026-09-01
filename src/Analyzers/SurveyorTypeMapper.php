@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Analyzers;
 
+use AbeTwoThree\LaravelTsPublish\Support\TolkiTypes;
 use Laravel\Surveyor\Types;
 use Laravel\Surveyor\Types\Contracts\Type;
 
@@ -17,15 +18,7 @@ class SurveyorTypeMapper
      *
      * @var array<string, string>
      */
-    public const TOLKI_TYPES_MAP = [
-        'Illuminate\\Pagination\\LengthAwarePaginator' => 'LengthAwarePaginator',
-        'Illuminate\\Pagination\\Paginator' => 'SimplePaginator',
-        'Illuminate\\Pagination\\CursorPaginator' => 'CursorPaginator',
-        'Illuminate\\Contracts\\Pagination\\LengthAwarePaginator' => 'LengthAwarePaginator',
-        'Illuminate\\Contracts\\Pagination\\Paginator' => 'SimplePaginator',
-        'Illuminate\\Contracts\\Pagination\\CursorPaginator' => 'CursorPaginator',
-        'Illuminate\\Http\\Resources\\Json\\AnonymousResourceCollection' => 'AnonymousResourceCollection',
-    ];
+    public const TOLKI_TYPES_MAP = TolkiTypes::MAP;
 
     /**
      * Convert a Surveyor Type to a TypeScript type string.
@@ -245,31 +238,11 @@ class SurveyorTypeMapper
     /**
      * Extract PHP FQCNs from a type string containing dot-notation class references.
      *
-     * `Inertia.*` is skipped: it is a TypeScript global namespace, not a PHP class.
-     *
      * @return list<class-string>
      */
     public static function extractDotNotationFqcns(string $typeString): array
     {
-        preg_match_all('/\b([A-Z][A-Za-z0-9]*(?:\.[A-Z][A-Za-z0-9]*)+)\b/', $typeString, $matches);
-
-        /** @var list<class-string> $fqcns */
-        $fqcns = [];
-
-        foreach (array_unique($matches[1]) as $dotNotation) {
-            if (str_starts_with($dotNotation, 'Inertia.')) {
-                continue;
-            }
-
-            $fqcn = str_replace('.', '\\', $dotNotation);
-
-            if (class_exists($fqcn) || enum_exists($fqcn) || interface_exists($fqcn)) {
-                /** @var class-string $fqcn */
-                $fqcns[] = $fqcn;
-            }
-        }
-
-        return $fqcns;
+        return TolkiTypes::extractDotNotationFqcns($typeString);
     }
 
     /**
@@ -279,12 +252,6 @@ class SurveyorTypeMapper
      */
     public static function rewriteDotNotationToBasenames(string $typeString, array $fqcns): string
     {
-        foreach ($fqcns as $fqcn) {
-            $dotNotation = str_replace('\\', '.', $fqcn);
-            $basename = self::TOLKI_TYPES_MAP[$fqcn] ?? class_basename($fqcn);
-            $typeString = str_replace($dotNotation, $basename, $typeString);
-        }
-
-        return $typeString;
+        return TolkiTypes::rewriteDotNotationToBasenames($typeString, $fqcns);
     }
 }

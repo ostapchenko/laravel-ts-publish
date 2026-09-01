@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Ast;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\CollectsLocalVarBindings;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\DispatchesFqcnResults;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use ReflectionClass;
+use ReflectionNamedType;
 use ReflectionProperty;
 
 /**
@@ -16,6 +19,7 @@ use ReflectionProperty;
  */
 final class AstEngine
 {
+    use CollectsLocalVarBindings;
     use DispatchesFqcnResults;
 
     /**
@@ -34,6 +38,42 @@ final class AstEngine
         }
 
         return new ResourceAstAnalyzer($reflection, $modelClass, $method)->analyze();
+    }
+
+    /**
+     * Build the starting scope for a located method: its subject, the classes its parameters bind,
+     * and the single-write local variables its body assigns.
+     *
+     * A route-bound `Post $post` and an injected `Request $request` are both parameter facts the
+     * resource path never had, which is why they are seeded here rather than inside the analyzer.
+     */
+    public function bindingsFor(MethodContext $context): AnalysisScope
+    {
+        $scope = new AnalysisScope($context->reflection);
+        $methodName = $context->method->name->toString();
+
+        if ($context->reflection->hasMethod($methodName)) {
+            foreach ($context->reflection->getMethod($methodName)->getParameters() as $parameter) {
+                $type = $parameter->getType();
+
+                if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
+                    continue;
+                }
+
+                $class = $type->getName();
+
+                if (is_a($class, Model::class, true)) {
+                    /** @var class-string<Model> $class */
+                    $scope->varModelBindings[$parameter->getName()] = $class;
+                } elseif (is_a($class, Request::class, true)) {
+                    $scope->requestVarNames[$parameter->getName()] = true;
+                }
+            }
+        }
+
+        $this->collectLocalVarBindings($context->method->stmts ?? [], $scope);
+
+        return $scope;
     }
 
     /**

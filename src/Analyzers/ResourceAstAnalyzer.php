@@ -9,6 +9,7 @@ use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\FiltersModelAttributes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\ResolvesModelTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\CollectsLocalVarBindings;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\DispatchesFqcnResults;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
@@ -34,17 +35,10 @@ use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrayDimFetch;
 use PhpParser\Node\Expr\Assign;
-use PhpParser\Node\Expr\AssignOp;
-use PhpParser\Node\Expr\AssignRef;
 use PhpParser\Node\Expr\BooleanNot;
-use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\Instanceof_;
 use PhpParser\Node\Expr\MethodCall;
-use PhpParser\Node\Expr\PostDec;
-use PhpParser\Node\Expr\PostInc;
-use PhpParser\Node\Expr\PreDec;
-use PhpParser\Node\Expr\PreInc;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
@@ -77,6 +71,7 @@ use ReflectionNamedType;
 class ResourceAstAnalyzer implements ExpressionEngine
 {
     use ChecksPreserveKeys;
+    use CollectsLocalVarBindings;
     use DispatchesFqcnResults;
     use FiltersModelAttributes;
     use InspectsAstNodes;
@@ -100,14 +95,24 @@ class ResourceAstAnalyzer implements ExpressionEngine
      *
      * @param  ReflectionClass<T>  $resourceReflection  templated because ReflectionClass is invariant
      * @param  class-string<Model>|null  $modelClass
+     * @param  list<ExpressionHandler>|null  $handlerProfile  overrides the resource profile
+     * @param  AnalysisScope|null  $scope  a scope already seeded by AstEngine::bindingsFor(), used as-is
      */
     public function __construct(
         protected ReflectionClass $resourceReflection,
         protected ?string $modelClass = null,
         protected string $methodName = 'toArray',
+        protected ?array $handlerProfile = null,
+        ?AnalysisScope $scope = null,
     ) {
-        $this->scope = new AnalysisScope(self::genericReflection($this->resourceReflection->getName()), $this->modelClass);
-        $this->scope->requestVarNames = $this->resolveRequestVarNames($this->methodName);
+        $this->scope = $scope ?? new AnalysisScope(
+            self::genericReflection($this->resourceReflection->getName()),
+            $this->modelClass,
+        );
+
+        if ($scope === null) {
+            $this->scope->requestVarNames = $this->resolveRequestVarNames($this->methodName);
+        }
 
         if ($this->scope->modelClass !== null) {
             $this->loadModelInspectorData();
@@ -191,7 +196,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
 
         $this->scope->instanceOfWrappedClass = $this->resolveInstanceOfType($toArrayMethod, $finder);
 
-        $this->collectLocalVarBindings($toArrayMethod->stmts);
+        $this->seedVarBindings($toArrayMethod->stmts);
 
         $branchAnalysis = $this->analyzeAllReturnBranches($toArrayMethod->stmts);
 
@@ -269,33 +274,14 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Record top-level `$var = expr;` statements so property values referencing those variables resolve.
-     *
-     * Skips variables written more than once — this flat list can't tell which write is live at a
-     * given return branch, so binding one risks a wrong-but-plausible type instead of unknown.
+     * Seed the scope's variable bindings from a method body: single-write assignments, then the
+     * relation-typed foreach loop variables that only a model-backed scope can resolve.
      *
      * @param  array<Node\Stmt>  $stmts
      */
-    protected function collectLocalVarBindings(array $stmts): void
+    protected function seedVarBindings(array $stmts): void
     {
-        /** @var array<string, int> $writeCounts */
-        $writeCounts = [];
-
-        foreach ($this->collectWrittenVariableNames($stmts) as $name) {
-            $writeCounts[$name] = ($writeCounts[$name] ?? 0) + 1;
-        }
-
-        foreach ($stmts as $stmt) {
-            if ($stmt instanceof ExpressionStmt
-                && $stmt->expr instanceof Assign
-                && $stmt->expr->var instanceof Variable
-                && is_string($stmt->expr->var->name)
-                && ($writeCounts[$stmt->expr->var->name] ?? 0) === 1
-            ) {
-                $this->scope->localVarBindings[$stmt->expr->var->name] = $stmt->expr->expr;
-            }
-        }
-
+        $this->collectLocalVarBindings($stmts, $this->scope);
         $this->bindForeachLoopVariables($stmts);
     }
 
@@ -324,77 +310,6 @@ class ResourceAstAnalyzer implements ExpressionEngine
                 $this->scope->varModelBindings[$stmt->valueVar->name] = $relationInfo['modelFqcn'];
             }
         }
-    }
-
-    /**
-     * Collect every local variable name written anywhere in a statement tree (writes, mutations,
-     * foreach targets, closure by-ref uses).
-     *
-     * By-reference call arguments are a known gap — the callee's signature isn't statically knowable.
-     *
-     * @param  array<Node>  $stmts
-     * @return list<string>
-     */
-    protected function collectWrittenVariableNames(array $stmts): array
-    {
-        $finder = new NodeFinder;
-
-        $writeNodes = $finder->find(
-            $stmts,
-            fn (Node $node): bool => $node instanceof Assign
-                || $node instanceof AssignRef
-                || $node instanceof AssignOp
-                || $node instanceof PreInc
-                || $node instanceof PostInc
-                || $node instanceof PreDec
-                || $node instanceof PostDec
-                || $node instanceof Foreach_
-                || $node instanceof ClosureExpr,
-        );
-
-        /** @var list<string> $names */
-        $names = [];
-
-        foreach ($writeNodes as $node) {
-            /** @var list<Expr> $targets */
-            $targets = [];
-
-            if ($node instanceof AssignRef) {
-                $targets[] = $node->var;
-                $targets[] = $node->expr;
-            } elseif ($node instanceof Assign || $node instanceof AssignOp
-                || $node instanceof PreInc || $node instanceof PostInc
-                || $node instanceof PreDec || $node instanceof PostDec) {
-                $targets[] = $node->var;
-            } elseif ($node instanceof Foreach_) {
-                $targets[] = $node->valueVar;
-
-                if ($node->keyVar !== null) {
-                    $targets[] = $node->keyVar;
-                }
-            } elseif ($node instanceof ClosureExpr) {
-                foreach ($node->uses as $use) {
-                    if ($use->byRef) {
-                        $targets[] = $use->var;
-                    }
-                }
-            }
-
-            foreach ($targets as $target) {
-                $vars = $finder->find(
-                    $target,
-                    fn (Node $n): bool => $n instanceof Variable && is_string($n->name),
-                );
-
-                foreach ($vars as $var) {
-                    if ($var instanceof Variable && is_string($var->name)) {
-                        $names[] = $var->name;
-                    }
-                }
-            }
-        }
-
-        return $names;
     }
 
     /**
@@ -540,14 +455,14 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * The resource profile's ordered handler chain — see ResourceExpressionHandlers for the list
-     * and its ordering contract.
+     * The ordered handler chain: the injected profile when one was supplied, else the resource
+     * profile — see ResourceExpressionHandlers for the list and its ordering contract.
      *
      * @return list<ExpressionHandler>
      */
     protected function handlers(): array
     {
-        return ResourceExpressionHandlers::make($this);
+        return $this->handlerProfile ?? ResourceExpressionHandlers::make($this);
     }
 
     /**
@@ -648,6 +563,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             $parentClass,
             $this->scope->modelClass,
             $this->methodName,
+            $this->handlerProfile,
         );
 
         return $parentAnalyzer->analyze();
@@ -691,7 +607,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
         // The spread method has its own signature: the entry method's Request params say nothing
         // about which of ITS variables hold one. analyzeParentToArray() re-derives the same way.
         $this->scope->requestVarNames = $this->resolveRequestVarNames($methodName);
-        $this->collectLocalVarBindings($targetMethod->stmts);
+        $this->seedVarBindings($targetMethod->stmts);
 
         try {
             $returnStmt = $finder->findFirst($targetMethod->stmts, function (Node $node): bool {
@@ -1185,9 +1101,12 @@ class ResourceAstAnalyzer implements ExpressionEngine
      * branch becomes optional, every map channel unions per key — inlineModelFqcns per occurrence,
      * the enum maps deduped — and flatTypeAlias/flatTypeAliasFqcn keep the first non-null branch value.
      *
+     * Public because the page analyzer merges one component's several `Inertia::render()` calls by
+     * exactly these rules.
+     *
      * @param  list<ResourceAnalysis>  $analyses
      */
-    protected function mergeReturnBranches(array $analyses): ResourceAnalysis
+    public function mergeReturnBranches(array $analyses): ResourceAnalysis
     {
         $branchCount = count($analyses);
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Transformers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
+use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\NativeInertiaPageAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsExclude;
 use AbeTwoThree\LaravelTsPublish\Concerns\FiltersRoutes;
@@ -62,7 +63,7 @@ class RouteTransformer extends CoreTransformer
     /** @var array<class-string, object> Cache of instantiated models for binding resolution */
     protected static array $modelInstanceCache = [];
 
-    protected ?InertiaPageAnalyzer $inertiaPageAnalyzer = null;
+    protected InertiaPageAnalyzer|NativeInertiaPageAnalyzer|null $inertiaPageAnalyzer = null;
 
     protected const INVOKE = '__invoke';
 
@@ -135,7 +136,9 @@ class RouteTransformer extends CoreTransformer
     protected function initInertiaAnalyzer(): self
     {
         if (Config::boolean('ts-publish.inertia.enabled')) {
-            $this->inertiaPageAnalyzer = resolve(InertiaPageAnalyzer::class);
+            $this->inertiaPageAnalyzer = Config::string('ts-publish.inertia.analyzer', 'surveyor') === 'native'
+                ? resolve(NativeInertiaPageAnalyzer::class)
+                : resolve(InertiaPageAnalyzer::class);
         }
 
         return $this;

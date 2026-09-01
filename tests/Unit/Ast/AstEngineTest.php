@@ -5,6 +5,7 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisImports;
 use AbeTwoThree\LaravelTsPublish\Ast\AstEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodLocator;
 use AbeTwoThree\LaravelTsPublish\Ast\ModelClassResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\PropertyDocblockTypeReader;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\DeclaredProps;
@@ -12,6 +13,7 @@ use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\EdgeCaseDocblocks;
 use Workbench\App\Enums\Role;
 use Workbench\App\Events\OrderShipped;
 use Workbench\App\Events\UserNotification;
+use Workbench\App\Http\Controllers\InertiaUserShapesController;
 use Workbench\App\Http\Resources\PostResource;
 use Workbench\App\Http\Resources\UserResource;
 use Workbench\App\Models\Post;
@@ -134,4 +136,25 @@ it('resolves import paths relative to the importing file', function () {
 
     expect(array_keys($imports['typeImports']))->toBe(['../http/resources', '../models'])
         ->and(array_keys($imports['valueImports']))->toBe(['../enums']);
+});
+
+it('seeds a scope from a located method: bound models, request parameters and local variables', function () {
+    $context = resolve(MethodLocator::class)->locateOwn(InertiaUserShapesController::class, 'bound');
+    $scope = resolve(AstEngine::class)->bindingsFor($context);
+
+    expect($scope->subjectReflection->getName())->toBe(InertiaUserShapesController::class)
+        ->and($scope->varModelBindings)->toBe(['post' => Post::class])
+        ->and($scope->requestVarNames)->toBe([])
+        ->and($scope->localVarBindings)->toBe([]);
+
+    $indexContext = resolve(MethodLocator::class)->locateOwn(InertiaUserShapesController::class, 'compacted');
+    $indexScope = resolve(AstEngine::class)->bindingsFor($indexContext);
+
+    expect(array_keys($indexScope->localVarBindings))->toBe(['post', 'comments'])
+        ->and($indexScope->varModelBindings)->toBe([]);
+
+    $requestContext = resolve(MethodLocator::class)->locateOwn(InertiaUserShapesController::class, 'profile');
+    $requestScope = resolve(AstEngine::class)->bindingsFor($requestContext);
+
+    expect($requestScope->requestVarNames)->toBe(['request' => true]);
 });

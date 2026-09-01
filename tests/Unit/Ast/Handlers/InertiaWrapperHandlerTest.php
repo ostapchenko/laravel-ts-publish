@@ -2,18 +2,23 @@
 
 declare(strict_types=1);
 
+use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
+use AbeTwoThree\LaravelTsPublish\Ast\ControllerExpressionHandlers;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\InertiaWrapperHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\VariadicPlaceholder;
+use Workbench\App\Http\Controllers\InertiaController;
+use Workbench\App\Models\Post;
 
 /** An engine that answers every request with one canned scalar result. */
 function inertiaWrapperEngine(): ExpressionEngine
@@ -66,4 +71,25 @@ it('declines another Inertia method, another class, and a first-class callable',
         ->and((new InertiaWrapperHandler)->resolve(new StaticCall(new Name('Inertia'), 'defer', [new VariadicPlaceholder]), $scope, $engine))->toBeNull()
         ->and((new InertiaWrapperHandler)->resolve(new StaticCall(new Name('Inertia'), 'defer'), $scope, $engine))->toBeNull()
         ->and((new InertiaWrapperHandler)->resolve(new StaticCall(new Variable('inertia'), 'defer'), $scope, $engine))->toBeNull();
+});
+
+// The shape a controller actually writes: the wrapper's argument is a closure over an Eloquent
+// finder, so the wrapped type comes from the controller profile rather than a canned engine.
+it('types a deferred closure over an Eloquent finder through the controller profile', function () {
+    $expr = new StaticCall(new Name('Inertia'), 'defer', [new Arg(new ArrowFunction([
+        'expr' => new StaticCall(new Name(Post::class), 'all'),
+    ]))]);
+
+    $analyzer = new ResourceAstAnalyzer(
+        new ReflectionClass(InertiaController::class),
+        null,
+        'dashboard',
+        ControllerExpressionHandlers::make(),
+    );
+
+    expect($analyzer->resolve($expr))->toBe([
+        'type' => 'Post[]',
+        'optional' => true,
+        'modelFqcn' => Post::class,
+    ]);
 });

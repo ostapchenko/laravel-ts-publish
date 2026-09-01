@@ -7,13 +7,17 @@ namespace AbeTwoThree\LaravelTsPublish\Ast;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\StaticCall;
+use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\NodeFinder;
 
 /**
- * Locates a method's Inertia::render() call and reads its component name and props argument.
+ * Locates a method's Inertia render calls and reads their component names and props arguments.
  */
 class InertiaRenderLocator
 {
@@ -35,6 +39,40 @@ class InertiaRenderLocator
         );
 
         return $call;
+    }
+
+    /**
+     * Every Inertia render call in a method — `Inertia::render()`, `inertia()`, and
+     * `inertia()->render()` — normalized into name/props argument pairs, in source order.
+     *
+     * @return list<RenderCall>
+     */
+    public function findRenderCalls(ClassMethod $method): array
+    {
+        if ($method->stmts === null) {
+            return [];
+        }
+
+        $nodes = (new NodeFinder)->find(
+            $method->stmts,
+            fn (Node $node): bool => $this->matcher->isStaticCallTo($node, 'Inertia', 'render')
+                || $this->isInertiaHelperCall($node)
+                || $this->isInertiaHelperRenderCall($node),
+        );
+
+        $calls = [];
+
+        foreach ($nodes as $node) {
+            if (! $node instanceof StaticCall && ! $node instanceof FuncCall && ! $node instanceof MethodCall) {
+                continue; // @codeCoverageIgnore
+            }
+
+            $args = $node->isFirstClassCallable() ? [] : $node->getArgs();
+
+            $calls[] = new RenderCall($args[0]->value ?? null, $args[1]->value ?? null);
+        }
+
+        return $calls;
     }
 
     /**
@@ -69,5 +107,30 @@ class InertiaRenderLocator
         $expr = $this->propsArg($render);
 
         return $expr instanceof Array_ ? $expr : null;
+    }
+
+    /**
+     * Whether the node is an `inertia('Component', [...])` helper call carrying arguments.
+     */
+    protected function isInertiaHelperCall(Node $node): bool
+    {
+        return $node instanceof FuncCall
+            && $node->name instanceof Name
+            && $node->name->toString() === 'inertia'
+            && ! $node->isFirstClassCallable()
+            && $node->getArgs() !== [];
+    }
+
+    /**
+     * Whether the node is an `inertia()->render('Component', [...])` call.
+     */
+    protected function isInertiaHelperRenderCall(Node $node): bool
+    {
+        return $node instanceof MethodCall
+            && $node->name instanceof Identifier
+            && $node->name->toString() === 'render'
+            && $node->var instanceof FuncCall
+            && $node->var->name instanceof Name
+            && $node->var->name->toString() === 'inertia';
     }
 }

@@ -221,8 +221,10 @@ trait InspectsAstNodes
      * Re-express an `array_merge(...)` call as the one array literal it evaluates to, or null when an
      * argument hides keys that cannot be read statically. One literal, not one analysis per argument:
      * only a single walk lets a later key clear the FQCN channels an earlier one registered.
+     *
+     * @param  array<string, Expr>  $localVarBindings  substituted for a variable argument when supplied
      */
-    protected function mergedArrayLiteral(FuncCall $call, ?string $parentMethodName = null): ?Array_
+    protected function mergedArrayLiteral(FuncCall $call, ?string $parentMethodName = null, array $localVarBindings = []): ?Array_
     {
         if (! $call->name instanceof Name || $call->name->getLast() !== 'array_merge' || $call->isFirstClassCallable()) {
             return null;
@@ -231,17 +233,23 @@ trait InspectsAstNodes
         $items = [];
 
         foreach ($call->getArgs() as $arg) {
-            if ($arg->value instanceof Array_) {
-                $items = [...$items, ...$arg->value->items];
+            $value = $arg->value;
+
+            if ($value instanceof Variable && is_string($value->name)) {
+                $value = $localVarBindings[$value->name] ?? $value;
+            }
+
+            if ($value instanceof Array_) {
+                $items = [...$items, ...$value->items];
 
                 continue;
             }
 
-            if (! $this->isParentCallTo($arg->value, $parentMethodName)) {
+            if (! $this->isParentCallTo($value, $parentMethodName)) {
                 return null;
             }
 
-            $items[] = new ArrayItem($arg->value, byRef: false, unpack: true);
+            $items[] = new ArrayItem($value, byRef: false, unpack: true);
         }
 
         return new Array_($items);

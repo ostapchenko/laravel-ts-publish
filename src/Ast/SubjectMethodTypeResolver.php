@@ -28,13 +28,10 @@ final class SubjectMethodTypeResolver
      */
     public function resolve(AnalysisScope $scope, string $methodName): array
     {
-        if ($scope->subjectReflection->hasMethod($methodName)) {
-            $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes($scope->subjectReflection, $methodName);
-            $accepted = resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
+        $own = $this->resolveOn($scope->subjectReflection, $methodName);
 
-            if ($accepted !== null) {
-                return $accepted;
-            }
+        if ($own !== null) {
+            return $own;
         }
 
         $wrappedClass = $this->resolveWrappedClass($scope);
@@ -61,5 +58,24 @@ final class SubjectMethodTypeResolver
         }
 
         return ValueResult::unknown();
+    }
+
+    /**
+     * Reflect one class's own declaration of a method, or null when it declares none the acceptor
+     * will take. Split out so a caller holding a class rather than a scope — a controller's
+     * `$this->service->method()` — reflects it by exactly the same rules.
+     *
+     * @param  ReflectionClass<object>  $reflection
+     * @return ValueExpressionResult|null
+     */
+    public function resolveOn(ReflectionClass $reflection, string $methodName): ?array
+    {
+        if (! $reflection->hasMethod($methodName)) {
+            return null;
+        }
+
+        $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes($reflection, $methodName);
+
+        return resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
     }
 }

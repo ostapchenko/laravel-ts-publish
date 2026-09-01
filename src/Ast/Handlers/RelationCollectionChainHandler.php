@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\CallMatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\AnalyzesPluckCalls;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\AppliesKnownMethodRules;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\InspectsResourceSubject;
@@ -358,6 +359,21 @@ final class RelationCollectionChainHandler implements ExpressionHandler
                     if ($accepted !== null) {
                         return $accepted;
                     }
+                }
+            }
+        }
+
+        // Subject mode: a model-less scope (a controller, not a resource) resolves `$this->service`
+        // from the subject's own typed property, then reflects the method on that class.
+        if ($wrappedClass === null && $scope->modelClass === null) {
+            $propertyClass = resolve(CallMatcher::class)->resolveThisPropertyClass($scope->subjectReflection, $expr->var);
+
+            if ($propertyClass !== null) {
+                $accepted = resolve(SubjectMethodTypeResolver::class)
+                    ->resolveOn(new ReflectionClass($propertyClass), $methodName);
+
+                if ($accepted !== null) {
+                    return $accepted;
                 }
             }
         }
