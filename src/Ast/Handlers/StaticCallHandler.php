@@ -137,6 +137,7 @@ final class StaticCallHandler implements ExpressionHandler
             && $expr->class instanceof Name
             && $expr->class->getLast() === 'Auth'
             && $expr->name instanceof Identifier
+            && ! $expr->isFirstClassCallable()
         ) {
             $auth = $this->authMethodResult($expr->name->toString(), resolve(AuthUserResolver::class)->model());
 

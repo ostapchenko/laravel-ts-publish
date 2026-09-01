@@ -18,8 +18,7 @@ trait BuildsInlineObjectTypes
     /**
      * Flatten an analysis's properties into an inline TypeScript object literal type.
      *
-     * A spread or an array_merge() can re-declare a key; PHP keeps the first position and the last
-     * value, and TypeScript rejects the duplicate outright (TS2300), so collapse before rendering.
+     * A re-declared key keeps its first position and last value, as PHP does; emitting both is TS2300.
      * Any enum-token substitution has to be applied to the properties before this is called.
      */
     protected function buildInlineObjectType(MethodAnalysis $analysis): string

@@ -107,7 +107,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
         protected string $methodName = 'toArray',
     ) {
         $this->scope = new AnalysisScope(self::genericReflection($this->resourceReflection->getName()), $this->modelClass);
-        $this->scope->requestVarNames = $this->resolveRequestVarNames();
+        $this->scope->requestVarNames = $this->resolveRequestVarNames($this->methodName);
 
         if ($this->scope->modelClass !== null) {
             $this->loadModelInspectorData();
@@ -115,23 +115,23 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Request-typed parameter names of the method under analysis, keyed for O(1) lookup.
+     * Request-typed parameter names of one method, keyed for O(1) lookup.
      *
      * Resources take `toArray(Request $request)` too, but their committed output was inferred without
      * the Request rules; seeding them there would move it, so the resource path opts out.
      *
      * @return array<string, true>
      */
-    private function resolveRequestVarNames(): array
+    private function resolveRequestVarNames(string $methodName): array
     {
         if (is_a($this->scope->subjectReflection->getName(), JsonResource::class, true)
-            || ! $this->scope->subjectReflection->hasMethod($this->methodName)) {
+            || ! $this->scope->subjectReflection->hasMethod($methodName)) {
             return [];
         }
 
         $names = [];
 
-        foreach ($this->scope->subjectReflection->getMethod($this->methodName)->getParameters() as $parameter) {
+        foreach ($this->scope->subjectReflection->getMethod($methodName)->getParameters() as $parameter) {
             $type = $parameter->getType();
 
             if ($type instanceof ReflectionNamedType && is_a($type->getName(), Request::class, true)) {
@@ -528,39 +528,15 @@ class ResourceAstAnalyzer implements ExpressionEngine
     }
 
     /**
-     * Analyze a returned `array_merge(...)` whose every argument is an array literal or a
-     * `parent::{$this->methodName}()` call, merging them left to right so later keys win.
+     * Analyze a returned `array_merge(...)` through the array-literal it is equivalent to.
      *
-     * Anything else — a variable, a helper call — hides keys that cannot be read statically, so the
-     * whole call declines rather than reporting a partial shape.
+     * Declines the whole call when an argument is neither a literal nor `parent::{$this->methodName}()`.
      */
     protected function analyzeReturnArrayMerge(FuncCall $call): ?ResourceAnalysis
     {
-        if (! $call->name instanceof Name || $call->name->getLast() !== 'array_merge' || $call->isFirstClassCallable()) {
-            return null;
-        }
+        $merged = $this->mergedArrayLiteral($call, $this->methodName);
 
-        $analysis = new ResourceAnalysis;
-
-        foreach ($call->getArgs() as $arg) {
-            if ($arg->value instanceof Array_) {
-                $analysis->merge($this->analyzeReturnArray($arg->value));
-
-                continue;
-            }
-
-            if (! $this->isParentCallTo($arg->value, $this->methodName)) {
-                return null;
-            }
-
-            $parentAnalysis = $this->analyzeParentToArray();
-
-            if ($parentAnalysis !== null) {
-                $analysis->merge($parentAnalysis);
-            }
-        }
-
-        return $analysis;
+        return $merged === null ? null : $this->analyzeReturnArray($merged);
     }
 
     /**
@@ -708,9 +684,13 @@ class ResourceAstAnalyzer implements ExpressionEngine
         $previousLocalVarBindings = $this->scope->localVarBindings;
         $previousResolvingLocalVars = $this->scope->resolvingLocalVars;
         $previousVarModelBindings = $this->scope->varModelBindings;
+        $previousRequestVarNames = $this->scope->requestVarNames;
         $this->scope->localVarBindings = [];
         $this->scope->resolvingLocalVars = [];
         $this->scope->varModelBindings = [];
+        // The spread method has its own signature: the entry method's Request params say nothing
+        // about which of ITS variables hold one. analyzeParentToArray() re-derives the same way.
+        $this->scope->requestVarNames = $this->resolveRequestVarNames($methodName);
         $this->collectLocalVarBindings($targetMethod->stmts);
 
         try {
@@ -740,6 +720,7 @@ class ResourceAstAnalyzer implements ExpressionEngine
             $this->scope->localVarBindings = $previousLocalVarBindings;
             $this->scope->resolvingLocalVars = $previousResolvingLocalVars;
             $this->scope->varModelBindings = $previousVarModelBindings;
+            $this->scope->requestVarNames = $previousRequestVarNames;
             unset($this->scope->visitedSpreadMethods[$methodName]);
         }
 

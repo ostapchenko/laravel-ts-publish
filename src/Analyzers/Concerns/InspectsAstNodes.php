@@ -8,8 +8,11 @@ use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
 use AbeTwoThree\LaravelTsPublish\EnumResource;
 use Illuminate\Http\Resources\Json\JsonResource;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\ArrayItem;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
+use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\PropertyFetch;
@@ -212,6 +215,36 @@ trait InspectsAstNodes
         }
 
         return null;
+    }
+
+    /**
+     * Re-express an `array_merge(...)` call as the one array literal it evaluates to, or null when an
+     * argument hides keys that cannot be read statically. One literal, not one analysis per argument:
+     * only a single walk lets a later key clear the FQCN channels an earlier one registered.
+     */
+    protected function mergedArrayLiteral(FuncCall $call, ?string $parentMethodName = null): ?Array_
+    {
+        if (! $call->name instanceof Name || $call->name->getLast() !== 'array_merge' || $call->isFirstClassCallable()) {
+            return null;
+        }
+
+        $items = [];
+
+        foreach ($call->getArgs() as $arg) {
+            if ($arg->value instanceof Array_) {
+                $items = [...$items, ...$arg->value->items];
+
+                continue;
+            }
+
+            if (! $this->isParentCallTo($arg->value, $parentMethodName)) {
+                return null;
+            }
+
+            $items[] = new ArrayItem($arg->value, byRef: false, unpack: true);
+        }
+
+        return new Array_($items);
     }
 
     /**

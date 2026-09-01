@@ -18,13 +18,16 @@ use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\Middlewar
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithoutShareMethod;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithTsCastsAndDocblock;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\MiddlewareWithUnsharedOptionalKey;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\SpreadShareMiddleware;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\StarterKitArrayMergeMiddleware;
 
 /**
  * Analyze one fixture middleware without touching the filesystem discovery pass.
  *
+ * @phpstan-import-type SharedDataResult from InertiaSharedDataAnalyzer
+ *
  * @param  class-string  $middlewareClass
- * @return array{sharedPageProps: string, withAllErrors: bool, importStatements: list<string>, typeImports: array<string, list<string>>}|null
+ * @return SharedDataResult|null
  */
 function analyzeSharedDataFor(string $middlewareClass): ?array
 {
@@ -98,6 +101,15 @@ test('a parent middleware share() contributes its keys, the child overriding by 
     // while keeping the parent's position, exactly as PHP's own spread merge does.
     expect($result)->not->toBeNull()
         ->and($result['sharedPageProps'])->toBe('{ locale: string, theme: number, sidebarOpen: boolean }');
+});
+
+test('each spread body derives its own Request variable names', function () {
+    // spreadUrl proves the spread method's own `Request $req` is seen; decoy proves share()'s
+    // `$request` does not leak in and type a same-named parameter that holds a string.
+    $result = analyzeSharedDataFor(SpreadShareMiddleware::class);
+
+    expect($result)->not->toBeNull()
+        ->and($result['sharedPageProps'])->toBe('{ spreadUrl: string, decoy: unknown, top: string }');
 });
 
 test('array_merge and the spread form agree on a parent chain', function () {

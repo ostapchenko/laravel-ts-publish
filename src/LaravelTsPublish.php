@@ -1964,8 +1964,7 @@ class LaravelTsPublish
      *
      * Example: 'blog/models' → 'blog/enums' = '../enums'; 'models' → 'models/videos' = './videos'
      *
-     * An empty from-path is the output root, not a directory named '' — explode() would report it as
-     * one segment deep and climb out of the tree.
+     * An empty from-path is the output root, not a directory named '' — one segment deep would climb out.
      */
     public function relativeImportPath(string $fromNamespacePath, string $toNamespacePath): string
     {

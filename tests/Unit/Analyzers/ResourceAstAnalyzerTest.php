@@ -5,6 +5,8 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\MergeArrayMergeChildResource;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\MergeSpreadChildResource;
 use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\UnreadableReturnResource;
 use AbeTwoThree\LaravelTsPublish\Transformers\ResourceTransformer;
 use Illuminate\Notifications\DatabaseNotification;
@@ -2007,6 +2009,19 @@ describe('ResourceAstAnalyzer non-array return', function () {
 
         expect($analysis)->toBeInstanceOf(ResourceAnalysis::class)
             ->and(array_column($analysis->properties, 'type', 'name'))->toBe(['id' => 'number', 'name' => 'string']);
+    });
+
+    test('array_merge and the spread form agree on a key redeclared over a parent', function () {
+        // inlineModelFqcns is a positional queue aliasPropertyType() walks against the rendered type
+        // string, so a merge strategy that concatenates per-argument analyses doubles it while the
+        // string keeps two tokens — the child's arms then alias to the parent's models.
+        $spread = new ResourceAstAnalyzer(new ReflectionClass(MergeSpreadChildResource::class), Warehouse::class)->analyze();
+        $merge = new ResourceAstAnalyzer(new ReflectionClass(MergeArrayMergeChildResource::class), Warehouse::class)->analyze();
+
+        expect($merge->inlineModelFqcns)->toBe(['who' => [CrmUser::class, User::class]])
+            ->and($merge->inlineModelFqcns)->toBe($spread->inlineModelFqcns)
+            ->and(array_column($merge->properties, 'type', 'name'))->toBe(['who' => 'User | User | null'])
+            ->and(array_column($merge->properties, 'type', 'name'))->toBe(array_column($spread->properties, 'type', 'name'));
     });
 
     test('returns empty analysis for a returned call it cannot read statically', function () {

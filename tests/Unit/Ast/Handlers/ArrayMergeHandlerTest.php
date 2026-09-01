@@ -66,12 +66,24 @@ it('declines when an argument is not an array literal or a parent call', functio
         ->toBeNull();
 });
 
-it('accepts a parent:: argument', function () {
-    $parentCall = new StaticCall(new Name('parent'), 'toArray', [new Arg(new Variable('request'))]);
-    $expr = arrayMergeCall([new Arg($parentCall), arrayMergeLiteral('extra', 1)]);
+it('folds a parent:: argument in, and declines the same shape on any other class', function () {
+    $scope = new AnalysisScope(new ReflectionClass(stdClass::class));
+    $parent = arrayMergeCall([
+        new Arg(new StaticCall(new Name('parent'), 'toArray', [new Arg(new Variable('request'))])),
+        arrayMergeLiteral('extra', 1),
+    ]);
+    $foreign = arrayMergeCall([
+        new Arg(new StaticCall(new Name('Other'), 'toArray', [new Arg(new Variable('request'))])),
+        arrayMergeLiteral('extra', 1),
+    ]);
 
-    expect((new ArrayMergeHandler)->resolve($expr, new AnalysisScope(new ReflectionClass(stdClass::class)), arrayMergeTestEngine()))
-        ->not->toBeNull();
+    // CommentResource's parent is JsonResource, so parent::toArray() resolves to the Comment model
+    // dump — `content` can only have arrived through the parent argument, never from the literal.
+    expect((new ArrayMergeHandler)->resolve($parent, $scope, arrayMergeTestEngine())['type'])
+        ->toContain('content: string')
+        ->toContain('extra: number')
+        ->and((new ArrayMergeHandler)->resolve($foreign, $scope, arrayMergeTestEngine()))
+        ->toBeNull();
 });
 
 it('declines another function and a first-class callable', function () {

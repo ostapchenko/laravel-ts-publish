@@ -62,6 +62,9 @@ final class KnownFunctionCallHandler implements ExpressionHandler
     /**
      * Resolve `auth()->user()` / `auth()->id()`, or decline any other receiver.
      *
+     * `auth('admin')` names a guard AuthUserResolver does not read, and answering with the default
+     * guard's model would be confidently wrong — worse than the `unknown` a decline leaves.
+     *
      * @return ValueExpressionResult|null
      */
     private function authHelperMethodRule(MethodCall $expr): ?array
@@ -69,7 +72,9 @@ final class KnownFunctionCallHandler implements ExpressionHandler
         if (! $expr->name instanceof Identifier
             || ! $expr->var instanceof FuncCall
             || ! $expr->var->name instanceof Name
-            || $expr->var->name->getLast() !== 'auth') {
+            || $expr->var->name->getLast() !== 'auth'
+            || $expr->var->isFirstClassCallable()
+            || $expr->var->getArgs() !== []) {
             return null;
         }
 

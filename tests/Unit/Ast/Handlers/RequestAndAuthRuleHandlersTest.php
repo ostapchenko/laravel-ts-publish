@@ -19,6 +19,7 @@ use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\VariadicPlaceholder;
 use Workbench\App\Http\Resources\CommentResource;
 use Workbench\App\Models\Comment;
 use Workbench\App\Models\User;
@@ -119,6 +120,23 @@ it('declines an unbound ->user() on any other receiver', function () {
     $expr = new MethodCall(new FuncCall(new Name('resolve')), 'user');
 
     expect((new KnownFunctionCallHandler)->resolve($expr, requestRuleScope(), requestRuleEngine()))->toBeNull();
+});
+
+it('declines auth() with a named guard rather than answering with the default guard model', function () {
+    // AuthUserResolver only reads auth.defaults.guard, so typing auth('admin')->user() as the web
+    // guard's model would be confidently wrong — worse than the unknown a decline leaves.
+    $named = new MethodCall(new FuncCall(new Name('auth'), [new Arg(new String_('admin'))]), 'user');
+    $callable = new MethodCall(new FuncCall(new Name('auth'), [new VariadicPlaceholder]), 'user');
+
+    expect((new KnownFunctionCallHandler)->resolve($named, requestRuleScope(), requestRuleEngine()))->toBeNull()
+        ->and((new KnownFunctionCallHandler)->resolve($callable, requestRuleScope(), requestRuleEngine()))->toBeNull();
+});
+
+it('declines Auth::user(...) as a first-class callable', function () {
+    $expr = new StaticCall(new Name('Auth'), 'user', [new VariadicPlaceholder]);
+
+    expect((new StaticCallHandler)->resolve($expr, requestRuleScope(), requestRuleEngine()))
+        ->not->toBe(['type' => 'User | null', 'optional' => false, 'modelFqcn' => User::class]);
 });
 
 it('types Auth::user() and Auth::id()', function () {
