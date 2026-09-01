@@ -11,6 +11,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\EnumResource;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\New_;
 use PhpParser\Node\Expr\PropertyFetch;
@@ -42,6 +43,11 @@ function staticCallHandlerThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('spreadAnalysis() must not be called in this case');
         }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+        {
+            throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -69,6 +75,11 @@ final class StaticCallHandlerArmStubEngine implements ExpressionEngine
     public function spreadAnalysis(string $methodName): ?MethodAnalysis
     {
         throw new RuntimeException('spreadAnalysis() must not be called in this case');
+    }
+
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+    {
+        throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
     }
 }
 

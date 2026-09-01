@@ -6,6 +6,7 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Contracts;
 
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 
 /**
  * Full expression resolution, for handlers to call back into on sub-expressions they don't own.
@@ -26,4 +27,10 @@ interface ExpressionEngine
      * self-returning chain onto a non-preserving method body instead of degrading to `unknown`.
      */
     public function spreadAnalysis(string $methodName): ?MethodAnalysis;
+
+    /**
+     * Analyze an array literal's items into properties, spreads, and FQCN maps — the same
+     * return-position array machinery, reused for a nested inline array literal by InlineArrayHandler.
+     */
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis;
 }

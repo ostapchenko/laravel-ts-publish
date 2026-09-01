@@ -7,6 +7,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ClosureHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure as ClosureExpr;
 use PhpParser\Node\Expr\MethodCall;
@@ -40,6 +41,11 @@ function closureHandlerThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('spreadAnalysis() must not be called in this case');
         }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+        {
+            throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -67,6 +73,11 @@ final class ClosureHandlerArmStubEngine implements ExpressionEngine
     public function spreadAnalysis(string $methodName): ?MethodAnalysis
     {
         throw new RuntimeException('spreadAnalysis() must not be called in this case');
+    }
+
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+    {
+        throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
     }
 }
 
@@ -96,6 +107,11 @@ final class ClosureHandlerScopeSpyEngine implements ExpressionEngine
     {
         throw new RuntimeException('spreadAnalysis() must not be called in this case');
     }
+
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+    {
+        throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
+    }
 }
 
 /**
@@ -112,6 +128,11 @@ function closureHandlerBlowingUpEngine(): ExpressionEngine
         }
 
         public function spreadAnalysis(string $methodName): ?MethodAnalysis
+        {
+            throw new RuntimeException('body resolution exploded');
+        }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
         {
             throw new RuntimeException('body resolution exploded');
         }

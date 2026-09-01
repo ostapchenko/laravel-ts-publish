@@ -11,7 +11,7 @@ back to their source.
 ## Relation filters
 
 `$this->relation->only([...])` / `->except([...])` (and their `?->` nullsafe forms) analyze
-via `analyzeRelationFilter()`. When the related model resolves to a single class (not a
+via `RelationFilterHandler::analyzeRelationFilter()`. When the related model resolves to a single class (not a
 multi-model accessor union such as `Attribute<ModelA|ModelB, never>`), the analyzer prefers to
 **reference the related model's own generated interface** instead of re-deriving an inline
 object shape — the model interface already carries `#[TsCasts]` overrides and `@property`
@@ -19,7 +19,7 @@ docblock refinements that a from-scratch recompute loses.
 
 ### When a Pick reference is emitted
 
-`relationFilterModelReference()` builds `Pick<Model, 'a' | 'b'>` — `[]`-suffixed for
+`RelationFilterHandler::relationFilterModelReference()` builds `Pick<Model, 'a' | 'b'>` — `[]`-suffixed for
 many-relations, `| null`-suffixed for nullsafe calls — whenever **every filter key is a column
 the model interface actually declares**, per `ModelAttributeResolver::publishedColumnNames()`.
 For `only()` the picked keys are the caller's own list, verbatim. For `except()` they are the
@@ -162,7 +162,7 @@ go through `getArrayableItems()`, which strips it.
   to inline expansion instead of a `Pick<>` reference, but it is never dropped.
 - **`$this->whenHas('column')`** — the attribute name is a literal argument to the call.
 - **Plain `@mixin` property access** — `'password' => $this->password` — the single most common
-  resource idiom. `analyzeThisProperty()` resolves it via `resolveModelAttributeTypeInfo()`, the
+  resource idiom. `ThisPropertyHandler::analyzeThisProperty()` resolves it via `resolveModelAttributeTypeInfo()`, the
   same single-attribute resolution `ConditionalMethodHandler::analyzeWhenHas()` reaches through its
   own `ModelAttributeResolver`-backed copy of that helper; it never reaches
   `buildModelDelegatedAnalysis()`, so a hand-written key survives `exclude_hidden` exactly like a
@@ -177,7 +177,7 @@ passes `false`. `resolveFilteredRelationType()`'s except branch has no such shar
 builds its key list fresh per call — so it filters unconditionally there. `WarehouseResource`'s own
 union-accessor `except()` calls (`last_user_activity_by_mostly`, `last_checked_by_mostly`) no
 longer reach this branch: every excluded key there is a non-hidden published column, so each arm
-resolves through `relationFilterModelReference()` instead — see [Multi-model accessor unions
+resolves through `RelationFilterHandler::relationFilterModelReference()` instead — see [Multi-model accessor unions
 reference each arm's own model](#multi-model-accessor-unions-reference-each-arms-own-model) below.
 `ModelAttributeResolver::publishedColumnNames()` is `relationFilterModelReference()`'s own
 `$hidden` gate, and it is still pinned directly — `PostAttachmentFilterResource::$attachment_hidden`
@@ -234,7 +234,7 @@ the `$isMixed` check is key-sensitive, testing whether a property name is a key 
 the other two — both import-garbage-collection loops — compare values only and work correctly for
 both entry kinds. `substituteEnumResourceType()` never reads this map at all.
 
-`analyzeInlineArray()` runs the identical `$isMixed` check for a *nested* key, against its own
+`InlineArrayHandler::analyzeInlineArray()` runs the identical `$isMixed` check for a *nested* key, against its own
 method-local `ResourceAnalysis` rather than `ResourceTransformer`'s instance maps — see
 [A mixed ternary inside an inline array](#a-mixed-ternary-inside-an-inline-array) below.
 
@@ -246,11 +246,11 @@ analyzer's own type string, in which the enum appears as its bare TS type name (
 `Type`). With `enums.use_tolki_package` on, **both** rewrite paths turn that into
 `AsEnum<typeof Role>` by *substituting the bare token in place*, for the ordinary (non-mixed) case:
 `ResourceTransformer::substituteEnumResourceType()` for a top-level property, and
-`ResourceAstAnalyzer::substituteEnumType()` for one nested inside an inline array literal.
+`InlineArrayHandler::substituteEnumType()` for one nested inside an inline array literal.
 Both use the same word-boundary pattern — the lookbehind excludes `.` so a namespace-qualified
 `foo.RoleType` is left alone, the lookahead stops `RoleType` matching the prefix of
 `RoleTypeExtra`. A nested key whose ternary is *mixed* — wrapped in one arm, read directly in the
-other — instead goes through `ResourceAstAnalyzer::expandMixedEnumType()`; see the next section.
+other — instead goes through `InlineArrayHandler::expandMixedEnumType()`; see the next section.
 
 Substitution matters because the analyzer's type is often richer than `X`/`X[]`, and the corpus
 pins two such shapes:
@@ -278,7 +278,7 @@ every arm that names the enum and leaving the rest of the union untouched.
 
 Both substitution paths above embed the enum's **bare** const name (`Role`, not whatever alias it
 may need) into `AsEnum<typeof {const}>`, because neither one can do otherwise:
-`ResourceAstAnalyzer::substituteEnumType()` runs during analysis (`runAstAnalysis()`, step 6 of
+`InlineArrayHandler::substituteEnumType()` runs during analysis (`runAstAnalysis()`, step 6 of
 `ResourceTransformer::transform()`), before `resolveImportConflicts()` (step 10) has computed any
 alias at all. For a top-level property this is invisible: `rewriteEnumResourceTypes()` reads
 `$constImportAliases` itself and builds the *already-aliased* string directly
@@ -286,7 +286,7 @@ alias at all. For a top-level property this is invisible: `rewriteEnumResourceTy
 string the analyzer might otherwise have produced is never actually built for that case.
 
 For a wrap nested inside an inline array, the bare-const string *is* what leaves the analyzer —
-`analyzeInlineArray()`'s substituted type string travels out flat, keyed by the *outer* property
+`InlineArrayHandler::analyzeInlineArray()`'s substituted type string travels out flat, keyed by the *outer* property
 name, with no alias information attached. `ResourceTransformer::rewriteEnumResourceTypes()`
 corrects it in a dedicated final pass, after `resolveImportConflicts()` has run: for each property
 in `$propertyInlineEnumResourceFqcns` it calls `LaravelTsPublish::aliasPropertyType()`, keyed on
@@ -311,10 +311,10 @@ matching registration-side half: an enum reached *only* through an inline wrap n
 
 `ResourceTransformer::rewriteEnumResourceTypes()`'s top-level `$isMixed` branch synthesizes
 `AsEnum<typeof Const> | EnumTypeName` from scratch whenever a property is both EnumResource-wrapped
-and directly enum-read — it never trusts the analyzer's own merged type string. `analyzeInlineArray()`
+and directly enum-read — it never trusts the analyzer's own merged type string. `InlineArrayHandler::analyzeInlineArray()`
 cannot do the same for a *nested* key: its `ResourceAnalysis` is method-local, and only flat property
 lists leave the method, keyed by the array literal's own (outer) property name, so the transformer
-has no way to know which inner key was mixed. The fix has to stay analyzer-side, in
+has no way to know which inner key was mixed. The fix has to stay in `InlineArrayHandler`, in
 `expandMixedEnumType()`, working from the merged type string plus the one out-of-band signal the
 analyzer does keep — `$isMixed`.
 
@@ -391,11 +391,11 @@ alone, silently dropping the scalar arm.
 
 ### Multi-model accessor unions reference each arm's own model
 
-`analyzeRelationFilter()`'s other branch handles an accessor typed as a union of two or more
+`RelationFilterHandler::analyzeRelationFilter()`'s other branch handles an accessor typed as a union of two or more
 Eloquent models, e.g. `Attribute<CrmUser|User, never>`. The `$modelFqcn === null` guard diverts
 this receiver into a loop over `resolveAccessorModelFqcns()`'s FQCN list — one arm per model — and,
-like the single-model path just above, that loop now tries `relationFilterModelReference()` for
-each arm *first*, falling back to `resolveFilteredRelationType()`'s inline expansion only when a
+like the single-model path just above, that loop now tries `RelationFilterHandler::relationFilterModelReference()` for
+each arm *first*, falling back to `RelationFilterHandler::resolveFilteredRelationType()`'s inline expansion only when a
 filter key is not one of that arm's own published columns (an accessor, mutator, or relation name).
 Every filter key on `WarehouseResource::$last_user_activity_by_mostly` (`except(['id', 'name'])`)
 and `$last_checked_by_mostly` (`except(['created_at', 'updated_at'])`) is a plain column on both
@@ -608,7 +608,7 @@ through; `parent_fluent_nullable` pins that. When it says otherwise, the express
 resource, and the method's *body* is resolved through the analyzer's `spreadAnalysis()` — the
 `ExpressionEngine` entry point delegating to `analyzeThisMethodSpread()` — instead of degrading to
 `unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
-`StaticCallHandler`'s own `buildInlineObjectType()`, a duplicate of `analyzeInlineArray()`'s `{ … }`-arm helper.
+`StaticCallHandler`'s own `buildInlineObjectType()`, a duplicate of `InlineArrayHandler::analyzeInlineArray()`'s `{ … }`-arm helper.
 
 Three tiers are possible here and only the last is correct. Do not "improve" this to the receiver type:
 
@@ -648,14 +648,14 @@ fail the test. Widening this to foreign receivers is therefore a deliberate chan
 
 An inline array literal that spreads a named type alongside its own keys —
 `[...UserResource::make($m)->resolve($request), 'profile' => new ProfileResource($m->profile)]` —
-emits an intersection rather than flattening the spread's keys inline. `analyzeInlineArray()`
+emits an intersection rather than flattening the spread's keys inline. `InlineArrayHandler::analyzeInlineArray()`
 collects the arms via `collectInlineArraySpreadArms()` and builds each one with
 `buildSpreadArmTypes()`. Three arm kinds are recognised:
 
 - **A resource arm** — a spread whose value resolves to a *bare* named resource (not an array or
   collection of one). The guard is that the result carries a `resourceFqcn` *and* its emitted type
   is exactly that resource's basename, so `UserResource[]` never becomes an arm.
-- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model. `spreadModelToArrayFqcn()`
+- **A model arm** — `$var->toArray()` where `$var` is a closure-bound model. `InlineArrayHandler::spreadModelToArrayFqcn()`
   checks `$varModelBindings` first, then returns `null` for a `$var` bound only in
   `$varCollectionBindings` — a to-many `whenLoaded` param holding the whole collection, not one
   model — else falls back to `$closureRelationModelClass`.
@@ -663,9 +663,9 @@ collects the arms via `collectInlineArraySpreadArms()` and builds each one with
   `analyzeVariableMapCall()` sets only `$closureRelationModelClass` for the element and never
   populates `$varModelBindings` (`members_model_spread` pins the fallback path, not the explicit-
   binding one). `$this->toArray()` is excluded by name: it is the resource's own method and
-  `isKnownArraySpreadShape()` already flattens it.
+  `InlineArrayHandler::isKnownArraySpreadShape()` already flattens it.
 - **A collection arm** — the `null` `spreadModelToArrayFqcn()` returns for a `$varCollectionBindings`
-  name is a *decline*, not a drop: `spreadCollectionToArrayFqcn()` picks the same expression up and
+  name is a *decline*, not a drop: `InlineArrayHandler::spreadCollectionToArrayFqcn()` picks the same expression up and
   resolves it to the binding's element model. It emits `Record<number, {Model}>`.
   `members_collection_spread` pins both halves — the decline and the Record.
 
@@ -853,7 +853,7 @@ excluded and still union their return type in as usual.
 
 ### An empty-array default collapses instead of widening the property
 
-`analyzeInlineArray()` discriminates on `$array->items === []` before it consults the extracted
+`InlineArrayHandler::analyzeInlineArray()` discriminates on `$array->items === []` before it consults the extracted
 properties, because the two empty results mean different things. A literal `[]` is `never[]` —
 `json_encode([])` emits `[]`, never `{}`, so the old blanket `Record<string, unknown>` described a shape
 the runtime could not produce. An array whose *keys* failed to resolve keeps the `Record` fallback, which
@@ -1338,8 +1338,8 @@ preserve — the plan's Out of Scope section records the fixture that would be n
 **A single inline array member's own multi-FQCN accessor now contributes its own arms too.** The three
 fixes above only cover *merging* an already-populated queue across branches or inheritance. A member whose
 own value is a multi-FQCN accessor (`Attribute<CrmUser|User, never>`) never populated that queue at all:
-`resolveModelAttributeTypeInfo()` discarded `classFqcns`, so `analyzeThisProperty()` had nothing to attach
-as `embeddedModelFqcns`, and separately `analyzeInlineArray()` built the array literal's own
+`resolveModelAttributeTypeInfo()` discarded `classFqcns`, so `ThisPropertyHandler::analyzeThisProperty()` had nothing to attach
+as `embeddedModelFqcns`, and separately `InlineArrayHandler::analyzeInlineArray()` built the array literal's own
 `embeddedModelFqcns` from the self-keyed, deduplicated `$analysis->modelFqcns` map rather than
 `$analysis->inlineModelFqcns`, which would have collapsed any remaining multiplicity anyway. Both are
 fixed: `resolveModelAttributeTypeInfo()` now carries `classFqcns` through, `analyzeThisProperty()` attaches
@@ -1361,7 +1361,7 @@ It additionally resolves `flatTypeAlias`/`flatTypeAliasFqcn`, two scalars `syncA
 touches: the first non-null branch wins on conflict. No fixture exercises that conflict rule, and the
 argument has to cover **both** callers. `analyzeAllReturnBranches()` builds its branches with
 `analyzeReturnArray()`; `resolveArrayOrClosureToProperties()` — the `merge()`/`mergeWhen()` path, which
-merges a multi-return closure's branches — builds its own with `extractPropertiesFromArray()`. Neither
+merges a multi-return closure's branches — builds its own with `ThisPropertyHandler::extractPropertiesFromArray()`. Neither
 builder ever sets either field, so every branch reaching this method already has both null. Only
 `buildCollectionDelegatedAnalysis()` sets them, and it returns directly without going through branch
 merging.

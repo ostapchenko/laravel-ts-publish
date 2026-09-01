@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\ConditionalMethodHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\BinaryOp;
 use PhpParser\Node\Expr\ConstFetch;
@@ -50,6 +51,11 @@ function conditionalMethodHandlerThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('spreadAnalysis() must not be called in this case');
         }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+        {
+            throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -77,6 +83,11 @@ final class ConditionalMethodHandlerArmStubEngine implements ExpressionEngine
     public function spreadAnalysis(string $methodName): ?MethodAnalysis
     {
         throw new RuntimeException('spreadAnalysis() must not be called in this case');
+    }
+
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+    {
+        throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
     }
 }
 
@@ -116,6 +127,11 @@ final class ConditionalMethodHandlerScopeSpyEngine implements ExpressionEngine
     public function spreadAnalysis(string $methodName): ?MethodAnalysis
     {
         throw new RuntimeException('spreadAnalysis() must not be called in this case');
+    }
+
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+    {
+        throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
     }
 }
 

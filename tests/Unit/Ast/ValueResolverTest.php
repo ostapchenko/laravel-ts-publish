@@ -11,6 +11,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResolver;
 use AbeTwoThree\LaravelTsPublish\Ast\ValueResult;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
@@ -43,6 +44,11 @@ function valueResolverThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('spreadAnalysis() must not be called in this case');
         }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+        {
+            throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -70,6 +76,11 @@ function valueResolverLeafEngine(): ExpressionEngine
         public function spreadAnalysis(string $methodName): ?MethodAnalysis
         {
             throw new RuntimeException('spreadAnalysis() must not be called in this case');
+        }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+        {
+            throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
         }
     };
 }

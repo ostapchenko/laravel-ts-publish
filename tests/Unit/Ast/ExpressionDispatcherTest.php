@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ExpressionDispatcher;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Scalar;
 use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\String_;
@@ -33,6 +34,11 @@ function dispatcherTestEngine(): ExpressionEngine
         }
 
         public function spreadAnalysis(string $methodName): ?MethodAnalysis
+        {
+            throw new RuntimeException('dispatch() must not call back into the engine in these tests');
+        }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
         {
             throw new RuntimeException('dispatch() must not call back into the engine in these tests');
         }

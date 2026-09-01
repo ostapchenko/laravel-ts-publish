@@ -8,6 +8,7 @@ use AbeTwoThree\LaravelTsPublish\Ast\Handlers\CoalesceHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\Handlers\KnownFunctionCallHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\BinaryOp;
 use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\FuncCall;
@@ -39,6 +40,11 @@ function coalesceHandlerThrowingEngine(): ExpressionEngine
         {
             throw new RuntimeException('spreadAnalysis() must not be called in this case');
         }
+
+        public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+        {
+            throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
+        }
     };
 }
 
@@ -67,6 +73,11 @@ final class CoalesceArmStubEngine implements ExpressionEngine
     public function spreadAnalysis(string $methodName): ?MethodAnalysis
     {
         throw new RuntimeException('spreadAnalysis() must not be called in this case');
+    }
+
+    public function returnArrayAnalysis(Array_ $array): MethodAnalysis
+    {
+        throw new RuntimeException('returnArrayAnalysis() must not be called in this case');
     }
 }
 
