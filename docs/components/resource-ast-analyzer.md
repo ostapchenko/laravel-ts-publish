@@ -395,7 +395,7 @@ alone, silently dropping the scalar arm.
 Eloquent models, e.g. `Attribute<CrmUser|User, never>`. The `$modelFqcn === null` guard diverts
 this receiver into a loop over `resolveAccessorModelFqcns()`'s FQCN list — one arm per model — and,
 like the single-model path just above, that loop now tries `RelationFilterHandler::relationFilterModelReference()` for
-each arm *first*, falling back to `RelationFilterHandler::resolveFilteredRelationType()`'s inline expansion only when a
+each arm *first*, falling back to `ResolvesFilteredRelationTypes::resolveFilteredRelationType()`'s inline expansion only when a
 filter key is not one of that arm's own published columns (an accessor, mutator, or relation name).
 Every filter key on `WarehouseResource::$last_user_activity_by_mostly` (`except(['id', 'name'])`)
 and `$last_checked_by_mostly` (`except(['created_at', 'updated_at'])`) is a plain column on both
@@ -608,7 +608,8 @@ through; `parent_fluent_nullable` pins that. When it says otherwise, the express
 resource, and the method's *body* is resolved through the analyzer's `spreadAnalysis()` — the
 `ExpressionEngine` entry point delegating to `analyzeThisMethodSpread()` — instead of degrading to
 `unknown`. That returns a `ResourceAnalysis`, so it is flattened into an inline object literal by
-`StaticCallHandler`'s own `buildInlineObjectType()`, a duplicate of `InlineArrayHandler::analyzeInlineArray()`'s `{ … }`-arm helper.
+`Ast\Concerns\BuildsInlineObjectTypes::buildInlineObjectType()`, the shared helper behind both this
+call and `InlineArrayHandler::analyzeInlineArray()`'s `{ … }` arm.
 
 Three tiers are possible here and only the last is correct. Do not "improve" this to the receiver type:
 
@@ -1047,7 +1048,7 @@ excluded as unreachable anywhere else in the family.
 ## `#[Collects]` resolution is Laravel-version-guarded
 
 `InspectsAstNodes::resolveCollectedResourceClass()` — called directly by every consumer
-(`ResourceAstAnalyzer::resolveSingularResourceClass()`, `ToResourceHandler`, `StaticCallHandler`,
+(`Ast\Concerns\ResolvesSingularResourceClass`, `ToResourceHandler`, `StaticCallHandler`,
 `NewResourceHandler`, and `InertiaPageAnalyzer::resolveSingularResourceFqcn()`) — checks for
 `Illuminate\Http\Resources\Attributes\Collects` behind `class_exists()` rather than a `use` import,
 because the package still supports Laravel 12 releases that don't ship the attribute. See
@@ -1088,7 +1089,7 @@ stays ungated on purpose — an explicitly named resource is a declaration, not 
 
 ### One resolver, not many — every `#[Collects]` caller shares it
 
-`ResourceAstAnalyzer::resolveSingularResourceClass()`, `ToResourceHandler`, `StaticCallHandler`,
+`Ast\Concerns\ResolvesSingularResourceClass`, `ToResourceHandler`, `StaticCallHandler`,
 `NewResourceHandler`, and `InertiaPageAnalyzer::resolveSingularResourceFqcn()` used to carry
 near-verbatim copies of the same `#[Collects]` / `$collects` / naming-convention resolution order,
 including the same third, naming-convention branch — the one gap this section used to carry as a

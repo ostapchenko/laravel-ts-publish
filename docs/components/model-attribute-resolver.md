@@ -468,7 +468,7 @@ Which of the two a call site wants turns on the question it is asking. `publishe
 answers "may I name this key against the generated interface?", so it must track what
 `transformColumns()` emitted. `databaseColumnNames()` answers "is this name a real column at all?",
 which is what the runtime-fidelity call sites need and why `$hidden` membership is irrelevant to
-them: `ResourceAstAnalyzer::resolveFilteredRelationType()`'s except branch intersects the related
+them: `Ast\Concerns\ResolvesFilteredRelationTypes::resolveFilteredRelationType()`'s except branch intersects the related
 model's attribute list with it so an inlined `$this->relation->except([...])` expands to columns
 only, matching `HasAttributes::except()`, and `buildModelDelegatedAnalysis()` reads it as
 `$dbColumns` to keep `isOmittedMutator()` from ever dropping a real column. Both apply

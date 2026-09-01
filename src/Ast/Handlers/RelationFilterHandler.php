@@ -6,6 +6,8 @@ namespace AbeTwoThree\LaravelTsPublish\Ast\Handlers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Concerns\InspectsAstNodes;
 use AbeTwoThree\LaravelTsPublish\Ast\AnalysisScope;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\FiltersAttributeKeys;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesFilteredRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesMapProxyElementModels;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
@@ -15,13 +17,11 @@ use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Database\Eloquent\Model;
 use PhpParser\Node\Expr;
-use PhpParser\Node\Expr\Array_;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
-use PhpParser\Node\Scalar\String_;
 
 /**
  * `$this->relation->only([...])`/`->except([...])` and Laravel's `map` HigherOrderCollectionProxy
@@ -32,7 +32,9 @@ use PhpParser\Node\Scalar\String_;
  */
 final class RelationFilterHandler implements ExpressionHandler
 {
+    use FiltersAttributeKeys;
     use InspectsAstNodes;
+    use ResolvesFilteredRelationTypes;
     use ResolvesMapProxyElementModels;
     use ResolvesModelRelationTypes;
 
@@ -70,69 +72,6 @@ final class RelationFilterHandler implements ExpressionHandler
         }
 
         return null;
-    }
-
-    /**
-     * The attribute filter methods supported by the analyzer.
-     *
-     * Mirrors FiltersModelAttributes::supportedAttributeFilters(); duplicated because that trait's
-     * other methods (analyzeThisAttributeFilter() etc.) need buildModelDelegatedAnalysis(), which
-     * this per-call handler has no access to — see extractFilterKeys() below for the same reason.
-     *
-     * @return list<string>
-     */
-    private function supportedAttributeFilters(): array
-    {
-        return ['only', 'except'];
-    }
-
-    /**
-     * Extract string keys from a filter method call's arguments.
-     *
-     * Supports both the array form `->only(['id', 'name'])` and the variadic form `->only('id', 'name')`.
-     *
-     * Mirrors FiltersModelAttributes::extractFilterKeys(); duplicated (stateless, verbatim body) —
-     * that trait stays on the analyzer for analyzeThisAttributeFilter()'s own use.
-     *
-     * @return list<string>|null
-     */
-    private function extractFilterKeys(MethodCall|NullsafeMethodCall $call): ?array
-    {
-        if ($call->isFirstClassCallable()) {
-            return null; // @codeCoverageIgnore
-        }
-
-        $args = $call->getArgs();
-
-        if (count($args) < 1) {
-            return null; // @codeCoverageIgnore
-        }
-
-        // Array form: ->only(['id', 'name'])
-        if ($args[0]->value instanceof Array_) {
-            /** @var list<string> $keys */
-            $keys = [];
-
-            foreach ($args[0]->value->items as $arrayItem) {
-                if ($arrayItem->value instanceof String_) {
-                    $keys[] = $arrayItem->value->value;
-                }
-            }
-
-            return $keys !== [] ? $keys : null;
-        }
-
-        // Variadic form: ->only('id', 'name')
-        /** @var list<string> $keys */
-        $keys = [];
-
-        foreach ($args as $arg) {
-            if ($arg->value instanceof String_) {
-                $keys[] = $arg->value->value;
-            }
-        }
-
-        return $keys !== [] ? $keys : null;
     }
 
     /**
@@ -381,118 +320,6 @@ final class RelationFilterHandler implements ExpressionHandler
         $quoted = implode(' | ', array_map(fn (string $k): string => "'".$k."'", $picked));
 
         return 'Pick<'.class_basename($modelFqcn).', '.$quoted.'>';
-    }
-
-    /**
-     * Resolve an inline TypeScript type for a filtered subset of a related model's attributes and relations.
-     *
-     * Used when a resource accesses `$this->relation->only([...])` or `->except([...])`.
-     *
-     * Mirrors ResolvesModelTypes::resolveFilteredRelationType(); duplicated verbatim — it is already
-     * stateless (no $this->scope reference), so no signature change was needed.
-     *
-     * @param  class-string  $relatedModelClass
-     * @param  list<string>  $keys
-     * @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: TypesImportMap}
-     */
-    private function resolveFilteredRelationType(
-        string $relatedModelClass,
-        array $keys,
-        bool $include,
-    ): array {
-        $result = ['type' => 'unknown', 'enumFqcns' => [], 'modelFqcns' => [], 'customImports' => []];
-        $resolver = resolve(ModelAttributeResolver::class);
-
-        $relatedAttributes = $resolver->getAttributes($relatedModelClass);
-        $relatedRelations = $resolver->getRelations($relatedModelClass);
-
-        if ($relatedAttributes === null || $relatedRelations === null) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        if ($include) {
-            $resolveKeys = $keys;
-        } else {
-            // HasAttributes::except() iterates getAttributes() only — never $this->relations, and never a
-            // get-only accessor, which mergeAttributeFromAttributeCasts() refuses to merge back. Columns only.
-            $excludeHidden = $resolver->excludeHiddenAttributes();
-            $dbColumns = $resolver->databaseColumnNames($relatedModelClass);
-
-            $attrNames = $relatedAttributes
-                ->reject(fn (array $attr): bool => $excludeHidden && $attr['hidden'])
-                ->pluck('name')
-                ->filter(fn (mixed $name): bool => in_array($name, $dbColumns, true))
-                ->all();
-
-            $resolveKeys = array_values(array_filter(
-                $attrNames,
-                fn (mixed $k) => ! in_array($k, $keys, true),
-            ));
-        }
-
-        $parts = [];
-        /** @var list<class-string> $collectedEnumFqcns */
-        $collectedEnumFqcns = [];
-        /** @var list<class-string> $collectedModelFqcns */
-        $collectedModelFqcns = [];
-        /** @var TypesImportMap $collectedCustomImports */
-        $collectedCustomImports = [];
-
-        /** @var list<string> $resolveKeys */
-        foreach ($resolveKeys as $key) {
-            $attr = $relatedAttributes->firstWhere('name', $key);
-
-            if ($attr !== null) {
-                $tsInfo = $resolver->resolveAttribute($relatedModelClass, $key);
-
-                // The except branch yields columns now, so in practice this gate is only()'s: a write-only
-                // mutator with no getter and no docblock Get has no shape to emit, unlike a getter-backed one.
-                if ($tsInfo['type'] !== 'unknown' || ! $resolver->isOmittedMutator($relatedModelClass, $key)) {
-                    $parts[] = $key.': '.$tsInfo['type'];
-
-                    /** @var list<class-string> $enumFqcns */
-                    $enumFqcns = $tsInfo['enumFqcns'];
-                    array_push($collectedEnumFqcns, ...$enumFqcns);
-
-                    // Sibling of the enumFqcns collection above: an inlined attribute can itself
-                    // reference another model or a #[TsType(import:)] alias, both needed to compile.
-                    /** @var list<class-string> $classFqcns */
-                    $classFqcns = $tsInfo['classFqcns'];
-                    array_push($collectedModelFqcns, ...$classFqcns);
-
-                    foreach ($tsInfo['customImports'] as $path => $names) {
-                        $collectedCustomImports[$path] = [...($collectedCustomImports[$path] ?? []), ...$names];
-                    }
-                }
-
-                continue;
-            }
-
-            // Relation
-            $relationInfo = $resolver->resolveRelation($relatedModelClass, $key);
-
-            if ($relationInfo['type'] !== 'unknown') {
-                $parts[] = $key.': '.$relationInfo['type'];
-
-                if ($relationInfo['modelFqcn'] !== null) {
-                    /** @var class-string $relatedFqcn */
-                    $relatedFqcn = $relationInfo['modelFqcn'];
-                    $collectedModelFqcns[] = $relatedFqcn;
-                }
-
-                array_push($collectedModelFqcns, ...$relationInfo['morphFqcns']);
-            }
-        }
-
-        $inlineType = $parts === [] ? 'unknown' : '{ '.implode('; ', $parts).' }';
-
-        return [
-            ...$result,
-            'type' => $inlineType,
-            'enumFqcns' => $collectedEnumFqcns,
-            'modelFqcns' => $collectedModelFqcns,
-            'customImports' => $collectedCustomImports,
-        ];
     }
 
     /**
