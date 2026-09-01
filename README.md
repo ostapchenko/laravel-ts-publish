@@ -41,6 +41,7 @@ For examples of the generated TypeScript output, see [these output examples](wor
 - 🌐 [Enum API resource](#json-enum-http-api-resource)
 - 📂 [Modular publishing](#modular-publishing)
 - 🔧 [Customizing the pipeline](#extending--customizing-the-pipeline)
+- 🔍 [Analyzer API](#analyzer-api)
 - ⚡ [Pre-command hook](#pre-command-hook)
 - 💾 [Cache generation](#cache-generation)
 - 📤 [Output options](#output-options)
@@ -772,6 +773,27 @@ Key capabilities:
 - **Swap just the templates** — publish and edit the Blade templates directly with `php artisan vendor:publish --tag="laravel-ts-publish-views"` if you only need to change output formatting, without writing any PHP classes.
 
 For the full per-feature pipeline-stage reference, every abstract base class's method contract, and the cache rehydration mechanics, see the full [Customizing the Pipeline documentation](https://tolki.abe.dev/ts/customizing-the-pipeline.html).
+
+## Analyzer API
+
+The same static analysis engine that powers every feature above is also available directly, outside the `ts:publish` pipeline. `AstEngine` takes a class and a method name and returns a `MethodAnalysis` DTO of typed properties, plus the enum/model/resource references needed to build imports for them. It's the same output a resource's `toArray()` produces, but callable directly from your own code — a custom Artisan command, a package that wants this package's own typing — without running a full publish.
+
+```php
+use AbeTwoThree\LaravelTsPublish\Ast\AstEngine;
+
+$analysis = resolve(AstEngine::class)->analyzeMethod(App\Http\Resources\PostResource::class);
+
+// $analysis->properties is the same typed property list `ts:publish` would generate for PostResource.
+```
+
+Key capabilities:
+
+- **`analyzeMethod()`** — analyzes any method's return shape, not only `toArray()`; a `JsonResource` subclass still gets full resource semantics (conditional methods, `EnumResource`, nested resources, relation filters) with no extra setup.
+- **`analyzePublicProperties()`** — reads a class's properties directly instead of a method body (promoted constructor parameters and class-body declarations), skipping anything a used trait declares. Nullability is always `| null`, never `?`.
+- **`AnalysisImports::build()`** — turns a `MethodAnalysis`'s FQCN references into resolved import paths for one generated file, merging colliding paths; resolving a name collision between two imports is left to the caller.
+- **Not yet everything** — broadcast events and Inertia page/shared props are still typed through a separate pipeline, so `analyzeMethod()` won't reproduce their output until that migration lands.
+
+For the full walkthrough, including `MethodAnalysis`'s fields and what the engine can't do yet, see the full [Analyzer API documentation](https://tolki.abe.dev/ts/analyzer-api.html).
 
 ## Pre-command hook
 
