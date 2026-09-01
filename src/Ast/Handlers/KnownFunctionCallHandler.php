@@ -46,7 +46,7 @@ final class KnownFunctionCallHandler implements ExpressionHandler
             $name = $expr->name->getLast();
 
             if ($name === 'config') {
-                return $this->resolveConfigCallType($expr);
+                return $this->resolveConfigCallType($expr, $engine);
             }
 
             $tsType = $this->resolveKnownFunctionCallType($name);
@@ -89,7 +89,7 @@ final class KnownFunctionCallHandler implements ExpressionHandler
      *
      * @return ValueExpressionResult|null
      */
-    private function resolveConfigCallType(FuncCall $expr): ?array
+    private function resolveConfigCallType(FuncCall $expr, ExpressionEngine $engine): ?array
     {
         if ($expr->isFirstClassCallable()) {
             return null;
@@ -102,6 +102,12 @@ final class KnownFunctionCallHandler implements ExpressionHandler
         }
 
         $value = Config::get($args[0]->value->value);
+
+        // An unset key returns the second argument, so answering `null` would be confidently wrong
+        // for the common config('services.x.key', 'fallback') shape. Type the default instead.
+        if ($value === null && isset($args[1])) {
+            return $engine->resolve($args[1]->value);
+        }
 
         $type = match (true) {
             is_string($value) => 'string',

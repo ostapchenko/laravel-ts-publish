@@ -13,11 +13,13 @@ use AbeTwoThree\LaravelTsPublish\Tests\Unit\Analyzers\Inertia\Fixtures\StarterKi
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\VariadicPlaceholder;
 use Workbench\App\Http\Resources\CommentResource;
@@ -163,6 +165,35 @@ it('types config() with a literal key from the live configuration value', functi
     ['ts-publish-probe.hosts', ['a'], 'unknown[]'],
     ['ts-publish-probe.missing', null, 'null'],
 ]);
+
+// A default only applies when the key is unset, and answering `null` there is confidently wrong:
+// the frontend gets a TS error on a value that is certainly the default. Type the default instead.
+it('types config() with a default from that default when the key is unset', function (Expr $default, string $type) {
+    $expr = new FuncCall(new Name('config'), [
+        new Arg(new String_('ts-publish-probe.absent')),
+        new Arg($default),
+    ]);
+    $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+
+    expect($analyzer->resolve($expr))->toBe(['type' => $type, 'optional' => false]);
+})->with([
+    'string default' => [fn () => new String_('pk_test'), 'string'],
+    'int default' => [fn () => new Int_(30), 'number'],
+    'bool default' => [fn () => new ConstFetch(new Name('true')), 'boolean'],
+    'unresolvable default' => [fn () => new Variable('fallback'), 'unknown'],
+]);
+
+it('still reads the live value when a key with a default is set', function () {
+    config()->set('ts-publish-probe.present', 3);
+
+    $expr = new FuncCall(new Name('config'), [
+        new Arg(new String_('ts-publish-probe.present')),
+        new Arg(new String_('fallback')),
+    ]);
+    $analyzer = new ResourceAstAnalyzer(new ReflectionClass(CommentResource::class), Comment::class);
+
+    expect($analyzer->resolve($expr))->toBe(['type' => 'number', 'optional' => false]);
+});
 
 it('declines config() with a computed key', function () {
     $expr = new FuncCall(new Name('config'), [new Arg(new Variable('key'))]);
