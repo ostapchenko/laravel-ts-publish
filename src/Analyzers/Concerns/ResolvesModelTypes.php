@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Analyzers\Concerns;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
+use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesFilteredRelationTypes;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\RelationNullable;
 use Illuminate\Database\Eloquent\Model;
@@ -16,19 +18,21 @@ use ReflectionClass;
  *
  * Delegates the "accessor → cast → DB type" waterfall to ModelAttributeResolver
  * and provides thin wrappers that preserve the return shapes expected by callers.
+ * Requires the host to expose `AnalysisScope $scope`.
  *
- * @phpstan-import-type ResourcePropertyInfoList from ResourceAnalysis
- * @phpstan-import-type ClassMapType from ResourceAnalysis
- * @phpstan-import-type InlineModelFqcnsMap from ResourceAnalysis
+ * @phpstan-import-type ResourcePropertyInfoList from MethodAnalysis
+ * @phpstan-import-type ClassMapType from MethodAnalysis
+ * @phpstan-import-type InlineModelFqcnsMap from MethodAnalysis
  * @phpstan-import-type AttributeInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
  * @phpstan-import-type RelationInfo from \AbeTwoThree\LaravelTsPublish\Dtos\ModelInfo
- * @phpstan-import-type TypesImportMap from \AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable
  *
  * @phpstan-type ModelAttributeTypeResult = array{type: string, enumFqcn: class-string|null, classFqcns: list<class-string>}
  * @phpstan-type ModelRelationTypeResult = array{type: string, modelFqcn: class-string<\Illuminate\Database\Eloquent\Model>|null, morphFqcns: list<class-string>}
  */
 trait ResolvesModelTypes
 {
+    use ResolvesFilteredRelationTypes;
+
     protected ?Model $modelInstance = null;
 
     protected ?RelationNullable $relationNullable = null;
@@ -44,17 +48,17 @@ trait ResolvesModelTypes
 
     protected function loadModelInspectorData(): void
     {
-        if ($this->modelClass === null || ! class_exists($this->modelClass)) {
+        if ($this->scope->modelClass === null || ! class_exists($this->scope->modelClass)) {
             return;
         }
 
         $resolver = resolve(ModelAttributeResolver::class);
 
-        $this->modelAttributes = $resolver->getAttributes($this->modelClass);
-        $this->modelRelations = $resolver->getRelations($this->modelClass);
-        $this->modelInstance = $resolver->getInstance($this->modelClass);
-        $this->modelReflection = $resolver->getReflection($this->modelClass);
-        $this->relationNullable = $resolver->getRelationNullable($this->modelClass);
+        $this->modelAttributes = $resolver->getAttributes($this->scope->modelClass);
+        $this->modelRelations = $resolver->getRelations($this->scope->modelClass);
+        $this->modelInstance = $resolver->getInstance($this->scope->modelClass);
+        $this->modelReflection = $resolver->getReflection($this->scope->modelClass);
+        $this->relationNullable = $resolver->getRelationNullable($this->scope->modelClass);
     }
 
     /**
@@ -64,59 +68,16 @@ trait ResolvesModelTypes
      */
     protected function resolveModelAttributeTypeInfo(string $attributeName): array
     {
-        if ($this->modelClass === null || $this->modelAttributes === null) {
+        if ($this->scope->modelClass === null || $this->modelAttributes === null) {
             return ['type' => 'unknown', 'enumFqcn' => null, 'classFqcns' => []];
         }
 
-        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->modelClass, $attributeName);
+        $tsInfo = resolve(ModelAttributeResolver::class)->resolveAttribute($this->scope->modelClass, $attributeName);
 
         /** @var class-string|null $enumFqcn */
         $enumFqcn = $tsInfo['enumFqcns'][0] ?? null;
 
         return ['type' => $tsInfo['type'], 'enumFqcn' => $enumFqcn, 'classFqcns' => $tsInfo['classFqcns']];
-    }
-
-    /**
-     * @return ModelRelationTypeResult
-     */
-    protected function resolveModelRelationTypeInfo(string $relationName): array
-    {
-        if ($this->modelClass === null || $this->modelRelations === null) {
-            return ['type' => 'unknown', 'modelFqcn' => null, 'morphFqcns' => []];
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveRelation($this->modelClass, $relationName);
-    }
-
-    /**
-     * If $propName is an accessor attribute whose getter returns exactly one Eloquent Model
-     * subclass, return its FQCN. Used by analyzeRelationFilter() as a fallback when the
-     * property is not a database relation.
-     *
-     * @return class-string<Model>|null
-     */
-    protected function resolveAccessorModelFqcn(string $propName): ?string
-    {
-        if ($this->modelClass === null) {
-            return null; // @codeCoverageIgnore
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcn($this->modelClass, $propName);
-    }
-
-    /**
-     * Return all Eloquent Model FQCNs that an accessor returns.
-     * Used by analyzeRelationFilter() when the accessor union-types multiple models.
-     *
-     * @return list<class-string<Model>>
-     */
-    protected function resolveAccessorModelFqcns(string $propName): array
-    {
-        if ($this->modelClass === null) {
-            return []; // @codeCoverageIgnore
-        }
-
-        return resolve(ModelAttributeResolver::class)->resolveAccessorModelFqcns($this->modelClass, $propName);
     }
 
     /**
@@ -126,12 +87,12 @@ trait ResolvesModelTypes
      */
     protected function buildModelDelegatedAnalysis(bool $excludeHidden = true): ?ResourceAnalysis
     {
-        if ($this->modelAttributes === null || $this->modelClass === null) {
+        if ($this->modelAttributes === null || $this->scope->modelClass === null) {
             return null;
         }
 
         /** @var class-string $modelClass */
-        $modelClass = $this->modelClass;
+        $modelClass = $this->scope->modelClass;
         $resolver = resolve(ModelAttributeResolver::class);
         $dropHidden = $excludeHidden && $resolver->excludeHiddenAttributes();
         $dbColumns = $resolver->databaseColumnNames($modelClass);
@@ -177,7 +138,7 @@ trait ResolvesModelTypes
         // Also include relations so they can be referenced by only()/except() filters
         if ($this->modelRelations !== null) {
             foreach ($this->modelRelations as $relation) {
-                $info = $this->resolveModelRelationTypeInfo($relation['name']);
+                $info = $this->resolveModelRelationTypeInfo($relation['name'], $this->scope);
 
                 if ($info['type'] !== 'unknown') {
                     $properties[] = [
@@ -207,114 +168,5 @@ trait ResolvesModelTypes
             modelFqcns: $modelFqcns,
             inlineModelFqcns: $inlineModelFqcns,
         );
-    }
-
-    /**
-     * Resolve an inline TypeScript type for a filtered subset of a related model's attributes and relations.
-     *
-     * Used when a resource accesses `$this->relation->only([...])` or `->except([...])`.
-     *
-     * @param  class-string  $relatedModelClass
-     * @param  list<string>  $keys
-     * @return array{type: string, enumFqcns: list<class-string>, modelFqcns: list<class-string>, customImports: TypesImportMap}
-     */
-    protected function resolveFilteredRelationType(
-        string $relatedModelClass,
-        array $keys,
-        bool $include,
-    ): array {
-        $result = ['type' => 'unknown', 'enumFqcns' => [], 'modelFqcns' => [], 'customImports' => []];
-        $resolver = resolve(ModelAttributeResolver::class);
-
-        $relatedAttributes = $resolver->getAttributes($relatedModelClass);
-        $relatedRelations = $resolver->getRelations($relatedModelClass);
-
-        if ($relatedAttributes === null || $relatedRelations === null) {
-            return $result; // @codeCoverageIgnore
-        }
-
-        if ($include) {
-            $resolveKeys = $keys;
-        } else {
-            // HasAttributes::except() iterates getAttributes() only — never $this->relations, and never a
-            // get-only accessor, which mergeAttributeFromAttributeCasts() refuses to merge back. Columns only.
-            $excludeHidden = $resolver->excludeHiddenAttributes();
-            $dbColumns = $resolver->databaseColumnNames($relatedModelClass);
-
-            $attrNames = $relatedAttributes
-                ->reject(fn (array $attr): bool => $excludeHidden && $attr['hidden'])
-                ->pluck('name')
-                ->filter(fn (mixed $name): bool => in_array($name, $dbColumns, true))
-                ->all();
-
-            $resolveKeys = array_values(array_filter(
-                $attrNames,
-                fn (mixed $k) => ! in_array($k, $keys, true),
-            ));
-        }
-
-        $parts = [];
-        /** @var list<class-string> $collectedEnumFqcns */
-        $collectedEnumFqcns = [];
-        /** @var list<class-string> $collectedModelFqcns */
-        $collectedModelFqcns = [];
-        /** @var TypesImportMap $collectedCustomImports */
-        $collectedCustomImports = [];
-
-        /** @var list<string> $resolveKeys */
-        foreach ($resolveKeys as $key) {
-            $attr = $relatedAttributes->firstWhere('name', $key);
-
-            if ($attr !== null) {
-                $tsInfo = $resolver->resolveAttribute($relatedModelClass, $key);
-
-                // The except branch yields columns now, so in practice this gate is only()'s: a write-only
-                // mutator with no getter and no docblock Get has no shape to emit, unlike a getter-backed one.
-                if ($tsInfo['type'] !== 'unknown' || ! $resolver->isOmittedMutator($relatedModelClass, $key)) {
-                    $parts[] = $key.': '.$tsInfo['type'];
-
-                    /** @var list<class-string> $enumFqcns */
-                    $enumFqcns = $tsInfo['enumFqcns'];
-                    array_push($collectedEnumFqcns, ...$enumFqcns);
-
-                    // Sibling of the enumFqcns collection above: an inlined attribute can itself
-                    // reference another model or a #[TsType(import:)] alias, both needed to compile.
-                    /** @var list<class-string> $classFqcns */
-                    $classFqcns = $tsInfo['classFqcns'];
-                    array_push($collectedModelFqcns, ...$classFqcns);
-
-                    foreach ($tsInfo['customImports'] as $path => $names) {
-                        $collectedCustomImports[$path] = [...($collectedCustomImports[$path] ?? []), ...$names];
-                    }
-                }
-
-                continue;
-            }
-
-            // Relation
-            $relationInfo = $resolver->resolveRelation($relatedModelClass, $key);
-
-            if ($relationInfo['type'] !== 'unknown') {
-                $parts[] = $key.': '.$relationInfo['type'];
-
-                if ($relationInfo['modelFqcn'] !== null) {
-                    /** @var class-string $relatedFqcn */
-                    $relatedFqcn = $relationInfo['modelFqcn'];
-                    $collectedModelFqcns[] = $relatedFqcn;
-                }
-
-                array_push($collectedModelFqcns, ...$relationInfo['morphFqcns']);
-            }
-        }
-
-        $inlineType = $parts === [] ? 'unknown' : '{ '.implode('; ', $parts).' }';
-
-        return [
-            ...$result,
-            'type' => $inlineType,
-            'enumFqcns' => $collectedEnumFqcns,
-            'modelFqcns' => $collectedModelFqcns,
-            'customImports' => $collectedCustomImports,
-        ];
     }
 }

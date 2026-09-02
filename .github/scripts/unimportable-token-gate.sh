@@ -5,21 +5,31 @@
 # also counts TS2300 "Duplicate identifier" errors: two different imports
 # resolving to the same local name, e.g. two unrelated MailPrice models both
 # aliased to MailPriceMailPrice (see docs/components/import-name-registry.md).
+# TS2440 is that same collision against a *local* declaration rather than a
+# second import, which TypeScript reports under its own code and not as TS2300.
 # TS2344 rounds out the set: a token that IS imported but named where its own
 # type rejects it, e.g. Pick<Model, K> over a key the interface never declares.
+# TS2305/TS2724 cover the name that IS imported from a module that resolves but
+# never exports it - the shape that only became reachable once the stubs landed.
 #
 # The unknown-regression gate cannot catch either shape: a leaked or colliding
 # token is a NEW property with a plausible-looking type, not an existing
 # property degrading to `unknown`.
 #
-# There is a pre-existing TS2304 baseline (config-driven `custom_ts_mappings`
-# names like CustomObject / ExtendableInterface, which the consuming app is
-# expected to declare). The gate compares against that baseline rather than
-# demanding zero.
+# Every baseline is 0. The app-side modules the generated tree imports (`#[TsCasts]` /
+# `#[TsExtends]` targets) are stubbed under tests/types/stubs and wired up by tsconfig
+# `paths`, so an unresolved module is now always a defect rather than a known absence.
 #
-# Usage: unimportable-token-gate.sh [BASELINE_COUNT] [RELATIVE_BASELINE]
-#        With no argument it prints the current count and the offending names. RELATIVE_BASELINE
+# Usage: unimportable-token-gate.sh [BASELINE_COUNT] [RELATIVE_BASELINE] [BARE_BASELINE]
+#        With no argument it prints the current counts and the offending names. RELATIVE_BASELINE
 #        gates TS2307s whose specifier is relative (./ or ../) - a module this package itself writes.
+#        BARE_BASELINE gates every other TS2307 - a bare specifier such as @/types/geo, now backed by
+#        a stub. All three are 0 and none has a legitimate non-zero cause, so raising any of them is
+#        never the fix: a rise means a token leaked, a name moved, or a stub needs the new export
+#        added by hand. Nothing machine-checks that a stub declares only the names the tree actually
+#        imports, so widening one to silence a TS2305 is that same escape relocated, not a fix.
+#        Each argument activates its own gate; passing fewer leaves the rest
+#        report-only, same as BASELINE_COUNT and RELATIVE_BASELINE already did before BARE_BASELINE.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -37,19 +47,42 @@ if [ -n "$setup_errs" ] || { [ "$status" -ne 0 ] && ! printf '%s\n' "$out" | gre
   exit 1
 fi
 
-errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2344|2552)" || true)
+# The other fail-open shape, and the one that actually happened: a SYNTAX error in a generated file.
+# tsc emits no semantic diagnostics for a program it could not parse, so every count below reads 0
+# and all three sub-gates PASS on a tree nothing checked. TS1xxx is the syntactic range.
+syntax_errs=$(printf '%s\n' "$out" | grep -E "error TS1[0-9]{3}:" || true)
+
+if [ -n "$syntax_errs" ]; then
+  echo "FAIL - the generated tree does not parse, so nothing after the parse error was type-checked"
+  printf '%s\n' "$syntax_errs"
+  exit 1
+fi
+
+errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2305|2344|2440|2552|2724)" || true)
 count=$(printf '%s' "$errs" | grep -c . || true)
 
-echo "TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: $count"
-printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier) '([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
+echo "TS2300/TS2304/TS2305/TS2344/TS2440/TS2552/TS2724 (duplicate identifier / cannot find name / unexported name / bad type argument / import-local conflict) in generated tree: $count"
+printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier|conflicts with local declaration of) '([^']+)'.*/  \2/; s/.*has no exported member (named )?'([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
 
-# A relative specifier (./ or ../) only ever resolves against a file this package itself writes,
-# so an unresolved one is never the app-side custom_ts_mappings escape hatch behind the baseline above.
+# A relative specifier (./ or ../) only ever resolves against a file this package itself writes, so an
+# unresolved one is never an app-side alias a stub could cover - it is
+# always the failure mode PublishedResourceRegistry exists to prevent. Kept as its own zero-tolerance
+# count rather than folded into the bare one below: pooling the two would let a new broken relative
+# import hide inside ordinary bare-alias churn, invisible until the combined total crossed baseline.
 rel_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" | grep -E "Cannot find module '\.{1,2}/" || true)
 rel_count=$(printf '%s' "$rel_errs" | grep -c . || true)
 
 echo "TS2307 (cannot find module) with a relative specifier in generated tree: $rel_count"
 printf '%s\n' "$rel_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
+
+# Everything else with TS2307: a bare specifier such as @/types/geo, naming a module that lives in
+# the consuming app. Those are stubbed under tests/types/stubs and mapped by tsconfig `paths`, so an
+# unresolved one means a new alias needs a stub, or an import was emitted that nothing should have.
+bare_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" | grep -vE "Cannot find module '\.{1,2}/" || true)
+bare_count=$(printf '%s' "$bare_errs" | grep -c . || true)
+
+echo "TS2307 (cannot find module) with a bare specifier in generated tree: $bare_count"
+printf '%s\n' "$bare_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
 
 if [ $# -ge 1 ]; then
   baseline=$1
@@ -68,5 +101,15 @@ if [ $# -ge 1 ]; then
       exit 1
     fi
     echo "PASS - no new relative-specifier TS2307s (baseline $relative_baseline)"
+
+    if [ $# -ge 3 ]; then
+      bare_baseline=$3
+      if [ "$bare_count" -gt "$bare_baseline" ]; then
+        echo "FAIL - bare-specifier TS2307 count rose from $bare_baseline to $bare_count: an import points at a module nothing declares"
+        printf '%s\n' "$bare_errs"
+        exit 1
+      fi
+      echo "PASS - no new bare-specifier TS2307s (baseline $bare_baseline)"
+    fi
   fi
 fi

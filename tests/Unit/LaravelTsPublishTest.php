@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use AbeTwoThree\LaravelTsPublish\Attributes\TsType;
+use AbeTwoThree\LaravelTsPublish\Cache\DependencyRecorder;
 use AbeTwoThree\LaravelTsPublish\LaravelTsPublish;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
@@ -447,7 +448,7 @@ describe('Arrayable DTO shape inference', function () {
     test('a class-backed value hidden inside Record<string, X> degrades the whole value; nested in array{...} degrades just the leaf', function () {
         // Record<string, User> has no shape to recurse into, so shapeValueHasUnimportableToken() degrades
         // the whole value. The nested array{owner: User} now resolves through resolveArrayShapeString(),
-        // which degrades only the unimportable 'owner' leaf (Task 6) instead of losing the whole shape.
+        // which degrades only the unimportable 'owner' leaf instead of losing the whole shape.
         $result = $this->service->toTsType(ArrayableWithHiddenClassValueObject::class);
 
         expect($result['type'])->toBe('{ recordOfUsers: unknown; nestedOwner: { owner: unknown } }');
@@ -1450,6 +1451,51 @@ describe('resolveReflectionType', function () {
     });
 });
 
+describe('parseFileUseStatements', function () {
+    test('resolves plain and aliased group-use members and excludes function/const imports', function () {
+        require_once __DIR__.'/../Fixtures/GroupUseFixture.php.stub';
+
+        $map = $this->service->parseFileUseStatements(new ReflectionClass(GroupUseFixture::class));
+
+        expect($map)->toHaveCount(4)
+            ->toHaveKey('Post', 'App\Models\Post')
+            ->toHaveKey('Person', 'App\Models\User')
+            ->toHaveKey('Widget', 'App\Support\Widget')
+            ->toHaveKey('Reporter', 'App\Services\Reporting');
+    });
+
+    test('excludes a function import from the use-statement map', function () {
+        // Guards the trap this task exists to avoid: a `use function` import must never
+        // enter the map, or a docblock type could silently resolve to a function FQCN.
+        require_once __DIR__.'/../Fixtures/GroupUseFixture.php.stub';
+
+        $map = $this->service->parseFileUseStatements(new ReflectionClass(GroupUseFixture::class));
+
+        expect($map)->not->toHaveKey('warning')
+            ->and($map)->not->toHaveKey('helperFunction')
+            ->and($map)->not->toContain('Laravel\Prompts\warning');
+    });
+
+    test('records the file as a cache dependency even on a cache hit', function () {
+        // Guards the same cache-hit-must-still-record contract AstParserTest pins for AstParser:
+        // useStatementsCache sits above it and must not swallow the recording on a hit.
+        require_once __DIR__.'/../Fixtures/GroupUseFixture.php.stub';
+
+        $reflection = new ReflectionClass(GroupUseFixture::class);
+        $file = (string) $reflection->getFileName();
+
+        DependencyRecorder::start();
+        $this->service->parseFileUseStatements($reflection);
+        DependencyRecorder::reset();
+        $this->service->parseFileUseStatements($reflection);
+        $paths = DependencyRecorder::paths();
+        DependencyRecorder::stop();
+        DependencyRecorder::reset();
+
+        expect($paths)->toContain($file);
+    });
+});
+
 describe('validJsObjectKey', function () {
     test('validJsObjectKey returns valid identifiers as-is', function () {
         expect($this->service->validJsObjectKey('myKey'))->toBe('myKey')
@@ -2350,7 +2396,7 @@ describe('rewriteAsEnumToType', function () {
     });
 
     // A heterogeneous mixed union — ResourceTransformer::rewriteEnumResourceTypes()'s isCollection
-    // branch (Task 16) — is not the redundant same-shaped pair the fold exists for: the trailing
+    // branch — is not the redundant same-shaped pair the fold exists for: the trailing
     // `[]` makes the two members genuinely different, so both must survive, not collapse to one.
     test('does not fold a pair whose bare arm is itself array-shaped', function () {
         $result = $this->service->rewriteAsEnumToType(

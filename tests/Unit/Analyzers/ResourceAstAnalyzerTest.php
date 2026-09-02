@@ -5,6 +5,9 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAnalysis;
 use AbeTwoThree\LaravelTsPublish\Analyzers\ResourceAstAnalyzer;
 use AbeTwoThree\LaravelTsPublish\Cache\PublishedResourceRegistry;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\MergeArrayMergeChildResource;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\MergeSpreadChildResource;
+use AbeTwoThree\LaravelTsPublish\Tests\Unit\Ast\Fixtures\UnreadableReturnResource;
 use AbeTwoThree\LaravelTsPublish\Transformers\ResourceTransformer;
 use Illuminate\Notifications\DatabaseNotification;
 use Workbench\Accounting\Http\Resources\InvoiceResource;
@@ -828,7 +831,7 @@ describe('ResourceAstAnalyzer with EnumCollectionResource (EnumResource::collect
 
     // A mixed ternary nested in an inline array whose arms differ in shape (an array-forcing
     // EnumResource::collection() wrap vs a scalar direct read): both members stay visible in the
-    // merged union, so only the array-shaped one substitutes — the scalar arm is left bare (Task 14).
+    // merged union, so only the array-shaped one substitutes — the scalar arm is deliberately left bare.
     test('mixed ternary nested in an inline array: a collection-wrapped arm and a scalar direct arm substitute independently', function () {
         expect($this->props['wrapped_status_fallback']['type'])
             ->toBe('{ status: AsEnum<typeof Status>[] | StatusType }');
@@ -1999,8 +2002,30 @@ describe('ResourceAstAnalyzer with a non-$this receiver in a spread method chain
 });
 
 describe('ResourceAstAnalyzer non-array return', function () {
-    test('returns empty analysis for non-array non-parent return', function () {
+    test('merges a returned array_merge() of array literals', function () {
         $reflection = new ReflectionClass(NonArrayReturnResource::class);
+        $analyzer = new ResourceAstAnalyzer($reflection, User::class);
+        $analysis = $analyzer->analyze();
+
+        expect($analysis)->toBeInstanceOf(ResourceAnalysis::class)
+            ->and(array_column($analysis->properties, 'type', 'name'))->toBe(['id' => 'number', 'name' => 'string']);
+    });
+
+    test('array_merge and the spread form agree on a key redeclared over a parent', function () {
+        // inlineModelFqcns is a positional queue aliasPropertyType() walks against the rendered type
+        // string, so a merge strategy that concatenates per-argument analyses doubles it while the
+        // string keeps two tokens — the child's arms then alias to the parent's models.
+        $spread = new ResourceAstAnalyzer(new ReflectionClass(MergeSpreadChildResource::class), Warehouse::class)->analyze();
+        $merge = new ResourceAstAnalyzer(new ReflectionClass(MergeArrayMergeChildResource::class), Warehouse::class)->analyze();
+
+        expect($merge->inlineModelFqcns)->toBe(['who' => [CrmUser::class, User::class]])
+            ->and($merge->inlineModelFqcns)->toBe($spread->inlineModelFqcns)
+            ->and(array_column($merge->properties, 'type', 'name'))->toBe(['who' => 'User | User | null'])
+            ->and(array_column($merge->properties, 'type', 'name'))->toBe(array_column($spread->properties, 'type', 'name'));
+    });
+
+    test('returns empty analysis for a returned call it cannot read statically', function () {
+        $reflection = new ReflectionClass(UnreadableReturnResource::class);
         $analyzer = new ResourceAstAnalyzer($reflection, User::class);
         $analysis = $analyzer->analyze();
 
@@ -5746,5 +5771,36 @@ describe('ResourceAstAnalyzer with BranchedInlineFqcnResource (branch union null
             '{ primaryContact: User | null; manager: User | null }'
             .' | { manager: User | null; secondaryContact: User | null; primaryContact: User | null } | null'
         )->and($type)->not->toContain('} | null | {');
+    });
+});
+
+describe('ResourceAstAnalyzer with an arbitrary method name', function () {
+    test('analyzes a non-toArray array-returning method by name', function () {
+        $reflection = new ReflectionClass(TagResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, Tag::class, 'summaryPayload'))->analyze();
+
+        $names = array_column($analysis->properties, 'name');
+        $label = collect($analysis->properties)->firstWhere('name', 'label');
+
+        expect($names)->toContain('id', 'label')
+            ->and($label['type'])->toBe('string')
+            ->and($label['optional'])->toBeFalse();
+    });
+
+    test('a missing generic method yields an empty analysis instead of a model dump', function () {
+        $reflection = new ReflectionClass(TagResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, Tag::class, 'noSuchMethod'))->analyze();
+
+        expect($analysis->properties)->toBeEmpty();
+    });
+
+    test('an explicit "toArray" method name still falls back to the model dump', function () {
+        $reflection = new ReflectionClass(EmptyWithMixinResource::class);
+        $analysis = (new ResourceAstAnalyzer($reflection, User::class, 'toArray'))->analyze();
+
+        $names = array_column($analysis->properties, 'name');
+
+        expect($analysis->properties)->not->toBeEmpty()
+            ->and($names)->toContain('id', 'name', 'email');
     });
 });

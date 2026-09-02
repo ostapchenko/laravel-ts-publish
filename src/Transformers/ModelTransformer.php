@@ -183,9 +183,7 @@ class ModelTransformer extends CoreTransformer
         $modelInstance = resolve($this->findable);
         $this->modelInstance = $modelInstance;
         $this->dbColumns = $this->modelInstance->getConnection()->getSchemaBuilder()->getColumnListing($this->modelInstance->getTable());
-        /** @var list<string> $appends */
-        $appends = array_values($this->modelInstance->getAppends());
-        $this->appendedAttributes = $appends;
+        $this->appendedAttributes = $this->modelInstance->getAppends();
         $this->modelInspect = resolve(ModelInspector::class)->inspect($this->findable);
         /** @var Collection<int, AttributeInfo> $attributes */
         $attributes = $this->modelInspect->attributes;

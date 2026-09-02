@@ -1,7 +1,10 @@
+@foreach($typeImports as $path => $types)
+import type { {{ implode(', ', $types) }} } from '{{ $path }}';
+@endforeach
 @foreach($importStatements as $import)
 {!! $import !!}
 @endforeach
-@if(count($importStatements) > 0)
+@if(count($typeImports) > 0 || count($importStatements) > 0)
 
 @endif
 declare global {

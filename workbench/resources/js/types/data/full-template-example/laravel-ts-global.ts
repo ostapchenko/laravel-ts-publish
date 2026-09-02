@@ -2634,6 +2634,8 @@ declare global {
             members_resource_then_model_spread?: (Omit<UserResource, 'flag' | keyof app.models.User | keyof UserResource> & Omit<app.models.User, 'flag' | keyof UserResource> & Omit<UserResource, 'flag'> & { flag: boolean })[];
         }
         export interface NonArrayReturnResource {
+            id: number;
+            name: string;
         }
         /**
          * outer() returns $this->helper()->wrongCall() — a method call chained off a non-$this receiver. The
@@ -3909,6 +3911,15 @@ declare global {
         }
     }
     export namespace app.events {
+        export interface ComputedNameEvent {
+            kind: string;
+        }
+        export interface DeclaredPropsEvent {
+            label: string;
+            tags: string[];
+            id: number;
+            note: string | null;
+        }
         export interface EnumBroadcastEvent {
             status: app.enums.StatusType;
             color: app.enums.ColorType;
@@ -3927,6 +3938,11 @@ declare global {
             trackingNumber: `${string}-${string}-${string}`;
             carrier: string;
             metadata?: Record<string, unknown>;
+        }
+        export interface PayloadDiffersEvent {
+            team: number;
+            kind: string;
+            count: number;
         }
         export interface PostPublishedEvent {
             post: Partial<app.models.Post>;

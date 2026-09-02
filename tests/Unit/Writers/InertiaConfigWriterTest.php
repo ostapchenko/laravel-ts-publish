@@ -20,6 +20,7 @@ test('renders inertia config with shared props type', function () {
         'sharedPageProps' => '{ appName: string, userId: number }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect($content)
@@ -35,6 +36,7 @@ test('renders errorValueType when withAllErrors is true', function () {
         'sharedPageProps' => '{ flash: string }',
         'withAllErrors' => true,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect($content)
@@ -50,6 +52,7 @@ test('does not include errorValueType when withAllErrors is false', function () 
         'sharedPageProps' => '{ name: string }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect($content)->not->toContain('errorValueType');
@@ -67,6 +70,7 @@ test('writes file to disk when output_to_files is enabled with inertia output_pa
         'sharedPageProps' => '{ test: boolean }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect(file_exists("{$outputDir}/inertia-config.d.ts"))->toBeTrue();
@@ -88,6 +92,7 @@ test('falls back to routes output_path when inertia output_path is null', functi
         'sharedPageProps' => '{ fallback: string }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect(file_exists("{$outputDir}/inertia-config.d.ts"))->toBeTrue();
@@ -107,6 +112,7 @@ test('falls back to output_directory when both inertia and routes output_path ar
         'sharedPageProps' => '{ default: number }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect(file_exists("{$outputDir}/inertia-config.d.ts"))->toBeTrue();
@@ -124,6 +130,7 @@ test('does not write file when output_to_files is disabled', function () {
         'sharedPageProps' => '{ nowrite: string }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect(file_exists("{$outputDir}/inertia-config.d.ts"))->toBeFalse();
@@ -141,6 +148,7 @@ test('renders import statements before module declaration', function () {
             "import type { AuthData } from '@js/types/auth';",
             "import type { FlashData } from '@js/types/flash';",
         ],
+        'typeImports' => [],
     ]);
 
     expect($content)
@@ -154,6 +162,21 @@ test('renders import statements before module declaration', function () {
     expect($importPos)->toBeLessThan($declarePos);
 });
 
+test('renders inferred type imports above the TsCasts import statements', function () {
+    $writer = resolve(InertiaConfigWriter::class);
+
+    $content = $writer->write([
+        'sharedPageProps' => '{ auth: { user: User | null }, flash: FlashData }',
+        'withAllErrors' => false,
+        'importStatements' => ["import type { FlashData } from '@js/types/flash';"],
+        'typeImports' => ['./app/models' => ['User']],
+    ]);
+
+    expect($content)->toContain("import type { User } from './app/models';")
+        ->and(strpos($content, 'import type { User }'))->toBeLessThan(strpos($content, 'import type { FlashData }'))
+        ->and(strpos($content, 'import type { FlashData }'))->toBeLessThan(strpos($content, 'declare global'));
+});
+
 test('omits import block when importStatements is empty', function () {
     $writer = resolve(InertiaConfigWriter::class);
 
@@ -161,6 +184,7 @@ test('omits import block when importStatements is empty', function () {
         'sharedPageProps' => '{ appName: string }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect($content)
@@ -177,6 +201,7 @@ test('renders declare global namespace Inertia SharedData block', function () {
         'sharedPageProps' => '{ appName: string }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect($content)
@@ -192,6 +217,7 @@ test('renders export {} at end to make file an ES module', function () {
         'sharedPageProps' => '{ appName: string }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect($content)->toContain('export {};');
@@ -206,6 +232,7 @@ test('SharedData type in declare global matches sharedPageProps in declare modul
         'sharedPageProps' => $sharedType,
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     expect(substr_count($content, $sharedType))->toBe(2);
@@ -218,6 +245,7 @@ test('declare global block appears before declare module block', function () {
         'sharedPageProps' => '{ appName: string }',
         'withAllErrors' => false,
         'importStatements' => [],
+        'typeImports' => [],
     ]);
 
     $globalPos = strpos($content, 'declare global');

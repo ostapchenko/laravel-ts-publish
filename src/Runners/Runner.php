@@ -18,6 +18,7 @@ use AbeTwoThree\LaravelTsPublish\Generators\FormRequestGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\ModelGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\ResourceGenerator;
 use AbeTwoThree\LaravelTsPublish\Generators\RouteGenerator;
+use AbeTwoThree\LaravelTsPublish\Support\AnalysisWarnings;
 use AbeTwoThree\LaravelTsPublish\Writers\BarrelWriter;
 use AbeTwoThree\LaravelTsPublish\Writers\BroadcastChannelsWriter;
 use AbeTwoThree\LaravelTsPublish\Writers\BroadcastEventsEchoWriter;
@@ -38,6 +39,7 @@ class Runner extends BaseRunner
         // Process-static and only ever added to. Clearing at the run boundary, not next to register(),
         // is what makes "this run publishes no resources" mean an empty registry, not the last run's set.
         PublishedResourceRegistry::reset();
+        AnalysisWarnings::reset();
 
         /** @var BarrelWriter $barrelWriter */
         $barrelWriter = resolve(Config::string('ts-publish.barrel_writer_class', BarrelWriter::class));

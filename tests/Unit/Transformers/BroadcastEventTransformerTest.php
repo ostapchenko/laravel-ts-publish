@@ -5,10 +5,13 @@ declare(strict_types=1);
 use AbeTwoThree\LaravelTsPublish\Dtos\TsBroadcastEventDto;
 use AbeTwoThree\LaravelTsPublish\ModelAttributeResolver;
 use AbeTwoThree\LaravelTsPublish\Transformers\BroadcastEventTransformer;
+use Workbench\App\Events\ComputedNameEvent;
+use Workbench\App\Events\DeclaredPropsEvent;
 use Workbench\App\Events\EnumBroadcastEvent;
 use Workbench\App\Events\MixedTypesEvent;
 use Workbench\App\Events\MultiModelEvent;
 use Workbench\App\Events\OrderShipped;
+use Workbench\App\Events\PayloadDiffersEvent;
 use Workbench\App\Events\PostPublishedEvent;
 use Workbench\App\Events\PureEnumEvent;
 use Workbench\App\Events\ReportSynced;
@@ -335,7 +338,7 @@ describe('TsCasts overrides', function () {
             expect($allTypes)->not->toContain('Post');
         });
 
-        it('still resolves non-overridden properties via Surveyor', function () {
+        it('still infers the non-overridden properties', function () {
             $transformer = app(BroadcastEventTransformer::class, ['findable' => MixedTypesEvent::class]);
             expect($transformer->properties['status']['type'])->toBe('StatusType');
             expect($transformer->properties['message']['type'])->toBe('string');
@@ -428,6 +431,37 @@ describe('TsExtends on BroadcastEventTransformer', function () {
             expect($transformer->tsExtends)->toContain('GlobalBase');
             expect($transformer->tsExtends)->toContain('BroadcastableEvent');
         });
+    });
+});
+
+// Cutover discriminators. Only ComputedNameEvent changed at the cutover (its Echo key used to
+// fold to "order."); the other two were already correct and pin that the engine did not regress them.
+describe('native engine cutover fixtures', function () {
+    it('takes PayloadDiffersEvent properties from broadcastWith(), not the public properties', function () {
+        $transformer = app(BroadcastEventTransformer::class, ['findable' => PayloadDiffersEvent::class]);
+
+        expect($transformer->properties)->toBe([
+            'team' => ['type' => 'number', 'optional' => false],
+            'kind' => ['type' => 'string', 'optional' => false],
+            'count' => ['type' => 'number', 'optional' => false],
+        ]);
+    });
+
+    it('reads DeclaredPropsEvent class-body properties, its @var list and its nullable promoted param', function () {
+        $transformer = app(BroadcastEventTransformer::class, ['findable' => DeclaredPropsEvent::class]);
+
+        expect($transformer->properties)->toBe([
+            'label' => ['type' => 'string', 'optional' => false],
+            'tags' => ['type' => 'string[]', 'optional' => false],
+            'id' => ['type' => 'number', 'optional' => false],
+            'note' => ['type' => 'string | null', 'optional' => false],
+        ]);
+    });
+
+    it('falls back to the class-name convention when broadcastAs() is not a whole literal', function () {
+        $transformer = app(BroadcastEventTransformer::class, ['findable' => ComputedNameEvent::class]);
+
+        expect($transformer->broadcastName)->toBe('.Workbench.App.Events.ComputedNameEvent');
     });
 });
 

@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace AbeTwoThree\LaravelTsPublish\Transformers;
 
-use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
+use AbeTwoThree\LaravelTsPublish\Ast\AnalysisImports;
+use AbeTwoThree\LaravelTsPublish\Ast\AstEngine;
+use AbeTwoThree\LaravelTsPublish\Ast\MethodAnalysis;
+use AbeTwoThree\LaravelTsPublish\Ast\ReturnLiteralReader;
 use AbeTwoThree\LaravelTsPublish\Concerns\ParsesTsCasts;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Dtos\TsBroadcastEventDto;
@@ -14,18 +17,8 @@ use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ParsesTsExtends;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\ResolvesImportConflicts;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\SnapshotsTransformerState;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
-use Illuminate\Database\Eloquent\Model;
-use Laravel\Surveyor\Analyzed\ClassResult;
-use Laravel\Surveyor\Analyzer\Analyzer;
-use Laravel\Surveyor\Types\ArrayType;
-use Laravel\Surveyor\Types\ClassType;
-use Laravel\Surveyor\Types\Contracts\Type;
-use Laravel\Surveyor\Types\IntersectionType;
-use Laravel\Surveyor\Types\StringType;
-use Laravel\Surveyor\Types\UnionType;
 use Override;
 use ReflectionClass;
-use UnitEnum;
 
 /**
  * Transforms a broadcast event class into a TsBroadcastEventDto.
@@ -84,6 +77,14 @@ class BroadcastEventTransformer extends CoreTransformer
     public protected(set) array $typeImports = [];
 
     /**
+     * Imports the analysis channels the enum and model maps do not cover need (nested resources,
+     * #[TsType] imports): import path => list of type names.
+     *
+     * @var TypesImportMap
+     */
+    protected array $analysisImports = [];
+
+    /**
      * Per-property FQCN tracking — maps property name to list of FQCNs added by that property's type.
      *
      * @var array<string, list<class-string>>
@@ -132,33 +133,19 @@ class BroadcastEventTransformer extends CoreTransformer
      */
     protected array $tsExtendsImports = [];
 
-    /** Surveyor class analysis result used across transformation steps. */
-    protected ClassResult $analyzed;
-
     /** @var ReflectionClass<ShouldBroadcast> */
     protected ReflectionClass $reflection;
 
     /** @return list<string> */
     protected function transientProperties(): array
     {
-        return ['reflection', 'analyzed', 'analyzer'];
-    }
-
-    /**
-     * @param  class-string<ShouldBroadcast>  $findable
-     */
-    public function __construct(
-        string $findable,
-        protected Analyzer $analyzer,
-    ) {
-        parent::__construct($findable);
+        return ['reflection'];
     }
 
     #[Override]
     public function transform(): self
     {
-        $this->runAnalysis()
-            ->initEventData()
+        $this->initEventData()
             ->parseTsExtends()
             ->parseTsCasts()
             ->transformBroadcastName()
@@ -170,30 +157,31 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Run the Surveyor analyzer and store the result for subsequent steps.
-     */
-    protected function runAnalysis(): self
-    {
-        $this->analyzer->analyzeClass($this->findable);
-
-        /** @var ClassResult $result */
-        $result = $this->analyzer->result();
-        $this->analyzed = $result;
-
-        return $this;
-    }
-
-    /**
-     * Initialize core event metadata from the analyzer result and reflection.
+     * Initialize core event metadata from reflection.
      */
     protected function initEventData(): self
     {
         $this->reflection = new ReflectionClass($this->findable);
         $this->eventName = $this->reflection->getShortName();
-        $this->filePath = $this->analyzed->filePath();
+        $this->filePath = (string) $this->reflection->getFileName();
         $this->namespacePath = LaravelTsPublish::namespaceToPath($this->findable);
 
         return $this;
+    }
+
+    /**
+     * Analyze the payload: broadcastWith() when the event has one, its public properties otherwise.
+     *
+     * hasMethod() on purpose, not a declared-here check: Laravel calls an inherited or trait-supplied
+     * broadcastWith() too, so the payload is that method's return wherever it is defined.
+     */
+    protected function runAnalysis(): MethodAnalysis
+    {
+        $engine = resolve(AstEngine::class);
+
+        return $this->reflection->hasMethod('broadcastWith')
+            ? $engine->analyzeMethod($this->findable, 'broadcastWith')
+            : $engine->analyzePublicProperties($this->findable);
     }
 
     /**
@@ -201,17 +189,35 @@ class BroadcastEventTransformer extends CoreTransformer
      */
     protected function transformBroadcastName(): self
     {
-        $this->broadcastName = $this->resolveBroadcastName($this->analyzed);
+        $this->broadcastName = $this->resolveBroadcastName();
 
         return $this;
     }
 
     /**
-     * Resolve and store the payload property map.
+     * Resolve and store the payload property map and the imports its inferred types need.
      */
     protected function transformProperties(): self
     {
-        $this->properties = $this->resolveProperties($this->analyzed);
+        $analysis = $this->runAnalysis();
+
+        // A #[TsCasts] override replaces the property's type outright, so the type it displaced
+        // must not keep an import alive.
+        foreach (array_keys($this->tsTypeOverrides) as $name) {
+            unset(
+                $analysis->enumResources[$name],
+                $analysis->nestedResources[$name],
+                $analysis->directEnumFqcns[$name],
+                $analysis->modelFqcns[$name],
+                $analysis->multiEnumResourceFqcns[$name],
+                $analysis->inlineEnumFqcns[$name],
+                $analysis->inlineModelFqcns[$name],
+                $analysis->inlineEnumResourceFqcns[$name],
+            );
+        }
+
+        $this->properties = $this->resolveProperties($analysis);
+        $this->analysisImports = new AnalysisImports()->build($analysis, $this->namespacePath)['typeImports'];
 
         return $this;
     }
@@ -267,181 +273,109 @@ class BroadcastEventTransformer extends CoreTransformer
 
     /**
      * Resolve the Echo broadcast event string.
+     *
+     * Anything but a whole string literal declines to the class-name convention: a computed name
+     * folded to its literal prefix would register the event under a key Echo never receives.
      */
-    protected function resolveBroadcastName(ClassResult $analyzed): string
+    protected function resolveBroadcastName(): string
     {
-        if ($analyzed->hasMethod('broadcastAs')) {
-            $returnType = $analyzed->getMethod('broadcastAs')->returnType();
+        $literal = resolve(ReturnLiteralReader::class)->stringLiteral($this->findable, 'broadcastAs');
 
-            if ($returnType instanceof StringType && $returnType->value !== null && $returnType->value !== '') {
-                return $returnType->value;
-            }
-        }
-
-        return '.'.str_replace('\\', '.', $this->findable);
+        return $literal === null || $literal === ''
+            ? '.'.str_replace('\\', '.', $this->findable)
+            : $literal;
     }
 
     /**
-     * Resolve the payload properties from broadcastWith() or public constructor props.
+     * Convert an analysis into the event's payload property map.
      *
      * @return PropertiesList
      */
-    protected function resolveProperties(ClassResult $analyzed): array
+    protected function resolveProperties(MethodAnalysis $analysis): array
     {
-        $arrayType = $this->resolveArrayType($analyzed);
+        $this->registerAnalysisFqcns($analysis);
 
         /** @var PropertiesList $result */
         $result = [];
 
-        foreach ($arrayType->value as $name => $type) {
-            if (! $type instanceof Type) {
-                continue;
-            }
+        foreach ($analysis->properties as $property) {
+            $name = $property['name'];
 
-            $propName = (string) $name;
-
-            if (isset($this->tsTypeOverrides[$propName])) {
-                $result[$propName] = [
-                    'type' => $this->tsTypeOverrides[$propName],
-                    'optional' => $this->optionalOverrides[$propName] ?? $type->isOptional(),
+            if (isset($this->tsTypeOverrides[$name])) {
+                $result[$name] = [
+                    'type' => $this->tsTypeOverrides[$name],
+                    'optional' => $this->optionalOverrides[$name] ?? $property['optional'],
                 ];
 
                 continue;
             }
 
-            $result[$propName] = [
-                'type' => $this->convertType($type),
-                'optional' => $type->isOptional(),
+            $result[$name] = [
+                'type' => $this->convertClassType($name, $property['type'], $analysis),
+                'optional' => $property['optional'],
             ];
 
-            $this->propertyFqcns[$propName] = $this->collectPropertyFqcns($type);
+            $this->propertyFqcns[$name] = $this->collectPropertyFqcns($name, $analysis);
         }
 
         return $result;
     }
 
     /**
-     * Recursively collect enum and model FQCNs from a type tree, keeping FQCNs already seen on other properties.
+     * Track every enum and model FQCN the analysis reached, so imports and aliases can be resolved.
+     */
+    protected function registerAnalysisFqcns(MethodAnalysis $analysis): void
+    {
+        foreach ($this->enumFqcns($analysis) as $fqcn) {
+            $this->enumFqcnMap[$fqcn] = LaravelTsPublish::toTsType($fqcn)['enumTypes'][0]
+                ?? class_basename($fqcn).'Type';
+        }
+
+        foreach ($analysis->modelFqcns as $fqcn) {
+            $this->modelFqcnMap[$fqcn] = class_basename($fqcn);
+        }
+    }
+
+    /**
+     * Present a property's analysed type the way broadcast events do: a model as Partial<Name>.
+     *
+     * Enums already render as the #[TsEnum]-aware {Name}Type, so only models need rewriting.
+     */
+    protected function convertClassType(string $name, string $type, MethodAnalysis $analysis): string
+    {
+        $modelFqcn = $analysis->modelFqcns[$name] ?? null;
+
+        if ($modelFqcn === null) {
+            return $type;
+        }
+
+        $typeName = class_basename($modelFqcn);
+        $pattern = '/(?<![A-Za-z0-9_$.])'.preg_quote($typeName, '/').'(?![A-Za-z0-9_$])/';
+
+        return preg_replace($pattern, 'Partial<'.$typeName.'>', $type, 1) ?? $type;
+    }
+
+    /**
+     * The enum and model FQCNs one property's type references, in the order the type string names them.
      *
      * @return list<class-string>
      */
-    protected function collectPropertyFqcns(Type $type): array
+    protected function collectPropertyFqcns(string $name, MethodAnalysis $analysis): array
     {
-        if ($type instanceof ClassType) {
-            $fqcn = ltrim($type->value, '\\');
-            if (enum_exists($fqcn) || (class_exists($fqcn) && is_subclass_of($fqcn, Model::class))) {
-                return [$fqcn];
-            }
+        $fqcns = [];
 
-            return [];
-        }
-
-        if ($type instanceof UnionType || $type instanceof IntersectionType) {
-            $fqcns = [];
-
-            foreach ($type->types as $inner) {
-                if ($inner instanceof Type) {
-                    $fqcns = array_merge($fqcns, $this->collectPropertyFqcns($inner));
-                }
-            }
-
-            return $fqcns;
-        }
-
-        if ($type instanceof ArrayType) {
-            $fqcns = [];
-
-            foreach ($type->value as $inner) {
-                if ($inner instanceof Type) {
-                    $fqcns = array_merge($fqcns, $this->collectPropertyFqcns($inner));
-                }
-            }
-
-            return $fqcns;
-        }
-
-        return [];
-    }
-
-    /**
-     * Get an ArrayType representing the event payload.
-     */
-    protected function resolveArrayType(ClassResult $analyzed): ArrayType
-    {
-        if ($analyzed->hasMethod('broadcastWith')) {
-            $returnType = $analyzed->getMethod('broadcastWith')->returnType();
-
-            if ($returnType instanceof ArrayType) {
-                return $returnType;
+        foreach ([$analysis->directEnumFqcns, $analysis->enumResources, $analysis->modelFqcns] as $map) {
+            if (isset($map[$name])) {
+                $fqcns[] = $map[$name];
             }
         }
 
-        return new ArrayType(
-            collect($analyzed->publicProperties())
-                ->mapWithKeys(fn ($prop) => [$prop->name => $prop->type])
-                ->all(),
-        );
-    }
-
-    /**
-     * Convert a Surveyor type to a TypeScript string, tracking any enums and models it references.
-     */
-    protected function convertType(Type $type): string
-    {
-        if ($type instanceof ClassType) {
-            return $this->convertClassType($type);
-        }
-
-        if ($type instanceof UnionType) {
-            /** @var array<array-key, mixed> $types */
-            $types = $type->types;
-            $parts = array_map(
-                fn (mixed $t): string => $t instanceof Type ? $this->convertType($t) : 'unknown',
-                $types,
-            );
-
-            return implode(' | ', $parts);
-        }
-
-        if ($type instanceof IntersectionType) {
-            /** @var array<array-key, mixed> $types */
-            $types = $type->types;
-            $parts = array_map(
-                fn (mixed $t): string => $t instanceof Type ? $this->convertType($t) : 'unknown',
-                $types,
-            );
-
-            return implode(' & ', $parts);
-        }
-
-        return SurveyorTypeMapper::convert($type);
-    }
-
-    /**
-     * Convert a ClassType, mapping PHP enums to '{Name}Type' and Eloquent models to 'Partial<Name>'.
-     */
-    protected function convertClassType(ClassType $type): string
-    {
-        $fqcn = ltrim($type->value, '\\');
-        $nullSuffix = $type->isNullable() ? ' | null' : '';
-
-        if (enum_exists($fqcn)) {
-            $typeName = class_basename($fqcn).'Type';
-            /** @var class-string<UnitEnum> $fqcn */
-            $this->enumFqcnMap[$fqcn] = $typeName;
-
-            return $typeName.$nullSuffix;
-        }
-
-        if (class_exists($fqcn) && is_subclass_of($fqcn, Model::class)) {
-            $typeName = class_basename($fqcn);
-            /** @var class-string<Model> $fqcn */
-            $this->modelFqcnMap[$fqcn] = $typeName;
-
-            return 'Partial<'.$typeName.'>'.$nullSuffix;
-        }
-
-        return SurveyorTypeMapper::convert($type);
+        return [
+            ...$fqcns,
+            ...($analysis->multiEnumResourceFqcns[$name] ?? []),
+            ...($analysis->inlineEnumFqcns[$name] ?? []),
+            ...($analysis->inlineModelFqcns[$name] ?? []),
+        ];
     }
 
     /**
@@ -486,23 +420,34 @@ class BroadcastEventTransformer extends CoreTransformer
     }
 
     /**
-     * Build the TypeScript type import map from tracked model and enum FQCNs.
+     * Build the TypeScript type import map from every tracked import channel.
      */
     protected function buildTypeImports(): self
     {
         /** @var TypesImportMap $imports */
         $imports = [];
 
-        foreach ($this->modelFqcnMap as $fqcn => $typeName) {
-            $targetPath = LaravelTsPublish::namespaceToPath($fqcn);
-            $importPath = LaravelTsPublish::relativeImportPath($this->namespacePath, $targetPath);
+        /** @var array<string, array<string, true>> $aliasable */
+        $aliasable = [];
+
+        foreach ($this->modelFqcnMap + $this->enumFqcnMap as $fqcn => $typeName) {
+            $importPath = LaravelTsPublish::relativeImportPath(
+                $this->namespacePath,
+                LaravelTsPublish::namespaceToPath($fqcn),
+            );
+
             $imports[$importPath][] = $this->formatImportName($fqcn, $typeName);
+            $aliasable[$importPath][$typeName] = true;
         }
 
-        foreach ($this->enumFqcnMap as $fqcn => $typeName) {
-            $targetPath = LaravelTsPublish::namespaceToPath($fqcn);
-            $importPath = LaravelTsPublish::relativeImportPath($this->namespacePath, $targetPath);
-            $imports[$importPath][] = $this->formatImportName($fqcn, $typeName);
+        // Skip what the loop above already emitted: only it knows the alias a name collision forced,
+        // and an unaliased duplicate would re-import the very name the alias exists to avoid.
+        foreach ($this->analysisImports as $importPath => $typeNames) {
+            foreach ($typeNames as $typeName) {
+                if (! isset($aliasable[$importPath][$typeName])) {
+                    $imports[$importPath][] = $typeName;
+                }
+            }
         }
 
         foreach ($this->tsCastsImportPaths as $property => $importPath) {
@@ -579,5 +524,21 @@ class BroadcastEventTransformer extends CoreTransformer
         }
 
         return $map;
+    }
+
+    /**
+     * Every enum FQCN the analysis reached, across all three enum channels.
+     *
+     * @return list<class-string>
+     */
+    private function enumFqcns(MethodAnalysis $analysis): array
+    {
+        $fqcns = [...array_values($analysis->directEnumFqcns), ...array_values($analysis->enumResources)];
+
+        foreach ($analysis->multiEnumResourceFqcns as $branchFqcns) {
+            $fqcns = [...$fqcns, ...$branchFqcns];
+        }
+
+        return array_values(array_unique($fqcns));
     }
 }

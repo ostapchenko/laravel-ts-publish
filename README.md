@@ -41,6 +41,7 @@ For examples of the generated TypeScript output, see [these output examples](wor
 - 🌐 [Enum API resource](#json-enum-http-api-resource)
 - 📂 [Modular publishing](#modular-publishing)
 - 🔧 [Customizing the pipeline](#extending--customizing-the-pipeline)
+- 🔍 [Analyzer API](#analyzer-api)
 - ⚡ [Pre-command hook](#pre-command-hook)
 - 💾 [Cache generation](#cache-generation)
 - 📤 [Output options](#output-options)
@@ -403,7 +404,7 @@ Key capabilities:
 - **Query strings** — extra keys become query parameters automatically, with a `_query` escape hatch and a `mergeQuery` option for updating the current page's query string.
 - **`.form()` helper** — builds `{ action, method }` for HTML forms, including Laravel's `_method` spoofing for `PUT`/`PATCH`/`DELETE`, and mapping `HEAD` to a plain GET form action (HTML forms can't submit `HEAD`).
 - **Inertia integration** — page-prop types and the component name are inferred and attached automatically when `inertia.enabled` is on.
-- **Inertia UI Table typing** — routes rendering an [Inertia UI Table](https://inertiaui.com/) get an automatically typed `TableResource<Model>` page prop without evaluating the table, with table-tainted controllers safely falling back instead of erroring.
+- **Inertia UI Table typing** — routes rendering an [Inertia UI Table](https://inertiaui.com/) get an automatically typed `TableResource<Model>` page prop, resolved by reflection and AST only so the table is never instantiated or serialized. Sibling actions on the same controller are typed normally.
 - **Form Request payloads** — a controller method's `FormRequest` type-hint automatically attaches its generated interface to the route.
 - **Filtering** — `#[TsExclude]`, wildcard/negation route-name patterns (`routes.only` / `routes.except`), middleware exclusion, and named-routes-only mode.
 
@@ -481,7 +482,7 @@ For the dot-notation tree algorithm, parameter typing, and quoted-key handling, 
 
 ## Broadcast events
 
-Every `ShouldBroadcast` and `ShouldBroadcastNow` event gets its own interface, built from its `broadcastWith()` return shape or, when there is none, its public constructor properties. A combined `broadcast-events.ts` index adds a `BroadcastEvent` union and a flat `BroadcastEvents` const of every Echo event name.
+Every `ShouldBroadcast` and `ShouldBroadcastNow` event gets its own interface, built from its `broadcastWith()` return shape or, when there is none, its public properties. A combined `broadcast-events.ts` index adds a `BroadcastEvent` union and a flat `BroadcastEvents` const of every Echo event name.
 
 ```php
 class OrderShipped implements ShouldBroadcast
@@ -510,9 +511,9 @@ export interface OrderShipped {
 
 Key capabilities:
 
-- **`broadcastWith()` or public properties** — when present, `broadcastWith()`'s return shape drives the interface (handy for hiding private fields); otherwise every public constructor-promoted property is used.
-- **Model & enum-aware** — a property typed as an Eloquent model resolves to `Partial<Model>`, and a PHP enum property resolves to the enum's `{Name}Type` alias, both with automatic imports.
-- **`broadcastAs()` support** — a custom Echo event name from `broadcastAs()` is used as-is; otherwise the Echo name defaults to Laravel's `.Fully.Qualified.ClassName` convention.
+- **`broadcastWith()` or public properties** — when present, `broadcastWith()`'s return shape drives the interface (handy for hiding private fields); otherwise both constructor-promoted and class-body public properties are used, with a `@var` docblock preferred over the native declaration. Every trait-declared property is skipped, `#[TsExtends]` traits included — their fields already arrive through the `extends` clause.
+- **Model & enum-aware** — a property typed as an Eloquent model resolves to `Partial<Model>`, and a PHP enum property resolves to the enum's `{Name}Type` alias (honouring `#[TsEnum(name:)]`), both with automatic imports.
+- **`broadcastAs()` support** — a custom Echo event name is used when `broadcastAs()` returns one whole string literal; a computed name (`'order.'.$this->kind`) falls back to Laravel's `.Fully.Qualified.ClassName` convention rather than shipping a half-built key.
 - **`#[TsCasts]` / `#[TsExtends]`** — override property types or extend shared interfaces, the same attributes used by models, resources, and form requests.
 - **`#[TsExclude]`** — exclude an entire event class from the output. See [Excluding with `#[TsExclude]`](#excluding-with-tsexclude).
 - **Echo module augmentation** — optionally generates an `echo-broadcast-events.d.ts` file that augments `@laravel/echo`'s (or `@laravel/echo-vue`/`-react`/`-svelte`'s, auto-detected) `Events` interface for fully-typed `Echo.private(...).listen()` calls.
@@ -531,34 +532,44 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
+            'name' => config('app.name'),
             'auth' => ['user' => $request->user()],
+            'sidebarOpen' => ! $request->hasCookie('sidebar_state'),
         ];
     }
 }
 ```
 
 ```typescript
+import type { User } from './app/models';
+
 declare global {
     namespace Inertia {
-        type SharedData = { auth: { user: { id: number; name: string; email: string } | null }; /* ... */ };
+        type SharedData = { name: string, auth: { user: User | null }, sidebarOpen: boolean };
     }
 }
 
 declare module '@inertiajs/core' {
     export interface InertiaConfig {
-        sharedPageProps: Inertia.SharedData;
+        sharedPageProps: { name: string, auth: { user: User | null }, sidebarOpen: boolean };
     }
 }
 ```
 
 Key capabilities:
 
-- **Static `share()` analysis** — every key returned from `share()` (including a spread `...parent::share($request)`) is statically resolved to a TypeScript type, no running the app required.
-- **`#[TsCasts]` / `@return` docblock overrides** — override or add types for keys Surveyor can't infer on its own, the same `#[TsCasts]` attribute used everywhere else in the package.
+- **Static `share()` analysis** — every key returned from `share()` is statically resolved to a TypeScript type, no running the app required. Both composition forms are read: a `...parent::share($request)` spread and `array_merge(parent::share($request), [...])`, up the whole middleware inheritance chain, with a later key overriding an earlier one exactly as PHP does.
+- **`$request->user()` typed through your auth config** — resolved via `auth.defaults.guard` → its provider → that provider's model, so the prop is typed `User | null` with the model's import written for you. `auth()->user()`, `auth()->id()`, `Auth::user()` and `Auth::id()` resolve the same way, and `$request->url()`, `->path()`, `->integer()`, `->boolean()`, `->string()`, `->cookie()` and `->hasCookie()` are typed from Laravel's own signatures.
+- **`config('some.key')`** — a literal key is typed from the live configuration value, since the package runs inside your booted application. A computed key stays `unknown`.
+- **Inertia v2 prop wrappers** — `Inertia::defer()`, `optional()`, `lazy()`, `always()`, `merge()` and `deepMerge()` are typed as the value they wrap; the three that a partial reload can omit produce an optional key.
+- **`errors` is left to Inertia** — `@inertiajs/core` already types `page.props.errors`, so the package never infers a weaker `errors` entry of its own. A `#[TsCasts]` or `@return` docblock entry for it still wins if you want one.
+- **`#[TsCasts]` / `@return` docblock overrides** — override or add types for keys the analyzer can't infer on its own, the same `#[TsCasts]` attribute used everywhere else in the package.
 - **`errorValueType`** — automatically added to the augmentation when the middleware's `$withAllErrors` property is `true`, matching Inertia's validation error bag shape.
 - **Route-linked page props** — a related but separate piece: a controller action's `Inertia::render()` call gets its own page-prop type that intersects with `Inertia.SharedData`, threaded into that route's generated file automatically. See [Inertia Integration](https://tolki.abe.dev/ts/routing.html#inertia-integration) in the Routing docs.
+- **Page props read the expression you wrote** — Eloquent finders (`Post::findOrFail($id)` → `Post`, `Post::find($id)` → `Post | null`, `User::all()` → `User[]`, `->paginate()` → `LengthAwarePaginator<Post>`), route-bound model parameters, `$request->user()`, the v2 prop wrappers, `compact('post', 'comments')`, `array_merge($base, [...])`, and a props array assigned from a ternary all type without an annotation. Two renders of the same component merge into one type, and a key only one branch sets becomes optional.
 - **Preserve-keys resource collections** — a paginated `Inertia::render()` prop backed by a `#[PreserveKeys]`/`$preserveKeys` resource collection types its `data` member as `Record<string, T>`, matching Laravel's key-preserving JSON shape instead of the default array.
 - **Inline paginators** — a paginator called directly inside the render array (`'teams' => new TeamCollection(Team::query()->paginate(10))`) is typed as a paginator, with no intermediate variable needed. `paginate()`, `simplePaginate()`, and `cursorPaginate()` are all recognised, in both the `new SomeCollection(...)` and `SomeResource::collection(...)` forms — see [Paginating Inline in the Render Call](https://tolki.abe.dev/ts/inertia.html#paginating-inline-in-the-render-call).
+- **Degrades instead of aborting** — an action whose props can't be analyzed is reported as a warning after the run and typed as `Inertia.SharedData` alone, rather than failing the whole `ts:publish` run.
 
 For the full middleware discovery rules, the type-override priority order, and the generated file anatomy, see the full [Inertia documentation](https://tolki.abe.dev/ts/inertia.html).
 
@@ -771,6 +782,28 @@ Key capabilities:
 - **Swap just the templates** — publish and edit the Blade templates directly with `php artisan vendor:publish --tag="laravel-ts-publish-views"` if you only need to change output formatting, without writing any PHP classes.
 
 For the full per-feature pipeline-stage reference, every abstract base class's method contract, and the cache rehydration mechanics, see the full [Customizing the Pipeline documentation](https://tolki.abe.dev/ts/customizing-the-pipeline.html).
+
+## Analyzer API
+
+The same static analysis engine that powers every feature above is also available directly, outside the `ts:publish` pipeline. `AstEngine` takes a class and a method name and returns a `MethodAnalysis` DTO of typed properties, plus the enum/model/resource references needed to build imports for them. It's the same output a resource's `toArray()` produces, but callable directly from your own code — a custom Artisan command, a package that wants this package's own typing — without running a full publish.
+
+```php
+use AbeTwoThree\LaravelTsPublish\Ast\AstEngine;
+
+$analysis = resolve(AstEngine::class)->analyzeMethod(App\Http\Resources\PostResource::class);
+
+// $analysis->properties is the same typed property list `ts:publish` would generate for PostResource.
+```
+
+Key capabilities:
+
+- **`analyzeMethod()`** — analyzes any method's return shape, not only `toArray()`; a `JsonResource` subclass still gets full resource semantics (conditional methods, `EnumResource`, nested resources, relation filters) with no extra setup.
+- **`analyzePublicProperties()`** — reads a class's properties directly instead of a method body (promoted constructor parameters and class-body declarations), skipping anything a used trait declares. Nullability is always `| null`, never `?`.
+- **`AnalysisImports::build()`** — turns a `MethodAnalysis`'s FQCN references into resolved import paths for one generated file, merging colliding paths; resolving a name collision between two imports is left to the caller.
+- **Every feature runs on it** — broadcast events are `analyzeMethod($event, 'broadcastWith')` (or `analyzePublicProperties()` when the event has no such method) and Inertia shared data is `analyzeMethod($middleware, 'share')`, so calling either yourself returns exactly what `ts:publish` publishes.
+- **Page props take the expression path** — Inertia page props run on this same engine, but from an `Inertia::render()` call's props argument rather than a method's return shape, so `analyzeMethod()` on a controller action gives you that method's return type instead. There is no public entry point for the expression path.
+
+For the full walkthrough, including `MethodAnalysis`'s fields and the engine's limits, see the full [Analyzer API documentation](https://tolki.abe.dev/ts/analyzer-api.html).
 
 ## Pre-command hook
 

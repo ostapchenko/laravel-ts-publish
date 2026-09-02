@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace AbeTwoThree\LaravelTsPublish\Transformers;
 
 use AbeTwoThree\LaravelTsPublish\Analyzers\Inertia\InertiaPageAnalyzer;
-use AbeTwoThree\LaravelTsPublish\Analyzers\SurveyorTypeMapper;
 use AbeTwoThree\LaravelTsPublish\Attributes\TsExclude;
 use AbeTwoThree\LaravelTsPublish\Concerns\FiltersRoutes;
 use AbeTwoThree\LaravelTsPublish\Dtos\Contracts\Datable;
 use AbeTwoThree\LaravelTsPublish\Dtos\TsRouteDto;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use AbeTwoThree\LaravelTsPublish\Support\TolkiTypes;
 use AbeTwoThree\LaravelTsPublish\Transformers\Concerns\SnapshotsTransformerState;
 use BackedEnum;
 use Illuminate\Database\Eloquent\Model;
@@ -664,9 +664,9 @@ class RouteTransformer extends CoreTransformer
         $imports = [];
 
         foreach ($allFqcns as $fqcn) {
-            // FQCNs in TOLKI_TYPES_MAP are imported from '@tolki/types' rather than a relative path
-            if (isset(SurveyorTypeMapper::TOLKI_TYPES_MAP[$fqcn])) {
-                $imports['@tolki/types'][] = SurveyorTypeMapper::TOLKI_TYPES_MAP[$fqcn];
+            // FQCNs in TolkiTypes::MAP are imported from '@tolki/types' rather than a relative path
+            if (isset(TolkiTypes::MAP[$fqcn])) {
+                $imports['@tolki/types'][] = TolkiTypes::MAP[$fqcn];
 
                 continue;
             }

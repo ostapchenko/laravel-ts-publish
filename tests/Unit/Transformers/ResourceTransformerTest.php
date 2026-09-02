@@ -2283,8 +2283,8 @@ describe('ResourceTransformer with EnumCollectionResource — EnumResource::coll
     });
 
     // No other property in this file keeps a bare StatusType token; it survives only because
-    // wrapped_status_fallback's direct fallback arm genuinely needs it (Task 14) — that property
-    // alone is why this now asserts the opposite of its old name.
+    // wrapped_status_fallback's direct fallback arm genuinely needs it — that property alone is why
+    // this asserts the opposite of what its old name claimed.
     test('bare StatusType type import survives only because of a genuine direct reader, not stale substitution', function () {
         config()->set('ts-publish.enums.use_tolki_package', true);
         $data = (new ResourceTransformer(EnumCollectionResource::class))->data();

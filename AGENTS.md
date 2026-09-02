@@ -15,6 +15,13 @@ The `abetwothree/laravel-ts-publish` project is a Laravel package aiming to conv
   - Run tests without coverage: `composer test` in parallel mode to run faster.
 - Run linter: `composer lint`
 
+`composer lint` and `composer analyse` run PHPStan without a memory override, so on a box with the default
+128M `memory_limit` revalidating the gitignored `build/phpstan/resultCache.php` after tracked files change
+can run out of memory. It often surfaces as `Undefined constant Larastan\Larastan\LARAVEL_VERSION` from
+inside Larastan's stub-file extension — a misleading symptom, so do not go looking for a Larastan bug.
+Remedy: delete `build/phpstan`, run one `vendor/bin/phpstan analyse --memory-limit=-1` pass to rebuild the
+cache, then go back to `composer lint`.
+
 Do not try to run the `ts:publish` command from the workbench directory because it won't have a database connection, so the output will not have DB backed values.
 
 ## Implementing Types
@@ -160,6 +167,17 @@ If the TypeScript files need to be different then they should be changed by chan
 ### README.md vs code comments
 
 Documenting features go in README.md to document features for users. The code itself should have comments on all methdos as explained above or in the code itself.
+
+### Known gaps
+
+Work you decide _not_ to do belongs in a written record, not in a commit message or a source comment. Read
+[docs/known-gaps.md](./docs/known-gaps.md) before starting anything in `src/Ast/` — several entries exist
+specifically to stop the next person "fixing" something that is deliberate.
+
+That file is deliberately narrow: it holds only what changes the package's output for a user, or what makes
+a passing gate narrower than it looks. Its own header states the test. Everything else you defer — internal
+refactor debt, test-suite quality notes, release chores — belongs in the follow-ups ledger of the plan that
+deferred it, which is where that work is re-read from. Do not widen this file back out.
 
 ### Change log
 

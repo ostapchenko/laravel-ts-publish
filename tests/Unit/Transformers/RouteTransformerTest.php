@@ -628,8 +628,7 @@ test('normalizeComponent falls back to keyed path when all depths produce collid
 
 test('invokable inertia controller action receives @__invoke uses string and returns component data', function () {
     // Laravel stores invokable routes with just the FQCN (no @method). RouteTransformer
-    // normalises this to Controller@__invoke before passing to InertiaPageAnalyzer, so
-    // Ranger's analyzeRoute() can correctly explode the uses string and find __invoke.
+    // normalises this to Controller@__invoke so the analyzer can split the uses string.
     config()->set('ts-publish.inertia.enabled', true);
 
     $capturedAction = null;
@@ -662,7 +661,7 @@ test('invokable inertia controller action receives @__invoke uses string and ret
         ->and($invoke['pageType'])->toContain('Inertia.SharedData');
 });
 
-test('resolvePageTypeImports maps TOLKI_TYPES_MAP FQCNs to @tolki/types import', function () {
+test('resolvePageTypeImports maps TolkiTypes::MAP FQCNs to @tolki/types import', function () {
     config()->set('ts-publish.inertia.enabled', true);
 
     $mockConverter = Mockery::mock(InertiaPageAnalyzer::class);

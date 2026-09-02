@@ -23,6 +23,7 @@ use Workbench\App\Http\Controllers\InertiaPreserveKeysController;
 use Workbench\App\Http\Controllers\InertiaResourceSharedTemplate;
 use Workbench\App\Http\Controllers\InertiaSingleResourceController;
 use Workbench\App\Http\Controllers\InertiaTsCastsController;
+use Workbench\App\Http\Controllers\InertiaUserShapesController;
 use Workbench\App\Http\Controllers\InvokableController;
 use Workbench\App\Http\Controllers\InvokableInertiaController;
 use Workbench\App\Http\Controllers\InvokableModelBoundController;
@@ -146,3 +147,13 @@ Route::get('/preserve-keys/anonymous-inline-paginated', [InertiaPreserveKeysCont
 Route::get('/ts-casts', [InertiaTsCastsController::class, 'index'])->name('ts-casts.index');
 Route::get('/inertia-form-request/create', [InertiaFormRequestController::class, 'create'])->name('inertia-form-request.create');
 Route::post('/inertia-form-request', [InertiaFormRequestController::class, 'store'])->name('inertia-form-request.store');
+
+Route::get('/user-shapes', [InertiaUserShapesController::class, 'index'])->name('user-shapes.index');
+Route::get('/user-shapes/show/{id}', [InertiaUserShapesController::class, 'show'])->name('user-shapes.show');
+Route::get('/user-shapes/deferred', [InertiaUserShapesController::class, 'deferred'])->name('user-shapes.deferred');
+Route::get('/user-shapes/compacted/{id}', [InertiaUserShapesController::class, 'compacted'])->name('user-shapes.compacted');
+Route::get('/user-shapes/toggled', [InertiaUserShapesController::class, 'toggled'])->name('user-shapes.toggled');
+Route::get('/user-shapes/profile', [InertiaUserShapesController::class, 'profile'])->name('user-shapes.profile');
+Route::get('/user-shapes/merged', [InertiaUserShapesController::class, 'merged'])->name('user-shapes.merged');
+Route::get('/user-shapes/branched', [InertiaUserShapesController::class, 'branched'])->name('user-shapes.branched');
+Route::get('/user-shapes/bound/{post}', [InertiaUserShapesController::class, 'bound'])->name('user-shapes.bound');
