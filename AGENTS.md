@@ -163,9 +163,14 @@ Documenting features go in README.md to document features for users. The code it
 
 ### Known gaps
 
-Work you decide _not_ to do belongs in [docs/known-gaps.md](./docs/known-gaps.md), not in a commit message
-or a source comment. Read it before starting anything in `src/Ast/` — several entries exist specifically
-to stop the next person "fixing" something that is deliberate.
+Work you decide _not_ to do belongs in a written record, not in a commit message or a source comment. Read
+[docs/known-gaps.md](./docs/known-gaps.md) before starting anything in `src/Ast/` — several entries exist
+specifically to stop the next person "fixing" something that is deliberate.
+
+That file is deliberately narrow: it holds only what changes the package's output for a user, or what makes
+a passing gate narrower than it looks. Its own header states the test. Everything else you defer — internal
+refactor debt, test-suite quality notes, release chores — belongs in the follow-ups ledger of the plan that
+deferred it, which is where that work is re-read from. Do not widen this file back out.
 
 ### Change log
 

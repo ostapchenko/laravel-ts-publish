@@ -1,209 +1,131 @@
 # Known gaps
 
-Work that is deliberately not done, kept here so it survives the branch that deferred it. Each entry
-says what the gap is, why it was left, and where in the code it lives. Nothing here is a regression —
-these are limits and follow-ups that were understood and accepted at the time.
+**What this file is for.** It carries the accepted limits that someone working from a fresh clone cannot
+discover any other way — you have the code and the test suite, but not the working notes of whoever
+deferred the work. Two kinds of entry earn a place here:
 
-Add to this file rather than to a commit message when you decline something a reviewer raised.
+- **It changes what you get out of the package.** A shape the generator types as `unknown`, `null`, or an
+  empty interface, and a user would otherwise file as a bug.
+- **It means a green signal is narrower than it looks.** A gate that passes without checking what you
+  would assume it checks.
 
-## Correctness
+Nothing here is a regression. These are limits that were understood and accepted.
 
-### `analyzeThisMethodSpread()` leaks its recursion guard on a lookup miss
+**What does not belong here.** Internal refactor debt, test-suite quality notes, release chores, and
+anything whose real audience is "whoever picks that work back up" — those live with the plan that deferred
+them, under its Follow-Ups Ledger, which is where that work is actually re-read from. Filing them here
+buries them. If you decline something a reviewer raised, ask which of the two bullets above it satisfies;
+if neither, it does not go in this file.
 
-`ResourceAstAnalyzer::analyzeThisMethodSpread()` (`src/Analyzers/ResourceAstAnalyzer.php:578`) sets
-`$scope->visitedSpreadMethods[$methodName] = true` at `:588`, *before* resolving the method's AST. When
-`MethodLocator` misses, the method returns early without reaching the `finally` that clears the entry at
-`:640`, so that name stays marked "on the stack" for the rest of the analysis and a later legitimate
-spread of the same name degrades to an empty analysis.
-
-No current fixture triggers it: a miss means the method does not exist, so nothing spreads it twice. Fix
-by moving the guard-set after the successful lookup, or wrapping the lookup in the same `try`/`finally`,
-with a fixture that spreads a missing method and then a real one of the same name.
+## Types the generator will not give you
 
 ### `$request->validated('key')` is never typed
 
-The Inertia page path types `$request->url()`, `->user()`, `->integer()` and friends through the rule
-table in `src/Ast/Handlers/KnownMethodRuleHandler.php:86`. `validated()` is absent from it, so
+The Inertia page path types `$request->url()`, `->user()`, `->integer()` and friends through the `match`
+table in `src/Ast/Handlers/KnownMethodRuleHandler.php:84`. `validated()` is absent from it, so
 `Inertia::render('X', ['title' => $request->validated('title')])` — a headline user shape — ships
 `title: unknown`.
 
-Two blockers, both real:
+Two real blockers, not an oversight: the scope tracks *that* a variable is a `Request`, not *which*
+`FormRequest` subclass it is; and resolving the rules would mean instantiating the form request and calling
+`rules()` during type resolution, which runs application code in the analyzer. Worth doing as its own
+change with that trade-off argued explicitly.
 
-- `AnalysisScope::$requestVarNames` (`src/Ast/AnalysisScope.php`) is an `array<string, true>` presence
-  map, so the handler knows the variable *is* a `Request` but not *which* `FormRequest` subclass. The
-  value has to widen to the class-string, which touches the seeding in
-  `ResourceAstAnalyzer::resolveRequestVarNames()` and `AstEngine::bindingsFor()` plus their tests.
-- Resolving the rules means calling `FormRequestRulesAnalyzer::analyze()` from inside an expression
-  handler. That method instantiates the `FormRequest`, calls `rules()`, and mutates global auth state via
-  `Auth::setUser()` / `Auth::forgetUser()` — running application code during type resolution, which is
-  precisely the property the AST-engine unification was undertaken to remove.
+### `config()` calls have three residual cases
 
-Worth doing as its own change with that trade-off argued explicitly. Not something to fold into an
-unrelated commit.
+`config('key', $default)` types from the default expression when the key is unset. Still imperfect:
+a single-argument `config('unset.key')` types as `null`; only positional arguments are understood, so
+`config(default: 'x', key: 'k')` reads the wrong one; and a key explicitly set to `null` with a default
+types as the default, where Laravel would hand you `null`.
 
-### `config()` residuals
+All three are read from the config as it stands when `ts:publish` runs. If the machine generating types has
+a different `.env` from production, the emitted type follows the generating machine.
 
-`KnownFunctionCallHandler::resolveConfigCallType()` now types `config('key', $default)` from the default
-expression when the key is unset, instead of answering `null`. Two narrower cases remain:
+### On Laravel 12, `#[Collects]` cannot be resolved — use the `$collects` property
 
-- A single-argument `config('unset.key')` still types as `null`. That is the live value at analysis time
-  and there is no second argument to fall back on, but it is only as honest as the analysis-time config
-  matching the consuming app's runtime config.
-- Only positional argument order is understood. `config(default: 'x', key: 'k')` reads `$args[0]` as the
-  key. Pre-existing, and the same hazard the single-argument path always had.
-- A key explicitly **set to `null`** and given a default now types as the default, where Laravel's
-  `Arr::get()` would return `null` at runtime. `Config::get()` cannot distinguish "absent" from "present
-  and null" without a sentinel. Narrow, and strictly better than the bug it replaced — an unset key with
-  a default was the common case and typed wrong. Fix by reading with a unique sentinel default if it
-  ever matters.
+`#[Collects]` is a Laravel 13 attribute. On Laravel 12 the class does not exist, so a `ResourceCollection`
+that names its collected resource *only* that way resolves to nothing, and the generated type degrades from
+`export type PostFlatCollection = PostResource[];` to an `export interface PostFlatCollection` with no
+members. That is worse than it looks: an empty interface accepts `42` and `"str"` under `tsc --strict` —
+it rejects only `null` and `undefined` — so the type reads as specific while checking almost nothing.
+
+Laravel's own `collects()` cannot resolve the attribute on 12 either, so the package mirrors the framework
+rather than guessing. **The workaround is fully supported:** `public $collects = PostResource::class;` works
+on both versions, as does the `FooCollection` → `FooResource` naming convention. The guard is in
+`src/Analyzers/Concerns/InspectsAstNodes.php`; see
+[docs/laravel-version-guards.md](./laravel-version-guards.md) for how the version floor was established and
+which tests are skipped below it.
+
+### `laravel-ts-global.ts` drops the `extends` clause it imports for
+
+On the global flavour, a type that should compose via `#[TsExtends]` gets the *import* but not the
+`extends` clause — `BroadcastableEvent`, `FormRequestBase` and `HasValidationMeta` are imported while
+`ServerCreated`, `StringRulesRequest` and `NumberRulesRequest` are emitted with no base. The per-file
+flavour emits both halves correctly.
+
+So on the global flavour those interfaces are silently missing their inherited members, and the only trace
+is an unused import. If you are on the global flavour and a base member is missing, this is why; the
+per-file flavour is correct today. The emitter is `resources/views/globals.blade.php`.
 
 ### `EnumResource::collection()` inside a mixed ternary arm
 
-`ResourceTransformer` (`src/Transformers/ResourceTransformer.php:472`) assumes the wrapping arm of a
-mixed enum ternary is never `EnumResource::collection()`. Not true in general; the direct arm's own shape
-is what decides the array suffix today.
+`ResourceTransformer` assumes the wrapping arm of a mixed enum ternary is never
+`EnumResource::collection()`, which is not true in general — the array suffix can come out wrong. The
+assumption is written at the branch it governs, `src/Transformers/ResourceTransformer.php:471`.
 
-## Tooling and CI
+## Deliberate non-goals
+
+Absent on purpose. Do not "fix" these without raising it first.
+
+- **Non-Inertia and JSON responses are never typed.** Only `Inertia::render()` page props and the
+  shared-data middleware are analyzed.
+- **`Carbon` maps to `string`, not `Date`.** Set by `TypeScriptMap.php`. Changing it is a mapping decision
+  affecting every feature, not an engine one.
+- **No `ts-publish.analyzer.handlers` config key.** You cannot append your own `ExpressionHandler`. Every
+  extension point is a compatibility promise; worth adding only if someone asks.
+- **Form requests stay runtime.** They are resolved by instantiating and calling `rules()`, on purpose.
+
+## Green signals that are narrower than they look
 
 ### The token gate type-checks one of the four generated trees
 
 `tsconfig.json`'s `include` covers `data/default-example/**` and `tests/types/**` only, so
-`.github/scripts/unimportable-token-gate.sh` never compiles `data/testing`,
-`data/full-template-example` or `data/split-template-example`. An unimportable token — or a parse error,
-the fail-open shape the gate was specifically hardened against — that appears in only one of those three
-is invisible to it.
+`.github/scripts/unimportable-token-gate.sh` never compiles `data/testing`, `data/full-template-example` or
+`data/split-template-example`. A bad token — or a parse error, the fail-open shape the gate was hardened
+against — appearing in only one of those three is invisible to it. Low likelihood, because all four trees
+come from one pipeline over one fixture set, but do not read a green gate as covering all four.
 
-Low likelihood in practice, because all four trees come from one pipeline over one fixture set and
-diverge only by template and output-directory config. Fix by widening `include` to `data/**` and
-re-baselining the three counts, which *will* change them: the same token appears up to four times.
-Re-baselining a CI gate deserves its own commit.
+### `skipLibCheck` hides every generated `.d.ts` from that same gate
 
-### `skipLibCheck` leaves every generated `.d.ts` unchecked by the token gate
+`tsconfig.json:43` sets `skipLibCheck: true`, so `tsc` never checks the body of a declaration file. The
+generated tree contains `.d.ts` files and lists them in `include` on purpose, so their imports are read and
+then checked against nothing — straight through the zero-tolerance relative-specifier sub-gate the script's
+header calls out as having no legitimate non-zero cause.
 
-`tsconfig.json:43` sets `skipLibCheck: true`, so `tsc` never type-checks the *body* of a declaration file.
-The generated tree contains declaration files and `include` lists them on purpose
-(`tsconfig.json:47`), so their imports are read for the names other files need and then checked against
-nothing. That runs straight through the zero-tolerance relative-specifier TS2307 sub-gate — the one
-`.github/scripts/unimportable-token-gate.sh`'s header singles out as having "no legitimate non-zero cause".
+Confirmed by mutation, not inferred: pointing a relative import in a generated `.d.ts` at a nonexistent
+module produces no diagnostic at all, and the gate still passes. Turning the flag off is not a one-line
+fix — it also starts checking `node_modules`, which surfaces a failure this package does not own.
 
-Verified by mutation, not inferred: repointing `'./app/events/OrderShipped'` at a nonexistent module inside
-`workbench/resources/js/types/data/default-example/echo-broadcast-events.d.ts` produces **no diagnostic at
-all** — not TS2307, not anything — and `unimportable-token-gate.sh 0 0 0` still prints three PASS lines and
-exits 0. That one file carries 17 relative imports, none of them visible to the gate. Re-running the same
-mutation with `--skipLibCheck false` does report it, at `echo-broadcast-events.d.ts(6,35)`, which is what
-pins the cause on the flag rather than on the grep.
+### The publish-speed gate is one-sided and its two arms are not pinned
 
-Turning the flag off is not the cheap fix: it also starts checking `node_modules`, which immediately
-surfaces a failure this package does not own —
-`node_modules/@tolki/types/src/collections.d.ts(1,27): error TS2526`. The two honest options are a second
-narrow `tsc` pass over only the generated `.d.ts` files with `skipLibCheck` off, or accepting the hole. It
-is recorded rather than fixed because either option changes what CI runs, which is its own commit.
+`.github/scripts/publish-bench.sh` runs and passes in CI. Two things it does not do.
 
-### `laravel-ts-global.ts` emits `#[TsExtends]` imports without the `extends` clause
+**It is a one-sided guard.** It fails only when head is **slower** than base by more than `MAX_RATIO=1.25`.
+Nothing ratchets: whenever a branch lands a large speedup, that whole win becomes headroom the next branch
+can spend without tripping the gate. Read a PASS as "no blowup", never as "the speed held".
 
-Four TS6196 (`declared but never used`) survive in the generated tree, and no gate counts them. Three are
-the same defect: `laravel-ts-global.ts` carries the `#[TsExtends]` import for broadcast events and form
-requests — `BroadcastableEvent`, `FormRequestBase`, `HasValidationMeta` — while emitting
-`export interface ServerCreated {`, `StringRulesRequest {` and `NumberRulesRequest {` with **no** `extends`
-clause. The per-file flavor emits both halves correctly, so the global flavor silently loses the interface
-composition and keeps a dangling import. The import half was a known side effect of `GlobalsWriter`'s
-form-request loop; the missing `extends` is the other half and is not deliberate.
+**Its two arms are not pinned.** `composer.lock` is gitignored, so the base and head worktrees each run an
+independent `composer install` and re-resolve from scratch. They have agreed on the same framework version
+in every run so far, but nothing enforces it — a release landing between the two installs would put
+different vendor code under the two arms, and the ratio would measure that instead of your change.
 
-The fourth is unrelated: an unused `RoleType` import in `to-array-casts-resource.ts`.
-
-Not fixed here because fixing it changes what the package emits and moves the golden tree, which does not
-belong in a commit whose whole purpose is to make the gate stricter without touching output. Adding TS6196
-to `unimportable-token-gate.sh` should follow the fix, not precede it — armed today it would fail at 4.
-
-### The `publish-bench` CI job has never executed
-
-`.github/scripts/publish-bench.sh` and its workflow job shipped without a PR ever running them. On the
-first PR that exercises it, confirm `apt-get install -y hyperfine` still succeeds on `ubuntu-latest`, the
-merge-base resolves sensibly, and the job fits its time budget. The local `composer bench` path *is*
-verified. Two cosmetic gaps in the script: the ratio line has no grep-able `PASS -` / `FAIL -` prefix
-like its sibling gates, and there is no arg-count check on `BASE_DIR` / `HEAD_DIR`.
+## Local setup
 
 ### PHPStan's result cache crashes under a 128M `memory_limit`
 
-After tracked files change, revalidating the gitignored `build/phpstan/resultCache.php` can OOM — often
-reported as `Undefined constant Larastan\Larastan\LARAVEL_VERSION` from inside Larastan's stub-file
-extension, which is a misleading symptom for the real cause. The remedy is to delete the cache, run one
-`--memory-limit=-1` pass, and re-run. Options for making it stop: raise the limit in `phpstan.neon.dist`,
-add a `composer analyse:fresh` helper, or document the symptom in `AGENTS.md`.
+After tracked files change, revalidating the gitignored `build/phpstan/resultCache.php` can OOM. It often
+surfaces as `Undefined constant Larastan\Larastan\LARAVEL_VERSION` from inside Larastan's stub-file
+extension, which is a misleading symptom for the real cause — do not go looking for a Larastan bug.
 
-### Run Tolki's `readme-build` before the next release
-
-`packages/ts/README.md` in the docs repo is an aggregate of the VitePress pages, refreshed only by that
-build. It still carries pre-migration prose describing Surveyor as the live analyzer, contradicting the
-`ts/` sources it is built from. Nothing to hand-edit — run the build so the published npm README matches
-the site.
-
-Two link problems to settle in the same pass, neither introduced by that build:
-
-- **`ts/analyzer-api.md` is missing from `packages/ts/package.json`'s `tolki.docs` list**, so the
-  aggregate never includes the page while six `](./analyzer-api.md)` links across the included sources
-  point at it. Add it to the list, in reading order.
-- **Every relative `](./*.md)` link in the aggregate is dangling on npm** — 122 of them today, led by
-  `./enums.md` (18) and `./models.md` (17). They resolve on the VitePress site and nowhere else. The real
-  fix is rewriting them to absolute `https://tolki.abe.dev/ts/…` URLs during the build. Long-standing and
-  unrelated to any one page.
-
-## Test coverage
-
-### The `MethodCall` dispatch matrix is pinned by example, not exhaustively
-
-Nine handlers claim `MethodCall` in `ResourceExpressionHandlers::handlers()`. Three ordered pairs have a
-dedicated ordering pin in `tests/Unit/Ast/ResourceExpressionHandlersTest.php`; the rest are held only by
-whichever end-to-end fixture happens to traverse them, and a mutation sweep found reorderings that change
-output with zero test failures. The full per-node-class inventory — pinned, inert-proven, and unpinned —
-is the "honest ordering inventory" table in
-[`components/ast-engine.md`](components/ast-engine.md#the-honest-ordering-inventory). A generated pairwise matrix over the claimants — assert each pair's
-resolved type, then swap and assert it changes — would close this properly. The three existing pins are
-the pattern to follow.
-
-### `substituteEnumType` / `substituteEnumResourceType` are a byte-identical pair
-
-`InlineArrayHandler::substituteEnumType()` (`src/Ast/Handlers/InlineArrayHandler.php:370`) and
-`ResourceTransformer::substituteEnumResourceType()` (`src/Transformers/ResourceTransformer.php:618`) are
-the same 25-token body under two names. They span `src/Ast/` and `src/Transformers/`, which is why the
-deduplication pass that closed twelve other groups legitimately left this one. If the copies drift,
-enum-token substitution behaves one way inside an inline-array arm and another at the transformer. The
-`Mirrors ResourceTransformer::substituteEnumResourceType()` comment on the handler is the pair's only
-marker.
-
-Related, and **not** a finding: five handlers each declare `return [MethodCall::class];` in
-`nodeClasses()`. That is the interface working as intended. Do not consolidate it.
-
-## Deliberate non-goals
-
-- **Non-Inertia and JSON responses are never typed.** Only `Inertia::render()` page props and the
-  shared-data middleware are analyzed.
-- **`Carbon` maps to `string`, not `Date`.** Set by `TypeScriptMap.php`; changing it is a mapping
-  decision that affects every feature, not an engine one.
-- **No `ts-publish.analyzer.handlers` config key.** Users cannot append their own `ExpressionHandler`.
-  Worth adding only if someone asks.
-
-## Refactors worth doing, deliberately not done here
-
-### `LaravelTsPublish.php` leaf-utility extraction
-
-Roughly 400 lines of pure, stateless helpers could move out of the facade class into three files:
-
-- `Support/JsEmitter.php` — `validJsObjectKey`, `safeJsIdentifier`, `toJsLiteral`, `routeArgsToJs`,
-  `sanitizeJsDoc`, `formatJsDoc`, and `RESERVED_JS_IDENTIFIERS`
-- `Support/TsTypeString.php` — `extractImportableTypes`, `aliasPropertyType`, `qualifyGlobalType`,
-  `splitTopLevelUnion`, `rewriteAsEnumToType` (`TS_PRIMITIVES` stays on the facade as canonical)
-- `Support/TsPaths.php` — `resolveRelativePath`, `namespaceToPath`, `relativeImportPath`,
-  `sortImportPaths`, `importSortGroup`, `resolveClassFromFile`
-
-**Every extracted method must keep a permanent thin facade delegation.** Published Blade views and the
-Tolki docs call `LaravelTsPublish::x()` statically, and published views are user API, so no consumer
-re-points.
-
-Do **not** extract: `callCommandUsing` (documented API, static state), `resourceTypeName` (instance cache,
-no container binding), `keyCase`, `typesMap` / `relationsMap` / `relationStrategy` (already delegating),
-or the `TypeScriptTypeInfo` helpers (four load-bearing `@phpstan-import-type` headers and ~25 engine call
-sites). The ~1,240-line type engine — `toTsType()` plus the docblock pipeline, mutually recursive over a
-shared `$shapeExpansionStack` guard — stays put.
-
-Separately: `relationsMap` has zero production consumers and is a deprecation candidate.
+Remedy: delete the cache, run one `--memory-limit=-1` pass, then re-run normally. Raising the limit in
+`phpstan.neon.dist` would fix it for everyone and has not been done.
