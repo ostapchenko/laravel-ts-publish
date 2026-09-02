@@ -13,18 +13,27 @@ use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 
 /**
- * Inertia's prop wrappers — `Inertia::defer()`, `optional()`, `lazy()`, `always()`, `merge()`,
- * `deepMerge()` — resolve to the type of the value they wrap. The three lazy wrappers are absent
- * from a partial reload's payload, so their result is optional.
+ * Inertia's prop factories — `Inertia::defer()`, `optional()`, `always()`, `merge()`, `deepMerge()`,
+ * `scroll()`, `once()` — resolve to the type of the value they wrap. Only `IgnoreFirstLoad` props are
+ * always absent from the initial response; a deferred scroll or an already-loaded once is runtime state.
  *
  * @phpstan-import-type ValueExpressionResult from ExpressionHandler
  */
 final class InertiaWrapperHandler implements ExpressionHandler
 {
-    /** Wrapper names whose prop is omitted unless explicitly requested. */
+    /**
+     * Optional means `IgnoreFirstLoad`: unconditionally absent from the initial response. Conditional
+     * absence — a `scroll()` the caller deferred, a `once()` the client already holds — stays required,
+     * since partial reloads can drop any prop and typing those `?:` would make every prop optional.
+     */
     private const OPTIONAL_WRAPPERS = ['defer', 'optional', 'lazy'];
 
-    private const WRAPPERS = ['defer', 'optional', 'lazy', 'always', 'merge', 'deepMerge'];
+    /**
+     * Prop factories whose value is their first argument. `lazy` left v3 for `optional`, but inertia is
+     * not a dependency here, so a consumer on an older adapter still calls it. `shareOnce` is excluded:
+     * it takes the value second and shares the prop itself, making it a statement, not a prop expression.
+     */
+    private const WRAPPERS = ['defer', 'optional', 'lazy', 'always', 'merge', 'deepMerge', 'scroll', 'once'];
 
     /** @return list<class-string<Expr>> */
     public function nodeClasses(): array

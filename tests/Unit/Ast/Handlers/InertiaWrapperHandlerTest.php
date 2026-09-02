@@ -52,15 +52,28 @@ function inertiaWrapperScope(): AnalysisScope
     return new AnalysisScope(new ReflectionClass(stdClass::class));
 }
 
+// scroll and once are present on the initial response — a ScrollProp defers only when the caller
+// chains ->defer(), and an OnceProp is dropped only once the client reports holding it.
 it('resolves the wrapped value and keeps its channels', function (string $method) {
     expect((new InertiaWrapperHandler)->resolve(inertiaWrapperCall('Inertia', $method), inertiaWrapperScope(), inertiaWrapperEngine()))
         ->toBe(['type' => 'string', 'optional' => false, 'modelFqcn' => 'Some\Model']);
-})->with(['always', 'merge', 'deepMerge']);
+})->with(['always', 'merge', 'deepMerge', 'scroll', 'once']);
 
-it('marks a lazily loaded wrapper optional', function (string $method) {
+it('marks an IgnoreFirstLoad wrapper optional', function (string $method) {
     expect((new InertiaWrapperHandler)->resolve(inertiaWrapperCall('Inertia', $method), inertiaWrapperScope(), inertiaWrapperEngine())['optional'])
         ->toBeTrue();
 })->with(['defer', 'optional', 'lazy']);
+
+// shareOnce takes the value second, so claiming it would type the key string. It shares the prop
+// itself, so it is written as a statement and never reaches this handler as a prop expression.
+it('declines shareOnce rather than typing its key argument', function () {
+    $expr = new StaticCall(new Name('Inertia'), 'shareOnce', [
+        new Arg(new String_('permissions')),
+        new Arg(new ArrowFunction(['expr' => new String_('value')])),
+    ]);
+
+    expect((new InertiaWrapperHandler)->resolve($expr, inertiaWrapperScope(), inertiaWrapperEngine()))->toBeNull();
+});
 
 it('declines another Inertia method, another class, and a first-class callable', function () {
     $scope = inertiaWrapperScope();
