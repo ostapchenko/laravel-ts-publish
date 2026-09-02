@@ -13,10 +13,14 @@ use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesAuthHelperCalls;
 use AbeTwoThree\LaravelTsPublish\Ast\Concerns\ResolvesModelRelationTypes;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionEngine;
 use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
+use AbeTwoThree\LaravelTsPublish\Ast\ReflectedTypeAcceptor;
+use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
+use Illuminate\Http\Request;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
+use ReflectionClass;
 
 /**
  * The dispatch floor: Laravel-convention method-name rules for method calls no earlier handler
@@ -31,6 +35,9 @@ final class KnownMethodRuleHandler implements ExpressionHandler
     use InspectsResourceSubject;
     use ResolvesAuthHelperCalls;
     use ResolvesModelRelationTypes;
+
+    /** @var ReflectionClass<Request>|null Immutable subject, so one reflection serves every expression. */
+    private static ?ReflectionClass $requestReflection = null;
 
     /** @return list<class-string<Expr>> */
     public function nodeClasses(): array
@@ -60,7 +67,7 @@ final class KnownMethodRuleHandler implements ExpressionHandler
     }
 
     /**
-     * Method-name rules for an `Illuminate\Http\Request` receiver, e.g. `$request->url()`.
+     * Type a method call on an `Illuminate\Http\Request` receiver from the method's own signature.
      *
      * Gated on the receiver being a variable the scope knows holds a Request: these names
      * (`string`, `boolean`, `user`, …) are far too common to type on the name alone.
@@ -78,18 +85,17 @@ final class KnownMethodRuleHandler implements ExpressionHandler
 
         $method = $expr->name->toString();
 
+        // Reflection reports `@return mixed` here; the configured auth model is the useful answer.
         if ($method === 'user') {
             return $this->authMethodResult($method, resolve(AuthUserResolver::class)->model());
         }
 
-        $type = match ($method) {
-            'url', 'fullUrl', 'path', 'string' => 'string',
-            'integer' => 'number',
-            'boolean', 'hasCookie' => 'boolean',
-            'cookie' => 'string | null',
-            default => null,
-        };
+        // The scope knows the variable is *a* Request, not which subclass, so the base class is the
+        // honest floor. Declining on an unusable type is required: knownMethodRule() runs next.
+        self::$requestReflection ??= new ReflectionClass(Request::class);
 
-        return $type === null ? null : ['type' => $type, 'optional' => false];
+        $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(self::$requestReflection, $method);
+
+        return resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
     }
 }

@@ -64,10 +64,11 @@ function requestCall(string $method): MethodCall
     return new MethodCall(new Variable('request'), $method, [new Arg(new String_('key'))]);
 }
 
-it('types a Request method call against the rule table', function (string $method, string $type) {
+it('types a Request method call from the reflected signature', function (string $method, string $type) {
     expect((new KnownMethodRuleHandler)->resolve(requestCall($method), requestRuleScope(), requestRuleEngine()))
         ->toBe(['type' => $type, 'optional' => false]);
 })->with([
+    // Every name the superseded hardcoded match knew, reproduced by reflection.
     ['url', 'string'],
     ['fullUrl', 'string'],
     ['path', 'string'],
@@ -75,7 +76,20 @@ it('types a Request method call against the rule table', function (string $metho
     ['integer', 'number'],
     ['boolean', 'boolean'],
     ['hasCookie', 'boolean'],
-    ['cookie', 'string | null'],
+    // `cookie` returns the whole jar when called with no key, which the old 'string | null' denied.
+    ['cookie', 'string | unknown[] | null'],
+    // Names the match never listed, now typed because the signature carries them.
+    ['method', 'string'],
+    ['decodedPath', 'string'],
+    ['schemeAndHttpHost', 'string'],
+    ['ip', 'string | null'],
+    ['bearerToken', 'string | null'],
+    ['ajax', 'boolean'],
+    ['expectsJson', 'boolean'],
+    ['routeIs', 'boolean'],
+    ['filled', 'boolean'],
+    ['segments', 'unknown[]'],
+    ['allFiles', 'Record<string, string[]>'],
 ]);
 
 it('types $request->user() through the auth provider model', function () {
@@ -90,9 +104,28 @@ it('declines the whole rule table when the receiver is not a known Request varia
         ->toBeNull();
 });
 
-it('declines a Request method outside the table', function () {
-    expect((new KnownMethodRuleHandler)->resolve(requestCall('session'), requestRuleScope(), requestRuleEngine()))
+it('declines a Request method whose reflected type is unusable', function (string $method) {
+    expect((new KnownMethodRuleHandler)->resolve(requestCall($method), requestRuleScope(), requestRuleEngine()))
         ->toBeNull();
+})->with([
+    'mixed @return' => ['session'],
+    'no reflectable declaration — a Macroable __call' => ['validate'],
+    'void' => ['setLaravelSession'],
+    'never' => ['dd'],
+]);
+
+// `getUserResolver(): Closure` is the live case for the token gate: emitting `Closure` would compile
+// to a TS2304, since no import can be generated for it. The acceptor rejects any non-Model class.
+it('declines a Request method returning a class token it cannot import', function () {
+    expect((new KnownMethodRuleHandler)->resolve(requestCall('getUserResolver'), requestRuleScope(), requestRuleEngine()))
+        ->toBeNull();
+});
+
+// The decline above is a fall-through, not a result: requestMethodRule() runs before knownMethodRule()
+// in the same handler, so answering 'unknown' rather than null would swallow the rules below.
+it('leaves knownMethodRule its turn on a Request receiver reflection cannot type', function () {
+    expect((new KnownMethodRuleHandler)->resolve(requestCall('can'), requestRuleScope(), requestRuleEngine()))
+        ->toBe(['type' => 'boolean', 'optional' => false]);
 });
 
 it('keeps the Request rules off a resource, whose toArray() also takes a Request', function () {
