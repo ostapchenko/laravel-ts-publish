@@ -22,10 +22,13 @@ class MethodLocator
     /**
      * Locate a method in the class's OWN file only — an inherited method is deliberately a miss,
      * which is how callers detect delegation/inheritance cases.
+     *
+     * Callers pass names straight from route action strings, so the AST is searched for the name as
+     * declared rather than as spelled; PHP dispatches either, and a mismatch would silently type nothing.
      */
     public function locateOwn(string $class, string $method): ?MethodContext
     {
-        return $this->memo('own:'.$class.'::'.$method, function () use ($class, $method): ?MethodContext {
+        return $this->memo('own:'.$class.'::'.strtolower($method), function () use ($class, $method): ?MethodContext {
             if (! class_exists($class)) {
                 return null;
             }
@@ -43,7 +46,9 @@ class MethodLocator
                 return null;
             }
 
-            return $this->findIn($reflection, (string) $file, $method, caseSensitive: true);
+            $declaredName = $reflection->getMethod($method)->getName();
+
+            return $this->findIn($reflection, (string) $file, $declaredName, caseSensitive: true);
         });
     }
 
