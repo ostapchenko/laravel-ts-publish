@@ -103,14 +103,20 @@ class InertiaPageAnalyzer
     /**
      * Convert a component name to a fully-qualified Inertia namespace path.
      *
+     * Inertia resolves pages through Laravel's FileViewFinder, which splits the `::` namespace hint and
+     * rewrites every `.` to `/`, so dots separate directories exactly as slashes do. Empty segments are
+     * dropped because `Settings//General` names the same page file as `Settings/General`.
+     *
      * @example "Dashboard" → "Inertia.Pages.Dashboard"
      * @example "Settings/General" → "Inertia.Pages.Settings.General"
+     * @example "billing.payment-methods" → "Inertia.Pages.Billing.PaymentMethods"
      */
     public function componentToFqn(string $component): string
     {
-        $normalized = str_replace('::', '/', $component);
+        $normalized = str_replace(['::', '.'], '/', $component);
 
         return collect(explode('/', $normalized))
+            ->filter(fn (string $part): bool => $part !== '')
             ->map(fn (string $part): string => Str::studly($part))
             ->prepend('Inertia.Pages')
             ->implode('.');

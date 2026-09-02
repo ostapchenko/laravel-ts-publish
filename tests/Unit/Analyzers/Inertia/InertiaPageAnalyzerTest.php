@@ -51,6 +51,30 @@ test('converts double-colon separator to dots', function () {
         ->toBe('Inertia.Pages.Admin.Dashboard');
 });
 
+test('treats dots as directory separators like the Inertia view finder', function () {
+    expect(new InertiaPageAnalyzer()->componentToFqn('PaymentMethods.ManagePaymentMethods'))
+        ->toBe('Inertia.Pages.PaymentMethods.ManagePaymentMethods');
+});
+
+test('studly-cases every segment of a kebab-case dotted component', function () {
+    expect(new InertiaPageAnalyzer()->componentToFqn('payment-methods.manage-payment-methods'))
+        ->toBe('Inertia.Pages.PaymentMethods.ManagePaymentMethods');
+});
+
+test('normalizes a component mixing all three separators', function () {
+    expect(new InertiaPageAnalyzer()->componentToFqn('Admin::billing.payment-methods/Index'))
+        ->toBe('Inertia.Pages.Admin.Billing.PaymentMethods.Index');
+});
+
+test('drops empty segments rather than emitting doubled dots', function () {
+    expect(new InertiaPageAnalyzer()->componentToFqn('Settings//General'))
+        ->toBe('Inertia.Pages.Settings.General')
+        ->and(new InertiaPageAnalyzer()->componentToFqn('Settings.'))
+        ->toBe('Inertia.Pages.Settings')
+        ->and(new InertiaPageAnalyzer()->componentToFqn(''))
+        ->toBe('Inertia.Pages');
+});
+
 // ─── analyze() prop inference ─────────────────────────────────────
 
 it('types Eloquent finders, collections and paginators from the model their chain is rooted at', function () {
