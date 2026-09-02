@@ -78,6 +78,27 @@ diverge only by template and output-directory config. Fix by widening `include` 
 re-baselining the three counts, which *will* change them: the same token appears up to four times.
 Re-baselining a CI gate deserves its own commit.
 
+### `skipLibCheck` leaves every generated `.d.ts` unchecked by the token gate
+
+`tsconfig.json:43` sets `skipLibCheck: true`, so `tsc` never type-checks the *body* of a declaration file.
+The generated tree contains declaration files and `include` lists them on purpose
+(`tsconfig.json:47`), so their imports are read for the names other files need and then checked against
+nothing. That runs straight through the zero-tolerance relative-specifier TS2307 sub-gate — the one
+`.github/scripts/unimportable-token-gate.sh`'s header singles out as having "no legitimate non-zero cause".
+
+Verified by mutation, not inferred: repointing `'./app/events/OrderShipped'` at a nonexistent module inside
+`workbench/resources/js/types/data/default-example/echo-broadcast-events.d.ts` produces **no diagnostic at
+all** — not TS2307, not anything — and `unimportable-token-gate.sh 0 0 0` still prints three PASS lines and
+exits 0. That one file carries 17 relative imports, none of them visible to the gate. Re-running the same
+mutation with `--skipLibCheck false` does report it, at `echo-broadcast-events.d.ts(6,35)`, which is what
+pins the cause on the flag rather than on the grep.
+
+Turning the flag off is not the cheap fix: it also starts checking `node_modules`, which immediately
+surfaces a failure this package does not own —
+`node_modules/@tolki/types/src/collections.d.ts(1,27): error TS2526`. The two honest options are a second
+narrow `tsc` pass over only the generated `.d.ts` files with `skipLibCheck` off, or accepting the hole. It
+is recorded rather than fixed because either option changes what CI runs, which is its own commit.
+
 ### `laravel-ts-global.ts` emits `#[TsExtends]` imports without the `extends` clause
 
 Four TS6196 (`declared but never used`) survive in the generated tree, and no gate counts them. Three are

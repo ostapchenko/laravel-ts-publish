@@ -126,8 +126,8 @@ answer was neither `string` nor `unknown` but `ShipmentStatusType`.
 
 Runs `npx tsc --noEmit` over the generated tree and counts "cannot find name" diagnostics — TS2304, plus
 TS2552 (`Did you mean…`), which TypeScript emits instead when a similarly-named global exists — together
-with TS2300 (`Duplicate identifier`), TS2344 (`does not satisfy the constraint`) and TS2305/TS2724
-(`has no exported member`).
+with TS2300 (`Duplicate identifier`), TS2440 (`Import declaration conflicts with local declaration`),
+TS2344 (`does not satisfy the constraint`) and TS2305/TS2724 (`has no exported member`).
 
 **All three baselines are `0`.** The app-side modules the generated tree imports are stubbed under
 `tests/types/stubs` (see [The app-side stubs](#the-app-side-stubs)), so the gate is an *identity* check
@@ -142,6 +142,11 @@ algorithm derived an alias from a single namespace segment and two classes happe
 basename and that segment. `ImportNameRegistry` (`docs/components/import-name-registry.md`) exists to make
 that impossible, and this gate is the standing check that it stays that way.
 
+TS2440 is that collision one step over: an import colliding with a *local* declaration of the same name
+rather than with a second import. Same defect class, but TypeScript files it under its own code, so the
+grep has to name it explicitly — until it did, a generated file declaring a name it also imported read as
+a clean `0` and the gate exited 0. It was armed while the count was already `0`, so no baseline moved.
+
 TS2344 is a third shape: the token is imported and unique, but named somewhere its own type rejects it —
 the case that motivated adding it was `Pick<Model, K>` built from raw schema columns while the model
 interface omits `$hidden` ones, so `K extends keyof T` failed. See
@@ -154,7 +159,7 @@ interface omits `$hidden` ones, so `K extends keyof T` failed. See
 ```
 
 ```
-TS2300/TS2304/TS2305/TS2344/TS2552/TS2724 (duplicate identifier / cannot find name / unexported name / bad type argument) in generated tree: 0
+TS2300/TS2304/TS2305/TS2344/TS2440/TS2552/TS2724 (duplicate identifier / cannot find name / unexported name / bad type argument / import-local conflict) in generated tree: 0
 TS2307 (cannot find module) with a relative specifier in generated tree: 0
 TS2307 (cannot find module) with a bare specifier in generated tree: 0
 
@@ -330,14 +335,16 @@ opposite sign. `npx tsc --noEmit -p tsconfig.json 2>&1 | grep "error TS2307" | g
 
 #### Proving each gate fires
 
-Three independent claims, each checked separately — a multi-count gate where only one branch was ever
-exercised is not meaningfully better than the single-count gate it replaced.
+Five detection controls and one comparison control, each checked separately — a multi-count gate where
+only one branch was ever exercised is not meaningfully better than the single-count gate it replaced.
+Every expected number below has been reproduced against the committed tree; two of them were wrong once.
 
 Now that every baseline is `0`, the old "one below its baseline" controls are gone: there is no lower
 number to pass. Every control below is a **detection** control, which is the stronger kind anyway — it
-exercises the tsc run and the grep, not just the comparison arithmetic. Each mutates a committed stub,
-so restore it afterwards (`git checkout -- tests/types/stubs`); `tests/types/` also has its own CI step
-that fails on any diagnostic there.
+exercises the tsc run and the grep, not just the comparison arithmetic. Most mutate a committed stub, so
+restore it afterwards (`git checkout -- tests/types/stubs`); the relative-specifier control instead writes
+a throwaway file and the TS2440 one edits the golden tree, so each names its own cleanup. `tests/types/`
+also has its own CI step that fails on any diagnostic there.
 
 **Bare-specifier gate — an alias nothing stubs.** Point one alias at nothing by deleting its stub:
 
@@ -362,9 +369,27 @@ Renaming the export instead of dropping it (`GeoBound`) raises TS2724 rather tha
 
 ```bash
 printf 'export interface Routable {\n    update: unknown;\n}\n' > tests/types/stubs/app/routing.d.ts
-.github/scripts/unimportable-token-gate.sh 0 0 0   # exit 1: "token count rose from 0 to 6" (TS2344)
+.github/scripts/unimportable-token-gate.sh 0 0 0   # exit 1: "token count rose from 0 to 4" (TS2344)
 git checkout -- tests/types/stubs/app/routing.d.ts
 ```
+
+4 is the ceiling, not an arbitrary reading: the checked tree holds exactly four `Pick<Routable, …>` sites —
+`routable-resource.ts:5`, `warehouse-resource.ts:16`, and `laravel-ts-global.ts` at `:3040` and `:3487`.
+The histogram does not collapse TS2344 to a name; its `sed` matches only quoted identifiers, so these four
+print as whole diagnostic lines.
+
+**Main gate — an import colliding with a local declaration (TS2440).** No stub is involved: the collision
+has to be *in* a generated file, so this is the one control that mutates the golden tree. Restore it:
+
+```bash
+printf '\nexport interface GeoPoint {\n    lat: unknown;\n}\n' \
+  >> workbench/resources/js/types/data/default-example/app/http/resources/address.ts
+.github/scripts/unimportable-token-gate.sh 0 0 0   # exit 1: "token count rose from 0 to 1", histogram "1 GeoPoint"
+git checkout -- workbench/resources/js/types/data/default-example/app/http/resources/address.ts
+```
+
+Before TS2440 joined the grep, that same mutation left all three counts at `0` and the gate exited **0** —
+the diagnostic was in the `tsc` output the whole time, just not in the pattern reading it.
 
 **Relative-specifier gate.** No stub is involved — synthesize an unresolvable relative import:
 
@@ -455,8 +480,8 @@ those raise TS2344 and the directive is satisfied, and when they have degraded t
 and TypeScript reports **TS2578 "Unused '@ts-expect-error' directive"** — which is emitted by the
 directive machinery and therefore survives `any`-poisoning.
 
-`unimportable-token-gate.sh` counts only TS2300/TS2304/TS2305/TS2344/TS2552/TS2724, so it does **not** fail
-on TS2578.
+`unimportable-token-gate.sh` counts only TS2300/TS2304/TS2305/TS2344/TS2440/TS2552/TS2724, so it does
+**not** fail on TS2578.
 CI evaluates this guard in its own step (`Gate - the @tolki/ts type surface resolves`), which fails on any
 diagnostic under `tests/types/`. Locally:
 
@@ -488,7 +513,7 @@ When changing `unknown-regression-gate.py` itself, also run its
   only by constructing a fixture and regenerating, never by reading the code or running the suite.
 
 - **TS2307 (`Cannot find module`) is counted, in two separate counts, not the main one.**
-  `unimportable-token-gate.sh`'s main count greps only TS2300/TS2304/TS2305/TS2344/TS2552/TS2724, and an
+  `unimportable-token-gate.sh`'s main count greps only TS2300/TS2304/TS2305/TS2344/TS2440/TS2552/TS2724, and an
   unresolved *module* is not an existing property degrading to `unknown`, so the regression gate is
   structurally blind to a bad import too. [The TS2307 sub-gates](#the-ts2307-sub-gates) above are where every
   TS2307 is counted instead, kept apart on purpose: the relative-specifier count, whose diagnostic is the signature of

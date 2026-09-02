@@ -5,6 +5,8 @@
 # also counts TS2300 "Duplicate identifier" errors: two different imports
 # resolving to the same local name, e.g. two unrelated MailPrice models both
 # aliased to MailPriceMailPrice (see docs/components/import-name-registry.md).
+# TS2440 is that same collision against a *local* declaration rather than a
+# second import, which TypeScript reports under its own code and not as TS2300.
 # TS2344 rounds out the set: a token that IS imported but named where its own
 # type rejects it, e.g. Pick<Model, K> over a key the interface never declares.
 # TS2305/TS2724 cover the name that IS imported from a module that resolves but
@@ -24,7 +26,9 @@
 #        BARE_BASELINE gates every other TS2307 - a bare specifier such as @/types/geo, now backed by
 #        a stub. All three are 0 and none has a legitimate non-zero cause, so raising any of them is
 #        never the fix: a rise means a token leaked, a name moved, or a stub needs the new export
-#        added by hand. Each argument activates its own gate; passing fewer leaves the rest
+#        added by hand. Nothing machine-checks that a stub declares only the names the tree actually
+#        imports, so widening one to silence a TS2305 is that same escape relocated, not a fix.
+#        Each argument activates its own gate; passing fewer leaves the rest
 #        report-only, same as BASELINE_COUNT and RELATIVE_BASELINE already did before BARE_BASELINE.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -54,11 +58,11 @@ if [ -n "$syntax_errs" ]; then
   exit 1
 fi
 
-errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2305|2344|2552|2724)" || true)
+errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2305|2344|2440|2552|2724)" || true)
 count=$(printf '%s' "$errs" | grep -c . || true)
 
-echo "TS2300/TS2304/TS2305/TS2344/TS2552/TS2724 (duplicate identifier / cannot find name / unexported name / bad type argument) in generated tree: $count"
-printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier) '([^']+)'.*/  \2/; s/.*has no exported member (named )?'([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
+echo "TS2300/TS2304/TS2305/TS2344/TS2440/TS2552/TS2724 (duplicate identifier / cannot find name / unexported name / bad type argument / import-local conflict) in generated tree: $count"
+printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier|conflicts with local declaration of) '([^']+)'.*/  \2/; s/.*has no exported member (named )?'([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
 
 # A relative specifier (./ or ../) only ever resolves against a file this package itself writes, so an
 # unresolved one is never an app-side alias a stub could cover - it is
