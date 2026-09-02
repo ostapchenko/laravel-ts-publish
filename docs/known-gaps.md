@@ -22,14 +22,18 @@ if neither, it does not go in this file.
 ### `$request->validated('key')` is never typed
 
 The Inertia page path types `$request->url()`, `->user()`, `->integer()` and friends through the `match`
-table in `src/Ast/Handlers/KnownMethodRuleHandler.php:84`. `validated()` is absent from it, so
+table in `src/Ast/Handlers/KnownMethodRuleHandler.php:85`. `validated()` is absent from it, so
 `Inertia::render('X', ['title' => $request->validated('title')])` — a headline user shape — ships
-`title: unknown`.
+`title: unknown`. It is in the golden tree today:
+`workbench/app/Http/Controllers/InertiaFormRequestController.php:35` emits
+`export type StorePageProps = Inertia.SharedData & { title: unknown };` at
+`workbench/resources/js/types/data/default-example/app/http/controllers/inertia-form-request-controller.ts:15`.
 
-Two real blockers, not an oversight: the scope tracks *that* a variable is a `Request`, not *which*
-`FormRequest` subclass it is; and resolving the rules would mean instantiating the form request and calling
-`rules()` during type resolution, which runs application code in the analyzer. Worth doing as its own
-change with that trade-off argued explicitly.
+Deferred, not overlooked — but only one of the two reasons is a real obstacle. The scope tracks *that* a
+variable is a `Request`, not *which* `FormRequest` subclass it is; that is a data-shape widening with a
+known blast radius, not a wall. The objection that actually holds is the second: resolving the rules means
+instantiating the form request and calling `rules()` during type resolution, which runs application code
+inside the analyzer. Worth doing as its own change with that trade-off argued explicitly.
 
 ### `config()` calls have three residual cases
 
@@ -79,13 +83,26 @@ Absent on purpose. Do not "fix" these without raising it first.
 
 - **Non-Inertia and JSON responses are never typed.** Only `Inertia::render()` page props and the
   shared-data middleware are analyzed.
-- **`Carbon` maps to `string`, not `Date`.** Set by `TypeScriptMap.php`. Changing it is a mapping decision
-  affecting every feature, not an engine one.
 - **No `ts-publish.analyzer.handlers` config key.** You cannot append your own `ExpressionHandler`. Every
   extension point is a compatibility promise; worth adding only if someone asks.
 - **Form requests stay runtime.** They are resolved by instantiating and calling `rules()`, on purpose.
 
 ## Green signals that are narrower than they look
+
+### Handler ordering is pinned by example, not by the suite
+
+Nine of the twenty-four handlers in the resource profile claim `MethodCall`
+(`src/Ast/ResourceExpressionHandlers.php`), so for a `$this->foo()` expression the dispatcher's registration
+order is what decides which one answers. Three of those ordered pairs have a dedicated ordering pin in
+`tests/Unit/Ast/ResourceExpressionHandlersTest.php`. Every other pair among the nine is held only by
+whichever end-to-end fixture happens to traverse it.
+
+Each of the three pins exists because a mutation found a reordering the rest of the suite did not catch —
+two crash-level, one a silent type divergence. Nobody has traced the remaining pairs the same way, so a
+green `composer test` is not evidence that reordering `handlers()` is safe. The full per-node-class
+inventory — which pairs are pinned, which are proven inert, and which are neither — is the ordering table
+in [docs/components/ast-engine.md](./components/ast-engine.md#the-honest-ordering-inventory). Read the pin
+count as "the divergences someone has gone and found", not "the only divergences that exist".
 
 ### The token gate type-checks one of the four generated trees
 
@@ -118,14 +135,3 @@ can spend without tripping the gate. Read a PASS as "no blowup", never as "the s
 independent `composer install` and re-resolve from scratch. They have agreed on the same framework version
 in every run so far, but nothing enforces it — a release landing between the two installs would put
 different vendor code under the two arms, and the ratio would measure that instead of your change.
-
-## Local setup
-
-### PHPStan's result cache crashes under a 128M `memory_limit`
-
-After tracked files change, revalidating the gitignored `build/phpstan/resultCache.php` can OOM. It often
-surfaces as `Undefined constant Larastan\Larastan\LARAVEL_VERSION` from inside Larastan's stub-file
-extension, which is a misleading symptom for the real cause — do not go looking for a Larastan bug.
-
-Remedy: delete the cache, run one `--memory-limit=-1` pass, then re-run normally. Raising the limit in
-`phpstan.neon.dist` would fix it for everyone and has not been done.

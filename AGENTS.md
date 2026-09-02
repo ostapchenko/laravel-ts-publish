@@ -15,6 +15,13 @@ The `abetwothree/laravel-ts-publish` project is a Laravel package aiming to conv
   - Run tests without coverage: `composer test` in parallel mode to run faster.
 - Run linter: `composer lint`
 
+`composer lint` and `composer analyse` run PHPStan without a memory override, so on a box with the default
+128M `memory_limit` revalidating the gitignored `build/phpstan/resultCache.php` after tracked files change
+can run out of memory. It often surfaces as `Undefined constant Larastan\Larastan\LARAVEL_VERSION` from
+inside Larastan's stub-file extension — a misleading symptom, so do not go looking for a Larastan bug.
+Remedy: delete `build/phpstan`, run one `vendor/bin/phpstan analyse --memory-limit=-1` pass to rebuild the
+cache, then go back to `composer lint`.
+
 Do not try to run the `ts:publish` command from the workbench directory because it won't have a database connection, so the output will not have DB backed values.
 
 ## Implementing Types
