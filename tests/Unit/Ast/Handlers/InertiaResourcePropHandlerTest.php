@@ -62,7 +62,7 @@ it('types a flat collection over a paginator as the paginator over its singular 
         'resourceFqcn' => PostResource::class,
         'customImports' => ['@tolki/types' => ['JsonResourcePaginator']],
     ]);
-});
+})->skip(fn () => ! version_compare(app()->version(), '13', '>='));
 
 it('keys the paginator data when a flat collection preserves its source keys', function () {
     $expr = new New_(new Name(PreserveKeysFlatCollection::class), [paginatorArg()]);

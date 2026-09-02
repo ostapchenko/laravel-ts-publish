@@ -14,8 +14,8 @@ and remove the row.
 | Class | Min Laravel | Guarded at | Tests skipped at | Convert when floor ≥ |
 | --- | --- | --- | --- | --- |
 | `Illuminate\Database\Eloquent\Attributes\UseResource` | `12.29.0` | `src/Transformers/ResourceTransformer.php`, `src/Analyzers/ResourceAstAnalyzer.php` | `tests/Unit/Transformers/ResourceTransformerTest.php`, `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `12.29.0` |
-| `Illuminate\Database\Eloquent\Attributes\UseResourceCollection` | `12.29.0` | `src/Analyzers/ResourceAstAnalyzer.php` | none | `12.29.0` |
-| `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/Concerns/InspectsAstNodes.php` | none | `13.0.0` |
+| `Illuminate\Database\Eloquent\Attributes\UseResourceCollection` | `12.29.0` | `src/Analyzers/ResourceAstAnalyzer.php` | `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `12.29.0` |
+| `Illuminate\Http\Resources\Attributes\Collects` | `13.0.0` | `src/Analyzers/Concerns/InspectsAstNodes.php` | `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php`, `tests/Unit/Ast/Handlers/InertiaResourcePropHandlerTest.php`, `tests/Unit/Transformers/ResourceTransformerTest.php`, `tests/Unit/Writers/JsonWriterTest.php`, `tests/Unit/Writers/GlobalsWriterTest.php` — see below | `13.0.0` |
 | `Illuminate\Http\Resources\Attributes\PreserveKeys` | `13.0.0` | `src/Analyzers/Concerns/ChecksPreserveKeys.php` | `tests/Unit/Analyzers/ResourceAstAnalyzerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Table` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
 | `Illuminate\Database\Eloquent\Attributes\Hidden` | `13.0.0` | none — test-only, see below | `tests/Unit/Transformers/ModelTransformerTest.php` | `13.0.0` |
@@ -32,6 +32,14 @@ The `PreserveKeys` row's guard covers only the `#[PreserveKeys]` *attribute* for
 that branch of `collectionPreservesKeys()` is never conditional. If the floor rises and this row is
 converted, only the attribute branch becomes a plain `use` import — the property branch is already
 unconditional and does not change.
+
+The `Collects` row is the one whose test guards are **not** written as `class_exists()`. All six spell
+the same condition as `->skip(fn () => ! version_compare(app()->version(), '13', '>='))`, because each
+covers a `PostFlatCollection` assertion — the only fixture whose collected resource is reachable *solely*
+through the attribute, so `resolveCollectedResourceClass()` returns null on Laravel 12 and the type degrades.
+Grep for the `version_compare` form, not the FQCN, when converting this row. Sibling fixtures such as
+`PreserveKeysFlatCollection` use the `$collects` property and need no guard; `PostCollection` carries the
+attribute but also satisfies the `FooCollection` → `FooResource` naming convention, so it resolves either way.
 
 The five `Attributes\{Table,Hidden,Visible,Appends,Connection}` rows have no `src/` guard because
 nothing in this package resolves them: Laravel applies them itself in `Model::__construct()`, and
