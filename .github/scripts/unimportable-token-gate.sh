@@ -7,25 +7,25 @@
 # aliased to MailPriceMailPrice (see docs/components/import-name-registry.md).
 # TS2344 rounds out the set: a token that IS imported but named where its own
 # type rejects it, e.g. Pick<Model, K> over a key the interface never declares.
+# TS2305/TS2724 cover the name that IS imported from a module that resolves but
+# never exports it - the shape that only became reachable once the stubs landed.
 #
 # The unknown-regression gate cannot catch either shape: a leaked or colliding
 # token is a NEW property with a plausible-looking type, not an existing
 # property degrading to `unknown`.
 #
-# There is a pre-existing TS2304 baseline (config-driven `custom_ts_mappings`
-# names like CustomObject / ExtendableInterface, which the consuming app is
-# expected to declare). The gate compares against that baseline rather than
-# demanding zero.
+# Every baseline is 0. The app-side modules the generated tree imports (`#[TsCasts]` /
+# `#[TsExtends]` targets) are stubbed under tests/types/stubs and wired up by tsconfig
+# `paths`, so an unresolved module is now always a defect rather than a known absence.
 #
 # Usage: unimportable-token-gate.sh [BASELINE_COUNT] [RELATIVE_BASELINE] [BARE_BASELINE]
 #        With no argument it prints the current counts and the offending names. RELATIVE_BASELINE
-#        gates TS2307s whose specifier is relative (./ or ../) - a module this package itself writes,
-#        and should always be passed as 0: unlike the other two baselines, it has no legitimate
-#        non-zero cause, so it is never appropriate to raise it. BARE_BASELINE gates every other
-#        TS2307 - a bare specifier such as @/types/geo, an app-side alias the consuming app is
-#        expected to declare, the same kind of escape hatch as the BASELINE_COUNT family below.
-#        Each argument activates its own gate; passing fewer leaves the rest report-only, same as
-#        BASELINE_COUNT and RELATIVE_BASELINE already did before BARE_BASELINE existed.
+#        gates TS2307s whose specifier is relative (./ or ../) - a module this package itself writes.
+#        BARE_BASELINE gates every other TS2307 - a bare specifier such as @/types/geo, now backed by
+#        a stub. All three are 0 and none has a legitimate non-zero cause, so raising any of them is
+#        never the fix: a rise means a token leaked, a name moved, or a stub needs the new export
+#        added by hand. Each argument activates its own gate; passing fewer leaves the rest
+#        report-only, same as BASELINE_COUNT and RELATIVE_BASELINE already did before BARE_BASELINE.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -54,14 +54,14 @@ if [ -n "$syntax_errs" ]; then
   exit 1
 fi
 
-errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2344|2552)" || true)
+errs=$(printf '%s\n' "$out" | grep -E "error TS(2300|2304|2305|2344|2552|2724)" || true)
 count=$(printf '%s' "$errs" | grep -c . || true)
 
-echo "TS2300/TS2304/TS2344/TS2552 (duplicate identifier / cannot find name / bad type argument) in generated tree: $count"
-printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier) '([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
+echo "TS2300/TS2304/TS2305/TS2344/TS2552/TS2724 (duplicate identifier / cannot find name / unexported name / bad type argument) in generated tree: $count"
+printf '%s\n' "$errs" | sed -E "s/.*(Cannot find name|Duplicate identifier) '([^']+)'.*/  \2/; s/.*has no exported member (named )?'([^']+)'.*/  \2/" | sort | uniq -c | sort -rn
 
-# A relative specifier (./ or ../) only ever resolves against a file this package itself writes,
-# so an unresolved one is never the app-side escape hatch behind the baselines above/below - it is
+# A relative specifier (./ or ../) only ever resolves against a file this package itself writes, so an
+# unresolved one is never an app-side alias a stub could cover - it is
 # always the failure mode PublishedResourceRegistry exists to prevent. Kept as its own zero-tolerance
 # count rather than folded into the bare one below: pooling the two would let a new broken relative
 # import hide inside ordinary bare-alias churn, invisible until the combined total crossed baseline.
@@ -71,10 +71,9 @@ rel_count=$(printf '%s' "$rel_errs" | grep -c . || true)
 echo "TS2307 (cannot find module) with a relative specifier in generated tree: $rel_count"
 printf '%s\n' "$rel_errs" | sed -E "s/.*Cannot find module '([^']+)'.*/  \1/"
 
-# Everything else with TS2307: a bare specifier such as @/types/geo. The module lives in the
-# consuming app, not in this package or its workbench, so this package cannot make it resolve -
-# the same kind of app-side escape hatch as the TS2300/2304/2344/2552 baseline below, just reached
-# through an import rather than a bare name.
+# Everything else with TS2307: a bare specifier such as @/types/geo, naming a module that lives in
+# the consuming app. Those are stubbed under tests/types/stubs and mapped by tsconfig `paths`, so an
+# unresolved one means a new alias needs a stub, or an import was emitted that nothing should have.
 bare_errs=$(printf '%s\n' "$out" | grep -E "error TS2307" | grep -vE "Cannot find module '\.{1,2}/" || true)
 bare_count=$(printf '%s' "$bare_errs" | grep -c . || true)
 

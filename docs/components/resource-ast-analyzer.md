@@ -1119,24 +1119,26 @@ directory**; that is the enumerated set the paragraph below is about.
 
 If it never writes that directory, the specifier resolves to nothing, tsc reports TS2307, and
 `unimportable-token-gate.sh`'s relative-specifier sub-gate counts it — CI runs that armed
-(`.github/workflows/run-tests.yml` invokes `unimportable-token-gate.sh 10 0`). The corpus's one live
+(`.github/workflows/run-tests.yml` invokes `unimportable-token-gate.sh 0 0 0`). The corpus's one live
 instance was exactly this shape until step 5c removed it: `warehouse.ts` imported `'../value-objects'`,
 and `default-example/app/value-objects/` does not exist. The sub-gate's baseline is `0` now, so nothing in
 the corpus exercises its failure path — see
-[Type inference gates](../testing/type-inference-gates.md#its-negative-control-had-to-be-replaced).
+[Type inference gates](../testing/type-inference-gates.md#proving-each-gate-fires).
 
 If the directory *is* written, its `index.ts` resolves and only the symbol is missing, so tsc reports
-TS2305 "has no exported member" — or **TS2724** when the barrel happens to export a near-miss name — and
-neither gate counts either code. That is the shape of the `AttachmentResource`/`AttachmentCollection`
+TS2305 "has no exported member" — or **TS2724** when the barrel happens to export a near-miss name. Both
+codes are now in the main gate's grep; they were counted by neither gate until the app-side stubs took the
+bare-specifier baseline to zero and made "resolves but does not export it" a reachable shape worth gating.
+That is the shape of the `AttachmentResource`/`AttachmentCollection`
 fixtures below, and it does not depend on their sharing a namespace with `MerchantResource`: importing an
 unpublished symbol *cross*-namespace out of `crm/http/resources` fails the same way. Reproduced against
 this repo's tsc, importing both `#[TsExclude]`d fixtures from the 124-export `app/http/resources` barrel
 gives TS2724 for `AttachmentResource` ("Did you mean 'CommentResource'?") and TS2305 for
 `AttachmentCollection`.
 
-Which gate sees it therefore depends on the output flavor, and the package emits both into the same tree.
-In the **modular** files a leaked resource is an *import*, so it lands in the TS2305/TS2724 hole above and
-neither gate counts it. In `laravel-ts-global.ts` the same resource is referenced by **bare name** inside a
+Both flavors are now gated, which was not true before the stubs. In the **modular** files a leaked resource
+is an *import*, so it takes the TS2305/TS2724 shape above — counted since those codes joined the main grep.
+In `laravel-ts-global.ts` the same resource is referenced by **bare name** inside a
 nested namespace, with no import at all — the file's only imports are 20 bare app-side aliases — so an
 unresolvable one is a missing *name*, which `unimportable-token-gate.sh` **does** count. The corpus carried
 one live instance of that split until `AddressResource`'s `#[TsResource(name: 'Address')]` rename started
@@ -1145,8 +1147,8 @@ modular one, and both went away together. Nothing in the generated tree exercise
 reports no TS2305 and no TS2724 over it — so the split has to be synthesized to be seen. Injecting the leak
 into a scratch copy of the global file confirms both codes it can take, and both are in the gate's grep:
 `unpublished_guess?: AttachmentResource` gives `TS2552: Cannot find name 'AttachmentResource'. Did you mean
-'CommentResource'?`, and a name with no near neighbor gives plain `TS2304`. So the same defect is gated in
-the global flavor and ungated in the modular one. See
+'CommentResource'?`, and a name with no near neighbor gives plain `TS2304`. The same defect is now gated in
+both flavors — TS2304/TS2552 in the global one, TS2305/TS2724 in the modular one. See
 [Type inference gates](../testing/type-inference-gates.md). The coverage is instead the published-set
 tests in `ResourceAstAnalyzerTest.php`, against the `#[TsExclude]`d `AttachmentResource` and
 `AttachmentCollection` workbench fixtures, plus a matching pair for `resolveCollectedResourceClass()`'s

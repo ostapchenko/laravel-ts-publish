@@ -78,6 +78,22 @@ diverge only by template and output-directory config. Fix by widening `include` 
 re-baselining the three counts, which *will* change them: the same token appears up to four times.
 Re-baselining a CI gate deserves its own commit.
 
+### `laravel-ts-global.ts` emits `#[TsExtends]` imports without the `extends` clause
+
+Four TS6196 (`declared but never used`) survive in the generated tree, and no gate counts them. Three are
+the same defect: `laravel-ts-global.ts` carries the `#[TsExtends]` import for broadcast events and form
+requests — `BroadcastableEvent`, `FormRequestBase`, `HasValidationMeta` — while emitting
+`export interface ServerCreated {`, `StringRulesRequest {` and `NumberRulesRequest {` with **no** `extends`
+clause. The per-file flavor emits both halves correctly, so the global flavor silently loses the interface
+composition and keeps a dangling import. The import half was a known side effect of `GlobalsWriter`'s
+form-request loop; the missing `extends` is the other half and is not deliberate.
+
+The fourth is unrelated: an unused `RoleType` import in `to-array-casts-resource.ts`.
+
+Not fixed here because fixing it changes what the package emits and moves the golden tree, which does not
+belong in a commit whose whole purpose is to make the gate stricter without touching output. Adding TS6196
+to `unimportable-token-gate.sh` should follow the fix, not precede it — armed today it would fail at 4.
+
 ### The `publish-bench` CI job has never executed
 
 `.github/scripts/publish-bench.sh` and its workflow job shipped without a PR ever running them. On the
