@@ -68,7 +68,7 @@ it('types a Request method call from the reflected signature', function (string 
     expect((new KnownMethodRuleHandler)->resolve(requestCall($method), requestRuleScope(), requestRuleEngine()))
         ->toBe(['type' => $type, 'optional' => false]);
 })->with([
-    // Every name the superseded hardcoded match knew, reproduced by reflection.
+    // Every name the superseded hardcoded match knew except `cookie`, reproduced by reflection.
     ['url', 'string'],
     ['fullUrl', 'string'],
     ['path', 'string'],
@@ -76,8 +76,6 @@ it('types a Request method call from the reflected signature', function (string 
     ['integer', 'number'],
     ['boolean', 'boolean'],
     ['hasCookie', 'boolean'],
-    // `cookie` returns the whole jar when called with no key, which the old 'string | null' denied.
-    ['cookie', 'string | unknown[] | null'],
     // Names the match never listed, now typed because the signature carries them.
     ['method', 'string'],
     ['decodedPath', 'string'],
@@ -88,8 +86,10 @@ it('types a Request method call from the reflected signature', function (string 
     ['expectsJson', 'boolean'],
     ['routeIs', 'boolean'],
     ['filled', 'boolean'],
-    ['segments', 'unknown[]'],
-    ['allFiles', 'Record<string, string[]>'],
+    // An element type the docblock states outright, unlike the bare `@return array` of `all()`.
+    ['getLanguages', 'string[]'],
+    // A class json_encode really does render as a string, unlike `interval()`'s CarbonInterval.
+    ['date', 'string | null'],
 ]);
 
 it('types $request->user() through the auth provider model', function () {
@@ -112,6 +112,15 @@ it('declines a Request method whose reflected type is unusable', function (strin
     'no reflectable declaration — a Macroable __call' => ['validate'],
     'void' => ['setLaravelSession'],
     'never' => ['dd'],
+    // A page prop is JSON: reflection cannot tell a bare `@return array` list from a string-keyed map,
+    // and `unknown[]` reads as a list. `only(['search'])` encodes as {"search":"abc"}, not an array.
+    'bare @return array, encoded as a map' => ['only'],
+    'bare @return array behind a union arm' => ['cookie'],
+    'a union arm reflection could not type' => ['getContent'],
+    // json_encode ignores __toString: an UploadedFile or a CarbonInterval arrives as an object.
+    '@return class that encodes as an object' => ['interval'],
+    'a docblock class token laundered to string' => ['allFiles'],
+    'a signature class token laundered to string' => ['image'],
 ]);
 
 // `getUserResolver(): Closure` is the live case for the token gate: emitting `Closure` would compile
@@ -126,6 +135,14 @@ it('declines a Request method returning a class token it cannot import', functio
 it('leaves knownMethodRule its turn on a Request receiver reflection cannot type', function () {
     expect((new KnownMethodRuleHandler)->resolve(requestCall('can'), requestRuleScope(), requestRuleEngine()))
         ->toBe(['type' => 'boolean', 'optional' => false]);
+});
+
+// The same constraint through the whole dispatcher rather than the handler alone. It is worth the
+// duplication: the assertion above is otherwise the only test that fails when the rule stops declining.
+it('leaves knownMethodRule its turn through the dispatcher too', function () {
+    $analyzer = new ResourceAstAnalyzer(new ReflectionClass(StarterKitMiddleware::class), null, 'share');
+
+    expect($analyzer->resolve(requestCall('can')))->toBe(['type' => 'boolean', 'optional' => false]);
 });
 
 it('keeps the Request rules off a resource, whose toArray() also takes a Request', function () {

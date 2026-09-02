@@ -21,10 +21,13 @@ if neither, it does not go in this file.
 
 ### `$request->validated('key')` is never typed
 
-The Inertia page path types `$request->url()`, `->user()`, `->integer()` and friends through the `match`
-table in `src/Ast/Handlers/KnownMethodRuleHandler.php:85`. `validated()` is absent from it, so
-`Inertia::render('X', ['title' => $request->validated('title')])` — a headline user shape — ships
-`title: unknown`. It is in the golden tree today:
+The Inertia page path types `$request->url()`, `->integer()` and friends by reflecting the method off
+`Illuminate\Http\Request` — `requestMethodRule()` in `src/Ast/Handlers/KnownMethodRuleHandler.php:79`
+(`->user()` is the one name answered ahead of reflection, from the configured auth model). `validated()`
+is declared on `Illuminate\Foundation\Http\FormRequest`, and the scope records only that a variable holds
+*a* `Request`, never which subclass, so reflecting against the base class finds no such method and the
+rule declines. `Inertia::render('X', ['title' => $request->validated('title')])` — a headline user shape
+— therefore ships `title: unknown`. It is in the golden tree today:
 `workbench/app/Http/Controllers/InertiaFormRequestController.php:35` emits
 `export type StorePageProps = Inertia.SharedData & { title: unknown };` at
 `workbench/resources/js/types/data/default-example/app/http/controllers/inertia-form-request-controller.ts:15`.

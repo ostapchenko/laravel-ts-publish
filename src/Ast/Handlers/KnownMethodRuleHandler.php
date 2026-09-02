@@ -16,11 +16,14 @@ use AbeTwoThree\LaravelTsPublish\Ast\Contracts\ExpressionHandler;
 use AbeTwoThree\LaravelTsPublish\Ast\ReflectedTypeAcceptor;
 use AbeTwoThree\LaravelTsPublish\Facades\LaravelTsPublish;
 use Illuminate\Http\Request;
+use JsonSerializable;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use ReflectionClass;
+use ReflectionMethod;
+use ReflectionNamedType;
 
 /**
  * The dispatch floor: Laravel-convention method-name rules for method calls no earlier handler
@@ -94,8 +97,47 @@ final class KnownMethodRuleHandler implements ExpressionHandler
         // honest floor. Declining on an unusable type is required: knownMethodRule() runs next.
         self::$requestReflection ??= new ReflectionClass(Request::class);
 
+        if (! self::$requestReflection->hasMethod($method)) {
+            return null;
+        }
+
         $tsInfo = LaravelTsPublish::methodOrDocblockReturnTypes(self::$requestReflection, $method);
 
+        // A prop is JSON, and a bare `@return array` carries no key evidence: the `unknown[]` it
+        // derives claims a list for the string-keyed `all()`. Vagueness also covers a `| unknown` arm.
+        if (LaravelTsPublish::isVagueTsType($tsInfo['type'])
+            || ! $this->serializesAsReflected(self::$requestReflection->getMethod($method))) {
+            return null;
+        }
+
         return resolve(ReflectedTypeAcceptor::class)->accept($tsInfo);
+    }
+
+    /**
+     * Whether every class the declared return names reaches a page prop as the type reflection derived.
+     *
+     * `toTsType()` reads `__toString` as `string`, but `json_encode` ignores it and emits an object:
+     * `allFiles()`'s UploadedFile and `interval()`'s CarbonInterval are not the strings it promises.
+     */
+    private function serializesAsReflected(ReflectionMethod $method): bool
+    {
+        $returnType = $method->getReturnType();
+        $docComment = $method->getDocComment();
+
+        $declared = $docComment === false ? '' : (string) LaravelTsPublish::extractReturnTypeFromDocblock($docComment);
+
+        if ($returnType instanceof ReflectionNamedType && ! $returnType->isBuiltin()) {
+            $declared .= '|'.$returnType->getName();
+        }
+
+        // `class_exists` mirrors step 5b's own gate, so an interface — which it never launders — is skipped.
+        // Request writes every class in its declarations fully qualified, so no use map is needed here.
+        foreach (preg_split('/[^\w\\\\]+/', $declared) ?: [] as $token) {
+            if (str_contains($token, '\\') && class_exists($token) && ! is_a($token, JsonSerializable::class, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
